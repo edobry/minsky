@@ -1,0 +1,50 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Rule Name: tests
+Description: 
+Test Coverage and Quality Requirements:
+
+1. **When to Run Tests**
+   - Run tests after ANY change to:
+     - Source code files (*.ts, *.js)
+     - Test files (*.test.ts, *.spec.ts)
+     - Configuration files that affect test behavior
+   - Do NOT run tests for:
+     - Documentation changes (*.md)
+     - Comment-only changes
+     - Formatting-only changes (unless they affect test output)
+
+2. **Which Tests to Run**
+   - Run all tests in the affected package/module
+   - For changes to shared utilities or core functionality, run all tests
+   - Use `bun test` for the default test suite
+   - Use `bun test --coverage` when making significant changes
+
+3. **Test Success Criteria**
+   - All tests must pass (no failures)
+   - No new test warnings should be introduced
+   - Test coverage should not decrease for modified files
+   - Flaky tests should be fixed or marked as such
+
+4. **Test Development**
+   - When writing new tests:
+     - Only the new/modified test files should be failing
+     - Document why tests are failing in the commit message
+     - Fix failing tests before completing the change
+   - When modifying existing tests:
+     - Ensure changes maintain or improve test coverage
+     - Update test documentation if behavior changes
+     - Consider adding new tests for edge cases
+
+5. **Test Environment**
+   - Run tests in the development environment
+   - Ensure all required dependencies are installed
+   - Document any environment-specific requirements
+
+6. **Test Reporting**
+   - Document any skipped tests and why
+   - Note any changes to test coverage
+   - Flag any new test warnings or flaky tests

@@ -1,0 +1,14 @@
+---
+description: Use this when creating/modifying CLI commands
+globs: 
+alwaysApply: false
+---
+# Command Organization
+
+Each subcommand should be in its own directory under `src/commands/<command-name>/`.
+
+## Directory Structure
+- Subcommands should be in their own files under the command directory
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+- Avoid putting multiple subcommands in a single file

@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Try to not create very large code files, the definition of which is flexible but generally not more than ~500 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.

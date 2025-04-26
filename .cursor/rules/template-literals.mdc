@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally. 

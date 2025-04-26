@@ -1,0 +1,67 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Domain-Oriented Module Organization
+
+When organizing code in a modular application, follow these principles for better maintainability:
+
+## Principles
+
+- **Reduce cross-module dependencies and import cycles**
+  - Co-locate related functions to prevent circular imports
+  - Move utility functions to modules where they're most relevant
+
+- **Improve code understandability**
+  - Keep related functions together based on domain, not just technical category
+  - Group functions by what they operate on rather than how they operate
+
+- **Enhance maintainability**
+  - Organize code according to domain boundaries, not just technical layers
+  - Make it easier to update related functionality without needing to touch multiple files
+
+- **Clarify utility purposes**
+  - Make it obvious which utilities are general-purpose vs. domain-specific
+  - Place domain-specific utilities in relevant command/feature modules
+
+## Examples
+
+### ❌ Avoid: Cross-Module Dependencies
+
+```typescript
+// utils/homebrew.ts
+export async function isBrewPackageInstalled() { /* ... */ }
+
+// commands/tools/homebrew.ts
+import { isBrewPackageInstalled } from '../../utils/homebrew.ts';
+export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+
+// utils/tool-status.ts
+import { getToolBrewPackageName } from '../commands/tools/homebrew';
+import { isBrewPackageInstalled } from './homebrew';
+```
+
+### ✅ Better: Domain-Oriented Organization
+
+```typescript
+// utils/homebrew.ts - Contains ALL homebrew-related functions
+export async function isBrewPackageInstalled() { /* ... */ }
+export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+export function normalizeBrewConfig(brewConfig, toolId) { /* ... */ }
+
+// Commands use the consolidated utility module
+import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/homebrew';
+```
+
+## Guidelines
+
+1. **Identify Domain Boundaries**: Group code by what it operates on (tools, fibers, config) rather than how (utils, helpers)
+
+2. **Co-locate Related Functions**: Functions that work with the same data or concept should be in the same file
+
+3. **Minimize Cross-Layer Dependencies**: Avoid having utils depend on commands and vice versa
+
+4. **Consolidate Shared Interfaces**: Keep type definitions together with their primary implementation
+
+5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them

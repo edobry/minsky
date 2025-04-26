@@ -1,0 +1,31 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Always use `bun` instead of `node` when running JavaScript/TypeScript in the Synthase project. Bun is the preferred runtime for Synthase.
+
+Examples:
+- Use `bun install` instead of `npm install`
+- Use `bun run` instead of `node`
+- Use `bun test` instead of `jest` or `mocha`
+- Use `bun build` instead of other build tools
+
+When writing documentation, commands, or implementation code, always prefer Bun's API and CLI over Node.js equivalents. The project is specifically designed to leverage Bun's performance and capabilities.
+
+In package.json scripts, ensure all commands use bun:
+```json
+"scripts": {
+  "start": "bun run src/index.ts",
+  "dev": "bun --watch src/index.ts",
+  "build": "bun build src/index.ts --outdir dist",
+  "test": "bun test"
+}
+```
+
+When creating new files, use the bun shebang:
+```typescript
+#!/usr/bin/env bun
+```
+
+This rule applies to all code, documentation, and configuration files in the Synthase project.

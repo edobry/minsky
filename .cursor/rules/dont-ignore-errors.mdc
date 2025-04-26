@@ -1,0 +1,16 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+ANY errors encountered during implementation, testing, or verification MUST be fixed before considering the task complete, regardless of whether they appear related to your current changes. This includes warnings, linting errors, type errors, and build errors.
+
+If you encounter errors that seem to require significant changes beyond the original scope:
+1. Explicitly acknowledge all errors 
+2. Propose a plan to fix them
+3. Ask for confirmation before proceeding with the fixes
+4. Never mark a task as complete while known errors remain
+
+Violations of this rule are considered implementation failures.
+
+When you run into errors, make sure to explicitly mention what you're doing and record the context of the change you're making prior to switching over to working on the error.

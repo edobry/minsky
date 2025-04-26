@@ -1,0 +1,31 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Test Expectations Management
+
+When making code changes that will modify behavior and require updating test expectations:
+
+1. **Test-First Modification**: Always modify tests to reflect the expected new behavior *before* implementing the actual code change.
+
+2. **Explicit Expectation Updates**: When test expectations need to change, comment the changes with explicit reasoning:
+   ```typescript
+   // Updating test expectation: now using BLACK_CIRCLE (⚫) for disabled status 
+   // instead of RED_CIRCLE (🔴) per design decision in PR #123
+   expect(getChainStatus(false, true)).toBe('⚫');
+   ```
+
+3. **Snapshot Updates**: For snapshot tests, run tests with `--update-snapshots` flag only *after* you understand and validate the expected changes.
+
+4. **Regression Prevention**: Include both the old and new expected values in your commit message to document the intentional change:
+   ```
+   feat: Change disabled status indicator from 🔴 to ⚫
+   
+   - Updates getChainStatus to use BLACK_CIRCLE for disabled items
+   - Updates tests that previously expected RED_CIRCLE (🔴) to now expect BLACK_CIRCLE (⚫)
+   ```
+
+5. **Review Test Changes First**: When reviewing PRs, always examine test expectation changes before implementation changes to understand the intent.
+
+This practice ensures test changes are deliberate rather than reflexive adjustments to make failing tests pass, maintaining the tests' value as specifications of intended behavior.

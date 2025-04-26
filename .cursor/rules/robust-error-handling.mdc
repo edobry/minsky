@@ -1,0 +1,106 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Robust Error Handling
+
+Always implement thorough error handling that provides clear, actionable information:
+
+## Key Principles
+
+1. **Type-safe Error Handling**: Ensure errors maintain their proper types to preserve stack traces and error details:
+   ```typescript
+   // AVOID
+   catch (err) {
+     console.error(`Error: ${err}`); // Converts Error object to string, losing the stack trace
+   }
+
+   // PREFER
+   catch (err) {
+     const error = err instanceof Error ? err : new Error(String(err));
+     console.error(`Error: ${error.message}`);
+     // log error.stack when needed
+   }
+   ```
+
+2. **Structured Error Objects**: Use structured error objects rather than error strings:
+   ```typescript
+   // For function results that may contain errors
+   interface OperationResult {
+     success: boolean;
+     error?: Error;
+     message?: string;
+   }
+
+   // For specialized error types
+   class ConfigurationError extends Error {
+     constructor(message: string) {
+       super(message);
+       this.name = 'ConfigurationError';
+     }
+   }
+   ```
+
+3. **Graceful Degradation**: Always handle errors in a way that allows the application to continue running if possible:
+   ```typescript
+   async function checkStatus() {
+     try {
+       // Core functionality
+     } catch (err) {
+       logger.error(`Status check failed: ${err instanceof Error ? err.message : String(err)}`);
+       // Return a default or fallback state
+       return { status: 'unknown', error: err };
+     }
+   }
+   ```
+
+4. **Propagate Relevant Context**: Include context information with errors:
+   ```typescript
+   try {
+     await processFile(filePath);
+   } catch (err) {
+     throw new Error(`Failed to process file ${filePath}: ${err.message}`, { cause: err });
+   }
+   ```
+
+5. **Timeouts for Async Operations**: Always include timeouts for operations that might hang:
+   ```typescript
+   // Set up a timeout with proper cleanup
+   const timeoutPromise = new Promise((_, reject) => {
+     const id = setTimeout(() => {
+       clearTimeout(id);
+       reject(new Error(`Operation timed out after ${timeoutMs}ms`));
+     }, timeoutMs);
+   });
+
+   // Race the operation against the timeout
+   return Promise.race([operation(), timeoutPromise]);
+   ```
+
+6. **Cleanup Resources**: Ensure resources are cleaned up even when errors occur:
+   ```typescript
+   let resource;
+   try {
+     resource = acquireResource();
+     return useResource(resource);
+   } finally {
+     if (resource) {
+       releaseResource(resource);
+     }
+   }
+   ```
+
+## Benefits
+
+- **Better Debuggability**: Preserved stack traces and error contexts make debugging easier
+- **Improved Stability**: The application can continue running despite non-critical failures
+- **Clearer Error Messages**: Users and developers get actionable information
+- **Resource Safety**: Prevents resource leaks in error scenarios
+
+## Anti-patterns to Avoid
+
+- **Swallowing Errors Silently**: Never catch errors without proper handling or logging
+- **String Concatenation for Error Messages**: Avoid using + for error messages, use template literals
+- **Generic Error Messages**: Error messages should be specific about what failed and why
+- **Untyped Error Handling**: Always handle the fact that errors might not be Error instances 

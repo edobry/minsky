@@ -1,0 +1,144 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Constants Management
+
+Extract and organize constants systematically to improve maintainability and reduce duplication:
+
+## Key Principles
+
+1. **Extract Repetition Aggressively**: Always extract strings/characters/emoji/numbers that appear 3 or more times, even as a substring of longer strings:
+   ```typescript
+   // AVOID - Repeated emoji
+   console.log("🔴 Error: Connection failed");
+   console.log("🔴 Error: Authentication failed");
+   console.log("🔴 Error: Network timeout");
+   
+   // PREFER - Extracted emoji constant
+   const ERROR_EMOJI = "🔴";
+   console.log(`${ERROR_EMOJI} Error: Connection failed`);
+   console.log(`${ERROR_EMOJI} Error: Authentication failed`);
+   console.log(`${ERROR_EMOJI} Error: Network timeout`);
+   ```
+
+2. **Categorize Constants**: Group related constants together in meaningful categories:
+   ```typescript
+   // Organize by domain
+   export const BREW_CMD = {
+     LIST_FORMULAS: 'brew list --formula',
+     LIST_CASKS: 'brew list --cask',
+     INSTALL_FORMULA: 'brew install',
+     INSTALL_CASK: 'brew install --cask',
+   };
+   
+   export const DISPLAY = {
+     EMOJIS: {
+       ENABLED: '🟢',
+       DISABLED: '🔴',
+       WARNING: '⚠️',
+       UNKNOWN: '❓',
+       CHECK: '✅',
+       INSTALL: '🏗️',
+       ADDITIONAL_INFO: 'ℹ️',
+     },
+     SEPARATOR: '─'.repeat(80),
+   };
+   ```
+
+3. **Extract Common Patterns**: Even substrings that appear in different contexts should be extracted if repeated:
+   ```typescript
+   // AVOID
+   app.get('/api/users', ...);
+   app.post('/api/users', ...);
+   app.get('/api/posts', ...);
+   
+   // PREFER
+   const API_PREFIX = '/api';
+   app.get(`${API_PREFIX}/users`, ...);
+   app.post(`${API_PREFIX}/users`, ...);
+   app.get(`${API_PREFIX}/posts`, ...);
+   ```
+
+4. **Consolidate Related Files**: Keep all constants in one place or organized by domain:
+   ```typescript
+   // constants/index.ts - The main export point
+   export * from './display';
+   export * from './commands';
+   export * from './paths';
+   
+   // constants/display.ts - Display-related constants
+   export const DISPLAY = { ... };
+   
+   // constants/commands.ts - Command-related constants
+   export const COMMANDS = { ... };
+   ```
+
+5. **Use Template Literals For Derived Constants**: Derive constants from other constants when possible:
+   ```typescript
+   const BASE_URL = 'https://api.example.com';
+   const API_VERSION = 'v1';
+   
+   // Derived constant using template literals
+   const API_ENDPOINT = `${BASE_URL}/${API_VERSION}`;
+   ```
+
+6. **Proper Types for Constants**: Use proper TypeScript types for constants:
+   ```typescript
+   // String literal union for status
+   export type Status = 'idle' | 'loading' | 'success' | 'error';
+   
+   // Properly typed object of constants
+   export const HTTP_STATUS: Record<string, number> = {
+     OK: 200,
+     CREATED: 201,
+     BAD_REQUEST: 400,
+     UNAUTHORIZED: 401,
+     FORBIDDEN: 403,
+     NOT_FOUND: 404,
+     SERVER_ERROR: 500,
+   };
+   ```
+
+7. **Environment-specific Constants**: Handle environment-specific constants cleanly:
+   ```typescript
+   // Base constants for all environments
+   const BASE_CONSTANTS = {
+     TIMEOUT_MS: 5000,
+     MAX_RETRIES: 3,
+   };
+   
+   // Environment-specific overrides
+   const ENV_CONSTANTS = {
+     development: {
+       ...BASE_CONSTANTS,
+       API_URL: 'http://localhost:3000',
+       TIMEOUT_MS: 10000, // Longer timeout for development
+     },
+     production: {
+       ...BASE_CONSTANTS,
+       API_URL: 'https://api.example.com',
+     },
+   };
+   
+   // Export the appropriate constants
+   export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || 'development'];
+   ```
+
+## Benefits
+
+- **Reduced Duplication**: Constants are defined once and reused
+- **Easier Updates**: Changing a constant value in one place updates it everywhere
+- **Better Readability**: Meaningful constant names improve code clarity
+- **Type Safety**: Constants can be properly typed with TypeScript
+- **Centralized Configuration**: Application configuration is managed in one place
+
+## Anti-patterns to Avoid
+
+- **Magic Strings/Numbers**: Avoid hardcoded strings or numbers scattered throughout the code
+- **Duplicated Constants**: Don't define the same constant in multiple places
+- **Meaningless Constant Names**: Use descriptive names that convey the purpose and meaning
+- **Mixing Constants with Logic**: Keep constants separate from the logic that uses them
+- **Constants Sprawl**: Don't create too many small constant files; organize them logically
+- **Missed Repetition**: Don't miss opportunities to extract strings that repeat 3+ times
