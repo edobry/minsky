@@ -12,6 +12,7 @@ Minsky helps AI agents collaborate on codebases by leveraging the same tools hum
 - **Isolated workspaces** to prevent conflicts
 - **Branch-based workflows** for parallel development
 - **Pull request summaries** to document changes
+- **Task management** for tracking and coordinating work items
 
 The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
 
@@ -47,6 +48,8 @@ minsky git branch new-feature --session feature-x
 minsky git pr --session feature-x
 ```
 
+> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+
 ### Session Management
 
 ```bash
@@ -63,6 +66,38 @@ minsky session get my-session
 cd $(minsky session cd my-session)
 ```
 
+### Tasks Management
+
+Minsky supports robust, extensible task management with multiple backends (default: Markdown checklist in `process/tasks.md`).
+
+```bash
+# List all tasks in the current repo (or specify with --repo or --session)
+minsky tasks list --repo /path/to/repo
+
+# Filter tasks by status (TODO, DONE)
+minsky tasks list --repo /path/to/repo --status TODO
+
+# Get details for a specific task by ID
+minsky tasks get --repo /path/to/repo #001
+
+# Get the status of a task
+minsky tasks status get --repo /path/to/repo #001
+
+# Set the status of a task (TODO or DONE)
+minsky tasks status set --repo /path/to/repo #001 DONE
+```
+
+**Options:**
+- `--repo <repoPath>`: Path to a git repository (overrides session)
+- `--session <session>`: Session name to use for repo resolution
+- `--backend <backend>`: Task backend to use (default: markdown, future: github)
+- `--status <status>`: Filter tasks by status (for `list`)
+
+**Features:**
+- Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
+- Aggregates indented lines as task descriptions
+- Extensible: future support for GitHub Issues and other backends
+
 ## Example Workflows
 
 ### Basic Development Flow
@@ -76,6 +111,10 @@ cd $(minsky session cd feature-123)
 
 # Work on code, then generate PR
 minsky git pr --session feature-123 > PR.md
+
+# List and update tasks
+minsky tasks list --session feature-123
+minsky tasks status set --session feature-123 #001 DONE
 ```
 
 ### Multi-Agent Collaboration
@@ -90,14 +129,14 @@ minsky session start auth-api --repo https://github.com/org/project.git
 minsky session start auth-ui --repo https://github.com/org/project.git
 ```
 
-Each agent works in its own isolated environment and can generate PR documents to share their changes.
+Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
 
 ## Future Plans
 
 - Team organization patterns for agents
 - Session continuity and context management
 - Automated code reviews
-- Task planning and allocation
+- Task planning and allocation (with more backends)
 
 ## Contributing
 

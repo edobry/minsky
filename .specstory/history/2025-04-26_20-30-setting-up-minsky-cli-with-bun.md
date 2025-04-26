@@ -4667,3 +4667,59 @@ Let me know if you want to add tests for the debug flag or further refine the ou
 
 ---
 
+_**User**_
+
+update the changelog with all the changes made thus far
+
+---
+
+_**Assistant**_
+
+```diff
+  # Changelog
++ 
++ ## [Unreleased]
++ 
++ ### Added
++ - Initial Bun+TypeScript project setup for the minsky CLI tool
++ - Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
++ - `git clone` command: clone a repo into an isolated workspace, with session support
++ - `git branch` command: create a new branch in a session's repo
++ - `git pr` command: generate a markdown PR document with commit history, file changes, and stats, comparing against the correct base branch (remote HEAD, upstream, main, or master)
++ - `session` commands: `start`, `list`, `get`, `cd` for managing and navigating agent sessions
++ - Session database in `$XDG_STATE_HOME/minsky/session-db.json` to track sessions, repos, and branches
++ - Support for both remote and local repo cloning in session start
++ - Debug logging for the `git pr` command, enabled via `--debug` and output to stderr only
++ - Test coverage for PR base branch detection and diff/stat generation
++ 
++ ### Changed
++ - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
++ - PR output now includes both committed and uncommitted (working directory) changes
++ - README rewritten for clarity and idiomatic open source style
++ - All debug output is now opt-in and sent to stderr
++ 
++ ### Fixed
++ - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
++ - Fixed linter/type errors in session DB and domain modules
+  
+  ## [Unreleased]
+```
+
+---
+
+The changelog has been updated under the [Unreleased] section to reflect all major changes so far:
+
+- Project initialization and Bun+TypeScript setup
+- Domain-driven CLI structure
+- `git clone`, `git branch`, and `git pr` commands (with correct base branch detection and stats)
+- `session` commands: `start`, `list`, `get`, `cd`
+- Session database in `$XDG_STATE_HOME/minsky/session-db.json`
+- Support for both remote and local repo cloning
+- Debug logging for `git pr` (opt-in, stderr only)
+- Test coverage for PR logic
+- Improved PR logic and output, README rewrite, and linter/type fixes
+
+If you need the changelog entry in a different format or want to add more detail, let me know!
+
+---
+
