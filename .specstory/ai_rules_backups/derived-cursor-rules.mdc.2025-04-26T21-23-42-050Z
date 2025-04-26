@@ -1,0 +1,235 @@
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format.  Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").
+
+
+## TECH STACK
+
+- TypeScript
+- Bun
+- Commander
+- Git
+
+
+## CODING STANDARDS
+
+- All business logic must be organized in per-domain modules (e.g., `src/domain`).
+- Command modules (e.g., `src/commands`) should only contain CLI-related logic (reading options, setting up the environment, calling domain modules, writing output, etc.).
+- Each subcommand should reside in its own directory under `src/commands/<command-name>/`.  Main command files should be named `index.ts`.
+
+
+## WORKFLOW & RELEASE RULES
+
+- Use `bun init -y` to initialize new Bun projects.
+- Use `bun add` to add dependencies.
+- Commit frequently with clear, concise messages.
+- Follow semantic versioning for releases.
+- Use `bun link` to link the CLI globally after installation.
+- Use `chmod +x src/cli.ts` to make the main CLI file executable.
+- A session database (`session-db.json`) will track sessions, their associated repos, and branches.  This database is stored in `$XDG_STATE_HOME/minsky`.
+- Version 0.1.0 initial setup
+- Version 0.2.0 added git clone, branch, pr commands and session management
+
+
+## DEBUGGING
+
+- Use `console.log` for debugging purposes.  Remove or comment out debug statements before committing.
+
+
+## CURSOR RULES
+
+### command-organization.mdc
+```
+---
+description: Command organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts"]
+alwaysApply: true
+---
+
+# Command Organization Rules
+
+## Directory Structure
+- Each subcommand should be in its own directory under `src/commands/<command-name>/`
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+
+## Module Organization
+- Business logic should be in domain modules under `src/domain/`
+- Command modules should only handle CLI concerns (options, environment, output)
+- Example: Business logic in `src/domain/git.ts`, CLI handling in `src/commands/git/clone.ts` 
+```
+
+### module-organization.mdc
+```
+---
+description: Module organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts", "src/domain/**/*.ts"]
+alwaysApply: true
+---
+
+# Module Organization Rules
+
+## Domain Modules
+- All business logic should live in `src/domain/` modules
+- Domain modules should be focused on a single domain concept
+- Example: `src/domain/git.ts` for git-related business logic
+
+## Command Modules
+Command modules should only handle:
+- Parsing command-line arguments and options
+- Setting up the environment
+- Calling domain modules
+- Formatting and displaying output
+- Error handling and exit codes
+
+Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+```
+
+## README
+
+# Minsky
+
+## Agent Workflows Inspired by Organizational Cybernetics and Society of Mind
+
+Minsky is a tool for managing collaborative AI agent workflows, inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics. It enables multiple agents to work on a single codebase without conflicts, whether they're operating in a single environment or isolated from each other.
+
+> **⚠️ IMPORTANT NOTE:** Minsky is an evolving, unstable project under heavy development and is not suitable for production use. Consider it a research experiment into non-human DevX (Developer Experience).
+
+## Conceptual Background
+
+The key insight behind Minsky is that AI agents can leverage the same collaboration tools and processes that human software engineers use to work together asynchronously:
+
+- Git and GitHub for version control and code sharing
+- Pull requests for proposed changes
+- Issue/task systems for work coordination
+- Chat systems (Slack, Discord, Matrix) for communication
+
+By harnessing these existing collaboration patterns, Minsky creates a familiar structure for agents to work within, mimicking the organizational patterns of human engineering teams.
+
+## Features
+
+Minsky manages "working sessions" that allow agents to:
+
+1. Clone repositories into isolated workspaces
+2. Create branches for specific tasks
+3. Track and manage sessions across multiple repos
+4. Generate PR documents summarizing changes
+
+## Commands
+
+### Git Operations
+
+```bash
+# Clone a repository into an isolated workspace (auto-generates session ID)
+minsky git clone https://github.com/user/repo.git
+
+# Clone with a specific session name
+minsky git clone https://github.com/user/repo.git --session feature-x
+
+# Create a branch in a session's repo
+minsky git branch new-feature --session feature-x
+
+# Generate a PR markdown document for a branch
+minsky git pr --session feature-x --branch new-feature
+```
+
+### Session Management
+
+```bash
+# Start a new session (clone repo, create branch, record in db)
+minsky session start my-session --repo https://github.com/user/repo.git
+
+# List all sessions
+minsky session list
+
+# Get details about a specific session
+minsky session get my-session
+
+# Print the path to a session's directory (for use with cd)
+minsky session cd my-session
+# Usage: cd $(minsky session cd my-session)
+```
+
+## Example Agent Workflows
+
+### Single-Agent Development Flow
+
+```bash
+# Agent starts a new session
+minsky session start feature-123 --repo https://github.com/org/project.git
+
+# Agent navigates to the session directory
+cd $(minsky session cd feature-123)
+
+# Agent implements feature/fixes bug
+# ... coding happens here ...
+
+# Agent generates PR description
+minsky git pr --session feature-123 > PR.md
+
+# Agent submits PR using GitHub CLI or API
+gh pr create --title "Feature 123" --body-file PR.md
+```
+
+### Multi-Agent Collaboration
+
+```bash
+# Agent 1 starts a session
+minsky session start auth-feature --repo https://github.com/org/project.git
+
+# Agent 1 implements authentication changes
+# ... coding happens here ...
+
+# Agent 2 starts a related session
+minsky session start ui-auth --repo https://github.com/org/project.git
+
+# Agent 2 implements UI changes for authentication
+# ... coding happens here ...
+
+# Agents review each other's work using PRs
+# Agent 1 generates PR
+minsky git pr --session auth-feature > auth-PR.md
+
+# Agent 2 generates PR
+minsky git pr --session ui-auth > ui-PR.md
+
+# Agents merge changes and continue collaboration
+```
+
+### Specialized Agent Roles
+
+```bash
+# Architecture Agent sets up project structure
+minsky session start project-setup --repo https://github.com/org/new-project.git
+# ... establishes core architecture ...
+
+# Feature Agents implement specific components
+minsky session start user-service --repo https://github.com/org/new-project.git
+minsky session start auth-service --repo https://github.com/org/new-project.git
+
+# Testing Agent verifies implementations
+minsky session start integration-tests --repo https://github.com/org/new-project.git
+# ... writes tests for implemented features ...
+
+# Documentation Agent documents the system
+minsky session start docs --repo https://github.com/org/new-project.git
+# ... creates documentation based on code and tests ...
+```
+
+## Future Directions
+
+Minsky aims to explore how AI agents can:
+
+- Self-organize into effective development teams
+- Maintain context and continuity across sessions
+- Handle project planning and task allocation
+- Perform code reviews and quality assessment
+
+## Contributing
+
+As a research experiment, Minsky welcomes contributions and ideas about how agent workflows should function. Feel free to open issues or PRs with your thoughts and improvements.
+
+## License
+
+MIT

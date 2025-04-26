@@ -1,0 +1,228 @@
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format.  Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").
+
+
+## TECH STACK
+
+- TypeScript
+- Bun
+- Commander
+- Git
+
+## CODING STANDARDS
+
+- All business logic must be organized in per-domain modules (e.g., `src/domain`).
+- Command modules (e.g., `src/commands`) should only contain CLI-related logic (reading options, setting up the environment, calling domain modules, writing output, etc.).
+- Each subcommand should reside in its own directory under `src/commands/<command-name>/`.  Main command files should be named `index.ts`.
+
+
+## WORKFLOW & RELEASE RULES
+
+- Use `bun init -y` to initialize new Bun projects.
+- Use `bun add` to add dependencies.
+- Commit frequently with clear, concise messages.
+- Follow semantic versioning for releases.
+- Use `bun link` to link the CLI globally after installation.
+- Use `chmod +x src/cli.ts` to make the main CLI file executable.
+- A session database (`session-db.json`) will track sessions, their associated repos, and branches.  This database is stored in `$XDG_STATE_HOME/minsky`.
+- Version 0.1.0 initial setup
+- Version 0.2.0 added git clone, branch, pr commands and session management
+- Version 0.3.0 added session start command and improved session management
+- Version 0.4.0 added optional repo path to `git pr` command
+- Version 0.5.0 added `tasks` command with `list`, `get`, and `status` subcommands.  Supports `process/tasks.md` as a default task backend.  Placeholder backends for GitHub Issues and other systems are planned.
+- Version 0.6.0 Added support for session and repo path arguments to tasks commands.
+- Version 0.7.0 Added git branch command.
+- Version 0.8.0 Added git pr command with optional repo path.
+- Version 0.9.0 Added session db and session management commands (list, get, cd, start).
+- Version 0.10.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format has been updated to support checklist items.
+- Version 0.11.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format is now strictly enforced.
+- Version 0.12.0 Added support for session and repo path arguments to tasks commands. The tasks.md file format is now strictly enforced.  The `git pr` command now compares against `main` by default.
+- Version 0.13.0 Added support for repo path argument to `git pr` command.  Improved base branch detection logic for `git pr`.
+- Version 0.14.0 Added support for session and repo path arguments to all tasks subcommands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.
+
+
+## DEBUGGING
+
+- Use `console.log` for debugging purposes.  Remove or comment out debug statements before committing.
+
+
+## CURSOR RULES
+
+### command-organization.mdc
+```
+---
+description: Command organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts"]
+alwaysApply: true
+---
+
+# Command Organization Rules
+
+## Directory Structure
+- Each subcommand should be in its own directory under `src/commands/<command-name>/`
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+
+## Module Organization
+- Business logic should be in domain modules under `src/domain/`
+- Command modules should only handle CLI concerns (options, environment, output)
+- Example: Business logic in `src/domain/git.ts`, CLI handling in `src/commands/git/clone.ts` 
+```
+
+### module-organization.mdc
+```
+---
+description: Module organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts", "src/domain/**/*.ts"]
+alwaysApply: true
+---
+
+# Module Organization Rules
+
+## Domain Modules
+- All business logic should live in `src/domain/` modules
+- Domain modules should be focused on a single domain concept
+- Example: `src/domain/git.ts` for git-related business logic
+
+## Command Modules
+Command modules should only handle:
+- Parsing command-line arguments and options
+- Setting up the environment
+- Calling domain modules
+- Formatting and displaying output
+- Error handling and exit codes
+
+Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+```
+
+## README
+
+# Minsky
+
+A tool for coordinating AI agent workflows using Git and other collaboration tools. Inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics.
+
+> **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
+
+## Overview
+
+Minsky helps AI agents collaborate on codebases by leveraging the same tools human engineers use:
+
+- **Git repositories** for version control
+- **Isolated workspaces** to prevent conflicts
+- **Branch-based workflows** for parallel development
+- **Pull request summaries** to document changes
+
+The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/minsky.git
+cd minsky
+
+# Install dependencies
+bun install
+
+# Link globally
+bun link
+```
+
+## Usage
+
+### Git Commands
+
+```bash
+# Clone a repo (auto-generates session ID)
+minsky git clone https://github.com/user/repo.git
+
+# Clone with a named session
+minsky git clone https://github.com/user/repo.git --session feature-x
+
+# Create a branch in session
+minsky git branch new-feature --session feature-x
+
+# Generate PR document
+minsky git pr --session feature-x --branch new-feature
+minsky git pr --path /path/to/repo --branch new-feature
+
+```
+
+### Session Management
+
+```bash
+# Start a new session
+minsky session start my-session --repo https://github.com/user/repo.git
+
+# List all sessions
+minsky session list
+
+# View session details
+minsky session get my-session
+
+# Navigate to session directory
+cd $(minsky session cd my-session)
+```
+
+### Task Management
+
+```bash
+# List tasks
+minsky tasks list
+
+# Get a specific task
+minsky tasks get <task-id>
+
+# Get task status
+minsky tasks status get <task-id>
+
+# Set task status
+minsky tasks status set <task-id> <true/false> 
+```
+
+## Example Workflows
+
+### Basic Development Flow
+
+```bash
+# Start a new session
+minsky session start feature-123 --repo https://github.com/org/project.git
+
+# Navigate to session directory
+cd $(minsky session cd feature-123)
+
+# Work on code, then generate PR
+minsky git pr --session feature-123 > PR.md
+```
+
+### Multi-Agent Collaboration
+
+Multiple agents can work on related features in parallel:
+
+```bash
+# Agent 1: Authentication backend
+minsky session start auth-api --repo https://github.com/org/project.git
+
+# Agent 2: Frontend integration
+minsky session start auth-ui --repo https://github.com/org/project.git
+```
+
+Each agent works in its own isolated environment and can generate PR documents to share their changes.
+
+## Future Plans
+
+- Team organization patterns for agents
+- Session continuity and context management
+- Automated code reviews
+- Task planning and allocation
+- Enhanced task backend support (GitHub Issues, etc.)
+
+## Contributing
+
+This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
+
+## License
+
+MIT

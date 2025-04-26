@@ -1,0 +1,85 @@
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format.  Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").
+
+
+## TECH STACK
+
+- TypeScript
+- Bun
+- Commander
+- Git
+
+## CODING STANDARDS
+
+- All business logic must be organized in per-domain modules (e.g., `src/domain`).
+- Command modules (e.g., `src/commands`) should only contain CLI-related logic (reading options, setting up the environment, calling domain modules, writing output, etc.).
+- Each subcommand should reside in its own directory under `src/commands/<command-name>/`.  Main command files should be named `index.ts`.
+
+
+## WORKFLOW & RELEASE RULES
+
+- Use `bun init -y` to initialize new Bun projects.
+- Use `bun add` to add dependencies.
+- Commit frequently with clear, concise messages.
+- Follow semantic versioning for releases.
+- Use `bun link` to link the CLI globally after installation.
+- Use `chmod +x src/cli.ts` to make the main CLI file executable.
+- A session database (`session-db.json`) will track sessions, their associated repos, and branches.  This database is stored in `$XDG_STATE_HOME/minsky`.
+- Version 0.1.0 initial setup
+
+
+## DEBUGGING
+
+- Use `console.log` for debugging purposes.  Remove or comment out debug statements before committing.
+
+
+## CURSOR RULES
+
+### command-organization.mdc
+```
+---
+description: Command organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts"]
+alwaysApply: true
+---
+
+# Command Organization Rules
+
+## Directory Structure
+- Each subcommand should be in its own directory under `src/commands/<command-name>/`
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+
+## Module Organization
+- Business logic should be in domain modules under `src/domain/`
+- Command modules should only handle CLI concerns (options, environment, output)
+- Example: Business logic in `src/domain/git.ts`, CLI handling in `src/commands/git/clone.ts` 
+```
+
+### module-organization.mdc
+```
+---
+description: Module organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts", "src/domain/**/*.ts"]
+alwaysApply: true
+---
+
+# Module Organization Rules
+
+## Domain Modules
+- All business logic should live in `src/domain/` modules
+- Domain modules should be focused on a single domain concept
+- Example: `src/domain/git.ts` for git-related business logic
+
+## Command Modules
+Command modules should only handle:
+- Parsing command-line arguments and options
+- Setting up the environment
+- Calling domain modules
+- Formatting and displaying output
+- Error handling and exit codes
+
+Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+```
