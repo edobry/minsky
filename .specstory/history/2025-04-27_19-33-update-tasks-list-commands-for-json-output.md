@@ -372,6 +372,453 @@ yes, add tests
 
 _**Assistant**_
 
+<details>
+            <summary>Searched codebase "session.test" • **0** results</summary>
+        
+No results found
+</details>
+
+---
+
+<details>
+            <summary>Listed directory src/domain • **7** results</summary>
+        
+| Name |
+|-------|
+| 📄 `git.pr.test.ts` |
+| 📄 `tasks.test.ts` |
+| 📄 `repo-utils.test.ts` |
+| 📄 `tasks.ts` |
+| 📄 `repo-utils.ts` |
+| 📄 `git.ts` |
+| 📄 `session.ts` |
+
+</details>
+
+---
+
+<details>
+            <summary>Listed directory src/commands/session • **5** results</summary>
+        
+| Name |
+|-------|
+| 📄 `get.ts` |
+| 📄 `list.ts` |
+| 📄 `index.ts` |
+| 📄 `start.ts` |
+| 📄 `cd.ts` |
+
+</details>
+
+---
+
+<details>
+            <summary>Listed directory src/commands • **3** results</summary>
+        
+| Name |
+|-------|
+| 📁 `tasks` |
+| 📁 `session` |
+| 📁 `git` |
+
+</details>
+
+---
+
+<details>
+            <summary>Listed directory src • **3** results</summary>
+        
+| Name |
+|-------|
+| 📄 `cli.ts` |
+| 📁 `domain` |
+| 📁 `commands` |
+
+</details>
+
+---
+
+Could not resolve URI: Error: Unable to resolve nonexistent file '/Users/edobry/Projects/minsky/tests'
+
+---
+
+<details>
+            <summary>Listed current directory • **15** results</summary>
+        
+| Name |
+|-------|
+| 📁 `.git` |
+| 📄 `package.json` |
+| 📄 `CHANGELOG.md` |
+| 📄 `README.md` |
+| 📁 `process` |
+| 📁 `.specstory` |
+| 📄 `.cursorignore` |
+| 📁 `.cursor` |
+| 📁 `src` |
+| 📄 `bun.lock` |
+| 📁 `node_modules` |
+| 📄 `.gitignore` |
+| 📄 `tsconfig.json` |
+| 📄 `minsky.code-workspace` |
+| 📄 `.cursorindexingignore` |
+
+</details>
+
+---
+
+Read file: src/cli.ts
+
+---
+
+<details>
+            <summary>Listed directory src/commands/session • **5** results</summary>
+        
+| Name |
+|-------|
+| 📄 `get.ts` |
+| 📄 `list.ts` |
+| 📄 `index.ts` |
+| 📄 `start.ts` |
+| 📄 `cd.ts` |
+
+</details>
+
+---
+
+<details>
+            <summary>Listed directory src/commands/tasks • **4** results</summary>
+        
+| Name |
+|-------|
+| 📄 `get.ts` |
+| 📄 `list.ts` |
+| 📄 `status.ts` |
+| 📄 `index.ts` |
+
+</details>
+
+---
+
+```diff
+- 
++ import { describe, it, expect } from 'bun:test';
++ import { writeFileSync, rmSync, mkdirSync } from 'fs';
++ import { join } from 'path';
++ import { spawnSync } from 'child_process';
++ 
++ const CLI = 'src/cli.ts';
++ const SESSION_DB_PATH = join(process.env.XDG_STATE_HOME || '/tmp', 'minsky', 'session-db.json');
++ 
++ function setupSessionDb(sessions) {
++   mkdirSync(join(process.env.XDG_STATE_HOME || '/tmp', 'minsky'), { recursive: true });
++   writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
++ }
++ 
++ describe('minsky session list CLI', () => {
++   afterEach(() => {
++     rmSync(SESSION_DB_PATH, { force: true });
++   });
++ 
++   it('prints human output when sessions exist', () => {
++     setupSessionDb([
++       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' },
++       { session: 'bar', repoUrl: 'https://repo2', branch: '', createdAt: '2024-01-02' }
++     ]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
++     expect(stdout).toContain('Session: foo');
++     expect(stdout).toContain('Session: bar');
++   });
++ 
++   it('prints JSON output with --json', () => {
++     setupSessionDb([
++       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
++     ]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
++     const parsed = JSON.parse(stdout);
++     expect(Array.isArray(parsed)).toBe(true);
++     expect(parsed[0].session).toBe('foo');
++   });
++ 
++   it('prints [] for --json when no sessions', () => {
++     setupSessionDb([]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
++     expect(stdout.trim()).toBe('[]');
++   });
++ 
++   it('prints human message when no sessions', () => {
++     setupSessionDb([]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
++     expect(stdout).toContain('No sessions found.');
++   });
++ }); 
++ 
+```
+
+---
+
+```diff
+- import { describe, it, expect } from 'bun:test';
++ import { describe, it, expect, afterEach } from 'bun:test';
+  import { writeFileSync, rmSync, mkdirSync } from 'fs';
+  import { join } from 'path';
+```
+
+```diff
+  const SESSION_DB_PATH = join(process.env.XDG_STATE_HOME || '/tmp', 'minsky', 'session-db.json');
+  
+- function setupSessionDb(sessions) {
++ function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; branch: string; createdAt: string }>) {
+    mkdirSync(join(process.env.XDG_STATE_HOME || '/tmp', 'minsky'), { recursive: true });
+    writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
+```
+
+---
+
+```diff
+- 
++ import { describe, it, expect, afterEach } from 'bun:test';
++ import { writeFileSync, rmSync, mkdirSync } from 'fs';
++ import { join } from 'path';
++ import { spawnSync } from 'child_process';
++ 
++ const CLI = 'src/cli.ts';
++ const SESSION_DB_PATH = join(process.env.XDG_STATE_HOME || '/tmp', 'minsky', 'session-db.json');
++ 
++ function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; branch: string; createdAt: string }>) {
++   mkdirSync(join(process.env.XDG_STATE_HOME || '/tmp', 'minsky'), { recursive: true });
++   writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
++ }
++ 
++ describe('minsky session get CLI', () => {
++   afterEach(() => {
++     rmSync(SESSION_DB_PATH, { force: true });
++   });
++ 
++   it('prints human output when session exists', () => {
++     setupSessionDb([
++       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
++     ]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo'], { encoding: 'utf-8' });
++     expect(stdout).toContain('Session: foo');
++     expect(stdout).toContain('Repo: https://repo');
++     expect(stdout).toContain('Branch: main');
++     expect(stdout).toContain('Created: 2024-01-01');
++   });
++ 
++   it('prints JSON output with --json', () => {
++     setupSessionDb([
++       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
++     ]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo', '--json'], { encoding: 'utf-8' });
++     const parsed = JSON.parse(stdout);
++     expect(parsed.session).toBe('foo');
++     expect(parsed.repoUrl).toBe('https://repo');
++     expect(parsed.branch).toBe('main');
++     expect(parsed.createdAt).toBe('2024-01-01');
++   });
++ 
++   it('prints null for --json when session not found', () => {
++     setupSessionDb([]);
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound', '--json'], { encoding: 'utf-8' });
++     expect(stdout.trim()).toBe('null');
++   });
++ 
++   it('prints human error when session not found', () => {
++     setupSessionDb([]);
++     const { stdout, stderr } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound'], { encoding: 'utf-8' });
++     expect(stdout).toBe('');
++     expect(stderr || '').toContain("Session 'notfound' not found.");
++   });
++ }); 
++ 
+```
+
+---
+
+```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+```
+linkslate:minsky edobry$ 
+
+```
+
+---
+
+```bash
+bun test src/commands/session/list.test.ts && bun test src/commands/session/get.test.ts
+```
+
+```
+linkslate:minsky edobry$ bun test src/commands/session/list.test.ts && bun test src/commands/session/get.tes
+t.ts
+bun test v1.2.10 (db2e7d7f)
+
+src/commands/session/list.test.ts:
+20 |     setupSessionDb([
+21 |       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' },
+22 |       { session: 'bar', repoUrl: 'https://repo2', branch: '', createdAt: '2024-01-02' }
+23 |     ]);
+24 |     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
+25 |     expect(stdout).toContain('Session: foo');
+                        ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Session: foo"
+Received: "Session: test-session-1\n  Repo: file:///Users/edobry/Projects/minsky\n  Branch: test-session-1\n
+  Created: 2025-04-27T19:52:30.803Z\n\n"
+
+      at <anonymous> (/Users/edobry/Projects/minsky/src/commands/session/list.test.ts:25:20)
+✗ minsky session list CLI > prints human output when sessions exist [93.10ms]
+31 |       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
+32 |     ]);
+33 |     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' 
+});
+34 |     const parsed = JSON.parse(stdout);
+35 |     expect(Array.isArray(parsed)).toBe(true);
+36 |     expect(parsed[0].session).toBe('foo');
+                                   ^
+error: expect(received).toBe(expected)
+
+Expected: "foo"
+Received: "test-session-1"
+
+      at <anonymous> (/Users/edobry/Projects/minsky/src/commands/session/list.test.ts:36:31)
+✗ minsky session list CLI > prints JSON output with --json [105.65ms]
+37 |   });
+38 | 
+39 |   it('prints [] for --json when no sessions', () => {
+40 |     setupSessionDb([]);
+41 |     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' 
+});
+42 |     expect(stdout.trim()).toBe('[]');
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: "[]"
+Received: "[\n  {\n    \"session\": \"test-session-1\",\n    \"repoUrl\": \"file:///Users/edobry/Projects/mi
+nsky\",\n    \"branch\": \"test-session-1\",\n    \"createdAt\": \"2025-04-27T19:52:30.803Z\"\n  }\n]"
+
+      at <anonymous> (/Users/edobry/Projects/minsky/src/commands/session/list.test.ts:42:27)
+✗ minsky session list CLI > prints [] for --json when no sessions [96.95ms]
+43 |   });
+44 | 
+45 |   it('prints human message when no sessions', () => {
+46 |     setupSessionDb([]);
+47 |     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
+48 |     expect(stdout).toContain('No sessions found.');
+                        ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "No sessions found."
+Received: "Session: test-session-1\n  Repo: file:///Users/edobry/Projects/minsky\n  Branch: test-session-1\n
+  Created: 2025-04-27T19:52:30.803Z\n\n"
+
+      at <anonymous> (/Users/edobry/Projects/minsky/src/commands/session/list.test.ts:48:20)
+✗ minsky session list CLI > prints human message when no sessions [86.56ms]
+
+ 0 pass
+ 4 fail
+ 5 expect() calls
+Ran 4 tests across 1 files. [434.00ms]
+linkslate:minsky edobry$
+```
+
+---
+
+All the new CLI-level tests for the `session list` command failed. The output shows that, regardless of the test data, the CLI always returns a session named `test-session-1` with the current repo path, branch, and a recent timestamp. This suggests that the CLI is not reading from the test session DB file, but is instead always returning a default or hardcoded session.
+
+**Diagnosis:**
+- The `SessionDB` implementation likely does not read from the file at `SESSION_DB_PATH` (e.g., `$XDG_STATE_HOME/minsky/session-db.json`) as expected, or the CLI is using a different path or in-memory DB.
+- The test setup writes to the file, but the CLI does not use it, so the test data is ignored.
+
+**Next steps:**
+1. Inspect the implementation of `SessionDB` in `src/domain/session.ts` to confirm how/where it loads session data.
+2. Adjust the test setup or the CLI/session code so that the CLI reads the test data as intended.
+
+Would you like me to proceed with inspecting the `SessionDB` implementation to diagnose and fix this issue?
+
+---
+
+_**User**_
+
+yes, go ahead and fix it
+
+---
+
+_**Assistant**_
+
+<details>
+            <summary>Searched codebase "SessionDB" • **0** results</summary>
+        
+No results found
+</details>
+
+---
+
+Read file: src/domain/session.ts
+
+---
+
+The `SessionDB` class reads and writes the session database from the file at:
+
+```
+<xdgStateHome>/minsky/session-db.json
+```
+
+where `xdgStateHome` is determined by:
+- `process.env.XDG_STATE_HOME`, or
+- `~/.local/state` if not set.
+
+**Problem in the tests:**
+- If `XDG_STATE_HOME` is not set in the environment of the spawned CLI process, the CLI will use `~/.local/state/minsky/session-db.json` instead of `/tmp/minsky/session-db.json` (where the test writes).
+- The test sets up the DB in `/tmp/minsky/session-db.json` by default, but unless `XDG_STATE_HOME` is set for the child process, the CLI will not read from there.
+
+**Solution:**
+- Explicitly set `XDG_STATE_HOME` to `/tmp` in the environment for the `spawnSync` calls in the tests. This ensures both the test and the CLI use the same session DB file.
+
+I will update both test files to set `XDG_STATE_HOME` in the environment for all CLI invocations.
+
+---
+
+```diff
+        { session: 'bar', repoUrl: 'https://repo2', branch: '', createdAt: '2024-01-02' }
+      ]);
+-     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
+      expect(stdout).toContain('Session: foo');
+      expect(stdout).toContain('Session: bar');
+```
+
+```diff
+        { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
+      ]);
+-     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
+      const parsed = JSON.parse(stdout);
+      expect(Array.isArray(parsed)).toBe(true);
+```
+
+```diff
+    it('prints [] for --json when no sessions', () => {
+      setupSessionDb([]);
+-     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
+      expect(stdout.trim()).toBe('[]');
+    });
+  
+    it('prints human message when no sessions', () => {
+      setupSessionDb([]);
+-     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
++     const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
+      expect(stdout).toContain('No sessions found.');
+    });
+```
+
+---
+
 
 
 ---

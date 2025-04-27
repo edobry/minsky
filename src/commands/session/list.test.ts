@@ -21,7 +21,7 @@ describe('minsky session list CLI', () => {
       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' },
       { session: 'bar', repoUrl: 'https://repo2', branch: '', createdAt: '2024-01-02' }
     ]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout).toContain('Session: foo');
     expect(stdout).toContain('Session: bar');
   });
@@ -30,7 +30,7 @@ describe('minsky session list CLI', () => {
     setupSessionDb([
       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
     ]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     const parsed = JSON.parse(stdout);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed[0].session).toBe('foo');
@@ -38,13 +38,13 @@ describe('minsky session list CLI', () => {
 
   it('prints [] for --json when no sessions', () => {
     setupSessionDb([]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout.trim()).toBe('[]');
   });
 
   it('prints human message when no sessions', () => {
     setupSessionDb([]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'list'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout).toContain('No sessions found.');
   });
 }); 

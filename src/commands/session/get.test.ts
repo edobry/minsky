@@ -20,7 +20,7 @@ describe('minsky session get CLI', () => {
     setupSessionDb([
       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
     ]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout).toContain('Session: foo');
     expect(stdout).toContain('Repo: https://repo');
     expect(stdout).toContain('Branch: main');
@@ -31,7 +31,7 @@ describe('minsky session get CLI', () => {
     setupSessionDb([
       { session: 'foo', repoUrl: 'https://repo', branch: 'main', createdAt: '2024-01-01' }
     ]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo', '--json'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'foo', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     const parsed = JSON.parse(stdout);
     expect(parsed.session).toBe('foo');
     expect(parsed.repoUrl).toBe('https://repo');
@@ -41,13 +41,13 @@ describe('minsky session get CLI', () => {
 
   it('prints null for --json when session not found', () => {
     setupSessionDb([]);
-    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound', '--json'], { encoding: 'utf-8' });
+    const { stdout } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound', '--json'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout.trim()).toBe('null');
   });
 
   it('prints human error when session not found', () => {
     setupSessionDb([]);
-    const { stdout, stderr } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound'], { encoding: 'utf-8' });
+    const { stdout, stderr } = spawnSync('bun', ['run', CLI, 'session', 'get', 'notfound'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout).toBe('');
     expect(stderr || '').toContain("Session 'notfound' not found.");
   });
