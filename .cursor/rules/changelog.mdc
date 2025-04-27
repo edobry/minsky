@@ -15,6 +15,43 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 - If there is no `CHANGELOG.md` in the current or any parent directory, use the root `CHANGELOG.md`.
 - Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
 
+### SpecStory Conversation History Referencing (Required)
+- For every changegroup (e.g., Added, Changed, Fixed) in the changelog, **add a reference to the relevant SpecStory conversation history file(s) where the change originated**.
+- Place the reference(s) at the end of each changegroup, using the format:
+  
+  `_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for ..._`
+- If multiple changegroups originate from different conversations, reference each appropriately.
+- At the top of the changelog, add a note referencing `.specstory/.what-is-this.md` to explain the SpecStory artifact system.
+
+#### Example
+
+```markdown
+# Changelog
+
+> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+
+## [Unreleased]
+
+### Added
+- New feature X
+- New feature Y
+
+_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup._
+
+### Changed
+- Improved logic for Z
+
+_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management._
+```
+
+## Additional Guidance
+- Only update the `CHANGELOG.md` at the end of an editing session, after testing whether the change worked.
+- If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
+- For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
+
+## Rationale
+This ensures that changelog entries are always relevant to the part of the codebase they affect, and provides traceability and context by linking to the exact SpecStory conversation(s) where the change was discussed and implemented.
+
 ### Examples
 
 | File Changed                              | Changelog to Update         |
@@ -23,11 +60,3 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 | `synthase/src/utils/tools.ts`             | `synthase/CHANGELOG.md`    |
 | `README.md` (root)                        | `CHANGELOG.md`             |
 | `docs/usage.md`                           | `CHANGELOG.md`             |
-
-## Additional Guidance
-- Only update the `CHANGELOG.md` at the end of an editing session, after testing whether the change worked.
-- If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
-- For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
-
-## Rationale
-This ensures that changelog entries are always relevant to the part of the codebase they affect, and avoids ambiguity about where to record changes.

@@ -1,0 +1,35 @@
+---
+description: Use this when creating a new task
+globs: 
+alwaysApply: false
+---
+
+# Task Creation Process
+
+## Overview
+All tasks and work items must be tracked using the canonical process described here. Ad-hoc or freeform task files (e.g., TODO.something.md) are NOT permitted. All tasks must be:
+- Listed in `/process/tasks.md` as a checklist item
+- Linked to a detailed task spec in `/process/tasks/{id}-{name}.md`
+
+## Step-by-Step Instructions
+
+### 1. Check for Existing Tasks
+- Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
+- If a relevant task exists, follow its linked specification.
+
+### 2. Add a New Task
+- If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
+  ```markdown
+  - [ ] Task Title @#NNN
+  ```
+  - Use the next available task number (NNN).
+  - The title should be concise but descriptive.
+
+### 3. Create the Task Specification
+- Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
+- The task spec should include:
+  - **Objective**: What is the goal of the task?
+  - **Task Breakdown**: A checklist of all required steps and substeps.
+  - **Verification**: What must be true for the task to be considered complete?
+- Use checkboxes for all actionable items and sub-items.
+- Include any relevant context, links, or references.

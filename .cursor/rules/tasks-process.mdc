@@ -1,11 +1,9 @@
 ---
-description: 
+description: Use this when starting work on a new task
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 # Tasks Process Rule
-
-## Rule Name: tasks-process
 
 ## Description
 
@@ -36,16 +34,7 @@ This rule defines the mandatory process for working with tasks in the project. A
 - Never skip verification steps
 
 ### 4. CHANGELOG Updates
-- Location: `CHANGELOG.md` in project root
-- Add entries under [Unreleased] section
-- Use appropriate categories:
-  - Added: New features
-  - Changed: Changes in existing functionality
-  - Deprecated: Soon-to-be removed features
-  - Removed: Removed features
-  - Fixed: Bug fixes
-  - Security: Security fixes
-- Be specific about changes and their impact
+See [changelog.mdc](mdc:.cursor/rules/changelog.mdc)
 
 ### 5. Pull Request Requirements
 - Reference task number in PR title: `[#123] Add new feature`
@@ -113,36 +102,6 @@ This rule is enforced through:
 - Automated checks for CHANGELOG updates
 - Task completion verification
 - Documentation reviews 
-
-# Task Creation Process
-
-## Overview
-All tasks and work items must be tracked using the canonical process described here. Ad-hoc or freeform task files (e.g., TODO.something.md) are NOT permitted. All tasks must be:
-- Listed in `/process/tasks.md` as a checklist item
-- Linked to a detailed task spec in `/process/tasks/{id}-{name}.md`
-
-## Step-by-Step Instructions
-
-### 1. Check for Existing Tasks
-- Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
-- If a relevant task exists, follow its linked specification.
-
-### 2. Add a New Task
-- If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
-  ```markdown
-  - [ ] Task Title [#NNN](mdc:tasks/NNN-task-title.md)
-  ```
-  - Use the next available task number (NNN).
-  - The title should be concise but descriptive.
-
-### 3. Create the Task Specification
-- Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
-- The task spec should include:
-  - **Objective**: What is the goal of the task?
-  - **Task Breakdown**: A checklist of all required steps and substeps.
-  - **Verification**: What must be true for the task to be considered complete?
-- Use checkboxes for all actionable items and sub-items.
-- Include any relevant context, links, or references.
 
 ### 4. Working on the Task
 - Follow the task specification exactly.
