@@ -13,7 +13,8 @@ export function createListCommand(): Command {
     .option('--session <session>', 'Session name to use for repo resolution')
     .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
     .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
-    .action(async (options: { status?: string, backend?: string, session?: string, repo?: string }) => {
+    .option('--json', 'Output tasks as JSON')
+    .action(async (options: { status?: string, backend?: string, session?: string, repo?: string, json?: boolean }) => {
       try {
         const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
         const taskService = new TaskService({
@@ -24,13 +25,21 @@ export function createListCommand(): Command {
           status: options.status
         });
         if (tasks.length === 0) {
-          console.log('No tasks found.');
+          if (options.json) {
+            console.log(JSON.stringify([]));
+          } else {
+            console.log('No tasks found.');
+          }
           return;
         }
-        console.log('Tasks:');
-        tasks.forEach(task => {
-          console.log(`- ${task.id}: ${task.title} [${task.status}]`);
-        });
+        if (options.json) {
+          console.log(JSON.stringify(tasks, null, 2));
+        } else {
+          console.log('Tasks:');
+          tasks.forEach(task => {
+            console.log(`- ${task.id}: ${task.title} [${task.status}]`);
+          });
+        }
       } catch (error) {
         console.error('Error listing tasks:', error);
         process.exit(1);

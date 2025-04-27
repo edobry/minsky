@@ -13,7 +13,8 @@ export function createGetCommand(): Command {
     .option('--session <session>', 'Session name to use for repo resolution')
     .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
     .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
-    .action(async (taskId: string, options: { backend?: string, session?: string, repo?: string }) => {
+    .option('--json', 'Output task as JSON')
+    .action(async (taskId: string, options: { backend?: string, session?: string, repo?: string, json?: boolean }) => {
       try {
         const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
         const taskService = new TaskService({
@@ -22,13 +23,21 @@ export function createGetCommand(): Command {
         });
         const task = await taskService.getTask(taskId);
         if (!task) {
-          console.error(`Task with ID '${taskId}' not found.`);
+          if (options.json) {
+            console.log(JSON.stringify(null));
+          } else {
+            console.error(`Task with ID '${taskId}' not found.`);
+          }
           process.exit(1);
           return;
         }
-        console.log(`Task ${task.id}: ${task.title}`);
-        console.log(`Status: ${task.status}`);
-        console.log(`Description: ${task.description}`);
+        if (options.json) {
+          console.log(JSON.stringify(task, null, 2));
+        } else {
+          console.log(`Task ${task.id}: ${task.title}`);
+          console.log(`Status: ${task.status}`);
+          console.log(`Description: ${task.description}`);
+        }
       } catch (error) {
         console.error('Error getting task:', error);
         process.exit(1);

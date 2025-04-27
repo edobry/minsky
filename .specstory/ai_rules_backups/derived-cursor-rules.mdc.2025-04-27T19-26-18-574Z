@@ -1,11 +1,7 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
-All project documentation will be stored in the `.specstory` directory, following the SpecStory format. Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").  The changelog will reference relevant SpecStory conversation histories.  See `.specstory/.what-is-this.md` for details on the SpecStory artifact system.
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format.  Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").
 
 
 ## TECH STACK
@@ -49,10 +45,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.16.0 Added support for session and repo path arguments to all tasks commands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.
 - Version 0.17.0 Added tasks command with support for session and repo path arguments.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.  The tasks.md file format is now strictly enforced.
 - Version 0.18.0 Added support for `--debug` flag to `git pr` command, enabling debug logs to stderr. Improved base branch detection logic for `git pr`, prioritizing `main` then `master`, then remote HEAD, then upstream.  Added robust testing for `git pr` and `tasks` commands.  Improved error handling and user feedback for `tasks status set`.  Refactored `resolveRepoPath` into shared utility module.  Updated README and CHANGELOG.
-- Version 0.19.0 The `session start` command now optionally accepts a task ID. If provided, the CLI looks up task details, uses the task ID as the session name (formatted as `<repo>/task#<id>`), and stores the task details in the session metadata.  The session will have a full name and a short name (without the repo, for branch naming).
-- Version 0.20.0 The `tasks list` and `tasks get` commands now support a `--json` option for JSON output.
-- Version 0.21.0 The `session start` command now supports the `--task <task-id>` flag. If provided, the CLI looks up the task details using the `tasks` domain module, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata.  The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming.  Error handling is improved to check for existing tasks and sessions.
-- Version 0.22.0 The `minsky session start` command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
 
 
 ## DEBUGGING
@@ -166,8 +158,8 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 ### Session Management
 
 ```bash
-# Start a new session (with optional task ID)
-minsky session start <session-name> --repo <repo-url-or-path> --task <task-id>
+# Start a new session
+minsky session start <session-name> --repo <repo-url-or-path>
 
 # List all sessions
 minsky session list
@@ -185,13 +177,13 @@ Minsky supports robust, extensible task management with multiple backends (defau
 
 ```bash
 # List all tasks in the current repo (or specify with --repo or --session)
-minsky tasks list --repo /path/to/repo --json
+minsky tasks list --repo /path/to/repo
 
 # Filter tasks by status (TODO, DONE)
-minsky tasks list --repo /path/to/repo --status TODO --json
+minsky tasks list --repo /path/to/repo --status TODO
 
 # Get details for a specific task by ID
-minsky tasks get --repo /path/to/repo #001 --json
+minsky tasks get --repo /path/to/repo #001
 
 # Get the status of a task
 minsky tasks status get --repo /path/to/repo #001
@@ -205,9 +197,6 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 - `--session <session>`: Session name to use for repo resolution
 - `--backend <backend>`: Task backend to use (default: markdown, future: github)
 - `--status <status>`: Filter tasks by status (for `list`)
-- `--taskId <task-id>`: Task ID to associate with session (for `session start`)
-- `--json`: Output tasks as JSON
-
 
 **Features:**
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
@@ -230,7 +219,7 @@ cd $(minsky session cd feature-123)
 minsky git pr --session feature-123 > PR.md
 
 # List and update tasks
-minsky tasks list --session feature-123 --json
+minsky tasks list --session feature-123
 minsky tasks status set --session feature-123 #001 DONE
 ```
 
