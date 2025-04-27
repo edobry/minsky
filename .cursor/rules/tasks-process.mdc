@@ -9,6 +9,10 @@ alwaysApply: false
 
 This rule defines the mandatory process for working with tasks in the project. All code changes must follow this process to maintain consistency and quality.
 
+## Using Minsky for Task Workflow
+
+> **Note:** All task-related workflows (task lookup, session management, implementation, and PR preparation) should be performed using the [Minsky tool](mdc:minsky.mdc). See [`minsky.mdc`](mdc:minsky.mdc) for the standard Minsky workflow.
+
 ## Process
 
 ### 1. Check Tasks First

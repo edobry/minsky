@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -126,13 +122,11 @@ alwaysApply: true
 
 ## Description
 
-This rule defines the standard workflow for working with tasks using the Minsky tool. It is intended for inclusion in `.cursor/rules/` in any project that uses Minsky for task management.
-
-**For general task process requirements, see [`tasks-process.mdc`](mdc:.cursor/rules/tasks-process.mdc).**
+This rule defines the standard workflow for working with tasks using the Minsky tool.  For general task process requirements, see [`tasks-process.mdc`](mdc:.cursor/rules/tasks-process.mdc).
 
 ## Minsky Task Workflow
 
-When asked to work on a particular task (by name, description, or ID):
+When asked to work on a task (by name, description, or ID):
 
 1. **Find the Task ID**
    - List all tasks in JSON and locate the relevant task:
@@ -184,45 +178,6 @@ When asked to work on a particular task (by name, description, or ID):
 - Reference the task number in PRs and commits.
 ```
 
-### tasks-process.mdc
-```
----
-description: Mandatory process for working with tasks.
-globs: ["**/*.md"]
-alwaysApply: true
----
-
-# Task Process
-
-This rule defines the mandatory process for working with tasks in the project. All code changes must follow this process to maintain consistency and quality.
-
-## Using Minsky for Task Workflow
-
-> **Note:** All task-related workflows (task lookup, session management, implementation, and PR preparation) should be performed using the [Minsky tool](mdc:minsky.mdc). See [`minsky.mdc`](mdc:minsky.mdc) for the standard Minsky workflow. The rest of the process (verification, documentation, changelog, etc.) remains as described below.
-
-## Process
-
-1. **Verification:** Before starting any work, verify that the task is well-defined and understood.  Ensure all requirements and acceptance criteria are clearly articulated.
-
-2. **Documentation:** Update the task document (`process/tasks/<task-id>-<task-name>.md`) with any clarifications, additional requirements, or design decisions. This should include an implementation plan.
-
-3. **Implementation:** Implement the task, adhering to coding standards and best practices. Commit changes frequently with clear and concise messages.
-
-4. **Verification (Post-Implementation):** After implementing the task, verify that it meets all requirements and acceptance criteria. Test thoroughly.
-
-5. **Documentation (Post-Implementation):** Update the task document with details about the implementation, testing, and verification results.
-
-6. **Pull Request:** Create a pull request with a clear and concise description.  Reference the task number in the PR title and description.
-
-7. **Changelog:** Update the changelog with a summary of the changes made.  Reference the task number.
-
-8. **Code Review:** Request a code review before merging the PR.
-
-9. **Post-Merge:** After merging the PR, update the task status to "DONE".  Close the task if appropriate.
-
-
-```
-
 ## README
 
 # Minsky
@@ -236,7 +191,7 @@ A tool for coordinating AI agent workflows using Git and other collaboration too
 Minsky helps AI agents collaborate on codebases by leveraging the same tools human engineers use:
 
 - **Git repositories** for version control
-- **Isolated workspaces** for preventing conflicts
+- **Isolated workspaces** to prevent conflicts
 - **Branch-based workflows** for parallel development
 - **Pull request summaries** for documenting changes
 - **Task management** for tracking and coordinating work items

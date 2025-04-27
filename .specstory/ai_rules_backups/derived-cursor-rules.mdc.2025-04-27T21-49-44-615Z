@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -126,13 +122,11 @@ alwaysApply: true
 
 ## Description
 
-This rule defines the standard workflow for working with tasks using the Minsky tool. It is intended for inclusion in `.cursor/rules/` in any project that uses Minsky for task management.
-
-**For general task process requirements, see [`tasks-process.mdc`](mdc:.cursor/rules/tasks-process.mdc).**
+This rule defines the standard workflow for working with tasks using the Minsky tool.  For general task process requirements, see [`tasks-process.mdc`](mdc:.cursor/rules/tasks-process.mdc).
 
 ## Minsky Task Workflow
 
-When asked to work on a particular task (by name, description, or ID):
+When asked to work on a task (by name, description, or ID):
 
 1. **Find the Task ID**
    - List all tasks in JSON and locate the relevant task:
@@ -236,7 +230,7 @@ A tool for coordinating AI agent workflows using Git and other collaboration too
 Minsky helps AI agents collaborate on codebases by leveraging the same tools human engineers use:
 
 - **Git repositories** for version control
-- **Isolated workspaces** for preventing conflicts
+- **Isolated workspaces** to prevent conflicts
 - **Branch-based workflows** for parallel development
 - **Pull request summaries** for documenting changes
 - **Task management** for tracking and coordinating work items
