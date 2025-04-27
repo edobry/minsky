@@ -505,3 +505,203 @@ Let me know if you want to proceed with implementation or need any adjustments t
 
 ---
 
+_**User**_
+
+i want the session db entry to contain the repo name. i also want repos to be stored under a per-repo directory, so the full path to the session repo looks like "/Users/edobry/.local/state/minsky/git/<repo>/test-session-1", similar to the "session full name" concept we introduced
+
+---
+
+_**Assistant**_
+
+<details>
+            <summary>Searched codebase "SessionDB addSession" • **25** results</summary>
+        
+| File | Lines |
+|------|-------|
+| `src/domain/session.ts` | L9-57 |
+| `src/domain/session.ts` | L1-9 |
+| `src/commands/session/get.ts` | L1-17 |
+| `src/commands/session/list.ts` | L1-18 |
+| `src/commands/session/index.ts` | L1-17 |
+| `src/commands/session/start.ts` | L1-60 |
+| `src/cli.ts` | L20-21 |
+| `src/domain/repo-utils.ts` | L1-9 |
+| `src/domain/tasks.ts` | L1-14 |
+| `src/domain/repo-utils.ts` | L9-26 |
+| `src/commands/git/clone.ts` | L1-26 |
+| `src/domain/git.ts` | L53-71 |
+| `src/commands/session/start.ts` | L60-73 |
+| `src/domain/git.ts` | L49-53 |
+| `src/domain/git.ts` | L1-11 |
+| `src/commands/session/cd.ts` | L1-13 |
+| `src/commands/git/pr.ts` | L1-51 |
+| `src/domain/repo-utils.test.ts` | L1-26 |
+| `src/commands/git/branch.ts` | L1-23 |
+| `src/domain/git.ts` | L11-16 |
+| `src/domain/git.ts` | L16-21 |
+| `src/domain/git.ts` | L71-82 |
+| `src/domain/git.ts` | L26-33 |
+| `.cursor/rules/derived-cursor-rules.mdc` | L1-257 |
+| `src/commands/tasks/status.ts` | L35-71 |
+
+</details>
+
+---
+
+Here’s a summary and plan for the changes you want:
+
+---
+
+## Summary of Your Request
+
+- **Session DB**: You want each session record to include the repo name (not just the URL).
+- **Repo Storage**: You want session repos to be stored under a per-repo directory, so the path is:
+  ```
+  /Users/edobry/.local/state/minsky/git/<repo>/<session>
+  ```
+  (where `<repo>` is a normalized name, e.g., `github.com-org-project` or similar, not a raw URL).
+- **Session Full Name**: This matches the “session full name” concept, e.g., `minsky/task#001` (full) and `task#001` (short).
+
+---
+
+## Analysis
+
+- **SessionRecord** in `src/domain/session.ts` currently does not include a `repoName` field.
+- The repo storage path is currently just `.../git/<session>`, not grouped by repo.
+- The `GitService` and session commands will need to be updated to:
+  - Normalize and store the repo name (e.g., from URL or local path).
+  - Use this normalized name for both the session DB and the directory structure.
+- All commands that resolve or display session paths will need to use the new structure.
+
+---
+
+## Plan of Action
+
+1. **Update SessionRecord**
+   - Add a `repoName` field to `SessionRecord` in `src/domain/session.ts`.
+
+2. **Repo Name Normalization**
+   - Implement a utility to normalize repo URLs/paths into a safe directory name (e.g., `github.com-org-project`).
+   - Use this normalized name for both storage and the session DB.
+
+3. **Update GitService**
+   - Change the base directory logic in `GitService` to use `.../git/<repo>/<session>`.
+
+4. **Update Session Creation**
+   - When starting a session, extract and store the normalized repo name.
+   - Store it in the session DB entry.
+
+5. **Update Session Path Resolution**
+   - Update all code that computes the session workdir (e.g., `session cd`, `git branch`, etc.) to use the new path structure.
+
+6. **Backward Compatibility**
+   - Consider migration or fallback for existing sessions (optional, depending on project maturity).
+
+7. **Testing**
+   - Update/add tests to verify:
+     - Sessions are stored under the correct per-repo directory.
+     - Session DB entries include the correct repo name.
+     - All commands work with the new structure.
+
+8. **Documentation**
+   - Update documentation to reflect the new session storage structure and DB schema.
+
+---
+
+Would you like to proceed with this plan, or do you want to clarify the repo name normalization format before implementation? (e.g., should it be `github.com-org-project`, `org-project`, or something else?)
+
+---
+
+_**User**_
+
+we dont need backward compatibility, just migrate extant session records
+
+for the normalized name, lets use org/project, and if the repo is a local path, use "local" for the org perhaps, unless you have a better idea
+
+---
+
+_**Assistant**_
+
+Great, here’s a refined plan based on your clarifications:
+
+---
+
+## Finalized Plan
+
+### 1. **SessionRecord Update**
+- Add a `repoName` field (string, e.g., `org/project` or `local/project`) to `SessionRecord` in `src/domain/session.ts`.
+
+### 2. **Repo Name Normalization**
+- For remote URLs:  
+  - Extract the org and project (e.g., `github.com/org/project.git` → `org/project`).
+- For local paths:  
+  - Use `local/<basename-of-path>` (e.g., `/Users/edobry/Projects/minsky` → `local/minsky`).
+
+### 3. **Directory Structure**
+- Store session repos under:  
+  ```
+  $XDG_STATE_HOME/minsky/git/<repoName>/<session>
+  ```
+  Example:  
+  ```
+  .../minsky/git/org/project/test-session-1
+  .../minsky/git/local/minsky/test-session-2
+  ```
+
+### 4. **Session DB Migration**
+- On next run, migrate any existing session records to include the new `repoName` field and update their workdir if needed.
+
+### 5. **Update All Logic**
+- All session creation, lookup, and path resolution must use the new per-repo directory structure and `repoName` field.
+
+### 6. **Testing**
+- Ensure all commands (start, cd, branch, pr, etc.) work with the new structure.
+- Add/modify tests to verify correct repo grouping and DB schema.
+
+### 7. **Documentation**
+- Update documentation to describe the new session storage and DB schema.
+
+---
+
+**Repo Name Normalization Details:**
+- For remote:  
+  - Parse the URL, extract org and project, strip `.git` if present.
+  - Example: `https://github.com/org/project.git` → `org/project`
+- For local:  
+  - Use `local/<basename>`, where `<basename>` is the last segment of the path.
+
+---
+
+**If you’re happy with this plan, I’ll proceed to:**
+- Update the task spec to reflect these details.
+- Begin implementation (if requested).
+
+Would you like to proceed? Any tweaks to the normalization logic?
+
+---
+
+_**User**_
+
+create a new task with this spec
+
+---
+
+_**Assistant**_
+
+```diff
+  
+  - [ ] Update session start command to support task IDs [#001](tasks/001-update-session-start-task-id.md)
++ - [ ] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-per-repo-session-storage.md)
+  
+```
+
+---
+
+
+
+---
+
+
+
+---
+
