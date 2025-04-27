@@ -25,6 +25,30 @@ export interface TaskListOptions {
   status?: string;
 }
 
+// Task status constants and checkbox mapping
+export const TASK_STATUS = {
+  TODO: 'TODO',
+  DONE: 'DONE',
+  IN_PROGRESS: 'IN-PROGRESS',
+  IN_REVIEW: 'IN-REVIEW',
+} as const;
+
+export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS];
+
+export const TASK_STATUS_CHECKBOX: Record<string, string> = {
+  [TASK_STATUS.TODO]: ' ',
+  [TASK_STATUS.DONE]: 'x',
+  [TASK_STATUS.IN_PROGRESS]: '-',
+  [TASK_STATUS.IN_REVIEW]: '+',
+};
+
+export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
+  ' ': TASK_STATUS.TODO,
+  'x': TASK_STATUS.DONE,
+  '-': TASK_STATUS.IN_PROGRESS,
+  '+': TASK_STATUS.IN_REVIEW,
+};
+
 export class MarkdownTaskBackend implements TaskBackend {
   name = 'markdown';
   private filePath: string;
@@ -54,12 +78,12 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
   
   async setTaskStatus(id: string, status: string): Promise<void> {
-    if (status !== 'DONE' && status !== 'TODO') {
-      throw new Error("Status must be 'DONE' or 'TODO'");
+    if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
+      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(', ')}`);
     }
     const content = await fs.readFile(this.filePath, 'utf-8');
     const idNum = id.startsWith('#') ? id.slice(1) : id;
-    const newStatusChar = status === 'DONE' ? 'x' : ' ';
+    const newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.split('\n');
     let inCodeBlock = false;
     const updatedLines = lines.map(line => {
@@ -70,7 +94,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       if (inCodeBlock) return line;
       if (line.includes(`[#${idNum}]`)) {
         // Replace only the first checkbox in the line
-        return line.replace(/^(\s*- \[)( |x)(\])/, `$1${newStatusChar}$3`);
+        return line.replace(/^(\s*- \[)( |x|\-|\+)(\])/, `$1${newStatusChar}$3`);
       }
       return line;
     });
@@ -92,13 +116,13 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
         if (inCodeBlock) continue;
         // Match top-level tasks: - [ ] Title [#123](...)
-        const match = /^- \[( |x)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
+        const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
         if (!match) continue;
-        const checked = match[1] === 'x';
+        const checkbox = match[1];
         const title = match[2]?.trim() ?? '';
         const id = `#${match[3] ?? ''}`;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status = checked ? 'DONE' : 'TODO';
+        const status = CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
         // Aggregate indented lines as description
         let description = '';
         for (let j = i + 1; j < lines.length; j++) {
@@ -106,7 +130,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           if (subline.trim().startsWith('```')) break;
           if (/^- \[.\]/.test(subline)) break; // next top-level task
           if (/^\s+- /.test(subline)) {
-            description += (subline.trim().replace(/^\- /, '') ?? '') + '\n';
+            description += (subline.trim().replace(/^- /, '') ?? '') + '\n';
           } else if ((subline.trim() ?? '') === '') {
             continue;
           } else {

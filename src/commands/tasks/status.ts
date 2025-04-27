@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { TaskService } from '../../domain/tasks';
+import { TaskService, TASK_STATUS } from '../../domain/tasks';
+import type { TaskStatus } from '../../domain/tasks';
 import { resolveRepoPath } from '../../domain/repo-utils';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -38,14 +39,14 @@ function createStatusSetCommand(): Command {
   return new Command('set')
     .description('Set the status of a task')
     .argument('<task-id>', 'ID of the task')
-    .argument('<status>', 'New status (TODO, DONE)')
+    .argument('<status>', `New status (${Object.values(TASK_STATUS).join(', ')})`)
     .option('--session <session>', 'Session name to use for repo resolution')
     .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
     .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
     .action(async (taskId: string, status: string, options: { backend?: string, session?: string, repo?: string }) => {
       try {
-        if (status !== 'DONE' && status !== 'TODO') {
-          console.error("\nInvalid status: '" + status + "'.\nValid options are: TODO, DONE\nExample: minsky tasks status set #001 DONE\n");
+        if (!Object.values(TASK_STATUS).includes(status)) {
+          console.error(`\nInvalid status: '${status}'.\nValid options are: ${Object.values(TASK_STATUS).join(', ')}\nExample: minsky tasks status set #001 DONE\n`);
           process.exit(1);
         }
         const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
@@ -60,7 +61,7 @@ function createStatusSetCommand(): Command {
           process.exit(1);
           return;
         }
-        await taskService.setTaskStatus(taskId, status);
+        await taskService.setTaskStatus(taskId, status as TaskStatus);
         console.log(`Status for task ${taskId} updated to: ${status}`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

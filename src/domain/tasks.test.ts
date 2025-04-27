@@ -86,6 +86,36 @@ describe('MarkdownTaskBackend', () => {
     expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
   });
 
+  it('sets a task status to IN-PROGRESS and persists the change', async () => {
+    await backend.setTaskStatus('#003', 'IN-PROGRESS');
+    let task = await backend.getTask('#003');
+    expect(task?.status).toBe('IN-PROGRESS');
+    // Check file content
+    const file = readFileSync(tasksPath, 'utf-8');
+    expect(file).toMatch(/- \[-\] Third Task \[#003\]/);
+    // Set back to TODO
+    await backend.setTaskStatus('#003', 'TODO');
+    task = await backend.getTask('#003');
+    expect(task?.status).toBe('TODO');
+    const file2 = readFileSync(tasksPath, 'utf-8');
+    expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
+  });
+
+  it('sets a task status to IN-REVIEW and persists the change', async () => {
+    await backend.setTaskStatus('#003', 'IN-REVIEW');
+    let task = await backend.getTask('#003');
+    expect(task?.status).toBe('IN-REVIEW');
+    // Check file content
+    const file = readFileSync(tasksPath, 'utf-8');
+    expect(file).toMatch(/- \[\+\] Third Task \[#003\]/);
+    // Set back to TODO
+    await backend.setTaskStatus('#003', 'TODO');
+    task = await backend.getTask('#003');
+    expect(task?.status).toBe('TODO');
+    const file2 = readFileSync(tasksPath, 'utf-8');
+    expect(file2).toMatch(/- \[ \] Third Task \[#003\]/);
+  });
+
   it('ignores tasks in code blocks', async () => {
     const tasks = await backend.listTasks();
     expect(tasks.find(t => t.id === '#999')).toBeUndefined();
