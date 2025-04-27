@@ -9,3 +9,5 @@ This file tracks work items for the project. Each task follows this format:
 ```
 
 ## Tasks
+
+- [ ] Update session start command to support task IDs [#001](tasks/001-update-session-start-task-id.md)
