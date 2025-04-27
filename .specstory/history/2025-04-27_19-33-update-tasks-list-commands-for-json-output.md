@@ -268,3 +268,115 @@ Would you like to add CLI-level tests for these new `--json` options, or proceed
 
 ---
 
+_**User**_
+
+also add this option to the session list and get command
+
+---
+
+_**Assistant**_
+
+Read file: src/commands/session/list.ts
+
+---
+
+Read file: src/commands/session/get.ts
+
+---
+
+```diff
+    return new Command('list')
+      .description('List all sessions')
+-     .action(async () => {
++     .option('--json', 'Output sessions as JSON')
++     .action(async (options: { json?: boolean }) => {
+        const db = new SessionDB();
+        const sessions = await db.listSessions();
+        if (sessions.length === 0) {
+-         console.log('No sessions found.');
++         if (options.json) {
++           console.log(JSON.stringify([]));
++         } else {
++           console.log('No sessions found.');
++         }
+          return;
+        }
+-       for (const s of sessions) {
+-         console.log(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Branch: ${s.branch || '(none)'}\n  Created: ${s.createdAt}\n`);
++       if (options.json) {
++         console.log(JSON.stringify(sessions, null, 2));
++       } else {
++         for (const s of sessions) {
++           console.log(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Branch: ${s.branch || '(none)'}\n  Created: ${s.createdAt}\n`);
++         }
+        }
+      });
+```
+
+---
+
+```diff
+      .description('Get details for a specific session')
+      .argument('<session>', 'Session identifier')
+-     .action(async (session: string) => {
++     .option('--json', 'Output session as JSON')
++     .action(async (session: string, options: { json?: boolean }) => {
+        const db = new SessionDB();
+        const record = await db.getSession(session);
+        if (!record) {
+-         console.error(`Session '${session}' not found.`);
++         if (options.json) {
++           console.log(JSON.stringify(null));
++         } else {
++           console.error(`Session '${session}' not found.`);
++         }
+          process.exit(1);
+        }
+-       console.log(JSON.stringify(record, null, 2));
++       if (options.json) {
++         console.log(JSON.stringify(record, null, 2));
++       } else {
++         // Print a human-readable summary (mimic list output)
++         console.log(`Session: ${record.session}`);
++         console.log(`Repo: ${record.repoUrl}`);
++         console.log(`Branch: ${record.branch || '(none)'}`);
++         console.log(`Created: ${record.createdAt}`);
++       }
+      });
+  } 
+```
+
+---
+
+The `--json` output option has now been added to both the `session list` and `session get` commands, matching the behavior of the `tasks` commands:
+
+- **session list**:  
+  - `--json` outputs the array of sessions as pretty-printed JSON.
+  - If no sessions are found and `--json` is set, outputs `[]`.
+  - Otherwise, prints a human-readable summary for each session.
+
+- **session get**:  
+  - `--json` outputs the session record as pretty-printed JSON (or `null` if not found).
+  - If the session is not found and `--json` is set, outputs `null`.
+  - Otherwise, prints a human-readable summary of the session.
+
+Would you like to add or update tests for these new options, or proceed to run the test suite to verify that everything still works?
+
+---
+
+_**User**_
+
+yes, add tests
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+
+
+---
+

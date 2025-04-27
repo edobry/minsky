@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -53,9 +49,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.20.0 The `tasks list` and `tasks get` commands now support a `--json` option for JSON output.
 - Version 0.21.0 The `session start` command now supports the `--task <task-id>` flag. If provided, the CLI looks up the task details using the `tasks` domain module, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata.  The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming.  Error handling is improved to check for existing tasks and sessions.
 - Version 0.22.0 The `minsky session start` command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
-- Version 0.23.0 The `session list` and `session get` commands now support a `--json` option for JSON output.
-- Version 0.24.0 Added CLI-level tests for the `--json` option in `tasks list`, `tasks get`, `session list`, and `session get` commands.
-- Version 0.25.0 The session database now stores the repo name for each session. Session repos are stored under a per-repo directory (e.g., `/Users/edobry/.local/state/minsky/git/<repo>/<session>`).
 
 
 ## DEBUGGING
@@ -170,7 +163,7 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 
 ```bash
 # Start a new session (with optional task ID)
-minsky session start <session-name> --repo <repo-url-or-path> [--task <task-id>]
+minsky session start <session-name> --repo <repo-url-or-path> --task <task-id>
 
 # List all sessions
 minsky session list

@@ -5,13 +5,26 @@ export function createGetCommand(): Command {
   return new Command('get')
     .description('Get details for a specific session')
     .argument('<session>', 'Session identifier')
-    .action(async (session: string) => {
+    .option('--json', 'Output session as JSON')
+    .action(async (session: string, options: { json?: boolean }) => {
       const db = new SessionDB();
       const record = await db.getSession(session);
       if (!record) {
-        console.error(`Session '${session}' not found.`);
+        if (options.json) {
+          console.log(JSON.stringify(null));
+        } else {
+          console.error(`Session '${session}' not found.`);
+        }
         process.exit(1);
       }
-      console.log(JSON.stringify(record, null, 2));
+      if (options.json) {
+        console.log(JSON.stringify(record, null, 2));
+      } else {
+        // Print a human-readable summary (mimic list output)
+        console.log(`Session: ${record.session}`);
+        console.log(`Repo: ${record.repoUrl}`);
+        console.log(`Branch: ${record.branch || '(none)'}`);
+        console.log(`Created: ${record.createdAt}`);
+      }
     });
 } 
