@@ -61,7 +61,7 @@ export function createStartCommand(): Command {
         console.log(`Repository cloned to: ${cloneResult.workdir}`);
         console.log(`Branch '${branchResult.branch}' created.`);
         console.log(`\nTo navigate to this session's directory, run:`);
-        console.log(`cd $(minsky session cd ${session})`);
+        console.log(`cd $(minsky session dir ${session})`);
         
         // Return just the path so it can be used in scripts
         console.log(`\n${cloneResult.workdir}`);
