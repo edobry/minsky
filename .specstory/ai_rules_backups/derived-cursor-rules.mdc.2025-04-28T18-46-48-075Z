@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -95,7 +91,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.59.0 Added automation directive to minsky-workflow.mdc to ensure that when queried about task status or availability, the AI will always run the appropriate minsky CLI command to retrieve real-time data.
 - Version 0.60.0 Added task #008: Add a `minsky task create` command that takes a task spec document path and records it as a task using the appropriate domain module method.
 - Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
-- Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
 
 
 ## DEBUGGING
@@ -405,7 +400,6 @@ This rule documents preferences expressed by the user during interactions with t
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
 - **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
-- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps, and verification criteria.  Only begin implementation after the task specification has been created and approved.
 
 ```
 
@@ -568,4 +562,17 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 ### Session Management
 
 ```bash
-# Start a new session (with optional task
+# Start a new session (with optional task ID)
+minsky session start <session-name> --repo <repo-url-or-path> 
+
+# Start a session associated with a task
+minsky session start --task <task-id> --repo <repo-url-or-path>
+
+# List all sessions
+minsky session list
+
+# View session details
+minsky session get <session-name>
+minsky session get --task <task-id>
+
+# Get

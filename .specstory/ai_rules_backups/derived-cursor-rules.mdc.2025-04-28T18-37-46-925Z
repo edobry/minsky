@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -92,10 +88,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.56.0 Updated minsky-workflow.mdc to reflect changes from task #006.
 - Version 0.57.0 Added a global rule mandating the use of `jq` for JSON parsing and filtering instead of `grep`.
 - Version 0.58.0 Added task #007 to add a global rule about using `jq` for JSON parsing.
-- Version 0.59.0 Added automation directive to minsky-workflow.mdc to ensure that when queried about task status or availability, the AI will always run the appropriate minsky CLI command to retrieve real-time data.
-- Version 0.60.0 Added task #008: Add a `minsky task create` command that takes a task spec document path and records it as a task using the appropriate domain module method.
-- Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
-- Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
 
 
 ## DEBUGGING
@@ -164,8 +156,6 @@ alwaysApply: true
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
 
-> **Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information.  Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
-
 ## Task Selection and Initial Setup
 
 When asked to work on a task (by name, description, or ID):
@@ -176,11 +166,11 @@ When asked to work on a task (by name, description, or ID):
      # Get direct information about a specific task
      minsky tasks get '#001' --json
      ```
-   - If you need to find a task from the backlog:  When asked to list, filter, or check the status of tasks, always run:
+   - If you need to find a task from the backlog:
      ```bash
-     minsky tasks list --json
+     # List all tasks and filter with jq (never use grep for JSON)
+     minsky tasks list --json | jq '.[] | select(.title | contains("keyword"))'
      ```
-     and present the output directly, unless specifically instructed otherwise.
      > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
 
 2. **Check Task Status**
@@ -405,7 +395,6 @@ This rule documents preferences expressed by the user during interactions with t
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
 - **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
-- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps, and verification criteria.  Only begin implementation after the task specification has been created and approved.
 
 ```
 
@@ -568,4 +557,47 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 ### Session Management
 
 ```bash
-# Start a new session (with optional task
+# Start a new session (with optional task ID)
+minsky session start <session-name> --repo <repo-url-or-path> 
+
+# Start a session associated with a task
+minsky session start --task <task-id> --repo <repo-url-or-path>
+
+# List all sessions
+minsky session list
+
+# View session details
+minsky session get <session-name>
+minsky session get --task <task-id>
+
+# Get session directory
+minsky session dir <session-name>
+
+```
+
+### Tasks Management
+
+Minsky supports robust, extensible task management with multiple backends (default: Markdown checklist in `process/tasks.md`).
+
+```bash
+# List all tasks in the current repo (or specify with --repo or --session)
+minsky tasks list --repo /path/to/repo --json
+
+# Filter tasks by status (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks list --repo /path/to/repo --status TODO --json
+
+# Get details for a specific task by ID
+minsky tasks get --repo /path/to/repo #001 --json
+
+# Get the status of a task
+minsky tasks status get --repo /path/to/repo #001
+
+# Set the status of a task (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks status set --repo /path/to/repo #001 DONE
+```
+
+To query the backlog, use: `minsky tasks list --json`
+
+**Options:**
+- `--repo <repoPath>`: Path to a git repository (overrides session)
+- `--session <session>`: Session name to use for repo

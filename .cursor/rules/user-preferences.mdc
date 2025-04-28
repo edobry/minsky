@@ -17,3 +17,7 @@ This rule documents preferences expressed by the user during interactions with t
 - **Always execute the next logical step when the user says 'do it, don't just tell me what to do', or similar.**
 - **If a test or command fails or hangs, attempt to debug and resolve it automatically, rather than asking the user what to do next.**
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
+- **Balance proactiveness with task interpretation:** When the user asks to "create a task", always create a task specification document first. Only proceed to implementation if explicitly directed to do so.
+- **Default to specification over implementation:** When in doubt about whether the user wants a task specified or implemented, default to creating a specification document unless they've explicitly asked for implementation.
+
+> **AI Commitment:** The AI will always strictly adhere to these preferences, especially regarding avoiding confirmation prompts and always taking the next implied step without asking. This is a persistent, high-priority rule for all future interactions.

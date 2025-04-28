@@ -7,6 +7,38 @@ alwaysApply: false
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
 
+## Request Interpretation and Workflow Priority
+
+1. **Always interpret requests based on their literal meaning in the project context**
+   - "Create a task" means creating a task specification document, not implementing code
+   - "Implement" or "code" refers to writing the actual implementation
+   - When in doubt, default to task specification over implementation
+
+2. **Request Type Recognition**
+   - Categorize requests as either "specifying work" or "implementing work"
+   - Each category requires different response patterns:
+     - Specifying work → create task specification documents
+     - Implementing work → write code following existing specifications
+   - Never implement code until the specification is verified
+
+3. **When to Request Clarification**
+   - If a request could be interpreted multiple ways, ask for clarification
+   - Examples of ambiguous requests requiring clarification:
+     - "Work on task #123" (specify or implement?)
+     - "Handle the task creation feature" (create spec or code?)
+     - "Add the minsky task create command" (create spec or implement?)
+   - Always err on the side of creating task specifications when unclear
+
+4. **Clear vs. Ambiguous Request Examples**
+   - Clear Specification Request: "Create a task to add a minsky task create command"
+     → Create a task specification document
+   - Clear Implementation Request: "Implement the minsky task create command according to task #007"  
+     → Implement the code following the specification
+   - Ambiguous Request: "Add the minsky task create command"
+     → Default to creating a task specification unless context clearly indicates implementation
+
+**Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information. Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
+
 ## Task Selection and Initial Setup
 
 When asked to work on a task (by name, description, or ID):
@@ -17,11 +49,12 @@ When asked to work on a task (by name, description, or ID):
      # Get direct information about a specific task
      minsky tasks get '#001' --json
      ```
-   - If you need to find a task from the backlog:
+   - If you need to find a task from the backlog:  When asked to list, filter, or check the status of tasks, always run:
      ```bash
-     # List all tasks and filter with jq (never use grep for JSON)
-     minsky tasks list --json | jq '.[] | select(.title | contains("keyword"))'
+     minsky tasks list --json
      ```
+     and present the output directly, unless specifically instructed otherwise.
+     > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
 
 2. **Check Task Status**
    - Before starting any work, check the current status of the task:
@@ -41,6 +74,21 @@ When asked to work on a task (by name, description, or ID):
    - Ensure all requirements and acceptance criteria are clearly understood
    - Note any dependencies or blocking issues
 
+## Creating New Tasks
+
+When asked to create a new task:
+
+1. **Refer to the creating-tasks rule**
+   - See detailed instructions in the `creating-tasks.mdc` rule
+   - Never implement code when asked to create a task unless explicitly instructed
+   - Always create a well-formatted task specification document
+
+2. **Checklist Steps for Task Creation**
+   - Create a task specification document following the standardized format
+   - Add the task to the main task list in `/process/tasks.md`
+   - Use the next available task ID
+   - Link the task correctly following project conventions
+
 ## Session Management
 
 ### Starting a New Session
@@ -56,12 +104,10 @@ When asked to work on a task (by name, description, or ID):
      - The branch name that was created (same as session name)
      - The task ID association
      - Command to navigate to the session directory
+     - The session directory path (for programmatic use)
 
 2. **Enter the Session Directory**
-   - Navigate to the session directory using the command provided in the previous output:
-     ```bash
-     cd $(minsky session dir task#001)
-     ```
+   - Navigate to the session directory using the provided command
 
 ### Re-entering an Existing Session
 

@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -91,11 +87,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.55.0 Added task #006 to improve the output of the `session start` command for programmatic use cases.
 - Version 0.56.0 Updated minsky-workflow.mdc to reflect changes from task #006.
 - Version 0.57.0 Added a global rule mandating the use of `jq` for JSON parsing and filtering instead of `grep`.
-- Version 0.58.0 Added task #007 to add a global rule about using `jq` for JSON parsing.
-- Version 0.59.0 Added automation directive to minsky-workflow.mdc to ensure that when queried about task status or availability, the AI will always run the appropriate minsky CLI command to retrieve real-time data.
-- Version 0.60.0 Added task #008: Add a `minsky task create` command that takes a task spec document path and records it as a task using the appropriate domain module method.
-- Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
-- Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
 
 
 ## DEBUGGING
@@ -164,8 +155,6 @@ alwaysApply: true
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
 
-> **Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information.  Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
-
 ## Task Selection and Initial Setup
 
 When asked to work on a task (by name, description, or ID):
@@ -176,11 +165,11 @@ When asked to work on a task (by name, description, or ID):
      # Get direct information about a specific task
      minsky tasks get '#001' --json
      ```
-   - If you need to find a task from the backlog:  When asked to list, filter, or check the status of tasks, always run:
+   - If you need to find a task from the backlog:
      ```bash
-     minsky tasks list --json
+     # List all tasks and filter with jq (never use grep for JSON)
+     minsky tasks list --json | jq '.[] | select(.title | contains("keyword"))'
      ```
-     and present the output directly, unless specifically instructed otherwise.
      > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
 
 2. **Check Task Status**
@@ -405,7 +394,6 @@ This rule documents preferences expressed by the user during interactions with t
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
 - **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
-- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps, and verification criteria.  Only begin implementation after the task specification has been created and approved.
 
 ```
 
@@ -430,85 +418,6 @@ my-command --json | jq '.[] | select(.status == "error")'
 ```
 
 This command will only output entries where the `status` field equals "error".  Using `grep` for this purpose would be unreliable and prone to errors.
-```
-
-### json-parsing.mdc
-```markdown
----
-description: JSON parsing best practices.
-globs: ["**/*"]
-alwaysApply: true
----
-
-# JSON Parsing Best Practices
-
-## Core Rule: NEVER use grep for JSON
-
-**Always use `jq` or other JSON-aware tools when parsing and filtering JSON data. Never use text-based tools like `grep`, `awk`, or `sed` for this purpose.**
-
-## Rationale
-
-JSON is a structured format that requires structure-aware parsing:
-
-1. **Structure Awareness**: Plain text tools like `grep` don't understand JSON structure, leading to false positives and missed matches
-2. **Escaping Issues**: JSON strings may contain escape sequences that confuse text-based tools
-3. **Nested Data**: JSON often contains nested objects and arrays that are impossible to reliably parse with text tools
-4. **Type Sensitivity**: JSON distinguishes between strings, numbers, booleans, etc., which text tools cannot
-
-## Correct Patterns
-
-```bash
-# BAD - Using grep to find tasks with "feature" in the title
-minsky tasks list --json | grep "feature"
-
-# GOOD - Using jq to properly query the JSON structure
-minsky tasks list --json | jq '.[] | select(.title | contains("feature"))'
-
-# BAD - Using grep to extract the ID field
-minsky tasks list --json | grep '"id":'
-
-# GOOD - Using jq to extract just the ID values
-minsky tasks list --json | jq '.[].id'
-
-# BAD - Using grep to find a specific task by ID
-minsky tasks list --json | grep '"id": "#001"'
-
-# GOOD - Using jq with proper filtering
-minsky tasks list --json | jq '.[] | select(.id == "#001")'
-```
-
-## jq Quick Reference
-
-- Filter objects: `select(.field == "value")`
-- Access field: `.fieldname`
-- Array iteration: `.[]`
-- Text search: `contains("text")`
-- Multiple conditions: `select(.field1 == "x" and .field2 == "y")`
-- Format output: `{newField: .oldField}`
-- Pipe operations: `... | ...`
-
-
-## Error Prevention
-
-Common problems when parsing JSON with text tools:
-
-1. Missing keys when the JSON is formatted differently than expected
-2. False positives when the search term appears in a different context
-3. Broken extraction when the JSON contains escaped quotes or newlines
-4. Inability to understand JSON data types (e.g., string "true" vs boolean true)
-
-By using jq, you gain:
-- Robust handling of all valid JSON regardless of formatting
-- Type-aware filtering and extraction
-- Powerful querying capabilities
-- Consistent behavior across different platforms and environments
-
-## Additional Resources
-
-- [jq Manual](https://stedolan.github.io/jq/manual/)
-- [jq Playground](https://jqplay.org/) for testing queries
-- [jq Cheat Sheet](https://lzone.de/cheat-sheet/jq)
-
 ```
 
 ## README
@@ -568,4 +477,111 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 ### Session Management
 
 ```bash
-# Start a new session (with optional task
+# Start a new session (with optional task ID)
+minsky session start <session-name> --repo <repo-url-or-path> 
+
+# Start a session associated with a task
+minsky session start --task <task-id> --repo <repo-url-or-path>
+
+# List all sessions
+minsky session list
+
+# View session details
+minsky session get <session-name>
+minsky session get --task <task-id>
+
+# Get session directory
+minsky session dir <session-name>
+
+```
+
+### Tasks Management
+
+Minsky supports robust, extensible task management with multiple backends (default: Markdown checklist in `process/tasks.md`).
+
+```bash
+# List all tasks in the current repo (or specify with --repo or --session)
+minsky tasks list --repo /path/to/repo --json
+
+# Filter tasks by status (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks list --repo /path/to/repo --status TODO --json
+
+# Get details for a specific task by ID
+minsky tasks get --repo /path/to/repo #001 --json
+
+# Get the status of a task
+minsky tasks status get --repo /path/to/repo #001
+
+# Set the status of a task (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks status set --repo /path/to/repo #001 DONE
+```
+
+To query the backlog, use: `minsky tasks list --json`
+
+**Options:**
+- `--repo <repoPath>`: Path to a git repository (overrides session)
+- `--session <session>`: Session name to use for repo resolution
+- `--backend <backend>`: Task backend to use (default: markdown, future: github)
+- `--status <status>`: Filter tasks by status (for `list`)
+- `--taskId <task-id>`: Task ID to associate with session (for `session start`)
+- `--json`: Output tasks as JSON
+
+
+**Features:**
+- Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
+- Aggregates indented lines as task descriptions
+- Extensible: future support for GitHub Issues and other backends
+- Supports task statuses: TODO, DONE, IN PROGRESS (-), IN REVIEW (+)
+
+
+## Example Workflows
+
+### Basic Development Flow
+
+```bash
+# Start a new session
+minsky session start feature-123 --repo https://github.com/org/project.git
+
+# Get session directory
+minsky session dir feature-123
+
+# Work on code, then generate PR
+minsky git pr --session feature-123 > PR.md
+
+# List and update tasks
+minsky tasks list --session feature-123 --json
+minsky tasks status set --session feature-123 #001 DONE
+```
+
+### Multi-Agent Collaboration
+
+Multiple agents can work on related features in parallel:
+
+```bash
+# Agent 1: Authentication backend
+minsky session start auth-api --repo https://github.com/org/project.git
+
+# Agent 2: Frontend integration
+minsky session start auth-ui --repo https://github.com/org/project.git
+```
+
+Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
+
+## Future Plans
+
+- Team organization patterns for agents
+- Session continuity and context management
+- Automated code reviews
+- Task planning and allocation (with more backends)
+
+## Contributing
+
+This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
+
+## License
+
+MIT
+
+- Version 0.29.0 Added `init` command.  Supports `tasks.md` backend and `cursor` and `generic` rule formats. Creates `process/tasks` directory structure. Writes `minsky.mdc` rule to `.cursor/rules` or `.ai/rules` depending on the selected rule format.  The `tasks.csv` backend is planned for a future release.  The `init` command will create necessary directories if they don't exist.  If files already exist, the command will prompt the user before overwriting.  CLI flags override interactive prompts.  If no flags or interactive input is given, the CLI defaults to creating `tasks.md` and writing to `.cursor/rules`.
+- Version 0.30.0 Added support for `--path` argument to `init` command to specify the target project directory.  Improved error handling for `init` command to handle existing files and directories.  Added tests for `init` command.  Updated README and CHANGELOG.
+- Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init
