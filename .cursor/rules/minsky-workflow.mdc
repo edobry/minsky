@@ -61,6 +61,33 @@ Before examining or modifying any code, you MUST:
 No code examination or changes are permitted until these steps are complete.
 Violating this rule compromises the entire workflow system.
 
+## ⚠️ REPOSITORY ISOLATION WARNING
+
+**The session directory contains a COMPLETELY SEPARATE CLONE of the repository.**
+
+- Changes made to files in the main workspace WILL NOT appear in the session branch
+- Changes made to files in the session directory DO NOT affect the main workspace
+- Always confirm your current working directory with `pwd` before making any changes
+- Session isolation is fundamental to the Minsky model and must be preserved
+
+## FILE PATH RESOLUTION REQUIREMENTS
+
+When working in a session directory, you MUST:
+
+- **ALWAYS use absolute paths when editing files**
+  - CORRECT: `/Users/username/.local/state/minsky/git/task-id/src/file.ts`
+  - INCORRECT: `src/file.ts` (which would edit the main workspace file)
+- Relative paths in file editing tools are resolved against the main workspace, NOT the current shell directory
+- Without absolute paths, changes may silently occur in the main workspace instead of the session directory
+
+## FILE CHANGE VERIFICATION
+
+After every file edit in a session directory, verify the changes are actually present by:
+
+1. Running `git status` to confirm the file appears as modified
+2. Running `git diff <filename>` to confirm the expected changes exist
+3. Never assuming an edit succeeded without verification
+
 ## Request Interpretation and Workflow Priority
 
 1. **Always interpret requests based on their literal meaning in the project context**
@@ -237,14 +264,27 @@ When asked to continue working on a task:
    - Use the Work Log from the task document as the basis for changelog entries
    - Reference the task ID in the changelog entry
 
-## Task Completion
+## Task Completion Checklist
 
-1. **PR Preparation**
-   - Generate a PR description:
-     ```bash
-     minsky git pr
-     ```
-   - Minsky will automatically create necessary directories and save the PR description to:
+Task implementation is not complete until ALL these steps are performed, in order:
+
+1. ✓ All code changes are made in the session directory (not main workspace)
+2. ✓ All tests pass in the session directory
+3. ✓ Task document is updated with Work Log and verification steps are checked off
+4. ✓ All changes are committed with task ID in commit message
+5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
+6. ✓ PR description is committed
+7. ✓ Changes are pushed to remote with `git push origin <branch>`
+8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+
+## PR Preparation
+
+1. **Generate a PR description:**
+   ```bash
+   minsky git pr --path .
+   ```
+   - Minsky will automatically generate a PR description based on the changes in the current branch
+   - Save this description to:
      ```
      process/tasks/<task-id>/pr.md
      ```
