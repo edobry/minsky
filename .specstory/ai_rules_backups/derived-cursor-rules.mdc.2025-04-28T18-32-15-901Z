@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -90,7 +86,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.54.0 Added task #005 to add a `minsky git push` command.
 - Version 0.55.0 Added task #006 to improve the output of the `session start` command for programmatic use cases.
 - Version 0.56.0 Updated minsky-workflow.mdc to reflect changes from task #006.
-- Version 0.57.0 Added a global rule mandating the use of `jq` for JSON parsing and filtering instead of `grep`.
 
 
 ## DEBUGGING
@@ -241,17 +236,6 @@ When asked to continue working on a task:
      ```
    - If no session exists, create one as described in "Starting a New Session"
 
-### Programmatic Usage
-
-When integrating Minsky into scripts or automated workflows, use the `--quiet` option to suppress all non-essential output:
-
-```bash
-SESSION_DIR=$(minsky session start my-session --repo https://github.com/user/repo.git --quiet)
-```
-
-This command will output only the session directory path, making it easy to integrate into scripts and pipelines.
-
-
 ## Implementation Process
 
 1. **Planning**
@@ -398,30 +382,8 @@ This rule documents preferences expressed by the user during interactions with t
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
 - **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
+- **When working with JSON outputs, always use `jq` for parsing and filtering, never `grep`.**
 
-```
-
-### jq-rule.mdc
-```markdown
----
-description: JSON processing rule.
-globs: ["**/*.ts", "**/*.sh", "**/*.js"]
-alwaysApply: true
----
-
-# JSON Processing Rule
-
-When working with JSON data, always use `jq` for parsing and filtering.  Never use `grep` or other text-based tools.  `jq` provides more robust and reliable processing of JSON data.
-
-**Example:**
-
-To filter JSON output from a command, use `jq`:
-
-```bash
-my-command --json | jq '.[] | select(.status == "error")'
-```
-
-This command will only output entries where the `status` field equals "error".  Using `grep` for this purpose would be unreliable and prone to errors.
 ```
 
 ## README
@@ -588,4 +550,11 @@ MIT
 
 - Version 0.29.0 Added `init` command.  Supports `tasks.md` backend and `cursor` and `generic` rule formats. Creates `process/tasks` directory structure. Writes `minsky.mdc` rule to `.cursor/rules` or `.ai/rules` depending on the selected rule format.  The `tasks.csv` backend is planned for a future release.  The `init` command will create necessary directories if they don't exist.  If files already exist, the command will prompt the user before overwriting.  CLI flags override interactive prompts.  If no flags or interactive input is given, the CLI defaults to creating `tasks.md` and writing to `.cursor/rules`.
 - Version 0.30.0 Added support for `--path` argument to `init` command to specify the target project directory.  Improved error handling for `init` command to handle existing files and directories.  Added tests for `init` command.  Updated README and CHANGELOG.
-- Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init
+- Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init command. Updated README and CHANGELOG.
+- Version 0.32.0 Added improved UX for init command using bun-promptx.  Improved error handling for init command. Updated README and CHANGELOG.  Added support for --repo and --session flags to init command, using resolveRepoPath for repo path resolution.  Added tests for init command including error handling and prompt logic.
+- Version 0.33.0 Updated init command to use @clack/prompts for interactive prompts. Improved error handling and user experience for init command. Updated README and CHANGELOG.
+- Version 0.34.0  Added `minsky tasks list --json` as a method for querying the backlog.
+- Version 0.35.0 Added clarification on how to query the backlog using `minsky tasks list --json`.
+- Version 0.36.0 To query the backlog, use: `minsky tasks list --json`
+- Version 0.37.0 To query the backlog, use `minsky tasks list --json`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
+- Version 0

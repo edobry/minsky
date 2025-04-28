@@ -1,0 +1,72 @@
+---
+description: Use this when working with a command that outputs JSON
+globs: 
+alwaysApply: false
+---
+# JSON Parsing Best Practices
+
+## Core Rule: NEVER use grep for JSON
+
+**Always use `jq` or other JSON-aware tools when parsing and filtering JSON data. Never use text-based tools like `grep`, `awk`, or `sed` for this purpose.**
+
+## Rationale
+
+JSON is a structured format that requires structure-aware parsing:
+
+1. **Structure Awareness**: Plain text tools like `grep` don't understand JSON structure, leading to false positives and missed matches
+2. **Escaping Issues**: JSON strings may contain escape sequences that confuse text-based tools
+3. **Nested Data**: JSON often contains nested objects and arrays that are impossible to reliably parse with text tools
+4. **Type Sensitivity**: JSON distinguishes between strings, numbers, booleans, etc., which text tools cannot
+
+## Correct Patterns
+
+```bash
+# BAD - Using grep to find tasks with "feature" in the title
+minsky tasks list --json | grep "feature"
+
+# GOOD - Using jq to properly query the JSON structure
+minsky tasks list --json | jq '.[] | select(.title | contains("feature"))'
+
+# BAD - Using grep to extract the ID field
+minsky tasks list --json | grep '"id":'
+
+# GOOD - Using jq to extract just the ID values
+minsky tasks list --json | jq '.[].id'
+
+# BAD - Using grep to find a specific task by ID
+minsky tasks list --json | grep '"id": "#001"'
+
+# GOOD - Using jq with proper filtering
+minsky tasks list --json | jq '.[] | select(.id == "#001")'
+```
+
+## jq Quick Reference
+
+- Filter objects: `select(.field == "value")`
+- Access field: `.fieldname`
+- Array iteration: `.[]`
+- Text search: `contains("text")`
+- Multiple conditions: `select(.field1 == "x" and .field2 == "y")`
+- Format output: `{newField: .oldField}`
+- Pipe operations: `... | ...`
+
+## Error Prevention
+
+Common problems when parsing JSON with text tools:
+
+1. Missing keys when the JSON is formatted differently than expected
+2. False positives when the search term appears in a different context
+3. Broken extraction when the JSON contains escaped quotes or newlines
+4. Inability to understand JSON data types (e.g., string "true" vs boolean true)
+
+By using jq, you gain:
+- Robust handling of all valid JSON regardless of formatting
+- Type-aware filtering and extraction
+- Powerful querying capabilities
+- Consistent behavior across different platforms and environments
+
+## Additional Resources
+
+- [jq Manual](mdc:https:/stedolan.github.io/jq/manual)
+- [jq Playground](mdc:https:/jqplay.org) for testing queries
+- [jq Cheat Sheet](mdc:https:/lzone.de/cheat-sheet/jq)
