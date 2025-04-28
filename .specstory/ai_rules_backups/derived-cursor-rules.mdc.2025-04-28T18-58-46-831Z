@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -99,10 +95,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.63.0 Added task #010: Create a task specification for adding a `minsky task create` command.
 - Version 0.64.0 Added task #011: Implement `minsky task create` command.
 - Version 0.65.0 Added task #008: Update `tasks list` command to filter out DONE tasks by default, adding a CLI option to include them.
-- Version 0.66.0 Added rule to always use `jq` for JSON parsing and filtering.
-- Version 0.67.0 Before implementing any task, ALWAYS ensure a valid session exists.  If no session exists for the task, create one using `minsky session start --task <task-id>`. Then, navigate to the session directory before making any code changes. Document these steps in the task specification.
-- Version 0.68.0 Enhanced minsky-workflow rule with a critical "Session-First Implementation" requirement, mandating session creation and activation before any code examination or modification.  The rule now includes a prominent warning at the beginning, three specific steps to ensure a valid session exists, and a clear statement about the consequences of violating this rule.
-- Version 0.69.0 Updated minsky-workflow.mdc; `globs` is now `["**/*"]` and `alwaysApply` is `true`.
 
 
 ## DEBUGGING
@@ -162,26 +154,14 @@ Example: `src/commands/git/clone.ts` should only handle CLI concerns while deleg
 ### minsky-workflow.mdc
 ```markdown
 ---
-description: REQUIRED workflow for ANY task implementation - MUST apply when task references (#XXX, task #XXX) appear in requests. Enforces session creation before code changes.
-globs: ["**/*"]
+description: Minsky Workflow for task management.
+globs: ["**/*.md"]
 alwaysApply: true
 ---
 
 # Minsky Workflow
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
-
-## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
-
-**⚠️ IMPORTANT: A SESSION MUST BE CREATED AND ACTIVE BEFORE ANY CODE CHANGES**
-
-Before examining or modifying any code, you MUST:
-1. Verify task status (`minsky tasks status get '#id'`)
-2. Create or identify an existing session (`minsky session start --task id`)
-3. Enter the session directory (`cd $(minsky session dir session-name)`)
-
-No code examination or changes are permitted until these steps are complete.
-Violating this rule compromises the entire workflow system.
 
 ## Request Interpretation and Workflow Priority
 
@@ -409,7 +389,6 @@ This command will output only the session directory path, making it easy to inte
 - When a task spans multiple sessions, use the Work Log to ensure continuity
 - Always use jq for parsing JSON output, not grep or other text-based tools
 - Minsky manages branch names, session directories, and other infrastructure—you don't need to create these manually
-- **Before starting any implementation work, ALWAYS ensure a valid session exists for the task. If one doesn't exist, create it using `minsky session start --task <task-id>` and then navigate to the session directory.**
 
 ```
 
@@ -516,4 +495,52 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
    - [ ] Add appropriate options and arguments
    - [ ] Implement action handler to call domain method
    - [ ] Add proper error handling
-5. [
+5. [ ] Register command in src/commands/tasks/index.ts
+6. [ ] Add tests for the new functionality
+7. [ ] Update documentation
+
+## Verification
+
+- [ ] Running `minsky tasks create path/to/spec.md` successfully creates a task
+- [ ] The task is added to process/tasks.md with correct formatting
+- [ ] The command returns the created task details
+- [ ] All options work as expected
+- [ ] Error handling works correctly for invalid inputs
+- [ ] Tests pass
+```
+
+## Task Type Recognition
+
+Always distinguish between:
+
+1. **Task Specification Requests**:
+   - "Create a task for..."
+   - "Add a task to..."
+   - "Make a task that describes..."
+
+2. **Task Implementation Requests**:
+   - "Implement the task for..."
+   - "Write the code that..."
+   - "Let's code the feature for..."
+
+When in doubt, default to creating a task specification document rather than implementing code.
+
+```
+
+### user-preferences.mdc
+```markdown
+---
+description: User preferences for AI assistant behavior.
+globs: ["**/*.md"]
+alwaysApply: true
+---
+
+# User Preferences
+
+This rule documents preferences expressed by the user during interactions with the AI coding assistant.  These preferences are to be adhered to in future interactions.
+
+## Workflow Preferences
+
+- **Avoid unnecessary confirmation prompts:**  Do not ask for confirmation on obvious next steps in the workflow.  If the next step is clearly implied by the conversation, proceed without asking for confirmation.
+- **Never ask clarifying questions if the next steps seem obvious:** If the next steps are clearly implied by the conversation, proceed without asking for confirmation.  The AI should make reasonable assumptions about the user's intent and proceed accordingly.
+- **Never ask for confirmation on next steps like 'Would you like

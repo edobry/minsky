@@ -1,11 +1,23 @@
 ---
-description: Use this when working on a task
+description: REQUIRED workflow for ANY task implementation - MUST apply when task references (#XXX, task #XXX) appear in requests. Enforces session creation before code changes.
 globs: 
 alwaysApply: false
 ---
 # Minsky Workflow
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
+
+## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
+
+**⚠️ IMPORTANT: A SESSION MUST BE CREATED AND ACTIVE BEFORE ANY CODE CHANGES**
+
+Before examining or modifying any code, you MUST:
+1. Verify task status (`minsky tasks status get '#id'`)
+2. Create or identify an existing session (`minsky session start --task id`)
+3. Enter the session directory (`cd $(minsky session dir session-name)`)
+
+No code examination or changes are permitted until these steps are complete.
+Violating this rule compromises the entire workflow system.
 
 ## Request Interpretation and Workflow Priority
 
