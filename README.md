@@ -65,6 +65,9 @@ minsky session list
 # View session details
 minsky session get my-session
 
+# View session details by task ID
+minsky session get --task 001
+
 # Get session directory
 minsky session dir my-session
 ```
