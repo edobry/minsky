@@ -16,3 +16,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `--task` option to `session get` command to query sessions by task ID [#004](tasks/004-add-task-option-to-session-get.md)
 - [ ] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-add-git-push-command.md)
 - [ ] Add `--quiet` option to `session start` for programmatic output [#006](tasks/006-add-quiet-option-to-session-start.md)
+- [ ] Add `minsky tasks create` command to create tasks from spec documents [#007](tasks/007-add-tasks-create-command.md)

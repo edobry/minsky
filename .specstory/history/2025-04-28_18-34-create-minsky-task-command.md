@@ -944,6 +944,46 @@ Removing the redundant task-interpretation.mdc file as it duplicates information
 
 ---
 
+```diff
+       - "Work on task #123" (specify or implement?)
+       - "Handle the task creation feature" (create spec or code?)
++      - "Add the minsky task create command" (create spec or implement?)
+     - Always err on the side of creating task specifications when unclear
+  
++ 4. **Clear vs. Ambiguous Request Examples**
++    - Clear Specification Request: "Create a task to add a minsky task create command"
++      → Create a task specification document
++    - Clear Implementation Request: "Implement the minsky task create command according to task #007"  
++      → Implement the code following the specification
++    - Ambiguous Request: "Add the minsky task create command"
++      → Default to creating a task specification unless context clearly indicates implementation
++ 
+  **Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information. Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
+  
+```
+
+---
+
+_**User**_
+
+ok, so, now go ahead and actually create that task i asked you for at the beginning
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+_**User**_
+
+did you follow @creating-tasks.mdc correctly? why not if you didnt?
+
+---
+
+_**Assistant**_
+
 
 
 ---

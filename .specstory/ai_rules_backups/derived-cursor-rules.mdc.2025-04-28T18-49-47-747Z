@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -96,7 +92,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.60.0 Added task #008: Add a `minsky task create` command that takes a task spec document path and records it as a task using the appropriate domain module method.
 - Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
 - Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
-- Version 0.63.0 Added task #010: Create a task specification for adding a `minsky task create` command.
 
 
 ## DEBUGGING
@@ -165,29 +160,7 @@ alwaysApply: true
 
 This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
 
-## Request Interpretation and Workflow Priority
-
-1. **Always interpret requests based on their literal meaning in the project context**
-    - "Create a task" means creating a task specification document, not implementing code
-    - "Implement" or "code" refers to writing the actual implementation
-    - When in doubt, default to task specification over implementation
-
-2. **Request Type Recognition**
-    - Categorize requests as either "specifying work" or "implementing work"
-    - Each category requires different response patterns:
-      - Specifying work → create task specification documents
-      - Implementing work → write code following existing specifications
-    - Never implement code until the specification is verified
-
-3. **When to Request Clarification**
-    - If a request could be interpreted multiple ways, ask for clarification
-    - Examples of ambiguous requests requiring clarification:
-      - "Work on task #123" (specify or implement?)
-      - "Handle the task creation feature" (create spec or code?)
-    - Always err on the side of creating task specifications when unclear
-
-
-**Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information. Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
+> **Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information.  Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
 
 ## Task Selection and Initial Setup
 
@@ -224,22 +197,6 @@ When asked to work on a task (by name, description, or ID):
    - Ensure all requirements and acceptance criteria are clearly understood
    - Note any dependencies or blocking issues
 
-## Creating New Tasks
-
-When asked to create a new task:
-
-1. **Refer to the creating-tasks rule**
-    - See detailed instructions in the `creating-tasks.mdc` rule
-    - Never implement code when asked to create a task unless explicitly instructed
-    - Always create a well-formatted task specification document
-
-2. **Checklist Steps for Task Creation**
-    - Create a task specification document following the standardized format
-    - Add the task to the main task list in `/process/tasks.md`
-    - Use the next available task ID
-    - Link the task correctly following project conventions
-
-
 ## Session Management
 
 ### Starting a New Session
@@ -258,7 +215,10 @@ When asked to create a new task:
      - The session directory path (for programmatic use)
 
 2. **Enter the Session Directory**
-    - Navigate to the session directory using the provided command
+   - Navigate to the session directory using the command provided in the previous output:
+     ```bash
+     cd $(minsky session dir task#001)
+     ```
 
 ### Re-entering an Existing Session
 
@@ -388,27 +348,14 @@ This command will output only the session directory path, making it easy to inte
 
 ### creating-tasks.mdc
 ```markdown
----
-description: Task creation process rules.
-globs: ["**/*.md"]
-alwaysApply: true
----
-
 # Task Creation Process
-
-## ⚠️ IMPORTANT: Task Creation vs. Task Implementation
-In Minsky, "creating a task" means authoring a task specification document and adding it to the tracking system - **not** implementing the code for that task.
-
-- When the user requests to "create a task", always produce a task specification document
-- Only proceed to implementation if explicitly instructed with phrases like "implement the task" or "write the code for"
-- If there is any ambiguity, confirm with the user whether they want task specification or implementation
 
 ## Overview
 All tasks and work items must be tracked using the canonical process described here. Ad-hoc or freeform task files (e.g., TODO.something.md) are NOT permitted. All tasks must be:
 - Listed in `/process/tasks.md` as a checklist item
 - Linked to a detailed task spec in `/process/tasks/{id}-{name}.md`
 
-## Step-by-Step Task Creation Instructions
+## Step-by-Step Instructions
 
 ### 1. Check for Existing Tasks
 - Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
@@ -417,108 +364,19 @@ All tasks and work items must be tracked using the canonical process described h
 ### 2. Add a New Task
 - If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
   ```markdown
-  - [ ] Task Title [#NNN](tasks/NNN-task-title.md)
+  - [ ] Task Title @#NNN
   ```
   - Use the next available task number (NNN).
   - The title should be concise but descriptive.
 
-### 3. Create the Task Specification Document
+### 3. Create the Task Specification
 - Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
 - The task spec should include:
   - **Objective**: What is the goal of the task?
-  - **Context**: Background information and why this task is needed
-  - **Requirements**: Specific, detailed requirements
-  - **Implementation Steps**: A checklist of all required steps and substeps
+  - **Task Breakdown**: A checklist of all required steps and substeps.
   - **Verification**: What must be true for the task to be considered complete?
 - Use checkboxes for all actionable items and sub-items.
 - Include any relevant context, links, or references.
-
-## Complete Example of a Task Specification
-
-Here's a complete example of a properly formatted task specification document:
-
-```markdown
-# Task #007: Add `minsky task create` Command
-
-## Context
-
-The Minsky CLI currently lacks a streamlined way to create new tasks from specification documents. Users need to manually update the tasks.md file and ensure proper linking. An automated command would improve workflow efficiency and reduce errors.
-
-## Requirements
-
-1. **CLI Behavior**
-   - Command signature:
-     ```
-     minsky tasks create <spec-path>
-     ```
-   - The command should:
-     - Parse the provided task specification document
-     - Extract the title and description
-     - Assign the next available ID
-     - Add a checklist item to process/tasks.md
-     - Return the created task details
-
-2. **Integration with Domain Module**
-   - Use the TaskService domain module to record the task
-   - Add a createTask method to the TaskService class
-   - Implement createTask in the MarkdownTaskBackend
-
-3. **Error Handling**
-   - Validate that the spec file exists
-   - Ensure the spec file has a valid title and description
-   - Handle errors gracefully with informative messages
-
-4. **CLI Options**
-   - Support the following options:
-     - `--session <session>`: Session name to use for repo resolution
-     - `--repo <repoPath>`: Path to a git repository (overrides session)
-     - `--backend <backend>`: Specify task backend (markdown, github)
-     - `--json`: Output task as JSON
-
-## Implementation Steps
-
-1. [ ] Update TaskBackend interface to include createTask method
-2. [ ] Implement createTask in MarkdownTaskBackend:
-   - [ ] Parse the spec file to extract title and description
-   - [ ] Find the next available task ID
-   - [ ] Create a task entry in tasks.md
-   - [ ] Return the created Task object
-3. [ ] Add createTask method to TaskService
-4. [ ] Create a new file in src/commands/tasks/create.ts:
-   - [ ] Define command using Commander.js
-   - [ ] Add appropriate options and arguments
-   - [ ] Implement action handler to call domain method
-   - [ ] Add proper error handling
-5. [ ] Register command in src/commands/tasks/index.ts
-6. [ ] Add tests for the new functionality
-7. [ ] Update documentation
-
-## Verification
-
-- [ ] Running `minsky tasks create path/to/spec.md` successfully creates a task
-- [ ] The task is added to process/tasks.md with correct formatting
-- [ ] The command returns the created task details
-- [ ] All options work as expected
-- [ ] Error handling works correctly for invalid inputs
-- [ ] Tests pass
-```
-
-## Task Type Recognition
-
-Always distinguish between:
-
-1. **Task Specification Requests**:
-   - "Create a task for..."
-   - "Add a task to..."
-   - "Make a task that describes..."
-
-2. **Task Implementation Requests**:
-   - "Implement the task for..."
-   - "Write the code that..."
-   - "Let's code the feature for..."
-
-When in doubt, default to creating a task specification document rather than implementing code.
-
 ```
 
 ### user-preferences.mdc
@@ -543,4 +401,167 @@ This rule documents preferences expressed by the user during interactions with t
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
 - **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
-- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps
+- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps, and verification criteria.  Only begin implementation after the task specification has been created and approved.
+
+```
+
+### jq-rule.mdc
+```markdown
+---
+description: JSON processing rule.
+globs: ["**/*.ts", "**/*.sh", "**/*.js"]
+alwaysApply: true
+---
+
+# JSON Processing Rule
+
+When working with JSON data, always use `jq` for parsing and filtering.  Never use `grep` or other text-based tools.  `jq` provides more robust and reliable processing of JSON data.
+
+**Example:**
+
+To filter JSON output from a command, use `jq`:
+
+```bash
+my-command --json | jq '.[] | select(.status == "error")'
+```
+
+This command will only output entries where the `status` field equals "error".  Using `grep` for this purpose would be unreliable and prone to errors.
+```
+
+### json-parsing.mdc
+```markdown
+---
+description: JSON parsing best practices.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# JSON Parsing Best Practices
+
+## Core Rule: NEVER use grep for JSON
+
+**Always use `jq` or other JSON-aware tools when parsing and filtering JSON data. Never use text-based tools like `grep`, `awk`, or `sed` for this purpose.**
+
+## Rationale
+
+JSON is a structured format that requires structure-aware parsing:
+
+1. **Structure Awareness**: Plain text tools like `grep` don't understand JSON structure, leading to false positives and missed matches
+2. **Escaping Issues**: JSON strings may contain escape sequences that confuse text-based tools
+3. **Nested Data**: JSON often contains nested objects and arrays that are impossible to reliably parse with text tools
+4. **Type Sensitivity**: JSON distinguishes between strings, numbers, booleans, etc., which text tools cannot
+
+## Correct Patterns
+
+```bash
+# BAD - Using grep to find tasks with "feature" in the title
+minsky tasks list --json | grep "feature"
+
+# GOOD - Using jq to properly query the JSON structure
+minsky tasks list --json | jq '.[] | select(.title | contains("feature"))'
+
+# BAD - Using grep to extract the ID field
+minsky tasks list --json | grep '"id":'
+
+# GOOD - Using jq to extract just the ID values
+minsky tasks list --json | jq '.[].id'
+
+# BAD - Using grep to find a specific task by ID
+minsky tasks list --json | grep '"id": "#001"'
+
+# GOOD - Using jq with proper filtering
+minsky tasks list --json | jq '.[] | select(.id == "#001")'
+```
+
+## jq Quick Reference
+
+- Filter objects: `select(.field == "value")`
+- Access field: `.fieldname`
+- Array iteration: `.[]`
+- Text search: `contains("text")`
+- Multiple conditions: `select(.field1 == "x" and .field2 == "y")`
+- Format output: `{newField: .oldField}`
+- Pipe operations: `... | ...`
+
+
+## Error Prevention
+
+Common problems when parsing JSON with text tools:
+
+1. Missing keys when the JSON is formatted differently than expected
+2. False positives when the search term appears in a different context
+3. Broken extraction when the JSON contains escaped quotes or newlines
+4. Inability to understand JSON data types (e.g., string "true" vs boolean true)
+
+By using jq, you gain:
+- Robust handling of all valid JSON regardless of formatting
+- Type-aware filtering and extraction
+- Powerful querying capabilities
+- Consistent behavior across different platforms and environments
+
+## Additional Resources
+
+- [jq Manual](https://stedolan.github.io/jq/manual/)
+- [jq Playground](https://jqplay.org/) for testing queries
+- [jq Cheat Sheet](https://lzone.de/cheat-sheet/jq)
+
+```
+
+## README
+
+# Minsky
+
+A tool for coordinating AI agent workflows using Git and other collaboration tools. Inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics.
+
+> **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
+
+## Overview
+
+Minsky helps AI agents collaborate on codebases by leveraging the same tools human engineers use:
+
+- **Git repositories** for version control
+- **Isolated workspaces** for preventing conflicts
+- **Branch-based workflows** for parallel development
+- **Pull request summaries** for documenting changes
+- **Task management** for tracking and coordinating work items
+
+The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/minsky.git
+cd minsky
+
+# Install dependencies
+bun install
+
+# Link globally
+bun link
+```
+
+## Usage
+
+### Git Commands
+
+```bash
+# Clone a repo (auto-generates session ID)
+minsky git clone <repo-url>
+
+# Clone with a named session
+minsky git clone <repo-url> --session <session-name>
+
+# Create a branch in session
+minsky git branch <branch-name> --session <session-name>
+
+# Generate PR document
+minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-path>
+```
+
+> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+
+### Session Management
+
+```bash
+# Start a new session (with optional task
