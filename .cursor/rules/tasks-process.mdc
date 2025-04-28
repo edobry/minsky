@@ -127,3 +127,53 @@ This rule is enforced through:
 ## Notes
 - Never skip verification steps or mark a task complete without meeting all requirements.
 - All code, documentation, and process changes must follow this workflow. 
+
+## Process for Starting a New Task
+
+1. **Verification:** Before starting any work, verify that the task is well-defined and understood.  Ensure all requirements and acceptance criteria are clearly articulated.
+
+2. **Documentation:** Update the task document (`process/tasks/<task-id>-<task-name>.md`) with any clarifications, additional requirements, or design decisions. This should include an implementation plan.
+
+3. **Implementation:** Implement the task, adhering to coding standards and best practices. Commit changes frequently with clear and concise messages.
+
+4. **Verification (Post-Implementation):** After implementing the task, verify that it meets all requirements and acceptance criteria. Test thoroughly.
+
+5. **Documentation (Post-Implementation):** Update the task document with details about the implementation, testing, and verification results.
+
+6. **Pull Request:** Create a pull request with a clear and concise description.  Reference the task number in the PR title and description.
+
+7. **Changelog:** Update the changelog with a summary of the changes made.  Reference the task number.
+
+8. **Code Review:** Request a code review before merging the PR.
+
+9. **Post-Merge:** After merging the PR, update the task status to "DONE".  Close the task if appropriate.
+
+## Process for Continuing Work on an Existing Task
+
+1. **Status Check:** Always check the current status of the task before continuing work:
+   ```bash
+   minsky tasks status get '<task-id>'
+   ```
+
+2. **Task Description Review:** Read the task document (`process/tasks/<task-id>-<task-name>.md`) to refresh your understanding of requirements and objectives.
+
+3. **Verification Status Check:** Review the verification section in the task document to determine what has been completed and what remains.
+
+4. **Session Handling:**
+   - Check if a session already exists for the task:
+     ```bash
+     minsky session list --json | grep "<task-id>"
+     ```
+   - If a session exists, use it:
+     ```bash
+     cd $(minsky session dir <session-name>)
+     ```
+   - If no session exists, create one:
+     ```bash
+     minsky session start --task <task-id>
+     cd $(minsky session dir task#<task-id>)
+     ```
+
+5. **Implementation Continuation:** Continue with the implementation, picking up from where the work was left off.
+
+6. **Follow Standard Process:** Complete the remaining steps of the standard process (verification, documentation, changelog, etc.) as needed. 

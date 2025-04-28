@@ -1,0 +1,19 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# User Preferences
+
+This rule documents preferences expressed by the user during interactions with the AI coding assistant. These preferences are to be adhered to in future interactions.
+
+## Workflow Preferences
+
+- **Avoid unnecessary confirmation prompts:** Do not ask for confirmation on obvious next steps in the workflow. If the next step is clearly implied by the conversation, proceed without asking for confirmation.
+- **Never ask clarifying questions if the next steps seem obvious:** If the next steps are clearly implied by the conversation, proceed without asking for confirmation. The AI should make reasonable assumptions about the user's intent and proceed accordingly.
+- **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
+- **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
+- **Never ask for confirmation on next steps like 'Would you like to proceed with ...?'.**
+- **Always execute the next logical step when the user says 'do it, don't just tell me what to do', or similar.**
+- **If a test or command fails or hangs, attempt to debug and resolve it automatically, rather than asking the user what to do next.**
+- **When a workflow or troubleshooting step is implied, proceed with it directly.**
