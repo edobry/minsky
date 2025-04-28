@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -97,7 +93,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
 - Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
 - Version 0.63.0 Added task #010: Create a task specification for adding a `minsky task create` command.
-- Version 0.64.0 Added task #011: Implement `minsky task create` command.
 
 
 ## DEBUGGING
@@ -185,16 +180,8 @@ This rule defines the comprehensive process for working with tasks using the Min
     - Examples of ambiguous requests requiring clarification:
       - "Work on task #123" (specify or implement?)
       - "Handle the task creation feature" (create spec or code?)
-      - "Add the minsky task create command" (create spec or implement?)
     - Always err on the side of creating task specifications when unclear
 
-4. **Clear vs. Ambiguous Request Examples**
-    - Clear Specification Request: "Create a task to add a minsky task create command"
-      → Create a task specification document
-    - Clear Implementation Request: "Implement the minsky task create command according to task #007"  
-      → Implement the code following the specification
-    - Ambiguous Request: "Add the minsky task create command"
-      → Default to creating a task specification unless context clearly indicates implementation
 
 **Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information. Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
 
@@ -548,4 +535,8 @@ This rule documents preferences expressed by the user during interactions with t
 - **Never ask clarifying questions if the next steps seem obvious:** If the next steps are clearly implied by the conversation, proceed without asking for confirmation.  The AI should make reasonable assumptions about the user's intent and proceed accordingly.
 - **Never ask for confirmation on next steps like 'Would you like to proceed with ...?'.**
 - **Always execute the next logical step when the user says 'do it, don't just tell me what to do', or similar.**
--
+- **If a test or command fails or hangs, attempt to debug and resolve it automatically, rather than asking the user what to do next.**
+- **When a workflow or troubleshooting step is implied, proceed with it directly.**
+- **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
+- **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
+- **Distinguish task creation from task implementation:** When a user requests to "create a task," interpret this as creating a task specification document, not implementing the task's code.  The task specification should outline the task's objective, steps
