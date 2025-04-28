@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -166,48 +162,35 @@ When asked to work on a particular task (by name, description, or ID):
      ```bash
      minsky tasks list --json
      ```
-2. **Check Task Status:** Before starting work, check the task's current status:
-    ```bash
-    minsky tasks status get <task-id>
-    ```
-3. **Start a Session**
+
+2. **Start a Session**
    - Begin a new session for the task:
      ```bash
      minsky session start <session-name> --repo <repo-url-or-path> --task <task-id>
      ```
-4. **Re-enter Session:** If resuming work on an existing session:
-    - Determine the session name (e.g., from previous interaction or task details).
-    - Get the session directory:
-      ```bash
-      minsky session dir <session-name>
-      ```
-    - Change into the session directory:
-      ```bash
-      cd <session-directory>
-      ```
 
-5. **Enter the Session Directory**
+3. **Enter the Session Directory**
    - Get the session directory and change into it:
      ```bash
      minsky session dir
      cd <output>
      ```
 
-6. **Plan and Document**
+4. **Plan and Document**
    - Read the task spec (usually in `process/tasks/<task-id>-<task-name>.md`).
    - Draft an implementation plan and append it to the end of the task document.
 
-7. **Implement and Commit**
+5. **Implement and Commit**
    - Work on the task, committing changes at logical intervals.
 
-8. **Prepare PR Description**
+6. **Prepare PR Description**
    - Generate a PR description:
      ```bash
      minsky git pr
      ```
    - Save it to `process/tasks/<task-id>/pr.md` and commit.
 
-9. **Push and Mark In Review**
+7. **Push and Mark In Review**
    - Push your branch:
      ```bash
      git push origin <branch-name>
@@ -499,4 +482,6 @@ MIT
 - Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
 - Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
 - Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
-- Version 0.
+- Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
+- Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
+- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` flag in the `minsky session start` command. The task ID is stored in the

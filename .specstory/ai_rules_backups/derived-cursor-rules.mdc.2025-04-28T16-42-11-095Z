@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -80,11 +76,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.44.0  The `minsky session start` command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
 - Version 0.45.0 The `--repo` argument for `minsky session start` is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
 - Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
-- Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
-- Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
-- Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
-- Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
-- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 
 ## DEBUGGING
@@ -166,48 +157,35 @@ When asked to work on a particular task (by name, description, or ID):
      ```bash
      minsky tasks list --json
      ```
-2. **Check Task Status:** Before starting work, check the task's current status:
-    ```bash
-    minsky tasks status get <task-id>
-    ```
-3. **Start a Session**
+
+2. **Start a Session**
    - Begin a new session for the task:
      ```bash
-     minsky session start <session-name> --repo <repo-url-or-path> --task <task-id>
+     minsky session start <session-name> --repo <repo-url-or-path>
      ```
-4. **Re-enter Session:** If resuming work on an existing session:
-    - Determine the session name (e.g., from previous interaction or task details).
-    - Get the session directory:
-      ```bash
-      minsky session dir <session-name>
-      ```
-    - Change into the session directory:
-      ```bash
-      cd <session-directory>
-      ```
 
-5. **Enter the Session Directory**
+3. **Enter the Session Directory**
    - Get the session directory and change into it:
      ```bash
      minsky session dir
      cd <output>
      ```
 
-6. **Plan and Document**
+4. **Plan and Document**
    - Read the task spec (usually in `process/tasks/<task-id>-<task-name>.md`).
    - Draft an implementation plan and append it to the end of the task document.
 
-7. **Implement and Commit**
+5. **Implement and Commit**
    - Work on the task, committing changes at logical intervals.
 
-8. **Prepare PR Description**
+6. **Prepare PR Description**
    - Generate a PR description:
      ```bash
      minsky git pr
      ```
    - Save it to `process/tasks/<task-id>/pr.md` and commit.
 
-9. **Push and Mark In Review**
+7. **Push and Mark In Review**
    - Push your branch:
      ```bash
      git push origin <branch-name>
@@ -312,12 +290,6 @@ This rule documents preferences expressed by the user during interactions with t
 
 - **Avoid unnecessary confirmation prompts:**  Do not ask for confirmation on obvious next steps in the workflow.  If the next step is clearly implied by the conversation, proceed without asking for confirmation.
 - **Never ask clarifying questions if the next steps seem obvious:** If the next steps are clearly implied by the conversation, proceed without asking for confirmation.  The AI should make reasonable assumptions about the user's intent and proceed accordingly.
-- **Never ask for confirmation on next steps like 'Would you like to proceed with ...?'.**
-- **Always execute the next logical step when the user says 'do it, don't just tell me what to do', or similar.**
-- **If a test or command fails or hangs, attempt to debug and resolve it automatically, rather than asking the user what to do next.**
-- **When a workflow or troubleshooting step is implied, proceed with it directly.**
-- **Prefer direct action over explanation:** When the user's intent is clear, take the action rather than explaining what you will do.
-- **Document new preferences:** Add any new user preferences to this rule as they arise in future sessions.
 
 ```
 
@@ -379,7 +351,7 @@ minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-pat
 
 ```bash
 # Start a new session (with optional task ID)
-minsky session start <session-name> --repo <repo-url-or-path> --task <task-id>
+minsky session start <session-name> --repo <repo-url-or-path> 
 
 # List all sessions
 minsky session list
@@ -496,7 +468,4 @@ MIT
 - Version 0.43.0 The `--repo` argument for the `minsky session start` command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
 - Version 0.44.0  The `minsky session start` command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
 - Version 0.45.0 The `--repo` argument for `minsky session start` is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
-- Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
-- Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
-- Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
-- Version 0.
+- Version 0.46.0 Added a test case for when resolveRepoPath returns a valid path.

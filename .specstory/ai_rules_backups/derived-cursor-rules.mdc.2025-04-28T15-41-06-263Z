@@ -1,0 +1,376 @@
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format. Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").  The changelog will reference relevant SpecStory conversation histories.  See `.specstory/.what-is-this.md` for details on the SpecStory artifact system.
+
+
+## TECH STACK
+
+- TypeScript
+- Bun
+- Commander
+- Git
+
+## CODING STANDARDS
+
+- All business logic must be organized in per-domain modules (e.g., `src/domain`).
+- Command modules (e.g., `src/commands`) should only contain CLI-related logic (reading options, setting up the environment, calling domain modules, writing output, etc.).
+- Each subcommand should reside in its own directory under `src/commands/<command-name>/`.  Main command files should be named `index.ts`.
+
+
+## WORKFLOW & RELEASE RULES
+
+- Use `bun init -y` to initialize new Bun projects.
+- Use `bun add` to add dependencies.
+- Commit frequently with clear, concise messages.
+- Follow semantic versioning for releases.
+- Use `bun link` to link the CLI globally after installation.
+- Use `chmod +x src/cli.ts` to make the main CLI file executable.
+- A session database (`session-db.json`) will track sessions, their associated repos, and branches.  This database is stored in `$XDG_STATE_HOME/minsky`.
+- Version 0.1.0 initial setup
+- Version 0.2.0 added git clone, branch, pr commands and session management
+- Version 0.3.0 added session start command and improved session management
+- Version 0.4.0 added optional repo path to `git pr` command
+- Version 0.5.0 added `tasks` command with `list`, `get`, and `status` subcommands.  Supports `process/tasks.md` as a default task backend.  Placeholder backends for GitHub Issues and other systems are planned. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.6.0 Added support for session and repo path arguments to tasks commands. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.7.0 Added git branch command.
+- Version 0.8.0 Added git pr command with optional repo path.
+- Version 0.9.0 Added session db and session management commands (list, get, cd, start).
+- Version 0.10.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format has been updated to support checklist items.
+- Version 0.11.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format is now strictly enforced.
+- Version 0.12.0 Added support for session and repo path arguments to tasks commands. The tasks.md file format is now strictly enforced.  The `git pr` command now compares against `main` by default.
+- Version 0.13.0 Added support for repo path argument to `git pr` command.  Improved base branch detection logic for `git pr`.
+- Version 0.14.0 Added support for session and repo path arguments to all tasks subcommands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.
+- Version 0.15.0 Added git branch command.  The `git pr` command now compares against `main` by default, falling back to `master`, remote HEAD, upstream, and finally first commit.
+- Version 0.16.0 Added support for session and repo path arguments to all tasks commands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.
+- Version 0.17.0 Added tasks command with support for session and repo path arguments.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.  The tasks.md file format is now strictly enforced.
+- Version 0.18.0 Added support for `--debug` flag to `git pr` command, enabling debug logs to stderr. Improved base branch detection logic for `git pr`, prioritizing `main` then `master`, then remote HEAD, then upstream.  Added robust testing for `git pr` and `tasks` commands.  Improved error handling and user feedback for `tasks status set`.  Refactored `resolveRepoPath` into shared utility module.  Updated README and CHANGELOG.
+- Version 0.19.0 The `session start` command now optionally accepts a task ID. If provided, the CLI looks up task details, uses the task ID as the session name (formatted as `<repo>/task#<id>`), and stores the task details in the session metadata.  The session will have a full name and a short name (without the repo, for branch naming).
+- Version 0.20.0 The `tasks list` and `tasks get` commands now support a `--json` option for JSON output.
+- Version 0.21.0 The `session start` command now supports the `--task <task-id>` flag. If provided, the CLI looks up the task details using the `tasks` domain module, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata.  The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming.  Error handling is improved to check for existing tasks and sessions.
+- Version 0.22.0 The `minsky session start` command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
+- Version 0.23.0 The `session list` and `session get` commands now support a `--json` option for JSON output.
+- Version 0.24.0 Added CLI-level tests for the `--json` option in `tasks list`, `tasks get`, `session list`, and `session get` commands.
+- Version 0.25.0 The session database now stores the repo name for each session. Session repos are stored under a per-repo directory (e.g., `/Users/edobry/.local/state/minsky/git/<repo>/<session>`).
+- Version 0.26.0 Renamed `session cd` command to `session dir`. The `session dir` command now prints the session directory path.  The `session cd` command has been removed.
+- Version 0.27.0 Added IN PROGRESS and IN REVIEW task statuses.  `-` represents IN PROGRESS and `+` represents IN REVIEW in markdown task lists.
+
+
+## DEBUGGING
+
+- Use `console.log` for debugging purposes.  Remove or comment out debug statements before committing.
+
+
+## CURSOR RULES
+
+### command-organization.mdc
+```
+---
+description: Command organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts"]
+alwaysApply: true
+---
+
+# Command Organization Rules
+
+## Directory Structure
+- Each subcommand should be in its own directory under `src/commands/<command-name>/`
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+
+## Module Organization
+- Business logic should be in domain modules under `src/domain/`
+- Command modules should only handle CLI concerns (options, environment, output)
+- Example: Business logic in `src/domain/git.ts`, CLI handling in `src/commands/git/clone.ts` 
+```
+
+### module-organization.mdc
+```
+---
+description: Module organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts", "src/domain/**/*.ts"]
+alwaysApply: true
+---
+
+# Module Organization Rules
+
+## Domain Modules
+- All business logic should live in `src/domain/` modules
+- Domain modules should be focused on a single domain concept
+- Example: `src/domain/git.ts` for git-related business logic
+
+## Command Modules
+Command modules should only handle:
+- Parsing command-line arguments and options
+- Setting up the environment
+- Calling domain modules
+- Formatting and displaying output
+- Error handling and exit codes
+
+Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+```
+
+### minsky.mdc
+```
+---
+description: Standard workflow for working with tasks using the Minsky tool.
+globs: ["**/*.md"]
+alwaysApply: true
+---
+
+# Rule Name: minsky
+
+## Description
+
+This rule defines the standard workflow for working with tasks using the Minsky tool. It is intended for inclusion in `.cursor/rules/` in any project that uses Minsky for task management.
+
+**For general task process requirements, see [`tasks-process.mdc`](mdc:.cursor/rules/tasks-process.mdc).**
+
+## Minsky Task Workflow
+
+When asked to work on a particular task (by name, description, or ID):
+
+1. **Find the Task ID**
+   - List all tasks in JSON and locate the relevant task:
+     ```bash
+     minsky tasks list --json
+     ```
+
+2. **Start a Session**
+   - Begin a new session for the task:
+     ```bash
+     minsky session start --task <task-id>
+     ```
+
+3. **Enter the Session Directory**
+   - Get the session directory and change into it:
+     ```bash
+     minsky session dir
+     cd <output>
+     ```
+
+4. **Plan and Document**
+   - Read the task spec (usually in `process/tasks/<task-id>-<task-name>.md`).
+   - Draft an implementation plan and append it to the end of the task document.
+
+5. **Implement and Commit**
+   - Work on the task, committing changes at logical intervals.
+
+6. **Prepare PR Description**
+   - Generate a PR description:
+     ```bash
+     minsky git pr
+     ```
+   - Save it to `process/tasks/<task-id>/pr.md` and commit.
+
+7. **Push and Mark In Review**
+   - Push your branch:
+     ```bash
+     git push origin <branch-name>
+     ```
+   - Set the task status to in review:
+     ```bash
+     minsky task status set <task-id> IN-REVIEW
+     ```
+
+## Notes
+
+- Always follow the full process in `tasks-process.mdc`.
+- Do not skip verification or documentation steps.
+- Reference the task number in PRs and commits.
+```
+
+### tasks-process.mdc
+```
+---
+description: Mandatory process for working with tasks.
+globs: ["**/*.md"]
+alwaysApply: true
+---
+
+# Task Process
+
+This rule defines the mandatory process for working with tasks in the project. All code changes must follow this process to maintain consistency and quality.
+
+## Using Minsky for Task Workflow
+
+> **Note:** All task-related workflows (task lookup, session management, implementation, and PR preparation) should be performed using the [Minsky tool](mdc:minsky.mdc). See [`minsky.mdc`](mdc:minsky.mdc) for the standard Minsky workflow. The rest of the process (verification, documentation, changelog, etc.) remains as described below.
+
+## Process
+
+1. **Verification:** Before starting any work, verify that the task is well-defined and understood.  Ensure all requirements and acceptance criteria are clearly articulated.
+
+2. **Documentation:** Update the task document (`process/tasks/<task-id>-<task-name>.md`) with any clarifications, additional requirements, or design decisions. This should include an implementation plan.
+
+3. **Implementation:** Implement the task, adhering to coding standards and best practices. Commit changes frequently with clear and concise messages.
+
+4. **Verification (Post-Implementation):** After implementing the task, verify that it meets all requirements and acceptance criteria. Test thoroughly.
+
+5. **Documentation (Post-Implementation):** Update the task document with details about the implementation, testing, and verification results.
+
+6. **Pull Request:** Create a pull request with a clear and concise description.  Reference the task number in the PR title and description.
+
+7. **Changelog:** Update the changelog with a summary of the changes made.  Reference the task number.
+
+8. **Code Review:** Request a code review before merging the PR.
+
+9. **Post-Merge:** After merging the PR, update the task status to "DONE".  Close the task if appropriate.
+
+
+```
+
+## README
+
+# Minsky
+
+A tool for coordinating AI agent workflows using Git and other collaboration tools. Inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics.
+
+> **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
+
+## Overview
+
+Minsky helps AI agents collaborate on codebases by leveraging the same tools human engineers use:
+
+- **Git repositories** for version control
+- **Isolated workspaces** for preventing conflicts
+- **Branch-based workflows** for parallel development
+- **Pull request summaries** for documenting changes
+- **Task management** for tracking and coordinating work items
+
+The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/minsky.git
+cd minsky
+
+# Install dependencies
+bun install
+
+# Link globally
+bun link
+```
+
+## Usage
+
+### Git Commands
+
+```bash
+# Clone a repo (auto-generates session ID)
+minsky git clone <repo-url>
+
+# Clone with a named session
+minsky git clone <repo-url> --session <session-name>
+
+# Create a branch in session
+minsky git branch <branch-name> --session <session-name>
+
+# Generate PR document
+minsky git pr --session <session-name> [--branch <branch-name>] --path <repo-path>
+```
+
+> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+
+### Session Management
+
+```bash
+# Start a new session (with optional task ID)
+minsky session start <session-name> --repo <repo-url-or-path> [--task <task-id>]
+
+# List all sessions
+minsky session list
+
+# View session details
+minsky session get <session-name>
+
+# Get session directory
+minsky session dir <session-name>
+
+```
+
+### Tasks Management
+
+Minsky supports robust, extensible task management with multiple backends (default: Markdown checklist in `process/tasks.md`).
+
+```bash
+# List all tasks in the current repo (or specify with --repo or --session)
+minsky tasks list --repo /path/to/repo --json
+
+# Filter tasks by status (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks list --repo /path/to/repo --status TODO --json
+
+# Get details for a specific task by ID
+minsky tasks get --repo /path/to/repo #001 --json
+
+# Get the status of a task
+minsky tasks status get --repo /path/to/repo #001
+
+# Set the status of a task (TODO, DONE, IN PROGRESS, IN REVIEW)
+minsky tasks status set --repo /path/to/repo #001 DONE
+```
+
+**Options:**
+- `--repo <repoPath>`: Path to a git repository (overrides session)
+- `--session <session>`: Session name to use for repo resolution
+- `--backend <backend>`: Task backend to use (default: markdown, future: github)
+- `--status <status>`: Filter tasks by status (for `list`)
+- `--taskId <task-id>`: Task ID to associate with session (for `session start`)
+- `--json`: Output tasks as JSON
+
+
+**Features:**
+- Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
+- Aggregates indented lines as task descriptions
+- Extensible: future support for GitHub Issues and other backends
+- Supports task statuses: TODO, DONE, IN PROGRESS (-), IN REVIEW (+)
+
+
+## Example Workflows
+
+### Basic Development Flow
+
+```bash
+# Start a new session
+minsky session start feature-123 --repo https://github.com/org/project.git
+
+# Get session directory
+minsky session dir feature-123
+
+# Work on code, then generate PR
+minsky git pr --session feature-123 > PR.md
+
+# List and update tasks
+minsky tasks list --session feature-123 --json
+minsky tasks status set --session feature-123 #001 DONE
+```
+
+### Multi-Agent Collaboration
+
+Multiple agents can work on related features in parallel:
+
+```bash
+# Agent 1: Authentication backend
+minsky session start auth-api --repo https://github.com/org/project.git
+
+# Agent 2: Frontend integration
+minsky session start auth-ui --repo https://github.com/org/project.git
+```
+
+Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
+
+## Future Plans
+
+- Team organization patterns for agents
+- Session continuity and context management
+- Automated code reviews
+- Task planning and allocation (with more backends)
+
+## Contributing
+
+This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
+
+## License
+
+MIT
