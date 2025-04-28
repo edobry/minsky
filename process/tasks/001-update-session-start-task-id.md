@@ -74,13 +74,13 @@ The Minsky CLI manages collaborative AI agent workflows using sessions and tasks
 
 ## Verification
 
-- [ ] Can start a session with a freeform name as before.
-- [ ] Can start a session with `--task <task-id>`, and the session is named after the task.
-- [ ] If the task does not exist, the command errors out with a clear message.
-- [ ] If a session for the task already exists, the command errors out and returns the session name.
-- [ ] The session DB record includes the `taskId` if the session is associated with a task.
-- [ ] All relevant tests pass.
-- [ ] Documentation and CLI help are updated.
+- [x] Can start a session with a freeform name as before.
+- [x] Can start a session with `--task <task-id>`, and the session is named after the task.
+- [x] If the task does not exist, the command errors out with a clear message.
+- [x] If a session for the task already exists, the command errors out and returns the session name.
+- [x] The session DB record includes the `taskId` if the session is associated with a task.
+- [x] All relevant tests pass.
+- [x] Documentation and CLI help are updated.
 
 ## Notes
 

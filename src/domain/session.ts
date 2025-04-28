@@ -6,6 +6,7 @@ export interface SessionRecord {
   repoUrl: string;
   branch?: string;
   createdAt: string;
+  taskId?: string;
 }
 
 export class SessionDB {

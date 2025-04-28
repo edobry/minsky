@@ -56,14 +56,17 @@ minsky git pr --session feature-x
 # Start a new session
 minsky session start my-session --repo https://github.com/user/repo.git
 
+# Start a session associated with a task
+minsky session start --repo https://github.com/user/repo.git --task 001
+
 # List all sessions
 minsky session list
 
 # View session details
 minsky session get my-session
 
-# Navigate to session directory
-cd $(minsky session cd my-session)
+# Get session directory
+minsky session dir my-session
 ```
 
 ### Tasks Management
@@ -74,7 +77,7 @@ Minsky supports robust, extensible task management with multiple backends (defau
 # List all tasks in the current repo (or specify with --repo or --session)
 minsky tasks list --repo /path/to/repo
 
-# Filter tasks by status (TODO, DONE)
+# Filter tasks by status (TODO, DONE, IN-PROGRESS, IN-REVIEW)
 minsky tasks list --repo /path/to/repo --status TODO
 
 # Get details for a specific task by ID
@@ -83,7 +86,7 @@ minsky tasks get --repo /path/to/repo #001
 # Get the status of a task
 minsky tasks status get --repo /path/to/repo #001
 
-# Set the status of a task (TODO or DONE)
+# Set the status of a task
 minsky tasks status set --repo /path/to/repo #001 DONE
 ```
 
@@ -92,11 +95,14 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 - `--session <session>`: Session name to use for repo resolution
 - `--backend <backend>`: Task backend to use (default: markdown, future: github)
 - `--status <status>`: Filter tasks by status (for `list`)
+- `--task <taskId>`: Task ID to associate with session (for `session start`)
+- `--json`: Output tasks as JSON
 
 **Features:**
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
 - Extensible: future support for GitHub Issues and other backends
+- Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
 
 ## Example Workflows
 
@@ -106,8 +112,8 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 # Start a new session
 minsky session start feature-123 --repo https://github.com/org/project.git
 
-# Navigate to session directory
-cd $(minsky session cd feature-123)
+# Get session directory
+cd $(minsky session dir feature-123)
 
 # Work on code, then generate PR
 minsky git pr --session feature-123 > PR.md
