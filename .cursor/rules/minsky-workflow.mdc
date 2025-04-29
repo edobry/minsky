@@ -5,7 +5,7 @@ alwaysApply: false
 ---
 # Minsky Workflow
 
-This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality.
+This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality. ANY query about tasks or sessions (e.g., "what tasks are available?", "list tasks", etc.) MUST use the minsky CLI to get live data, not file listings or static documentation.
 
 ## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
 
@@ -232,3 +232,15 @@ When asked to continue working on a task:
 - If modifications to the requirements are needed, discuss and document them in the task document
 - When a task spans multiple sessions, use the Work Log to ensure continuity
 - Minsky manages branch names, session directories, and other infrastructure—you don't need to create these manually
+
+> **Triggering the Minsky CLI for Task/Session Queries**
+>
+> For any user query that asks about the existence, availability, status, or list of tasks or sessions, you MUST use the minsky CLI to retrieve live data. This includes, but is not limited to, queries such as:
+> - "What tasks are available?"
+> - "List all tasks"
+> - "Show open/in-progress/done tasks"
+> - "What sessions exist?"
+> - "What is the status of task #007?"
+> - "Which tasks are in the backlog?"
+>
+> **Do NOT** answer these queries by listing files or reading static documentation. **Always** run the appropriate minsky CLI command (e.g., `minsky tasks list --json`) and present the output directly.
