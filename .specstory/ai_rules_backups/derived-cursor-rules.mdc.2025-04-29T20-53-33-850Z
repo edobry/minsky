@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -122,12 +118,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.86 The `minsky session start --task` command now correctly handles task IDs with or without leading '#'.
 - Version 0.87 The `minsky session start` command now correctly handles task IDs with or without leading '#'.  The order of operations in the `startSession` function has been corrected to ensure the session is recorded in the database before the git operations are performed.
 - Version 0.88 Added task #015.
-- Version 0.89 Added task #016.
-- Version 0.90 Added task #015: Implement the `session delete` command.
-- Version 0.91 Added automatic workspace detection for task operations. When a task command is executed from a session repository, Minsky automatically detects this and performs the operation on the main workspace instead. All task commands now support a `--workspace` option to explicitly specify the workspace path.
-- Version 0.92 Added clarification regarding the use of `bun run` vs. the globally installed `minsky` CLI.  When testing local changes, use `bun run` within the session directory to execute the modified code.
-- Version 0.93 All task commands now support a `--workspace` option to explicitly specify the workspace path.  This option overrides automatic workspace detection.
-- Version 0.94 Added `normalizeFilePath` utility function to handle file:// URLs in workspace paths.
 
 
 ## DEBUGGING
@@ -392,3 +382,19 @@ When asked to continue working on a task:
      ```
    - If you don't know the session name, you may need to list all sessions:
      ```bash
+     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     ```
+   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
+
+2. **Enter Existing Session**
+   - Navigate to the session directory:
+     ```bash
+     cd $(minsky session dir task#001)
+     ```
+   - If no session exists, create one as described in "Starting a New Session"
+
+## Implementation Process
+
+1. **Planning**
+   - Review the task document to ensure full understanding
+   - For a new task, draft an implementation plan and append

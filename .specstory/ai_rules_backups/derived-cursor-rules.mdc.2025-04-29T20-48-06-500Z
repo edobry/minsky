@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -115,19 +111,11 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.79 Added rule clarification: When working in a session directory, ALWAYS use absolute paths when editing files. For example: CORRECT: /Users/username/.local/state/minsky/git/task-id/src/file.ts INCORRECT: src/file.ts (which would edit the main workspace file). Without absolute paths, changes may silently occur in the main workspace instead of the session directory.
 - Version 0.80 Added rule: After every file edit in a session directory, verify the changes are actually present by: 1. Running `git status` to confirm the file appears as modified 2. Running `git diff <filename>` to confirm the expected changes exist 3. Never assuming an edit succeeded without verification.
 - Version 0.81 Added rule: Task implementation is not complete until ALL these steps are performed, in order: 1. ✓ All code changes are made in the session directory (not main workspace) 2. ✓ All tests pass in the session directory 3. ✓ Task document is updated with Work Log and verification steps 4. ✓ All changes are committed with task ID in commit message 5. ✓ PR description is generated using `minsky git pr` and saved to process/tasks/<task-id>/pr.md 6. ✓ PR description is committed 7. ✓ Changes are pushed to remote with `git push origin <branch>` 8. ✓ Task status is updated to IN-REVIEW.
-- Version 0.82 Added rule warning: ⚠️ WARNING: The session directory contains a SEPARATE CLONE of the repository. Changes made to files in the main workspace WILL NOT appear in the session branch. Always confirm your current working directory with `pwd` before making any changes.
+- Version 0.82 Added rule warning: ⚠️ WARNING: The session directory contains a SEPARATE CLONE of the repository. Changes made to files in the main workspace WILL NOT appear in the session branch. Always confirm your current working directory with `pwd` before making changes.
 - Version 0.83 Added task #014: Update `git pr` command to automatically generate an AI-summarized PR description and create a GitHub PR.  The PR title should be AI-generated in conventional commits format.  If a session is active, neither session name nor task ID need to be provided.
 - Version 0.84 Before starting work on task #008, ensure a valid session exists. If not, create one using `minsky session start --task 008`.  Then, navigate to the session directory before making any code changes.
 - Version 0.85 Added rule: ALWAYS use the minsky CLI for all task and session interactions.  Never directly manipulate the file system or the session database.  All commits must be pushed immediately after they are made.
 - Version 0.86 The `minsky session start --task` command now correctly handles task IDs with or without leading '#'.
-- Version 0.87 The `minsky session start` command now correctly handles task IDs with or without leading '#'.  The order of operations in the `startSession` function has been corrected to ensure the session is recorded in the database before the git operations are performed.
-- Version 0.88 Added task #015.
-- Version 0.89 Added task #016.
-- Version 0.90 Added task #015: Implement the `session delete` command.
-- Version 0.91 Added automatic workspace detection for task operations. When a task command is executed from a session repository, Minsky automatically detects this and performs the operation on the main workspace instead. All task commands now support a `--workspace` option to explicitly specify the workspace path.
-- Version 0.92 Added clarification regarding the use of `bun run` vs. the globally installed `minsky` CLI.  When testing local changes, use `bun run` within the session directory to execute the modified code.
-- Version 0.93 All task commands now support a `--workspace` option to explicitly specify the workspace path.  This option overrides automatic workspace detection.
-- Version 0.94 Added `normalizeFilePath` utility function to handle file:// URLs in workspace paths.
 
 
 ## DEBUGGING
@@ -392,3 +380,30 @@ When asked to continue working on a task:
      ```
    - If you don't know the session name, you may need to list all sessions:
      ```bash
+     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     ```
+   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
+
+2. **Enter Existing Session**
+   - Navigate to the session directory:
+     ```bash
+     cd $(minsky session dir task#001)
+     ```
+   - If no session exists, create one as described in "Starting a New Session"
+
+### Programmatic Usage
+
+When integrating Minsky into scripts or automated workflows, use the `--quiet` option to suppress all non-essential output:
+
+```bash
+SESSION_DIR=$(minsky session start my-session --repo https://github.com/user/repo.git --quiet)
+```
+
+This command will output only the session directory path, making it easy to integrate into scripts and pipelines.
+
+
+## Implementation Process
+
+1. **Planning**
+   - Review the task document to ensure full understanding
+   -
