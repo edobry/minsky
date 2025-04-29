@@ -60,6 +60,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
@@ -82,6 +83,7 @@ _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history
 ### Fixed
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks.
 - Fixed test reliability and linter errors in domain logic tests.
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
 
 ### (Previous unreleased entries)
 - Initial Bun+TypeScript project setup for the minsky CLI tool

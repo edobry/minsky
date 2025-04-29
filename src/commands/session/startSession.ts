@@ -90,6 +90,16 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     repoUrl = `file://${absolutePath}`;
   }
 
+  // Record the session first
+  const sessionRecord = {
+    session,
+    repoUrl,
+    branch: session,
+    createdAt: new Date().toISOString(),
+    ...(taskId ? { taskId } : {})
+  };
+  await sessionDB.addSession(sessionRecord);
+
   // Clone the repo
   const cloneResult = await gitService.clone({
     repoUrl,
@@ -101,16 +111,6 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     session,
     branch: session
   });
-
-  // Record the session
-  const sessionRecord = {
-    session,
-    repoUrl,
-    branch: session,
-    createdAt: new Date().toISOString(),
-    ...(taskId ? { taskId } : {})
-  };
-  await sessionDB.addSession(sessionRecord);
 
   return { cloneResult, branchResult, sessionRecord };
 } 
