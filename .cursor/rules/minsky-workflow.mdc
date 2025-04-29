@@ -6,6 +6,7 @@ alwaysApply: false
 # Minsky Workflow
 
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
+⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
 This rule defines the comprehensive process for working with tasks and sessions using the Minsky tool. ANY operation related to tasks or sessions - whether viewing, querying, or modifying - MUST use the Minsky CLI to ensure data consistency and accuracy.
 
@@ -196,7 +197,13 @@ When asked to continue working on a task:
    - Follow all project coding standards and best practices
    - Implement the required changes, addressing all requirements
    - Commit changes at logical intervals with clear, descriptive messages
-   - Reference the task ID in all commit messages (e.g., "Implement feature X for #001")
+   - Reference the task ID in all commit messages (e.g., "task#001: Implement feature X")
+   - **ALWAYS push immediately after committing:**
+     ```bash
+     # After every commit, immediately push to the session branch
+     git push origin $(git branch --show-current)
+     ```
+   - Never leave commits unpushed at the end of an implementation session
 
 3. **Work Log**
    - Maintain a "Work Log" section in the task document:
