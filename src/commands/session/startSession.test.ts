@@ -224,7 +224,8 @@ describe('startSession', () => {
     
     const mockSessionDB = {
       getSession: mockGetSession,
-      addSession: mockAddSession
+      addSession: mockAddSession,
+      listSessions: () => [] // Add empty list for no existing sessions
     };
     
     const testTaskId = '#123';
@@ -247,5 +248,96 @@ describe('startSession', () => {
     // Verify the branch is named correctly
     expect(mockBranch.calls.length).toBe(1);
     expect(mockBranch.calls[0][0].branch).toBe(testSession);
+  });
+
+  it('creates a session with just taskId', async () => {
+    // Mock task service that returns a valid task
+    const mockTaskService = {
+      getTask: () => ({ id: '#001', title: 'Test Task' })
+    };
+
+    // Mock tracked functions
+    const mockClone = trackCalls<{ workdir: string }>();
+    mockClone.returnValue = { workdir: testWorkdir };
+    
+    const mockBranch = trackCalls<{ branch: string }>();
+    mockBranch.returnValue = { branch: testBranch };
+    
+    const mockGetSession = trackCalls<null>();
+    mockGetSession.returnValue = null;
+    
+    const mockAddSession = trackCalls();
+    
+    // Mock implementations
+    const mockGitService = {
+      clone: mockClone,
+      branch: mockBranch
+    };
+    
+    const mockSessionDB = {
+      getSession: mockGetSession,
+      addSession: mockAddSession,
+      listSessions: () => [] // Add empty list for no existing sessions
+    };
+    
+    // Run the function with just taskId
+    const result = await startSession({
+      taskId: '#001',
+      repo: testRepo,
+      gitService: mockGitService,
+      sessionDB: mockSessionDB,
+      taskService: mockTaskService
+    });
+    
+    // Verify session name was derived from task ID
+    const expectedSessionName = 'task#001';
+    
+    expect(mockGetSession.calls.length).toBe(1);
+    expect(mockGetSession.calls[0][0]).toBe(expectedSessionName);
+    
+    expect(mockClone.calls.length).toBe(1);
+    expect(mockClone.calls[0][0].repoUrl).toBe(testRepo);
+    expect(mockClone.calls[0][0].session).toBe(expectedSessionName);
+    
+    expect(mockBranch.calls.length).toBe(1);
+    expect(mockBranch.calls[0][0].session).toBe(expectedSessionName);
+    expect(mockBranch.calls[0][0].branch).toBe(expectedSessionName);
+    
+    expect(mockAddSession.calls.length).toBe(1);
+    expect(mockAddSession.calls[0][0].session).toBe(expectedSessionName);
+    expect(mockAddSession.calls[0][0].repoUrl).toBe(testRepo);
+    expect(mockAddSession.calls[0][0].taskId).toBe('#001');
+    
+    // Verify the result
+    expect(result.cloneResult.workdir).toBe(testWorkdir);
+    expect(result.branchResult.branch).toBe(testBranch);
+  });
+
+  // Add test for duplicate task session
+  it('throws if a session for the task already exists', async () => {
+    const existingSession = {
+      session: 'task#001',
+      repoUrl: testRepo,
+      taskId: '#001'
+    };
+
+    const mockSessionDB = {
+      getSession: () => null,
+      addSession: () => {},
+      listSessions: () => [existingSession]
+    };
+
+    const mockTaskService = {
+      getTask: () => ({ id: '#001', title: 'Test Task' })
+    };
+
+    // Should throw error for existing task session
+    await expect(startSession({
+      taskId: '#001',
+      repo: testRepo,
+      gitService: {},
+      sessionDB: mockSessionDB,
+      taskService: mockTaskService
+    })).rejects.toThrow('already exists');
   });
 }); 
