@@ -24,4 +24,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012/spec.md)
 - [ ] Add Repository Backend Support [#014](mdc:tasks/014-add-repository-backend-support.md)
 - [ ] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
-- [ ] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
+- [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
