@@ -18,3 +18,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `--quiet` option to `session start` for programmatic output [#006](tasks/006-add-quiet-option-to-session-start.md)
 - [ ] Add `minsky tasks create` command to create tasks from spec documents [#007](tasks/007-add-tasks-create-command.md)
 - [ ] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](tasks/008-update-tasks-list-hide-done.md)
+- [ ] Add `git commit` command to stage and commit changes [#009](tasks/009-add-git-commit-command.md)
+- [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)

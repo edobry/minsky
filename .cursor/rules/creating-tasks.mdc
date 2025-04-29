@@ -12,6 +12,15 @@ In Minsky, "creating a task" means authoring a task specification document and a
 - Only proceed to implementation if explicitly instructed with phrases like "implement the task" or "write the code for"
 - If there is any ambiguity, confirm with the user whether they want task specification or implementation
 
+## ⚠️ IMPORTANT: Always Check for Existing Tasks First
+- Before creating a new task, always check `process/tasks.md` and the `process/tasks/` directory for existing tasks that match the user's request
+- If a matching task already exists:
+  - Inform the user that the task already exists
+  - Provide the task ID and title
+  - Review the specification to verify it matches the user's requirements
+  - Only create a new task if the existing one doesn't adequately cover the requested functionality
+  - Never attempt to implement a task when only asked to create one
+
 ## Overview
 All tasks and work items must be tracked using the canonical process described here. Ad-hoc or freeform task files (e.g., TODO.something.md) are NOT permitted. All tasks must be:
 - Listed in `/process/tasks.md` as a checklist item
