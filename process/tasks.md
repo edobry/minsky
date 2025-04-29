@@ -22,3 +22,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-git-pr-github.md)
 - [ ] Fix `git pr` command and add proper tests [#011](tasks/011-git-pr-fix.md)
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012/spec.md)
+- [ ] Add Repository Backend Support [#014](mdc:tasks/014-add-repository-backend-support.md)
