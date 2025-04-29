@@ -69,4 +69,18 @@ export class SessionDB {
     const sessions = await this.readDb();
     return sessions.find(s => s.taskId === taskId);
   }
+
+  async deleteSession(session: string): Promise<boolean> {
+    const sessions = await this.readDb();
+    const initialLength = sessions.length;
+    const filteredSessions = sessions.filter(s => s.session !== session);
+    
+    if (filteredSessions.length === initialLength) {
+      // No session was removed
+      return false;
+    }
+    
+    await this.writeDb(filteredSessions);
+    return true;
+  }
 } 
