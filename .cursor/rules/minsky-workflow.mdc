@@ -1,11 +1,35 @@
 ---
-description: REQUIRED workflow for ANY task implementation - MUST apply when task references (#XXX, task #XXX) appear in requests. Enforces session creation before code changes.
+description: REQUIRED workflow for BOTH querying and implementing tasks - ANY interaction with tasks/sessions (viewing lists, checking status, or making changes) MUST use Minsky CLI, not file system.
 globs: 
 alwaysApply: false
 ---
+
 # Minsky Workflow
 
-This rule defines the comprehensive process for working with tasks using the Minsky tool. All code changes must follow this process to maintain consistency and quality. ANY query about tasks or sessions (e.g., "what tasks are available?", "list tasks", etc.) MUST use the minsky CLI to get live data, not file listings or static documentation.
+⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
+
+This rule defines the comprehensive process for working with tasks and sessions using the Minsky tool. ANY operation related to tasks or sessions - whether viewing, querying, or modifying - MUST use the Minsky CLI to ensure data consistency and accuracy.
+
+## Core Principles
+
+1. **Always Use Minsky CLI for Task/Session Data**
+   - NEVER use file listings or static documentation
+   - ALWAYS use appropriate minsky commands:
+     ```bash
+     # For task queries
+     minsky tasks list --json          # List all tasks
+     minsky tasks get '#XXX' --json    # Get specific task details
+     minsky tasks status get '#XXX'    # Get task status
+     
+     # For session queries
+     minsky session list --json        # List all sessions
+     minsky session get <name>         # Get session details
+     ```
+
+2. **Real-Time Data Over Static Files**
+   - Task information comes from the live system, not files
+   - Session state must be queried through CLI, not assumed
+   - File system should never be used as a primary data source
 
 ## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
 
