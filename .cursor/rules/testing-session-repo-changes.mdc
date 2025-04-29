@@ -1,0 +1,65 @@
+---
+description: Use this when testing changes made in a session repository
+globs: 
+alwaysApply: false
+---
+# Testing Session Repository Changes
+
+## Key Insight
+
+When working in a session repository, be aware that executing the `minsky` command uses the globally installed version from the main workspace, not the version from your session repository with your in-progress changes.
+
+## Correct Testing Method
+
+To test code changes made in a session repository:
+
+1. **Use `bun run` directly for local execution**:
+   ```bash
+   # WRONG - This runs the globally installed version, not your modified code
+   minsky tasks list
+   
+   # CORRECT - This runs your modified code directly
+   bun run ./src/cli.ts tasks list
+   ```
+
+2. **Create test scripts for targeted testing**:
+   ```typescript
+   // test-feature.ts
+   import { YourModifiedModule } from './src/domain/your-module';
+   
+   async function testFeature() {
+     // Test your changes directly
+     const result = await YourModifiedModule.yourModifiedFunction();
+     console.log('Result:', result);
+   }
+   
+   testFeature();
+   ```
+   
+   Run with:
+   ```bash
+   bun run test-feature.ts
+   ```
+
+3. **Set up temporary environment variables if needed**:
+   ```bash
+   # For testing environment-dependent code
+   MINSKY_DEBUG=true bun run ./src/cli.ts your-command
+   ```
+
+## Real-World Example
+
+As demonstrated in task #016 (Enforce task operations in main workspace):
+
+1. The `minsky tasks status set` command executed from a session repository used the global installation, not our modified code.
+2. We created a test script (`test-workspace-detection.ts`) that imported our modified modules directly.
+3. Running `bun run test-workspace-detection.ts` executed our modified code, demonstrating that our changes worked correctly.
+
+## Rule of Thumb
+
+When making changes to Minsky CLI commands in a session repository:
+- For quick validation, use `bun run ./src/cli.ts [command]`
+- For targeted testing, create and run dedicated test scripts
+- Only use the `minsky` command directly when you want to test against the stable/global version
+
+By following these guidelines, you'll avoid confusion and properly validate your changes before submitting your PR.
