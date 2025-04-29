@@ -64,4 +64,9 @@ export class SessionDB {
       await this.writeDb(sessions);
     }
   }
+  
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
+    const sessions = await this.readDb();
+    return sessions.find(s => s.taskId === taskId);
+  }
 } 
