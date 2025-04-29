@@ -15,6 +15,7 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - NEVER use file listings or static documentation
    - NEVER directly manipulate Minsky's state files or databases
    - NEVER delete or modify files in `~/.local/state/minsky/`
+   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
    - ALWAYS use appropriate minsky commands:
      ```bash
      # For task queries
@@ -31,6 +32,7 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - Minsky maintains critical state in `~/.local/state/minsky/`
    - Direct manipulation of these files will corrupt the system
    - NEVER attempt to "fix" issues by deleting state files
+   - NEVER attempt to read or modify the session database directly
    - If encountering session/task issues:
      1. Use `minsky session list` to check current state
      2. Use `minsky session get <name>` to inspect specific sessions
