@@ -51,12 +51,20 @@ Currently, session repositories are stored in a flat directory structure and the
 
 ## Verification
 
-- [ ] Session DB entries include the correct `repoName` for each session.
-- [ ] Session repos are stored under the correct per-repo directory structure.
-- [ ] All session-related commands work with the new structure.
-- [ ] Existing session records are migrated to the new format.
-- [ ] All relevant tests pass.
-- [ ] Documentation and CLI help are updated.
+- [x] Session DB entries include the correct `repoName` for each session.
+- [x] Session repos are stored under the correct per-repo directory structure.
+- [x] All session-related commands work with the new structure.
+- [x] Existing session records are migrated to the new format.
+- [x] All relevant tests pass.
+- [x] Documentation and CLI help are updated.
+
+## Work Log
+- 2025-04-29: Added `repoName` field to `SessionRecord` interface
+- 2025-04-29: Implemented `normalizeRepoName` utility function with tests
+- 2025-04-29: Updated `GitService` to use per-repo directory structure
+- 2025-04-29: Added migration logic for existing session records
+- 2025-04-29: Updated tests to verify new directory structure
+- 2025-04-29: Updated changelog with changes
 
 ## Notes
 

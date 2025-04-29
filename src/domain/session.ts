@@ -1,9 +1,11 @@
 import { join } from 'path';
 import { promises as fs } from 'fs';
+import { normalizeRepoName } from './repo-utils';
 
 export interface SessionRecord {
   session: string;
   repoUrl: string;
+  repoName: string;
   branch?: string;
   createdAt: string;
   taskId?: string;
@@ -20,7 +22,14 @@ export class SessionDB {
   private async readDb(): Promise<SessionRecord[]> {
     try {
       const data = await fs.readFile(this.dbPath, 'utf-8');
-      return JSON.parse(data);
+      const sessions = JSON.parse(data);
+      // Migrate existing sessions to include repoName
+      return sessions.map((session: SessionRecord) => {
+        if (!session.repoName) {
+          session.repoName = normalizeRepoName(session.repoUrl);
+        }
+        return session;
+      });
     } catch (e) {
       return [];
     }

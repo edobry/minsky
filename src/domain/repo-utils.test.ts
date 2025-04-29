@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { resolveRepoPath } from './repo-utils';
+import { resolveRepoPath, normalizeRepoName } from './repo-utils';
 
 describe('resolveRepoPath', () => {
   it('returns explicit repo path if given', async () => {
@@ -22,5 +22,27 @@ describe('resolveRepoPath', () => {
     }
     const result = await resolveRepoPath({});
     expect(result).toBe(expected);
+  });
+});
+
+describe('normalizeRepoName', () => {
+  it('normalizes HTTPS remote URLs', () => {
+    expect(normalizeRepoName('https://github.com/org/project.git')).toBe('org/project');
+    expect(normalizeRepoName('https://github.com/org/project')).toBe('org/project');
+  });
+
+  it('normalizes SSH remote URLs', () => {
+    expect(normalizeRepoName('git@github.com:org/project.git')).toBe('org/project');
+    expect(normalizeRepoName('git@github.com:org/project')).toBe('org/project');
+  });
+
+  it('normalizes local paths', () => {
+    expect(normalizeRepoName('/Users/edobry/Projects/minsky')).toBe('local/minsky');
+    expect(normalizeRepoName('/tmp/some-project')).toBe('local/some-project');
+  });
+
+  it('normalizes file:// URLs', () => {
+    expect(normalizeRepoName('file:///Users/edobry/Projects/minsky')).toBe('local/minsky');
+    expect(normalizeRepoName('file:///tmp/some-project')).toBe('local/some-project');
   });
 }); 
