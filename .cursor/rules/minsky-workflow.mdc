@@ -3,7 +3,6 @@ description: REQUIRED workflow for BOTH querying and implementing tasks - ANY in
 globs: 
 alwaysApply: false
 ---
-
 # Minsky Workflow
 
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
@@ -14,6 +13,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
 
 1. **Always Use Minsky CLI for Task/Session Data**
    - NEVER use file listings or static documentation
+   - NEVER directly manipulate Minsky's state files or databases
+   - NEVER delete or modify files in `~/.local/state/minsky/`
    - ALWAYS use appropriate minsky commands:
      ```bash
      # For task queries
@@ -26,7 +27,21 @@ This rule defines the comprehensive process for working with tasks and sessions 
      minsky session get <name>         # Get session details
      ```
 
-2. **Real-Time Data Over Static Files**
+2. **Data Integrity is Critical**
+   - Minsky maintains critical state in `~/.local/state/minsky/`
+   - Direct manipulation of these files will corrupt the system
+   - NEVER attempt to "fix" issues by deleting state files
+   - If encountering session/task issues:
+     1. Use `minsky session list` to check current state
+     2. Use `minsky session get <name>` to inspect specific sessions
+     3. Report the issue if commands aren't working as expected
+   - Deleting state files is STRICTLY FORBIDDEN as it:
+     - Corrupts Minsky's understanding of tasks and sessions
+     - Makes session management impossible
+     - May lead to lost work or inconsistent state
+     - Violates the core principle of CLI-based management
+
+3. **Real-Time Data Over Static Files**
    - Task information comes from the live system, not files
    - Session state must be queried through CLI, not assumed
    - File system should never be used as a primary data source
