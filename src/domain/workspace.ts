@@ -35,7 +35,23 @@ export async function isSessionRepository(
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
     const minskyPath = join(xdgStateHome, 'minsky', 'git');
     
-    return gitRoot.startsWith(minskyPath);
+    // Check both patterns:
+    // - Legacy: /minsky/git/<repoName>/<session>
+    // - New: /minsky/git/<repoName>/sessions/<session>
+    if (gitRoot.startsWith(minskyPath)) {
+      // Extract the relative path from the minsky git directory
+      const relativePath = gitRoot.substring(minskyPath.length + 1);
+      const pathParts = relativePath.split('/');
+      
+      // Should have at least 2 parts for legacy format (repoName/session)
+      // or 3 parts for new format (repoName/sessions/session)
+      return pathParts.length >= 2 && (
+        pathParts.length === 2 || 
+        (pathParts.length >= 3 && pathParts[1] === 'sessions')
+      );
+    }
+    
+    return false;
   } catch (error) {
     return false;
   }
@@ -68,14 +84,25 @@ export async function getSessionFromRepo(
     }
     
     // Extract session name from the path
-    // Pattern: <minsky_path>/<repo_name>/<session_name>
-    const pathParts = gitRoot.substring(minskyPath.length + 1).split('/');
+    // Pattern could be either:
+    // - Legacy: <minsky_path>/<repo_name>/<session_name>
+    // - New: <minsky_path>/<repo_name>/sessions/<session_name>
+    const relativePath = gitRoot.substring(minskyPath.length + 1);
+    const pathParts = relativePath.split('/');
+    
     if (pathParts.length < 2) {
       return null;
     }
     
     // Get the session name from the path parts
-    const sessionName = pathParts[pathParts.length - 1];
+    let sessionName;
+    if (pathParts.length >= 3 && pathParts[1] === 'sessions') {
+      // New path format: <repo_name>/sessions/<session_name>
+      sessionName = pathParts[2];
+    } else {
+      // Legacy path format: <repo_name>/<session_name>
+      sessionName = pathParts[1];
+    }
     
     // Type check to ensure sessionName is a string (for the compiler)
     if (typeof sessionName !== 'string') {

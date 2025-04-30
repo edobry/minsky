@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { mkdir, symlink } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { normalizeRepoName } from './repo-utils';
@@ -40,10 +40,12 @@ export interface PrResult {
 
 export class GitService {
   private readonly baseDir: string;
+  private sessionDb: SessionDB;
 
   constructor() {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
     this.baseDir = join(xdgStateHome, 'minsky', 'git');
+    this.sessionDb = new SessionDB();
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -55,7 +57,8 @@ export class GitService {
   }
 
   private getSessionWorkdir(repoName: string, session: string): string {
-    return join(this.baseDir, repoName, session);
+    // Use the new path structure with sessions subdirectory
+    return join(this.baseDir, repoName, 'sessions', session);
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
@@ -63,10 +66,13 @@ export class GitService {
     
     const session = options.session || this.generateSessionId();
     const repoName = normalizeRepoName(options.repoUrl);
-    const workdir = this.getSessionWorkdir(repoName, session);
     
-    // Create the workdir
-    await mkdir(workdir, { recursive: true });
+    // Create the repo/sessions directory structure
+    const sessionsDir = join(this.baseDir, repoName, 'sessions');
+    await mkdir(sessionsDir, { recursive: true });
+    
+    // Get the workdir with sessions subdirectory
+    const workdir = this.getSessionWorkdir(repoName, session);
     
     // Clone the repository
     await execAsync(`git clone ${options.repoUrl} ${workdir}`);
@@ -79,8 +85,7 @@ export class GitService {
 
   async branch(options: BranchOptions): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const db = new SessionDB();
-    const record = await db.getSession(options.session);
+    const record = await this.sessionDb.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
@@ -101,8 +106,7 @@ export class GitService {
     // Determine the working directory
     let workdir: string;
     if (options.session) {
-      const db = new SessionDB();
-      const record = await db.getSession(options.session);
+      const record = await this.sessionDb.getSession(options.session);
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
@@ -198,136 +202,53 @@ export class GitService {
       }
     }
     if (!mergeBase) {
-      // fallback to first commit
-      const { stdout: firstCommit } = await execAsync(`git -C ${workdir} rev-list --max-parents=0 ${branch}`);
-      mergeBase = firstCommit.trim();
-      comparisonDescription = `All changes since repository creation`;
+      try {
+        const { stdout: firstCommit } = await execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
+        mergeBase = firstCommit.trim();
+        comparisonDescription = 'All changes since repository creation';
+      } catch (err) {
+        if (options.debug) {
+          console.error(`[DEBUG] Failed to get first commit: ${err}`);
+        }
+      }
     }
-
+    
     if (options.debug) {
-      console.error(`[DEBUG] Using base branch: ${baseBranch}`);
       console.error(`[DEBUG] Using merge base: ${mergeBase}`);
+      console.error(`[DEBUG] Comparison: ${comparisonDescription}`);
     }
 
-    // Get a list of all files changed
-    const { stdout: filesOut } = await execAsync(
-      `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`
-    ).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get changed files: ${err}`);
-      }
-      return { stdout: '' };
-    });
+    // Create the PR markdown
+    const markdown = await this.generatePrMarkdown(workdir, branch, mergeBase, comparisonDescription);
     
-    // Get uncommitted changes
-    const { stdout: uncommittedOut } = await execAsync(
-      `git -C ${workdir} diff --name-status`
-    ).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get uncommitted changes: ${err}`);
-      }
-      return { stdout: '' };
-    });
+    return { markdown };
+  }
 
-    // Get untracked files
-    const { stdout: untrackedOut } = await execAsync(
-      `git -C ${workdir} ls-files --others --exclude-standard --full-name`
-    ).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get untracked files: ${err}`);
-      }
-      return { stdout: '' };
-    });
-
-    // Format untracked files to match git diff format (prefix with A for added)
-    const untrackedFiles = untrackedOut
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map(file => `A\t${file}`);
+  private async generatePrMarkdown(workdir: string, branch: string, mergeBase: string, comparisonDescription: string): Promise<string> {
+    // Get commits on the branch
+    const { stdout: commits } = await execAsync(`git -C ${workdir} log --oneline ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
     
-    // Combine committed, uncommitted and untracked changes
-    const allChanges = new Set([
-      ...filesOut.trim().split("\n").filter(Boolean),
-      ...uncommittedOut.trim().split("\n").filter(Boolean),
-      ...untrackedFiles
-    ]);
-    let files = Array.from(allChanges);
-
-    // Basic stats for committed changes
-    const statCmd = `git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`;
-    const { stdout: statOut } = await execAsync(statCmd).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get diff stats: ${err}`);
-      }
-      return { stdout: '' };
-    });
-    // Also get working directory diff stats
-    const { stdout: wdStatOut } = await execAsync(`git -C ${workdir} diff --shortstat`).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get working directory stats: ${err}`);
-      }
-      return { stdout: '' };
-    });
-    // Debug output
-    if (options.debug) {
-      console.error(`[DEBUG] Running: ${statCmd}`);
-      console.error(`[DEBUG] Stat output:`, statOut);
-      console.error(`[DEBUG] Working directory stat:`, wdStatOut);
-    }
-
-    // Markdown output
-    let md = `# Pull Request for branch \`${branch}\`\n\n`;
-    md += `## Commits\n`;
+    // Get modified files in the branch
+    const { stdout: modifiedFiles } = await execAsync(`git -C ${workdir} diff --name-only ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
     
-    // Get commits between merge base and current branch
-    const logCmd = `git -C ${workdir} log --reverse --pretty=format:"%H%x1f%s%x1f%b%x1e" ${mergeBase}..${branch}`;
-    if (options.debug) {
-      console.error(`[DEBUG] Running: ${logCmd}`);
-    }
-    const { stdout: logOut } = await execAsync(logCmd).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get commit log: ${err}`);
-      }
-      return { stdout: '' };
-    });
-    
-    const commits = logOut
-      .split("\x1e")
-      .filter(Boolean)
-      .map(line => {
-        const [hash, title, body] = line.split("\x1f");
-        return { hash, title, body };
-      });
-
-    if (commits.length === 0) {
-      md += "*No commits found between merge base and current branch*\n";
-    } else {
-      for (const c of commits) {
-        md += `- **${c.title}**\n`;
-        if (c.body && c.body.trim()) md += `  \n  ${c.body.trim().replace(/\n/g, '  \n')}\n`;
-      }
+    // Get untracked files (only if merge base is not the first commit)
+    let untrackedFiles = '';
+    try {
+      const { stdout } = await execAsync(`git -C ${workdir} ls-files --others --exclude-standard`, { maxBuffer: 1024 * 1024 });
+      untrackedFiles = stdout;
+    } catch (err) {
+      // Ignore errors for untracked files
     }
     
-    md += `\n## Modified Files (${comparisonDescription})\n`;
-    if (files.length === 0) {
-      md += "*No modified files detected with the current comparison method*\n";
-    } else {
-      for (const f of files) {
-        md += `- ${f}\n`;
-      }
-    }
+    // Get changes stats
+    const { stdout: stats } = await execAsync(`git -C ${workdir} diff --stat ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
     
-    md += `\n## Stats\n`;
-    if (statOut.trim()) {
-      md += statOut.trim() + '\n';
-    } else {
-      md += "*No stats available with the current comparison method*\n";
-    }
-    if (wdStatOut.trim()) {
-      md += `\n_Uncommitted changes in working directory:_\n` + wdStatOut.trim() + '\n';
-    }
-    
-    return { markdown: md };
+    // Generate the PR markdown
+    return [
+      `# Pull Request for branch \`${branch}\`\n`,
+      `## Commits\n${commits || 'No commits yet'}\n`,
+      `## Modified Files (${comparisonDescription})\n${modifiedFiles || untrackedFiles || 'No changes'}\n`,
+      `## Stats\n${stats || 'No changes'}`
+    ].join('\n');
   }
 }

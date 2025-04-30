@@ -192,7 +192,7 @@ export class GitHubTaskBackend implements TaskBackend {
 }
 
 export interface TaskServiceOptions {
-  workspacePath: string;
+  workspacePath?: string;
   backend?: string;
 }
 
@@ -200,20 +200,25 @@ export class TaskService {
   private backends: TaskBackend[] = [];
   private currentBackend: TaskBackend;
   
-  constructor(options: TaskServiceOptions) {
-    // Initialize backends
-    this.backends.push(new MarkdownTaskBackend(options.workspacePath));
-    this.backends.push(new GitHubTaskBackend(options.workspacePath));
+  constructor(options: TaskServiceOptions = {}) {
+    // Default to current directory if no workspacePath is provided
+    const workspacePath = options.workspacePath || process.cwd();
     
-    // Set default backend
-    const requestedBackend = options.backend || 'markdown';
-    const backend = this.backends.find(b => b.name === requestedBackend);
+    // Add all available backends
+    this.backends.push(new MarkdownTaskBackend(workspacePath));
+    this.backends.push(new GitHubTaskBackend(workspacePath));
     
-    if (!backend) {
-      throw new Error(`Task backend '${requestedBackend}' not found`);
+    // Select the backend to use
+    if (options.backend) {
+      const backend = this.backends.find(b => b.name === options.backend);
+      if (!backend) {
+        throw new Error(`Task backend '${options.backend}' not found.`);
+      }
+      this.currentBackend = backend;
+    } else {
+      // Default to markdown backend
+      this.currentBackend = this.backends[0];
     }
-    
-    this.currentBackend = backend;
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
