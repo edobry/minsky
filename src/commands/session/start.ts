@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { resolveRepoPath } from '../../domain/repo-utils';
 import { startSession } from './startSession';
+import { normalizeTaskId } from '../../utils/task-utils';
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
@@ -27,12 +28,8 @@ export function createStartCommand(): Command {
         let taskId: string | undefined = undefined;
 
         if (options.task) {
-          taskId = options.task;
-          
           // Normalize the task ID format
-          if (!taskId.startsWith('#')) {
-            taskId = `#${taskId}`;
-          }
+          taskId = normalizeTaskId(options.task);
           
           // Verify the task exists
           const taskService = new TaskService({
@@ -71,11 +68,10 @@ export function createStartCommand(): Command {
         }
         console.log(`\nTo navigate to this session's directory, run:`);
         console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-        // Return just the path so it can be used in scripts
-        console.log(`\n${result.cloneResult.workdir}`);
+        console.log('');
+        console.log(result.cloneResult.workdir);
       } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error('Error starting session:', err.message);
+        console.error('Error starting session:', error.message);
         process.exit(1);
       }
     });

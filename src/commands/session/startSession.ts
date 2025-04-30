@@ -1,27 +1,31 @@
 import { GitService } from '../../domain/git';
-import { SessionDB } from '../../domain/session';
-import type { SessionRecord } from '../../domain/session';
+import { SessionDB, type SessionRecord } from '../../domain/session';
 import { TaskService } from '../../domain/tasks';
-import fsDefault from 'fs';
-import pathDefault from 'path';
-import { resolveRepoPath as resolveRepoPathDefault } from '../../domain/repo-utils';
+import fs from 'fs';
+import path from 'path';
+import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils';
+import { normalizeTaskId } from '../../utils/task-utils';
+
+// Default imports for optional parameters
+const fsDefault = fs;
+const pathDefault = path;
 
 export interface StartSessionOptions {
   session?: string;
   repo?: string;
   taskId?: string;
-  gitService?: any;
-  sessionDB?: any;
-  fs?: typeof fsDefault;
-  path?: typeof pathDefault;
+  gitService?: GitService;
+  sessionDB?: SessionDB;
+  fs?: typeof fs;
+  path?: typeof path;
   resolveRepoPath?: typeof resolveRepoPathDefault;
   taskService?: TaskService;
 }
 
 export interface StartSessionResult {
-  cloneResult: any;
-  branchResult: any;
-  sessionRecord: any;
+  sessionRecord: SessionRecord;
+  cloneResult: { workdir: string };
+  branchResult: { branch: string };
 }
 
 export async function startSession({ session, repo, taskId, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
@@ -34,13 +38,11 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
     // Normalize the task ID format
-    if (!taskId.startsWith('#')) {
-      taskId = `#${taskId}`;
-    }
+    taskId = normalizeTaskId(taskId);
 
     // Verify the task exists
     taskService = taskService || new TaskService({
-      repoPath: repo || await resolveRepoPath({}),
+      workspacePath: repo || await resolveRepoPath({}),
       backend: 'markdown' // Default to markdown backend
     });
 
@@ -83,34 +85,38 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     }
   }
 
-  // If local path, convert to file:// URL
-  const isLocalPath = fs.existsSync(repoUrl) && fs.statSync(repoUrl).isDirectory();
-  if (isLocalPath && !repoUrl.startsWith('file://')) {
-    const absolutePath = path.resolve(repoUrl);
-    repoUrl = `file://${absolutePath}`;
-  }
-
-  // Record the session first
-  const sessionRecord = {
+  // The session creation approach follows these steps:
+  // 1. First add the session to the DB (repoUrl needed)
+  // 2. Then clone the repo (session name needed)
+  // 3. Then create a branch (session name needed)
+  
+  // Extract the repository name
+  const repoName = normalizeRepoName(repoUrl);
+  
+  // First record the session in the DB
+  await sessionDB.addSession({
     session,
     repoUrl,
-    branch: session,
+    repoName,
     createdAt: new Date().toISOString(),
-    ...(taskId ? { taskId } : {})
-  };
-  await sessionDB.addSession(sessionRecord);
+    taskId
+  });
 
-  // Clone the repo
+  // Now clone the repo
   const cloneResult = await gitService.clone({
     repoUrl,
     session
   });
 
-  // Create a branch named after the session
+  // Create a branch based on the session name
   const branchResult = await gitService.branch({
     session,
     branch: session
   });
 
-  return { cloneResult, branchResult, sessionRecord };
+  return {
+    sessionRecord: { session, repoUrl, repoName, branch: session, createdAt: new Date().toISOString(), taskId },
+    cloneResult,
+    branchResult
+  };
 } 
