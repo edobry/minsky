@@ -25,5 +25,6 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add Repository Backend Support [#014](mdc:tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
-- [+] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
+- [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
 - [ ] Implement test suite improvements for better reliability and maintainability [#019](tasks/019-implement-test-suite-improvements.md)
+- [ ] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
