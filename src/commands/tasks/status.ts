@@ -5,6 +5,7 @@ import { resolveRepoPath } from '../../domain/repo-utils';
 import { resolveWorkspacePath } from '../../domain/workspace';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { normalizeTaskId } from '../../utils/task-utils';
 
 const execAsync = promisify(exec);
 
@@ -23,6 +24,9 @@ function createStatusGetCommand(): Command {
       workspace?: string 
     }) => {
       try {
+        // Normalize the task ID format
+        const normalizedTaskId = normalizeTaskId(taskId);
+        
         // First get the repo path (needed for workspace resolution)
         const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
         
@@ -37,13 +41,13 @@ function createStatusGetCommand(): Command {
           backend: options.backend
         });
         
-        const status = await taskService.getTaskStatus(taskId);
+        const status = await taskService.getTaskStatus(normalizedTaskId);
         if (status === null) {
-          console.error(`Task with ID '${taskId}' not found.`);
+          console.error(`Task with ID '${normalizedTaskId}' not found.`);
           process.exit(1);
           return;
         }
-        console.log(`Status for task ${taskId}: ${status}`);
+        console.log(`Status for task ${normalizedTaskId}: ${status}`);
       } catch (error) {
         console.error('Error getting task status:', error);
         process.exit(1);
@@ -67,6 +71,9 @@ function createStatusSetCommand(): Command {
       workspace?: string 
     }) => {
       try {
+        // Normalize the task ID format
+        const normalizedTaskId = normalizeTaskId(taskId);
+        
         // Validate the status value
         if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
           console.error(`\nInvalid status: '${status}'.\nValid options are: ${Object.values(TASK_STATUS).join(', ')}\nExample: minsky tasks status set #001 DONE\n`);
@@ -88,29 +95,28 @@ function createStatusSetCommand(): Command {
         });
         
         // First verify task exists
-        const task = await taskService.getTask(taskId);
+        const task = await taskService.getTask(normalizedTaskId);
         if (!task) {
-          console.error(`Task with ID '${taskId}' not found.`);
+          console.error(`Task with ID '${normalizedTaskId}' not found.`);
           process.exit(1);
           return;
         }
         
-        await taskService.setTaskStatus(taskId, status as TaskStatus);
-        console.log(`Status for task ${taskId} updated to: ${status}`);
+        await taskService.setTaskStatus(normalizedTaskId, status as TaskStatus);
+        console.log(`Status for task ${normalizedTaskId} updated to: ${status}`);
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error('Error setting task status:', msg);
+        console.error('Error setting task status:', error);
         process.exit(1);
       }
     });
 }
 
 export function createStatusCommand(): Command {
-  const statusCommand = new Command('status')
-    .description('Manage task status');
-    
-  statusCommand.addCommand(createStatusGetCommand());
-  statusCommand.addCommand(createStatusSetCommand());
-  
-  return statusCommand;
+  const status = new Command('status')
+    .description('Task status operations');
+
+  status.addCommand(createStatusGetCommand());
+  status.addCommand(createStatusSetCommand());
+
+  return status;
 } 

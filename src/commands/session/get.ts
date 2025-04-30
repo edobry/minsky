@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { SessionDB } from '../../domain/session';
+import { normalizeTaskId } from '../../utils/task-utils';
 
 export function createGetCommand(): Command {
   return new Command('get')
@@ -21,9 +22,12 @@ export function createGetCommand(): Command {
       }
       let record;
       if (options.task) {
-        record = await db.getSessionByTaskId(options.task);
+        // Normalize the task ID format
+        const normalizedTaskId = normalizeTaskId(options.task);
+        
+        record = await db.getSessionByTaskId(normalizedTaskId);
         if (!record) {
-          const msg = `No session found for task ID '${options.task}'.`;
+          const msg = `No session found for task ID '${normalizedTaskId}'.`;
           if (options.json) {
             console.log(JSON.stringify(null));
           } else {

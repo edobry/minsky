@@ -4,6 +4,7 @@ import { resolveRepoPath } from '../../domain/repo-utils';
 import { resolveWorkspacePath } from '../../domain/workspace';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { normalizeTaskId } from '../../utils/task-utils';
 
 const execAsync = promisify(exec);
 
@@ -24,6 +25,9 @@ export function createGetCommand(): Command {
       json?: boolean 
     }) => {
       try {
+        // Normalize the task ID format
+        const normalizedTaskId = normalizeTaskId(taskId);
+        
         // First get the repo path (needed for workspace resolution)
         const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
         
@@ -38,10 +42,10 @@ export function createGetCommand(): Command {
           backend: options.backend
         });
         
-        const task = await taskService.getTask(taskId);
+        const task = await taskService.getTask(normalizedTaskId);
         
         if (!task) {
-          console.error(`Task with ID '${taskId}' not found.`);
+          console.error(`Task with ID '${normalizedTaskId}' not found.`);
           process.exit(1);
           return;
         }
