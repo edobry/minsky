@@ -48,12 +48,14 @@ _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.spe
 - Added `repoName` field to session database records
 - Updated session-related commands to handle the new directory structure
 - Added repo name normalization for consistent directory naming
+- Updated `tasks list` command to hide DONE tasks by default and added a `--all` option to show all tasks including DONE ones
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
 _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.specstory/history/2025-04-29_18-50-task-002-per-repo-session-storage.md) for task #002 implementation._
+_See: SpecStory history [2025-04-30_17-43-task-008-implementation](.specstory/history/2025-04-30_17-43-task-008-implementation.md) for task #008 implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
