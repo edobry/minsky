@@ -3,10 +3,10 @@ description: REQUIRED workflow for BOTH querying and implementing tasks - ANY in
 globs: 
 alwaysApply: false
 ---
-
 # Minsky Workflow
 
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
+⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
 This rule defines the comprehensive process for working with tasks and sessions using the Minsky tool. ANY operation related to tasks or sessions - whether viewing, querying, or modifying - MUST use the Minsky CLI to ensure data consistency and accuracy.
 
@@ -14,6 +14,9 @@ This rule defines the comprehensive process for working with tasks and sessions 
 
 1. **Always Use Minsky CLI for Task/Session Data**
    - NEVER use file listings or static documentation
+   - NEVER directly manipulate Minsky's state files or databases
+   - NEVER delete or modify files in `~/.local/state/minsky/`
+   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
    - ALWAYS use appropriate minsky commands:
      ```bash
      # For task queries
@@ -23,10 +26,27 @@ This rule defines the comprehensive process for working with tasks and sessions 
      
      # For session queries
      minsky session list --json        # List all sessions
-     minsky session get <name>         # Get session details
+     minsky session get <name>         # Get session details by name
+     minsky session get --task XXX     # Get session details by task ID
      ```
 
-2. **Real-Time Data Over Static Files**
+2. **Data Integrity is Critical**
+   - Minsky maintains critical state in `~/.local/state/minsky/`
+   - Direct manipulation of these files will corrupt the system
+   - NEVER attempt to "fix" issues by deleting state files
+   - NEVER attempt to read or modify the session database directly
+   - If encountering session/task issues:
+     1. Use `minsky session list` to check current state
+     2. Use `minsky session get <name>` to inspect specific sessions by name
+     3. Use `minsky session get --task XXX` to inspect sessions by task ID
+     4. Report the issue if commands aren't working as expected
+   - Deleting state files is STRICTLY FORBIDDEN as it:
+     - Corrupts Minsky's understanding of tasks and sessions
+     - Makes session management impossible
+     - May lead to lost work or inconsistent state
+     - Violates the core principle of CLI-based management
+
+3. **Real-Time Data Over Static Files**
    - Task information comes from the live system, not files
    - Session state must be queried through CLI, not assumed
    - File system should never be used as a primary data source
@@ -42,6 +62,33 @@ Before examining or modifying any code, you MUST:
 
 No code examination or changes are permitted until these steps are complete.
 Violating this rule compromises the entire workflow system.
+
+## ⚠️ REPOSITORY ISOLATION WARNING
+
+**The session directory contains a COMPLETELY SEPARATE CLONE of the repository.**
+
+- Changes made to files in the main workspace WILL NOT appear in the session branch
+- Changes made to files in the session directory DO NOT affect the main workspace
+- Always confirm your current working directory with `pwd` before making any changes
+- Session isolation is fundamental to the Minsky model and must be preserved
+
+## FILE PATH RESOLUTION REQUIREMENTS
+
+When working in a session directory, you MUST:
+
+- **ALWAYS use absolute paths when editing files**
+  - CORRECT: `/Users/username/.local/state/minsky/git/task-id/src/file.ts`
+  - INCORRECT: `src/file.ts` (which would edit the main workspace file)
+- Relative paths in file editing tools are resolved against the main workspace, NOT the current shell directory
+- Without absolute paths, changes may silently occur in the main workspace instead of the session directory
+
+## FILE CHANGE VERIFICATION
+
+After every file edit in a session directory, verify the changes are actually present by:
+
+1. Running `git status` to confirm the file appears as modified
+2. Running `git diff <filename>` to confirm the expected changes exist
+3. Never assuming an edit succeeded without verification
 
 ## Request Interpretation and Workflow Priority
 
@@ -152,14 +199,16 @@ When asked to continue working on a task:
 1. **Find Existing Session**
    - Look up the session associated with the task:
      ```bash
-     # Use session get to get details about a specific session
+     # Use session get to get details about a specific session by name
      minsky session get task#001
+     
+     # OR use session get with the --task option to get details by task ID
+     minsky session get --task 001
      ```
-   - If you don't know the session name, you may need to list all sessions:
+   - If needed, you can also list all sessions:
      ```bash
-     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     minsky session list --json
      ```
-   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
 
 2. **Enter Existing Session**
    - Navigate to the session directory:
@@ -179,7 +228,13 @@ When asked to continue working on a task:
    - Follow all project coding standards and best practices
    - Implement the required changes, addressing all requirements
    - Commit changes at logical intervals with clear, descriptive messages
-   - Reference the task ID in all commit messages (e.g., "Implement feature X for #001")
+   - Reference the task ID in all commit messages (e.g., "task#001: Implement feature X")
+   - **ALWAYS push immediately after committing:**
+     ```bash
+     # After every commit, immediately push to the session branch
+     git push origin $(git branch --show-current)
+     ```
+   - Never leave commits unpushed at the end of an implementation session
 
 3. **Work Log**
    - Maintain a "Work Log" section in the task document:
@@ -213,14 +268,27 @@ When asked to continue working on a task:
    - Use the Work Log from the task document as the basis for changelog entries
    - Reference the task ID in the changelog entry
 
-## Task Completion
+## Task Completion Checklist
 
-1. **PR Preparation**
-   - Generate a PR description:
-     ```bash
-     minsky git pr
-     ```
-   - Minsky will automatically create necessary directories and save the PR description to:
+Task implementation is not complete until ALL these steps are performed, in order:
+
+1. ✓ All code changes are made in the session directory (not main workspace)
+2. ✓ All tests pass in the session directory
+3. ✓ Task document is updated with Work Log and verification steps are checked off
+4. ✓ All changes are committed with task ID in commit message
+5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
+6. ✓ PR description is committed
+7. ✓ Changes are pushed to remote with `git push origin <branch>`
+8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+
+## PR Preparation
+
+1. **Generate a PR description:**
+   ```bash
+   minsky git pr --path .
+   ```
+   - Minsky will automatically generate a PR description based on the changes in the current branch
+   - Save this description to:
      ```
      process/tasks/<task-id>/pr.md
      ```

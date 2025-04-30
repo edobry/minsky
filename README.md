@@ -65,6 +65,9 @@ minsky session list
 # View session details
 minsky session get my-session
 
+# View session details by task ID
+minsky session get --task 001
+
 # Get session directory
 minsky session dir my-session
 ```
@@ -103,6 +106,28 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 - Aggregates indented lines as task descriptions
 - Extensible: future support for GitHub Issues and other backends
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
+
+## Task Workspace Detection
+
+Minsky now automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
+
+### How It Works
+
+1. When a task command is executed from a session repository, Minsky automatically detects this and resolves the main workspace path.
+2. All task operations are performed on files in the main workspace rather than session-specific copies.
+3. No manual directory change is required - the redirection is transparent.
+
+### Command Line Options
+
+All task commands now support a `--workspace <path>` option to explicitly specify the main workspace path:
+
+```
+minsky tasks list --workspace /path/to/main/workspace
+minsky tasks get '#001' --workspace /path/to/main/workspace
+minsky tasks status set '#001' DONE --workspace /path/to/main/workspace
+```
+
+This option overrides any automatic workspace detection. The previous `--repo` and `--session` options still work, but the workspace path takes precedence when provided.
 
 ## Example Workflows
 

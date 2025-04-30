@@ -19,6 +19,7 @@ export interface TaskBackend {
   getTask(id: string): Promise<Task | null>;
   getTaskStatus(id: string): Promise<string | null>;
   setTaskStatus(id: string, status: string): Promise<void>;
+  getWorkspacePath(): string;
 }
 
 export interface TaskListOptions {
@@ -52,9 +53,11 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
 export class MarkdownTaskBackend implements TaskBackend {
   name = 'markdown';
   private filePath: string;
+  private workspacePath: string;
   
-  constructor(repoPath: string) {
-    this.filePath = join(repoPath, 'process', 'tasks.md');
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
+    this.filePath = join(workspacePath, 'process', 'tasks.md');
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
@@ -145,12 +148,18 @@ export class MarkdownTaskBackend implements TaskBackend {
       return [];
     }
   }
+  
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
   name = 'github';
+  private workspacePath: string;
   
-  constructor(repoPath: string) {
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
     // Would initialize GitHub API client here
   }
   
@@ -176,10 +185,14 @@ export class GitHubTaskBackend implements TaskBackend {
     // Placeholder for GitHub API integration
     console.log('GitHub task backend not fully implemented');
   }
+  
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
 }
 
 export interface TaskServiceOptions {
-  repoPath: string;
+  workspacePath?: string;
   backend?: string;
 }
 
@@ -187,20 +200,25 @@ export class TaskService {
   private backends: TaskBackend[] = [];
   private currentBackend: TaskBackend;
   
-  constructor(options: TaskServiceOptions) {
-    // Initialize backends
-    this.backends.push(new MarkdownTaskBackend(options.repoPath));
-    this.backends.push(new GitHubTaskBackend(options.repoPath));
+  constructor(options: TaskServiceOptions = {}) {
+    // Default to current directory if no workspacePath is provided
+    const workspacePath = options.workspacePath || process.cwd();
     
-    // Set default backend
-    const requestedBackend = options.backend || 'markdown';
-    const backend = this.backends.find(b => b.name === requestedBackend);
+    // Add all available backends
+    this.backends.push(new MarkdownTaskBackend(workspacePath));
+    this.backends.push(new GitHubTaskBackend(workspacePath));
     
-    if (!backend) {
-      throw new Error(`Task backend '${requestedBackend}' not found`);
+    // Select the backend to use
+    if (options.backend) {
+      const backend = this.backends.find(b => b.name === options.backend);
+      if (!backend) {
+        throw new Error(`Task backend '${options.backend}' not found.`);
+      }
+      this.currentBackend = backend;
+    } else {
+      // Default to markdown backend
+      this.currentBackend = this.backends[0];
     }
-    
-    this.currentBackend = backend;
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
@@ -217,5 +235,9 @@ export class TaskService {
   
   async setTaskStatus(id: string, status: string): Promise<void> {
     return this.currentBackend.setTaskStatus(id, status);
+  }
+  
+  getWorkspacePath(): string {
+    return this.currentBackend.getWorkspacePath();
   }
 } 

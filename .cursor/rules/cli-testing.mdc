@@ -1,0 +1,92 @@
+---
+description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
+globs: ["**/commands/**/*.test.ts", "**/commands/**/*.spec.ts"]
+alwaysApply: false
+---
+# CLI Testing
+
+When testing command-line interfaces, follow these practices for thorough and reliable tests:
+
+## End-to-End CLI Testing
+- Use `spawnSync` or similar to test the CLI as users would experience it
+- Test the full command invocation rather than just internal functions
+- Set up the environment to mimic a real user's environment
+- Verify both successful execution and proper error handling
+- Include tests of usage information and help text
+
+```typescript
+const { stdout, stderr, status } = spawnSync('bun', ['run', CLI, 'command', 'subcommand', '--flag'], { 
+  encoding: 'utf-8',
+  env: { ...process.env, CUSTOM_VAR: 'value' } 
+});
+
+expect(status).toBe(0); // Successful exit
+expect(stdout).toContain('Expected output');
+expect(stderr).toBe(''); // No errors
+```
+
+## Output Format Testing
+- Test both human-readable and machine-readable outputs (e.g., JSON)
+- Verify text formatting, colors, and layout when important for UX
+- Test all output modes and formats the CLI provides
+- Parse and validate structured output (JSON, CSV, etc.)
+- Test output in both TTY and non-TTY environments when relevant
+
+```typescript
+// Test human-readable output
+const { stdout: textOut } = spawnSync('bun', ['run', CLI, 'command']);
+expect(textOut).toContain('Human readable result:');
+
+// Test JSON output
+const { stdout: jsonOut } = spawnSync('bun', ['run', CLI, 'command', '--json']);
+const result = JSON.parse(jsonOut);
+expect(result.success).toBe(true);
+expect(result.data).toHaveProperty('key');
+```
+
+## Testing CLI Flags and Options
+- Test each flag and option individually
+- Test combinations of flags that should work together
+- Test flags that are mutually exclusive
+- Test default values when flags are omitted
+- Test invalid or incompatible flag combinations
+
+## Input Validation Testing
+- Test with valid, invalid, and edge case inputs
+- Test handling of missing required arguments
+- Test input type validation (numbers, dates, etc.)
+- Test path resolution and existence checks
+- Test handling of unexpected input formats
+
+## Exit Code Testing
+- Verify correct exit codes for success and various error conditions
+- Test exit code 0 for successful operations
+- Test specific non-zero exit codes for different error types
+- Document the meaning of each exit code
+
+```typescript
+const { status } = spawnSync('bun', ['run', CLI, 'command', '--invalid-flag']);
+expect(status).toBe(1); // Error exit code
+```
+
+## Testing Interactive CLI Features
+- Mock TTY input to simulate user interaction
+- Test prompts, confirmations, and interactive menus
+- Verify default selections and validation
+- Test cancellation and interruption handling
+- Validate help text and instructions during interaction
+
+## Environment Testing
+- Test with different environment variables
+- Verify proper handling of configuration files
+- Test with various working directories
+- Test permission and access scenarios
+- Test platform-specific behavior when relevant
+
+## Integration with Other Commands
+- Test how your CLI interacts with other tools in pipelines
+- Test input/output redirection
+- Test exit code propagation in scripts
+- Verify handling of signals (SIGINT, SIGTERM, etc.)
+
+These practices ensure your CLI tools are robust, user-friendly, and behave as expected in real-world usage scenarios.

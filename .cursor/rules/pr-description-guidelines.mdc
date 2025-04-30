@@ -1,0 +1,103 @@
+---
+description: Detailed guidelines for structuring and writing effective PR descriptions using conventional commits format
+globs: 
+alwaysApply: false
+---
+
+# PR Description Guidelines
+
+For any Pull Request, follow these standards to ensure clarity, consistency, and comprehensive documentation of changes.
+
+## PR Title Format
+- Always use the conventional commits format: `type(scope): description`
+- For task-related PRs, include the task ID in the scope: `feat(#002): Add per-repo session storage`
+- Use appropriate types:
+  - `feat`: New features
+  - `fix`: Bug fixes
+  - `refactor`: Code changes that neither fix bugs nor add features
+  - `docs`: Documentation changes
+  - `test`: Adding or modifying tests
+  - `chore`: Changes to build process or auxiliary tools
+
+## PR Description Structure
+1. **Summary** (Required)
+   - Brief overview of the PR in 2-3 sentences
+   - Mention the task ID being implemented
+
+2. **Motivation & Context** (Required)
+   - Explain WHY this change is needed
+   - Reference the original task specification
+   - Describe the problem being solved
+   - Include any design constraints or considerations
+
+3. **Design/Approach** (Required)
+   - Explain the high-level design or approach chosen
+   - Mention any alternative approaches that were considered and why they were rejected
+   - Reference any architectural decisions that influenced the implementation
+
+4. **Key Changes** (Required)
+   - Bullet points listing significant changes made
+   - Group related changes together
+   - Use code examples where appropriate for clarity
+
+5. **Breaking Changes** (When applicable)
+   - Explicitly call out any breaking changes
+   - Detail migration paths for users
+   - Provide examples of before/after code if applicable
+
+6. **Data Migrations** (When applicable)
+   - Document any data format changes
+   - Explain how existing data will be migrated
+   - Mention any backward compatibility considerations
+
+7. **Ancillary Changes** (When applicable)
+   - List changes made that were not explicitly part of the task
+   - Explain why these additional changes were necessary
+
+8. **Testing** (Required)
+   - Describe how the changes were tested
+   - Mention any new tests added
+   - Note any testing limitations or edge cases
+
+9. **Screenshots/Examples** (When applicable)
+   - Include visual examples for UI changes
+   - Show before/after comparisons if relevant
+
+## Example PR Description Template
+```markdown
+# feat(#002): Store Session Repos Under Per-Repo Directories
+
+## Summary
+This PR implements task #002, reorganizing session storage to use a more structured directory hierarchy and adding repository name tracking.
+
+## Motivation & Context
+The current flat session storage structure becomes unwieldy with many sessions from different repositories. This change creates a more organized structure by grouping sessions by repository.
+
+## Design Approach
+We've implemented a hierarchical directory structure while maintaining backward compatibility with existing sessions. Repository names are normalized to ensure consistent directory naming across different repository URL formats.
+
+## Key Changes
+- Added `repoName` field to `SessionRecord` to track normalized repository names
+- Implemented repository name normalization (e.g., `github.com/org/project.git` → `org/project`)
+- Updated directory structure to store session repositories under `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`
+- Added migration logic for existing session records
+
+## Breaking Changes
+None. All changes maintain backward compatibility with existing sessions.
+
+## Data Migrations
+- Existing session records without a `repoName` field will have it automatically populated
+- Repositories remain in their original locations but can be migrated using the new `migrateSessionsToSubdirectory` method
+
+## Ancillary Changes
+- Improved error handling in session path resolution
+- Enhanced workspace detection for better path handling across different environments
+
+## Testing
+- Added test cases for repository name normalization
+- Added tests for path resolution with both legacy and new structures
+- Updated existing tests to work with the new directory structure
+```
+
+## Reference
+This guide is based on industry best practices for PR descriptions. For more information on conventional commits, see [conventionalcommits.org](mdc:https:/www.conventionalcommits.org). 

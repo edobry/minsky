@@ -87,3 +87,49 @@ The Minsky CLI manages collaborative AI agent workflows using sessions and tasks
 - The tasks domain module is the single source of truth for task lookup and validation.
 - The session DB is the single source of truth for session existence and metadata.
 - This change maintains backward compatibility and enforces a one-to-one mapping between sessions and tasks when using `--task`. 
+
+## Work Log
+
+### Current State (as of last update)
+
+**✅ Functionality**
+- The `minsky session start` command now accepts an optional session name when using `--task`.
+- If no session name is provided, it generates one based on the task ID.
+- The command and its business logic are implemented and tested in the session directory.
+
+**✅ Documentation**
+- The `CHANGELOG.md` is updated with a detailed entry for this fix, including SpecStory references.
+
+**✅ Tests (Functional)**
+- All relevant tests for the new behavior are present and functionally pass (i.e., the logic is correct and verified).
+
+**❌ Linter/Type Errors (Blocking)**
+- There are TypeScript linter errors in `startSession.test.ts`:
+  - Mocking `TaskService` fails due to private/protected members and method signature mismatches.
+  - Some method calls on the mock backend are missing required arguments.
+  - Type errors regarding the assignment of `null` or `undefined` to non-nullable types.
+
+### Next Steps (Required)
+
+**You must resolve all TypeScript linter/type errors in `/src/commands/session/startSession.test.ts` before this task can be considered complete.**
+
+1. **Explicitly acknowledge and review all current linter/type errors.**
+   - See the error list in the task history for details.
+
+2. **Refactor the test mocks to fully satisfy the `TaskService` and `TaskBackend` interfaces.**
+   - Consider using a factory function or a helper to create compliant mocks.
+   - Ensure all required methods and properties (including private/protected) are handled or worked around.
+   - If the interface cannot be mocked directly due to private members, consider extracting a public interface for testing purposes.
+
+3. **Fix all method signature mismatches.**
+   - Ensure all required arguments are provided in mock method calls.
+
+4. **Ensure all types are correctly assigned.**
+   - Avoid assigning `null` or `undefined` to non-nullable types unless the type allows it.
+
+5. **Run the linter and TypeScript compiler.**
+   - Confirm that there are **zero errors or warnings**.
+
+6. **Document your changes in the task work log and update the changelog if needed.**
+
+**Important**: According to the `dont-ignore-errors` rule, this task cannot be considered complete until all errors (including linter/type errors) are resolved. Do not mark this task as complete until the codebase is clean. 

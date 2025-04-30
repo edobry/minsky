@@ -45,13 +45,21 @@ The Minsky CLI's session management allows sessions to be associated with tasks,
 
 ## Verification
 
-- [ ] Can look up a session by its associated task ID using `minsky session get --task <task-id>`
-- [ ] Gets an appropriate error when looking up a non-existent task ID
-- [ ] Can still look up sessions by name as before
-- [ ] Gets an appropriate error when providing both session name and `--task`
-- [ ] All options like `--json` work correctly with the new `--task` option
-- [ ] All relevant tests pass
-- [ ] Documentation and CLI help are updated
+- [x] Can look up a session by its associated task ID using `minsky session get --task <task-id>`
+- [x] Gets an appropriate error when looking up a non-existent task ID
+- [x] Can still look up sessions by name as before
+- [x] Gets an appropriate error when providing both session name and `--task`
+- [x] All options like `--json` work correctly with the new `--task` option
+- [x] All relevant tests pass
+- [x] Documentation and CLI help are updated
+
+## Work Log
+
+- 2025-04-29: Added `getSessionByTaskId` method to SessionDB class in src/domain/session.ts
+- 2025-04-29: Updated session get command in src/commands/session/get.ts to support the --task option
+- 2025-04-29: Added comprehensive tests for the --task option in src/commands/session/get.test.ts
+- 2025-04-29: Updated README.md to include documentation for the new option
+- 2025-04-29: Updated CHANGELOG.md to document the addition of the --task option
 
 ## Notes
 
