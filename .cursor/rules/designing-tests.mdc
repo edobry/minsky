@@ -1,0 +1,63 @@
+---
+description: Guidelines for writing effective, maintainable tests with proper isolation, data management, and thorough coverage
+globs: ["**/*.test.ts", "**/*.spec.ts", "**/test/**/*"]
+alwaysApply: false
+---
+# Designing Tests
+
+Write comprehensive, maintainable tests following these principles:
+
+## Test Structure & Organization
+- Use `describe`/`it` blocks to organize tests in a clear hierarchy
+- Name tests with clear, action-oriented descriptions of what's being tested
+- Follow the Arrange-Act-Assert pattern for test clarity
+- Keep test files alongside the code they test with matching names (e.g., `file.ts` and `file.test.ts`)
+
+## Environment Isolation
+- Create temporary test directories for filesystem operations
+- Use `beforeEach`/`afterEach` hooks for consistent setup and cleanup
+- Reset test state between tests to prevent cross-test contamination
+- Explicitly clean up resources even when tests fail (using `afterEach`)
+- Never depend on global state or other tests' side effects
+
+## Test Data Management
+- Create test fixtures with meaningful, predictable test data
+- Use helper functions to set up test state
+- Maintain clear separation between test setup and assertions
+- Make test data representative of real usage but simple enough to reason about
+- Don't use test data that could produce flaky tests (e.g., current date/time)
+
+## Mocking & Stubbing
+- Mock external services and dependencies for deterministic tests
+- Use the simplest mocking approach that meets your needs
+- Prefer explicit mocks over automatic/magic mocking
+- Verify mock calls when testing integration points
+- Reset mocks between tests
+
+## Error & Edge Case Testing
+- Test both success and failure paths explicitly
+- Include tests for edge cases and boundary conditions
+- Test handling of empty inputs, null values, and invalid data
+- Verify error objects, messages, and types
+- Test graceful handling of resource failures (network, filesystem, etc.)
+
+## Assertion Best Practices
+- Use specific, precise assertions (e.g., `toContain` vs `toBeTruthy`)
+- Test only what matters – avoid over-specifying implementation details
+- Verify side effects (e.g., file creation/deletion) in addition to function returns
+- Keep assertions focused on a single behavior per test
+- For complex objects, assert only on relevant properties
+
+## Setup & Teardown
+- Use the minimum setup necessary for each test
+- Prefer local setup within tests over complex shared fixtures
+- Ensure proper cleanup to avoid test pollution
+- Make tests resilient to different execution environments
+- Document environment requirements in test files
+
+## Coverage Guidelines
+- Aim for high coverage of business logic and error handling
+- Don't obsess over 100% coverage at the expense of test quality
+- Focus on testing behaviors rather than implementation details
+- Include tests for both API and CLI/UI interfaces
+- Test different output formats (text, JSON, etc.) for data-producing functions

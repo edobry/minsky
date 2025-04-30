@@ -340,4 +340,59 @@ describe('startSession', () => {
       taskService: mockTaskService
     })).rejects.toThrow('already exists');
   });
+
+  // Bug Fix Test: Session DB operations must happen before branch creation
+  // Bug #008: Branch creation failed with "Session not found" when session was added to DB after branch creation
+  // The bug caused "Session not found" errors because GitService.branch() checks for session existence
+  // before the session record was actually added to the database
+  it('adds session to database before clone and branch operations', async () => {
+    // This test verifies the correct sequence of operations
+    let sessionRecordCreated = false;
+    
+    // Mock function for branch that will fail if session does not exist
+    const mockBranch = trackCalls<{ branch: string }>();
+    mockBranch.returnValue = { branch: testBranch };
+    
+    // Mock session DB with getSession that checks if record was created
+    const mockSessionDB = {
+      getSession: (sessionName: string) => {
+        // This simulates GitService.branch checking for session existence
+        // If sessionRecordCreated is false, this should simulate our bug
+        if (!sessionRecordCreated) {
+          return null; // Session does not exist yet
+        }
+        return { session: sessionName };
+      },
+      addSession: () => {
+        // Mark the session as created when addSession is called
+        sessionRecordCreated = true;
+      },
+      listSessions: () => []
+    };
+    
+    // Create mock services with branch implementation that relies on session existence
+    const mockGitService = {
+      clone: () => ({ workdir: testWorkdir }),
+      branch: (options: any) => {
+        // This simulates the actual behavior in GitService.branch
+        // It should throw if the session doesn't exist when called
+        const record = mockSessionDB.getSession(options.session);
+        if (!record) {
+          throw new Error(`Session '${options.session}' not found.`);
+        }
+        return { branch: options.branch };
+      }
+    };
+    
+    // Execute the function - should not throw with correct operation order
+    await startSession({
+      session: testSession,
+      repo: testRepo,
+      gitService: mockGitService,
+      sessionDB: mockSessionDB
+    });
+    
+    // Verify the session was created before branch was called
+    expect(sessionRecordCreated).toBe(true);
+  });
 }); 

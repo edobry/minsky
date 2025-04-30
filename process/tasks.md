@@ -11,7 +11,7 @@ This file tracks work items for the project. Each task follows this format:
 ## Tasks
 
 - [x] Update session start command to support task IDs [#001](tasks/001-update-session-start.md)
-- [ ] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-session-repo-dirs.md)
+- [-] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-session-repo-dirs.md)
 - [ ] Add `init` command to set up a project for Minsky [#003](tasks/003-init-command.md)
 - [x] Add `--task` option to `session get` command to query sessions by task ID [#004](tasks/004-session-get-task.md)
 - [ ] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-git-push.md)
@@ -23,5 +23,6 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Fix `git pr` command and add proper tests [#011](tasks/011-git-pr-fix.md)
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012/spec.md)
 - [ ] Add Repository Backend Support [#014](mdc:tasks/014-add-repository-backend-support.md)
-- [ ] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
-- [ ] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
+- [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
+- [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
+- [ ] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)

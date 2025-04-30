@@ -19,6 +19,7 @@ export interface TaskBackend {
   getTask(id: string): Promise<Task | null>;
   getTaskStatus(id: string): Promise<string | null>;
   setTaskStatus(id: string, status: string): Promise<void>;
+  getWorkspacePath(): string;
 }
 
 export interface TaskListOptions {
@@ -52,9 +53,11 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
 export class MarkdownTaskBackend implements TaskBackend {
   name = 'markdown';
   private filePath: string;
+  private workspacePath: string;
   
-  constructor(repoPath: string) {
-    this.filePath = join(repoPath, 'process', 'tasks.md');
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
+    this.filePath = join(workspacePath, 'process', 'tasks.md');
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
@@ -145,12 +148,18 @@ export class MarkdownTaskBackend implements TaskBackend {
       return [];
     }
   }
+  
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
   name = 'github';
+  private workspacePath: string;
   
-  constructor(repoPath: string) {
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
     // Would initialize GitHub API client here
   }
   
@@ -176,10 +185,14 @@ export class GitHubTaskBackend implements TaskBackend {
     // Placeholder for GitHub API integration
     console.log('GitHub task backend not fully implemented');
   }
+  
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
 }
 
 export interface TaskServiceOptions {
-  repoPath: string;
+  workspacePath: string;
   backend?: string;
 }
 
@@ -189,8 +202,8 @@ export class TaskService {
   
   constructor(options: TaskServiceOptions) {
     // Initialize backends
-    this.backends.push(new MarkdownTaskBackend(options.repoPath));
-    this.backends.push(new GitHubTaskBackend(options.repoPath));
+    this.backends.push(new MarkdownTaskBackend(options.workspacePath));
+    this.backends.push(new GitHubTaskBackend(options.workspacePath));
     
     // Set default backend
     const requestedBackend = options.backend || 'markdown';
@@ -217,5 +230,9 @@ export class TaskService {
   
   async setTaskStatus(id: string, status: string): Promise<void> {
     return this.currentBackend.setTaskStatus(id, status);
+  }
+  
+  getWorkspacePath(): string {
+    return this.currentBackend.getWorkspacePath();
   }
 } 

@@ -27,6 +27,8 @@
 - Documentation required for session verification steps in all implementation work
 - Enhanced minsky-workflow rule with a critical "Session-First Implementation" requirement, mandating session creation and activation before any code examination or modification
 - Added `--task <task-id>` option to `minsky session get` command, allowing users to look up sessions by associated task ID. Returns an error if both session name and --task are provided, and supports all existing options including --json. Updated documentation and tests accordingly.
+- Added automatic workspace detection for task operations. When a task command is executed from a session repository, Minsky automatically detects this and performs the operation on the main workspace instead. All task commands now support a `--workspace` option to explicitly specify the workspace path.
+- Added `session delete` command to remove session repositories and database records. This command supports the `--force` flag to skip confirmation prompts and the `--json` flag for machine-readable output. The command safely handles errors during repository deletion or database updates.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -48,27 +50,63 @@ _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.spe
 - Added `repoName` field to session database records
 - Updated session-related commands to handle the new directory structure
 - Added repo name normalization for consistent directory naming
-- Updated `tasks list` command to hide DONE tasks by default and added a `--all` option to show all tasks including DONE ones
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
 _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.specstory/history/2025-04-29_18-50-task-002-per-repo-session-storage.md) for task #002 implementation._
-_See: SpecStory history [2025-04-30_17-43-task-008-implementation](.specstory/history/2025-04-30_17-43-task-008-implementation.md) for task #008 implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
-- Fixed file:// protocol handling in workspace path resolution when operating from session directories
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
-_See: SpecStory history [2025-04-30_17-43-task-008-implementation](.specstory/history/2025-04-30_17-43-task-008-implementation.md) for workspace path resolution fixes._
 
 ## [Unreleased]
 ### Added
-- New `
+- New `tasks` command with `list`, `get`, and `status` (with `get` and `set`) subcommands for task management.
+- Support for multiple task backends (Markdown file, placeholder for GitHub Issues).
+- Robust Markdown checklist parser for `process/tasks.md` supporting code block skipping, description aggregation, and malformed line filtering.
+- Shared `resolveRepoPath` utility in `src/domain/repo-utils.ts` for resolving repo paths from CLI options, session DB, or git context.
+- Comprehensive domain-level tests for all `tasks` logic and repo path resolution.
+
+### Changed
+- Refactored code to move repo path resolution logic out of `tasks.ts` into a shared utility module.
+- Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options.
+- Improved error handling and user feedback for invalid status values in `tasks status set`.
+- Ensured all code and tests follow best practices for modularity and separation of concerns.
+
+### Fixed
+- Fixed Markdown parser and status setter to ignore code blocks and only update real tasks.
+- Fixed test reliability and linter errors in domain logic tests.
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
+
+### (Previous unreleased entries)
+- Initial Bun+TypeScript project setup for the minsky CLI tool
+- Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
+- `git clone` command: clone a repo into an isolated workspace, with session support
+- `git branch` command: create a new branch in a session's repo
+- `git pr` command: generate a markdown PR document with commit history, file changes, and stats, comparing against the correct base branch (remote HEAD, upstream, main, or master)
+- `session` commands: `start`, `list`, `get`, `cd` for managing and navigating agent sessions
+- Session database in `$XDG_STATE_HOME/minsky/session-db.json` to track sessions, repos, and branches
+- Support for both remote and local repo cloning in session start
+- Debug logging for the `git pr` command, enabled via `--debug` and output to stderr only
+- Test coverage for PR base branch detection and diff/stat generation
+
+### Changed
+- Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
+- PR output now includes both committed and uncommitted (working directory) changes
+- README rewritten for clarity and idiomatic open source style
+- All debug output is now opt-in and sent to stderr
+
+### Fixed
+- Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
+- Fixed linter/type errors in session DB and domain modules
+
+ 

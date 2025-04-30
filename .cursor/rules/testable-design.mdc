@@ -1,0 +1,86 @@
+---
+description: Guidelines for structuring code to be easily testable with proper separation of concerns, dependency injection, and pure functions where possible
+globs: ["**/*.ts"]
+alwaysApply: false
+---
+# Testable Design Principles
+
+Structure your code for better testability, maintainability, and resilience:
+
+## Separation of Concerns
+- Separate business logic from UI/CLI concerns
+- Put business logic in domain modules (e.g., `src/domain/`)
+- Interface modules should only handle:
+  - Parsing input (CLI args, HTTP requests, etc.)
+  - Setting up the environment
+  - Calling domain modules
+  - Formatting and displaying output
+  - Error handling and exit codes
+- Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+
+## Dependency Injection
+- Accept dependencies as function parameters or constructor arguments
+- Avoid direct imports of concrete implementations inside functions
+- Allow for overriding dependencies in tests without monkey patching
+- Define clear interfaces for dependencies
+- Use factory functions to create instances with dependencies
+
+```typescript
+// ❌ Hard to test
+function processData() {
+  const config = readConfigFile(); // Direct dependency
+  // ...process using config
+}
+
+// ✅ Testable with dependency injection
+function processData(config: Config) {
+  // ...process using injected config
+}
+```
+
+## Pure Functions
+- Prefer pure functions with clear inputs and outputs
+- Make side effects explicit and injectable
+- Return new objects instead of mutating inputs
+- Handle state changes predictably and explicitly
+- Document and test any side effects
+
+```typescript
+// ❌ Unpredictable side effect
+function updateUserStatus(user) {
+  user.status = computeNewStatus();
+  user.lastUpdated = new Date(); // Side effect: creates unpredictable date
+}
+
+// ✅ Pure function with explicit, predictable behavior
+function computeUpdatedUser(user, timestamp) {
+  return {
+    ...user,
+    status: computeNewStatus(user),
+    lastUpdated: timestamp,
+  };
+}
+```
+
+## Side-Effect Isolation
+- Isolate I/O operations (filesystem, network, etc.) from pure business logic
+- Create wrappers for side-effect-producing operations
+- Make side effects testable through abstractions
+- Push side effects to the edges of your application
+- Document all expected side effects
+
+## Designing for Mockability
+- Use interfaces and dependency injection for external services
+- Keep functions small and focused for easier mocking
+- Avoid global state that complicates testing
+- Make complex objects constructable with simple test data
+- Provide seams where test code can intercept normal operations
+
+## Testing Infrastructure Support
+- Design code to be easily observable and verifiable
+- Expose state for assertions when needed
+- Create testing utilities for common operations
+- Provide factory methods for test objects
+- Add debugging helpers when dealing with complex state
+
+These principles improve not only testability but also maintainability, readability, and resilience of your codebase. Apply them from the beginning of development to avoid painful refactoring later.

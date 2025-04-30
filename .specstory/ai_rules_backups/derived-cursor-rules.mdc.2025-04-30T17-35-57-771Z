@@ -1,7 +1,3 @@
----
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
----
 
 ## PROJECT DOCUMENTATION & CONTEXT SYSTEM
 
@@ -131,9 +127,6 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.95 Added `session delete` command. This command deletes a session and its associated repository. It supports the `--force` flag to skip confirmation prompts and the `--json` flag to output results in JSON format.  Error handling includes checks for session existence, repository deletion errors, and database update errors.  Comprehensive tests were added for both the domain module and CLI command.
 - Version 0.96 Added `--debug` flag to `session start` command.
 - Version 0.97 The minsky workflow now requires pulling the latest changes from origin/main before starting work on a task.
-- Version 0.98  The `minsky session start` command now correctly handles file:// URLs.
-- Version 0.99 To query the available tasks, use: `minsky tasks list`.  To query the backlog (TODO tasks only), use: `minsky tasks list --json`.
-- Version 1.00 The `minsky session start` command now correctly handles local paths and file:// URLs.  The `session dir` command now correctly handles paths when using local paths.  The underlying `GitService.clone` method now handles file:// URLs correctly.  The `GitService` class now uses dependency injection for testing.  The `GitService` tests are updated to use Bun's test utilities. The `GitService` tests are updated to use unique session names and cleanup temporary directories after each test.
 
 
 ## DEBUGGING
@@ -354,4 +347,25 @@ When asked to work on a task (by name, description, or ID):
 
 When asked to create a new task:
 
-1. **Refer
+1. **Refer to the creating-tasks rule**
+   - See detailed instructions in the `creating-tasks.mdc` rule
+   - Never implement code when asked to create a task unless explicitly instructed
+   - Always create a well-formatted task specification document
+
+2. **Checklist Steps for Task Creation**
+   - Create a task specification document following the standardized format
+   - Add the task to the main task list in `/process/tasks.md`
+   - Use the next available task ID
+   - Link the task correctly following project conventions
+
+
+## Session Management
+
+### Starting a New Session
+
+1. **Create a Task Session**
+   - Begin a new session for the task (no session name needed when using `--task`):
+     ```bash
+     minsky session start --task 001
+     ```
+   - The output will show
