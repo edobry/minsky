@@ -37,7 +37,7 @@ export function createListCommand(): Command {
         });
         
         const taskService = new TaskService({
-          repoPath: workspacePath,
+          workspacePath: workspacePath,
           backend: options.backend
         });
         
