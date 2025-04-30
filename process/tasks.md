@@ -11,7 +11,7 @@ This file tracks work items for the project. Each task follows this format:
 ## Tasks
 
 - [x] Update session start command to support task IDs [#001](tasks/001-update-session-start.md)
-- [ ] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-session-repo-dirs.md)
+- [-] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-session-repo-dirs.md)
 - [ ] Add `init` command to set up a project for Minsky [#003](tasks/003-init-command.md)
 - [x] Add `--task` option to `session get` command to query sessions by task ID [#004](tasks/004-session-get-task.md)
 - [ ] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-git-push.md)
