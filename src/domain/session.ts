@@ -6,15 +6,15 @@ export interface SessionRecord {
   session: string;
   repoUrl: string;
   repoName: string;
-  repoPath?: string;  // Path to the repository for this session
   branch?: string;
   createdAt: string;
   taskId?: string;
+  repoPath?: string;
 }
 
 export class SessionDB {
   private readonly dbPath: string;
-  private readonly baseDir: string;
+  readonly baseDir: string;
 
   constructor() {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
@@ -22,270 +22,185 @@ export class SessionDB {
     this.baseDir = join(xdgStateHome, 'minsky', 'git');
   }
 
-  /**
-   * Get the legacy repository path (before sessions subdirectory was introduced)
-   * @param repoName Normalized repository name
-   * @param sessionId Session identifier
-   * @returns Path to the repository for this session
-   */
-  private getLegacyRepoPath(repoName: string, sessionId: string): string {
-    return join(this.baseDir, repoName, sessionId);
+  private async readDb(): Promise<SessionRecord[]> {
+    try {
+      const data = await fs.readFile(this.dbPath, 'utf-8');
+      const sessions = JSON.parse(data);
+      // Migrate existing sessions to include repoName
+      return sessions.map((session: SessionRecord) => {
+        if (!session.repoName) {
+          session.repoName = normalizeRepoName(session.repoUrl);
+        }
+        return session;
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Alias for readDb to maintain backward compatibility with tests
+  async getSessions(): Promise<SessionRecord[]> {
+    return this.readDb();
+  }
+
+  private async writeDb(sessions: SessionRecord[]): Promise<void> {
+    await fs.mkdir(join(this.dbPath, '..'), { recursive: true });
+    await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2), 'utf-8');
+  }
+
+  // Alias for writeDb to maintain backward compatibility with tests
+  async saveSessions(sessions: SessionRecord[]): Promise<void> {
+    return this.writeDb(sessions);
+  }
+
+  async addSession(record: SessionRecord): Promise<void> {
+    const sessions = await this.readDb();
+    sessions.push(record);
+    await this.writeDb(sessions);
+  }
+
+  async listSessions(): Promise<SessionRecord[]> {
+    return this.readDb();
+  }
+
+  async getSession(session: string): Promise<SessionRecord | undefined> {
+    const sessions = await this.readDb();
+    return sessions.find(s => s.session === session);
+  }
+
+  async updateSession(session: string, update: Partial<Omit<SessionRecord, 'session'>>): Promise<void> {
+    const sessions = await this.readDb();
+    const idx = sessions.findIndex(s => s.session === session);
+    if (idx !== -1) {
+      const { session: _, ...safeUpdate } = update as any;
+      sessions[idx] = { ...sessions[idx], ...safeUpdate };
+      await this.writeDb(sessions);
+    }
+  }
+  
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
+    const sessions = await this.readDb();
+    return sessions.find(s => s.taskId === taskId);
+  }
+
+  async deleteSession(session: string): Promise<boolean> {
+    const sessions = await this.readDb();
+    const initialLength = sessions.length;
+    const filteredSessions = sessions.filter(s => s.session !== session);
+    
+    if (filteredSessions.length === initialLength) {
+      // No session was removed
+      return false;
+    }
+    
+    await this.writeDb(filteredSessions);
+    return true;
   }
 
   /**
-   * Get the new repository path with sessions subdirectory
-   * @param repoName Normalized repository name
-   * @param sessionId Session identifier
-   * @returns Path to the repository for this session in the sessions subdirectory
+   * Get the repository path for a session, checking both legacy and new paths
+   * @param record The session record
+   * @returns The repository path
    */
-  private getNewRepoPath(repoName: string, sessionId: string): string {
-    return join(this.baseDir, repoName, 'sessions', sessionId);
+  async getRepoPath(record: SessionRecord): Promise<string> {
+    // Check for new path first (with sessions subdirectory)
+    const newPath = join(this.baseDir, record.repoName, 'sessions', record.session);
+    const legacyPath = join(this.baseDir, record.repoName, record.session);
+    
+    // If the record already has a repoPath, use that
+    if (record.repoPath) {
+      return record.repoPath;
+    }
+    
+    // Check if the sessions subdirectory structure exists
+    if (await this.repoExists(newPath)) {
+      return newPath;
+    }
+    
+    // Fall back to legacy path
+    if (await this.repoExists(legacyPath)) {
+      return legacyPath;
+    }
+    
+    // Default to new path structure even if it doesn't exist yet
+    return newPath;
   }
-
+  
   /**
    * Check if a repository exists at the given path
-   * @param path Path to check
-   * @returns Promise that resolves to true if repo exists, false otherwise
+   * @param path The repository path to check
+   * @returns true if the repository exists
    */
   private async repoExists(path: string): Promise<boolean> {
     try {
       await fs.access(path);
       return true;
-    } catch (error) {
+    } catch (err) {
       return false;
     }
   }
-
+  
   /**
-   * Get the repository path for a session, checking both legacy and new locations
-   * @param repoName Normalized repository name
-   * @param sessionId Session identifier
-   * @returns Path to the repository for this session
+   * Get the new repository path with sessions subdirectory for a session
+   * @param repoName The repository name
+   * @param sessionId The session ID
+   * @returns The new repository path
    */
-  async getRepoPath(repoName: string, sessionId: string): Promise<string> {
-    const normalizedRepoName = normalizeRepoName(repoName);
-    
-    // First check the new path with sessions subdirectory
-    const newPath = this.getNewRepoPath(normalizedRepoName, sessionId);
-    if (await this.repoExists(newPath)) {
-      return newPath;
-    }
-    
-    // Fall back to legacy path if new path doesn't exist
-    return this.getLegacyRepoPath(normalizedRepoName, sessionId);
+  getNewSessionRepoPath(repoName: string, sessionId: string): string {
+    return join(this.baseDir, repoName, 'sessions', sessionId);
   }
-
-  /**
-   * Get the appropriate repository path for creating a new session
-   * @param repoName Normalized repository name
-   * @param sessionId Session identifier
-   * @returns Path to create the new repository
-   */
-  async getNewSessionRepoPath(repoName: string, sessionId: string): Promise<string> {
-    const normalizedRepoName = normalizeRepoName(repoName);
-    
-    // Always use the new path structure for new sessions
-    const newPath = this.getNewRepoPath(normalizedRepoName, sessionId);
-    
-    // Ensure the sessions directory exists
-    const sessionsDir = join(this.baseDir, normalizedRepoName, 'sessions');
-    await fs.mkdir(sessionsDir, { recursive: true });
-    
-    return newPath;
-  }
-
-  /**
-   * Get all sessions from the database
-   * @returns Array of session records
-   */
-  async getSessions(): Promise<SessionRecord[]> {
-    try {
-      const data = await fs.readFile(this.dbPath, 'utf-8');
-      const sessions = JSON.parse(data) as SessionRecord[];
-      
-      // Update the repo paths in the loaded records
-      const updatedSessions = await Promise.all(sessions.map(async (session: SessionRecord) => {
-        if (session.repoName) {
-          session.repoPath = await this.getRepoPath(session.repoName, session.session);
-        }
-        return session;
-      }));
-      
-      return updatedSessions;
-    } catch (error) {
-      // Create empty database file if it doesn't exist
-      await fs.mkdir(join(this.dbPath, '..'), { recursive: true });
-      await fs.writeFile(this.dbPath, '[]');
-      return [];
-    }
-  }
-
-  /**
-   * Save sessions to the database
-   * @param sessions Array of session records to save
-   */
-  async saveSessions(sessions: SessionRecord[]): Promise<void> {
-    // Create directory if it doesn't exist
-    await fs.mkdir(join(this.dbPath, '..'), { recursive: true });
-    await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-  }
-
-  /**
-   * Add a new session to the database
-   * @param session Session record to add
-   */
-  async addSession(session: SessionRecord): Promise<void> {
-    const sessions = await this.getSessions();
-    
-    // Check if session already exists
-    const existingIndex = sessions.findIndex(s => s.session === session.session);
-    
-    if (existingIndex >= 0) {
-      // Update existing session
-      sessions[existingIndex] = session;
-    } else {
-      // Add new session
-      sessions.push(session);
-    }
-    
-    await this.saveSessions(sessions);
-  }
-
-  /**
-   * Get a session by its name
-   * @param sessionName Name of the session to retrieve
-   * @returns Session record or undefined if not found
-   */
-  async getSession(sessionName: string): Promise<SessionRecord | undefined> {
-    const sessions = await this.getSessions();
-    return sessions.find(session => session.session === sessionName);
-  }
-
-  /**
-   * Update an existing session with new values
-   * @param sessionName Name of the session to update
-   * @param update Partial session record with fields to update
-   */
-  async updateSession(sessionName: string, update: Partial<Omit<SessionRecord, 'session'>>): Promise<void> {
-    const sessions = await this.getSessions();
-    const idx = sessions.findIndex(s => s.session === sessionName);
-    
-    if (idx !== -1) {
-      // Ensure we don't overwrite the session name
-      const { session: _, ...safeUpdate } = update as any;
-      sessions[idx] = { ...sessions[idx], ...safeUpdate };
-      await this.saveSessions(sessions);
-    }
-  }
-
-  /**
-   * Delete a session from the database
-   * @param sessionName Name of the session to delete
-   * @returns true if session was deleted, false if it wasn't found
-   */
-  async deleteSession(sessionName: string): Promise<boolean> {
-    try {
-      const sessions = await this.getSessions();
-      const initialLength = sessions.length;
-      
-      const filteredSessions = sessions.filter(session => session.session !== sessionName);
-      
-      if (filteredSessions.length < initialLength) {
-        await this.saveSessions(filteredSessions);
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      return false;
-    }
-  }
-
+  
   /**
    * Get the working directory for a session
-   * @param sessionName Name of the session
-   * @returns Path to the session's working directory
-   * @throws Error if session is not found
+   * For backward compatibility with tests
+   * @param sessionName The session name
+   * @returns The working directory path
    */
   async getSessionWorkdir(sessionName: string): Promise<string> {
-    const record = await this.getSession(sessionName);
-    if (!record) {
+    const session = await this.getSession(sessionName);
+    if (!session) {
       throw new Error(`Session '${sessionName}' not found.`);
     }
-    
-    if (record.repoPath) {
-      return record.repoPath;
-    }
-    
-    if (record.repoName) {
-      return await this.getRepoPath(record.repoName, sessionName);
-    }
-    
-    throw new Error(`Session '${sessionName}' has no repository path.`);
+    return this.getRepoPath(session);
   }
-
+  
   /**
-   * Find a session by task ID
-   * @param taskId ID of the task to find
-   * @returns Session record or undefined if not found
-   */
-  async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
-    const sessions = await this.getSessions();
-    return sessions.find(session => session.taskId === taskId);
-  }
-
-  /**
-   * List all sessions
-   * @returns Array of all session records
-   */
-  async listSessions(): Promise<SessionRecord[]> {
-    return this.getSessions();
-  }
-
-  /**
-   * Migrate existing session repositories to the new sessions subdirectory structure
-   * This method is idempotent and safe to run multiple times
+   * Migrate all sessions to use the sessions subdirectory structure
+   * This is called once to migrate existing repositories
    */
   async migrateSessionsToSubdirectory(): Promise<void> {
-    const sessions = await this.getSessions();
+    const sessions = await this.readDb();
+    let modified = false;
     
-    // For each session, check if it exists in the legacy path and migrate if needed
     for (const session of sessions) {
-      if (!session.repoName || !session.session) {
+      // Skip sessions that already have a repoPath
+      if (session.repoPath && session.repoPath.includes('/sessions/')) {
         continue;
       }
       
-      // Get legacy and new paths
-      const legacyPath = this.getLegacyRepoPath(session.repoName, session.session);
-      const newPath = this.getNewRepoPath(session.repoName, session.session);
+      const legacyPath = join(this.baseDir, session.repoName, session.session);
+      const newPath = join(this.baseDir, session.repoName, 'sessions', session.session);
       
-      // Check if legacy path exists and new path doesn't
-      try {
-        await fs.access(legacyPath);
-        
-        // Check if new path already exists
-        try {
-          await fs.access(newPath);
-          continue; // Already migrated, skip
-        } catch {
-          // New path doesn't exist, proceed with migration
-        }
-        
-        // Create sessions directory if it doesn't exist
-        const sessionsDir = join(this.baseDir, session.repoName, 'sessions');
-        await fs.mkdir(sessionsDir, { recursive: true });
+      // Check if legacy path exists
+      if (await this.repoExists(legacyPath)) {
+        // Create new path directory structure
+        await fs.mkdir(join(this.baseDir, session.repoName, 'sessions'), { recursive: true });
         
         // Move repository to new location
-        await fs.rename(legacyPath, newPath);
-        
-        // Update session record with new path
-        session.repoPath = newPath;
-      } catch {
-        // Legacy path doesn't exist, nothing to migrate
+        try {
+          await fs.rename(legacyPath, newPath);
+          // Update session record
+          session.repoPath = newPath;
+          modified = true;
+        } catch (err) {
+          console.error(`Failed to migrate session ${session.session}:`, err);
+        }
       }
     }
     
-    // Save updated sessions to database
-    await this.saveSessions(sessions);
+    // Save changes
+    if (modified) {
+      await this.writeDb(sessions);
+    }
   }
 } 

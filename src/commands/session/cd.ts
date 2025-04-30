@@ -18,21 +18,14 @@ export function createDirCommand(): Command {
           return;
         }
         
-        // Get the repository path from SessionDB or use the legacy path as fallback
-        // If repoPath is directly available from the session record, use it
-        if (session.repoPath) {
-          console.log(session.repoPath);
-          return;
-        }
-        
-        // Otherwise, use the SessionDB to get the repository path
+        // Get the repository path from SessionDB
         try {
-          const workdir = await db.getSessionWorkdir(sessionName);
+          const workdir = await db.getRepoPath(session);
           console.log(workdir);
         } catch (error) {
-          // Fallback to the legacy path structure if getSessionWorkdir fails
+          // Fallback to a constructed path in case of error
           const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-          const workdir = join(xdgStateHome, 'minsky', 'git', session.repoName, session.session);
+          const workdir = join(xdgStateHome, 'minsky', 'git', session.repoName, 'sessions', session.session);
           console.log(workdir);
         }
       } catch (error) {
