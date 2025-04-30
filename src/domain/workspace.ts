@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { SessionDB } from './session';
@@ -32,6 +32,35 @@ export async function isSessionRepository(repoPath: string): Promise<boolean> {
 }
 
 /**
+ * Extracts a session name from a path, handling both legacy and new formats
+ * Legacy format: <minsky_path>/<repo_name>/<session_name>
+ * New format: <minsky_path>/<repo_name>/sessions/<session_name>
+ * @param path Path from which to extract session name
+ * @param minskyPath Base minsky sessions path
+ * @returns Session name if in a valid format, null otherwise
+ */
+function extractSessionName(path: string, minskyPath: string): string | null {
+  if (!path || !minskyPath || !path.startsWith(minskyPath)) {
+    return null;
+  }
+  
+  const relativePath = path.substring(minskyPath.length + 1);
+  const pathParts = relativePath.split('/');
+  
+  if (pathParts.length < 2) {
+    return null;
+  }
+  
+  // Check if this is the new sessions subdirectory format
+  if (pathParts.length >= 3 && pathParts[1] === 'sessions') {
+    return pathParts[2] || null;
+  } 
+  
+  // Legacy format
+  return pathParts[pathParts.length - 1] || null;
+}
+
+/**
  * Get session information from a repository path
  * @param repoPath Path to the repository
  * @returns Session information if in a session repo, null otherwise
@@ -53,18 +82,9 @@ export async function getSessionFromRepo(repoPath: string): Promise<{
       return null;
     }
     
-    // Extract session name from the path
-    // Pattern: <minsky_path>/<repo_name>/<session_name>
-    const pathParts = gitRoot.substring(minskyPath.length + 1).split('/');
-    if (pathParts.length < 2) {
-      return null;
-    }
-    
-    // Get the session name from the path parts
-    const sessionName = pathParts[pathParts.length - 1];
-    
-    // Type check to ensure sessionName is a string (for the compiler)
-    if (typeof sessionName !== 'string') {
+    // Extract session name from the path, handling both legacy and new formats
+    const sessionName = extractSessionName(gitRoot, minskyPath);
+    if (!sessionName) {
       return null;
     }
     
