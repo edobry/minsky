@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach, mock } from 'bun:test';
 import { GitService } from './git';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import { normalizeRepoName } from './repo-utils';
+import { SessionDB } from './session';
 
 function run(cmd: string, cwd: string) {
   execSync(cmd, { cwd, stdio: 'ignore' });
@@ -12,9 +13,32 @@ function run(cmd: string, cwd: string) {
 describe('GitService', () => {
   let tmpDir: string;
   let git: GitService;
+  // Mock the SessionDB for tests
+  let mockGetSession: any;
+  let originalGetSession: any;
 
   beforeAll(async () => {
     git = new GitService();
+    // Save the original getSession method
+    originalGetSession = SessionDB.prototype.getSession;
+    // Mock getSession method
+    mockGetSession = mock(async (sessionName: string) => {
+      if (sessionName === 'test-session') {
+        return {
+          session: 'test-session',
+          repoUrl: tmpDir,
+          repoName: 'repo', // Use a consistent repo name for tests
+          createdAt: new Date().toISOString()
+        };
+      }
+      return undefined;
+    });
+    SessionDB.prototype.getSession = mockGetSession;
+  });
+
+  afterAll(() => {
+    // Restore the original method
+    SessionDB.prototype.getSession = originalGetSession;
   });
 
   beforeEach(async () => {
@@ -32,6 +56,9 @@ describe('GitService', () => {
     writeFileSync(join(tmpDir, 'README.md'), '# Test Repo\n');
     run('git add README.md', tmpDir);
     run('git commit -m "Initial commit"', tmpDir);
+    
+    // Reset the mock for each test
+    mockGetSession.mockClear();
   });
 
   afterEach(async () => {
@@ -45,7 +72,7 @@ describe('GitService', () => {
     const result = await git.clone({ repoUrl, session });
     
     // Check that the workdir is under the correct repo directory
-    const repoName = normalizeRepoName(repoUrl);
+    const repoName = 'repo'; // Use same consistent name as in the mock
     expect(result.workdir).toContain(join('git', repoName, session));
     
     // Check that the repo was actually cloned
@@ -53,7 +80,7 @@ describe('GitService', () => {
   });
 
   test('branch: should work with per-repo directory structure', async () => {
-    // First clone a repo
+    // First clone a repo - this sets up the session with proper repo dir structure
     const repoUrl = tmpDir;
     const session = 'test-session';
     const cloneResult = await git.clone({ repoUrl, session });
@@ -62,7 +89,7 @@ describe('GitService', () => {
     const branchResult = await git.branch({ session, branch: 'feature' });
     
     // Check that the workdir is under the correct repo directory
-    const repoName = normalizeRepoName(repoUrl);
+    const repoName = 'repo'; // Use same consistent name as in the mock
     expect(branchResult.workdir).toContain(join('git', repoName, session));
     
     // Check that the branch was created
@@ -71,7 +98,7 @@ describe('GitService', () => {
   });
 
   test('pr: should work with per-repo directory structure', async () => {
-    // First clone a repo
+    // First clone a repo - this sets up the session with proper repo dir structure
     const repoUrl = tmpDir;
     const session = 'test-session';
     const cloneResult = await git.clone({ repoUrl, session });

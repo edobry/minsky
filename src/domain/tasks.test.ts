@@ -166,7 +166,7 @@ describe('TaskService', () => {
     require('fs').mkdirSync(processDir);
     tasksPath = join(processDir, 'tasks.md');
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
-    service = new TaskService({ repoPath: tmpDir });
+    service = new TaskService({ workspacePath: tmpDir });
   });
 
   afterEach(() => {
@@ -185,6 +185,6 @@ describe('TaskService', () => {
   });
 
   it('throws if backend is not found', () => {
-    expect(() => new TaskService({ repoPath: tmpDir, backend: 'notreal' })).toThrow();
+    expect(() => new TaskService({ workspacePath: tmpDir, backend: 'notreal' })).toThrow();
   });
 }); 

@@ -11,14 +11,24 @@ export interface WorkspaceResolutionOptions {
   sessionRepo?: string;
 }
 
+// For dependency injection in tests
+export interface TestDependencies {
+  execAsync?: typeof execAsync;
+  access?: typeof fs.access;
+  getSessionFromRepo?: typeof getSessionFromRepo;
+}
+
 /**
  * Detects if the current directory is inside a session repository
  * @returns true if in a session repo, false otherwise
  */
-export async function isSessionRepository(repoPath: string): Promise<boolean> {
+export async function isSessionRepository(
+  repoPath: string, 
+  execAsyncFn: typeof execAsync = execAsync
+): Promise<boolean> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd: repoPath });
+    const { stdout } = await execAsyncFn('git rev-parse --show-toplevel', { cwd: repoPath });
     const gitRoot = stdout.trim();
     
     // Check if the git root contains a session marker
@@ -36,13 +46,17 @@ export async function isSessionRepository(repoPath: string): Promise<boolean> {
  * @param repoPath Path to the repository
  * @returns Session information if in a session repo, null otherwise
  */
-export async function getSessionFromRepo(repoPath: string): Promise<{ 
+export async function getSessionFromRepo(
+  repoPath: string,
+  execAsyncFn: typeof execAsync = execAsync,
+  sessionDbOverride?: { getSession: SessionDB['getSession'] }
+): Promise<{ 
   session: string, 
   mainWorkspace: string 
 } | null> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd: repoPath });
+    const { stdout } = await execAsyncFn('git rev-parse --show-toplevel', { cwd: repoPath });
     const gitRoot = stdout.trim();
     
     // Check if this is in the minsky sessions directory structure
@@ -68,7 +82,7 @@ export async function getSessionFromRepo(repoPath: string): Promise<{
       return null;
     }
     
-    const db = new SessionDB();
+    const db = sessionDbOverride || new SessionDB();
     const sessionRecord = await db.getSession(sessionName);
     
     if (!sessionRecord || !sessionRecord.repoUrl) {
@@ -94,13 +108,21 @@ export async function getSessionFromRepo(repoPath: string): Promise<{
  * 2. If in a session repo, use the main workspace path
  * 3. Use current directory as workspace
  */
-export async function resolveWorkspacePath(options?: WorkspaceResolutionOptions): Promise<string> {
+export async function resolveWorkspacePath(
+  options?: WorkspaceResolutionOptions,
+  deps: TestDependencies = {}
+): Promise<string> {
+  const {
+    access = fs.access,
+    getSessionFromRepo: getSessionFromRepoFn = getSessionFromRepo
+  } = deps;
+
   // If workspace path is explicitly provided, use it
   if (options?.workspace) {
     // Validate if it's a valid workspace
     try {
       const processDir = join(options.workspace, 'process');
-      await fs.access(processDir);
+      await access(processDir);
       return options.workspace;
     } catch (error) {
       throw new Error(`Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`);
@@ -109,7 +131,7 @@ export async function resolveWorkspacePath(options?: WorkspaceResolutionOptions)
   
   // Check if current or provided path is a session repository
   const checkPath = options?.sessionRepo || process.cwd();
-  const sessionInfo = await getSessionFromRepo(checkPath);
+  const sessionInfo = await getSessionFromRepoFn(checkPath);
   
   if (sessionInfo) {
     // Strip file:// protocol if present

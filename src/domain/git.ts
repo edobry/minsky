@@ -84,7 +84,9 @@ export class GitService {
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    const workdir = this.getSessionWorkdir(record.repoName, options.session);
+    // Handle cases where repoName is missing in older records
+    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+    const workdir = this.getSessionWorkdir(repoName, options.session);
     // Create the branch in the specified session's repo
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
@@ -104,7 +106,9 @@ export class GitService {
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      workdir = this.getSessionWorkdir(record.repoName, options.session);
+      // Handle cases where repoName is missing in older records
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(repoName, options.session);
     } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
