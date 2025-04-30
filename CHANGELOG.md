@@ -62,49 +62,13 @@ _See: SpecStory history [2025-04-30_17-43-task-008-implementation](.specstory/hi
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
+- Fixed file:// protocol handling in workspace path resolution when operating from session directories
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
+_See: SpecStory history [2025-04-30_17-43-task-008-implementation](.specstory/history/2025-04-30_17-43-task-008-implementation.md) for workspace path resolution fixes._
 
 ## [Unreleased]
 ### Added
-- New `tasks` command with `list`, `get`, and `status` (with `get` and `set`) subcommands for task management.
-- Support for multiple task backends (Markdown file, placeholder for GitHub Issues).
-- Robust Markdown checklist parser for `process/tasks.md` supporting code block skipping, description aggregation, and malformed line filtering.
-- Shared `resolveRepoPath` utility in `src/domain/repo-utils.ts` for resolving repo paths from CLI options, session DB, or git context.
-- Comprehensive domain-level tests for all `tasks` logic and repo path resolution.
-
-### Changed
-- Refactored code to move repo path resolution logic out of `tasks.ts` into a shared utility module.
-- Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options.
-- Improved error handling and user feedback for invalid status values in `tasks status set`.
-- Ensured all code and tests follow best practices for modularity and separation of concerns.
-
-### Fixed
-- Fixed Markdown parser and status setter to ignore code blocks and only update real tasks.
-- Fixed test reliability and linter errors in domain logic tests.
-
-### (Previous unreleased entries)
-- Initial Bun+TypeScript project setup for the minsky CLI tool
-- Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
-- `git clone` command: clone a repo into an isolated workspace, with session support
-- `git branch` command: create a new branch in a session's repo
-- `git pr` command: generate a markdown PR document with commit history, file changes, and stats, comparing against the correct base branch (remote HEAD, upstream, main, or master)
-- `session` commands: `start`, `list`, `get`, `cd` for managing and navigating agent sessions
-- Session database in `$XDG_STATE_HOME/minsky/session-db.json` to track sessions, repos, and branches
-- Support for both remote and local repo cloning in session start
-- Debug logging for the `git pr` command, enabled via `--debug` and output to stderr only
-- Test coverage for PR base branch detection and diff/stat generation
-
-### Changed
-- Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
-- PR output now includes both committed and uncommitted (working directory) changes
-- README rewritten for clarity and idiomatic open source style
-- All debug output is now opt-in and sent to stderr
-
-### Fixed
-- Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
-- Fixed linter/type errors in session DB and domain modules
-
- 
+- New `
