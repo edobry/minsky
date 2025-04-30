@@ -1,4 +1,33 @@
-# Pull Request for branch `task#002`
+# Pull Request: Store Session Repos Under Per-Repo Directories
+
+## Summary
+This PR implements task #002, reorganizing session storage to use a more structured directory hierarchy and adding repository name tracking. Session repositories are now stored under per-repository directories with a dedicated `sessions` subdirectory for better organization.
+
+## Key Changes
+- Added `repoName` field to `SessionRecord` to track normalized repository names
+- Implemented repository name normalization (e.g., `github.com/org/project.git` → `org/project`, local paths → `local/<basename>`)
+- Updated directory structure to store session repositories under `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`
+- Added migration logic for existing session records
+- Updated path resolution logic in all relevant commands to use the new structure
+- Added comprehensive tests for the new functionality
+- Fixed backward compatibility with existing tests 
+- Ensured proper handling of both legacy and new path formats during transition
+
+## Implementation Details
+- Repository names are normalized to support consistent directory structure
+- For remote URLs: `org/project` (e.g., `github.com/org/project.git` → `org/project`)
+- For local paths: `local/<basename>` (e.g., `/Users/user/projects/repo` → `local/repo`)
+- Sessions are accessed through either legacy paths during transition or through the new structured paths
+- Automatic migration happens when SessionDB is initialized
+
+## Testing
+- Added test cases for repository name normalization
+- Added tests for path resolution with both legacy and new structures
+- Updated existing tests to work with the new directory structure
+- Fixed failing tests with proper backward compatibility support
+
+## Backwards Compatibility
+This change maintains backward compatibility with existing session records while gradually migrating them to the new structure. The migration happens transparently to users, and the code handles both legacy and new paths during the transition period.
 
 ## Commits
 - **Implement --task option for session get command for #004**

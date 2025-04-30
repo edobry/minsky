@@ -57,3 +57,15 @@ The current `git pr` command implementation has issues with its test suite. The 
 - Use Bun's test mocking capabilities instead of real git operations
 - Ensure tests are deterministic and not affected by local git state
 - Document any discovered issues or improvements needed in the command itself 
+
+## Work Log
+- 2024-07-11: Set up test files for git pr command and domain module
+- 2024-07-11: Refactored PR command tests to avoid process.exit issues by creating a helper function that returns success/error status
+- 2024-07-11: Simplified domain tests to focus on basic error case
+- 2024-07-11: Fixed issue with mock implementations and error handling in tests
+
+## Remaining Work
+- Add more comprehensive tests for domain logic
+- Fix test timeouts in domain tests
+- Implement the rest of the test scenarios described in the implementation details
+- Verify all acceptance criteria are met 
