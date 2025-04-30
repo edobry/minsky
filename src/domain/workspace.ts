@@ -112,7 +112,12 @@ export async function resolveWorkspacePath(options?: WorkspaceResolutionOptions)
   const sessionInfo = await getSessionFromRepo(checkPath);
   
   if (sessionInfo) {
-    return sessionInfo.mainWorkspace;
+    // Strip file:// protocol if present
+    let mainWorkspace = sessionInfo.mainWorkspace;
+    if (mainWorkspace.startsWith('file://')) {
+      mainWorkspace = mainWorkspace.replace(/^file:\/\//, '');
+    }
+    return mainWorkspace;
   }
   
   // If not in a session repo, use current directory
