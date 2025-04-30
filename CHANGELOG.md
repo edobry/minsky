@@ -50,12 +50,18 @@ _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.spe
 - Added `repoName` field to session database records
 - Updated session-related commands to handle the new directory structure
 - Added repo name normalization for consistent directory naming
+- Enhanced session repository storage to use a 'sessions' subdirectory for better organization (e.g., `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`)
+- Added backward compatibility to support existing session repositories in the legacy location
+- Completely reimplemented the SessionDB class to handle both legacy and new directory structures
+- Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
+- Improved error handling in SessionDB operations to ensure stability during transitions
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
 _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.specstory/history/2025-04-29_18-50-task-002-per-repo-session-storage.md) for task #002 implementation._
+_See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -63,6 +69,8 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
 - Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
+- Fixed session path resolution to properly handle both legacy and new directory structures
+- Fixed compatibility issues in workspace tests when dealing with session paths
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._

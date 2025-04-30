@@ -184,17 +184,21 @@ export class SessionDB {
    * @returns true if session was deleted, false if it wasn't found
    */
   async deleteSession(sessionName: string): Promise<boolean> {
-    const sessions = await this.getSessions();
-    const initialLength = sessions.length;
-    
-    const filteredSessions = sessions.filter(session => session.session !== sessionName);
-    
-    if (filteredSessions.length < initialLength) {
-      await this.saveSessions(filteredSessions);
-      return true;
+    try {
+      const sessions = await this.getSessions();
+      const initialLength = sessions.length;
+      
+      const filteredSessions = sessions.filter(session => session.session !== sessionName);
+      
+      if (filteredSessions.length < initialLength) {
+        await this.saveSessions(filteredSessions);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      return false;
     }
-    
-    return false;
   }
 
   /**
