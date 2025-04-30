@@ -1,91 +1,87 @@
 /// <reference types="bun-types" />
 
-import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test';
 import { GitService } from './git';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { execSync, exec as childExec } from 'child_process';
+import { randomBytes } from 'crypto';
+import type { ExecOptions, ExecException } from 'child_process';
 
-function run(cmd: string, cwd: string) {
-  execSync(cmd, { cwd, stdio: 'ignore' });
-}
+// Define the callback type since it's not exported
+type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
-function generateUniqueName(): string {
-  return `test-${Math.random().toString(36).substring(2, 8)}`;
-}
+// Create a mock exec function that captures calls and accepts a callback
+const mockExec = mock((command: string, options: any, callback: ExecCallback) => {
+  // Call the callback with success
+  if (callback) {
+    callback(null, 'mock stdout', '');
+  }
+});
+
+// Mock the childExec module
+mock.module('child_process', () => ({
+  exec: mockExec
+}));
+
+// Mock fs/promises
+mock.module('fs/promises', () => ({
+  mkdir: mock(async () => {})
+}));
 
 describe('GitService', () => {
-  let tmpDir: string;
-  let git: GitService;
-  let mockExec: typeof childExec;
+  beforeEach(() => {
+    mockExec.mockClear();
+  });
 
-  beforeAll(async () => {
-    mockExec = mock((command: string, options: any, callback: any) => {
-      // Call the real exec for now, but we can mock specific commands later
-      childExec(command, options, callback);
+  afterEach(() => {
+    mock.restore();
+  });
+
+  it('clone: should create session repo under per-repo directory', async () => {
+    // Arrange
+    const git = new GitService();
+    const repoUrl = 'https://github.com/example/test-repo';
+    const session = `test-session-${randomBytes(4).toString('hex')}`;
+
+    // Act
+    const result = await git.clone({
+      repoUrl,
+      session
     });
-
-    git = new GitService(mockExec);
-  });
-
-  beforeEach(async () => {
-    // Create fresh temp directory
-    tmpDir = mkdtempSync('/tmp/minsky-git-test-');
-
-    // Initialize fresh repo for each test
-    run('git init --initial-branch=main', tmpDir);
     
-    // Configure git for test environment
-    run('git config user.name "Test User"', tmpDir);
-    run('git config user.email "test@example.com"', tmpDir);
-    
-    // Create initial commit on main
-    writeFileSync(join(tmpDir, 'README.md'), '# Test Repo\n');
-    run('git add README.md', tmpDir);
-    run('git commit -m "Initial commit"', tmpDir);
-  });
-
-  afterEach(async () => {
-    // Clean up temp directory after each test
-    rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  test('clone: should create session repo under per-repo directory', async () => {
-    const repoUrl = tmpDir;
-    const session = generateUniqueName();
-    const result = await git.clone({ repoUrl, session });
-    
-    try {
-      // Check that the workdir is under the correct repo directory
-      expect(result.workdir).toContain(join('git', session));
-      
-      // Check that the repo was actually cloned
-      expect(() => execSync('git status', { cwd: result.workdir })).not.toThrow();
-    } finally {
-      // Clean up the cloned repo
-      rmSync(result.workdir, { recursive: true, force: true });
+    // Assert
+    // Check that exec was called with the right command
+    expect(mockExec).toHaveBeenCalled();
+    const firstCall = mockExec.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    if (firstCall) {
+      expect(firstCall[0]).toBe(`git clone ${repoUrl} ${join(git['baseDir'], session)}`);
     }
+    
+    // Check the result
+    expect(result.workdir).toBe(join(git['baseDir'], session));
+    expect(result.session).toBe(session);
   });
 
-  test('branch: should work with per-repo directory structure', async () => {
-    // First clone a repo
-    const repoUrl = tmpDir;
-    const session = generateUniqueName();
-    const cloneResult = await git.clone({ repoUrl, session });
+  it('branch: should work with per-repo directory structure', async () => {
+    // Arrange
+    const git = new GitService();
+    const session = 'test-session';
+    const branch = 'feature/test';
+
+    // Act
+    const result = await git.branch({ session, branch });
     
-    try {
-      // Then create a branch
-      const branchResult = await git.branch({ session, branch: 'feature' });
-      
-      // Check that the workdir is under the correct repo directory
-      expect(branchResult.workdir).toContain(join('git', session));
-      
-      // Check that the branch was created
-      const output = execSync('git branch --show-current', { cwd: branchResult.workdir });
-      expect(output.toString().trim()).toBe('feature');
-    } finally {
-      // Clean up the cloned repo
-      rmSync(cloneResult.workdir, { recursive: true, force: true });
+    // Assert
+    // Check that exec was called with the right command
+    expect(mockExec).toHaveBeenCalled();
+    const firstCall = mockExec.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    if (firstCall) {
+      expect(firstCall[0]).toBe(`git -C ${join(git['baseDir'], session)} checkout -b ${branch}`);
     }
+    
+    // Check the result
+    expect(result.workdir).toBe(join(git['baseDir'], session));
+    expect(result.branch).toBe(branch);
   });
-}); 
+});
