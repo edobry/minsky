@@ -13,11 +13,11 @@ function run(cmd: string, cwd: string) {
 describe('GitService', () => {
   let tmpDir: string;
   let repoUrl: string;
-  
+
   beforeEach(() => {
     // Create a temporary directory for testing
     tmpDir = mkdtempSync(join(tmpdir(), 'minsky-git-test-'));
-    
+
     // Initialize a git repo in the temp directory
     run('git init --initial-branch=main', tmpDir);
     run('git config user.email "test@example.com"', tmpDir);
@@ -31,12 +31,12 @@ describe('GitService', () => {
     // Use the temp directory as our test repo URL
     repoUrl = tmpDir;
   });
-  
+
   afterEach(() => {
     // Clean up temporary directories
     rmSync(tmpDir, { recursive: true, force: true });
   });
-  
+
   it('clone: should create session repo under per-repo directory', async () => {
     // Create a GitService instance
     const git = new GitService();
@@ -52,7 +52,7 @@ describe('GitService', () => {
     // Check that the session ID is returned
     expect(result.session).toBe(session);
   });
-  
+
   it('branch: should work with per-repo directory structure', async () => {
     // Create a GitService instance
     const git = new GitService();
@@ -71,7 +71,7 @@ describe('GitService', () => {
     // Check that the branch name is returned
     expect(branchResult.branch).toBe('feature');
   });
-  
+
   it('pr: should work with per-repo directory structure', async () => {
     // Create a GitService instance
     const git = new GitService();
