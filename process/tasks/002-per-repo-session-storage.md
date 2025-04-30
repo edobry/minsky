@@ -65,6 +65,7 @@ Currently, session repositories are stored in a flat directory structure and the
 - 2025-04-29: Added migration logic for existing session records
 - 2025-04-29: Updated tests to verify new directory structure
 - 2025-04-29: Updated changelog with changes
+- 2025-04-30: Enhanced directory structure to use sessions subdirectory with backward compatibility
 
 ## Notes
 
