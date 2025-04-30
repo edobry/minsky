@@ -40,10 +40,12 @@ export interface PrResult {
 
 export class GitService {
   private readonly baseDir: string;
+  private readonly sessionDB: SessionDB;
 
   constructor() {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
     this.baseDir = join(xdgStateHome, 'minsky', 'git');
+    this.sessionDB = new SessionDB();
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -54,22 +56,29 @@ export class GitService {
     return Math.random().toString(36).substring(2, 8);
   }
 
-  private getSessionWorkdir(repoName: string, session: string): string {
-    return join(this.baseDir, repoName, session);
-  }
-
   async clone(options: CloneOptions): Promise<CloneResult> {
     await this.ensureBaseDir();
     
     const session = options.session || this.generateSessionId();
     const repoName = normalizeRepoName(options.repoUrl);
-    const workdir = this.getSessionWorkdir(repoName, session);
     
-    // Create the workdir
-    await mkdir(workdir, { recursive: true });
+    // Create the repository path with the new sessions subdirectory structure
+    const workdir = await this.sessionDB.getNewSessionRepoPath(repoName, session);
+    
+    // Create the workdir's parent directories
+    await mkdir(join(workdir, '..'), { recursive: true });
     
     // Clone the repository
     await execAsync(`git clone ${options.repoUrl} ${workdir}`);
+    
+    // Add the session to the database
+    await this.sessionDB.addSession({
+      session,
+      repoUrl: options.repoUrl,
+      repoName,
+      repoPath: workdir,
+      createdAt: new Date().toISOString()
+    });
     
     return {
       workdir,
@@ -79,14 +88,22 @@ export class GitService {
 
   async branch(options: BranchOptions): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const db = new SessionDB();
-    const record = await db.getSession(options.session);
+    const record = await this.sessionDB.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    const workdir = this.getSessionWorkdir(record.repoName, options.session);
+    
+    // Get the session's working directory using the SessionDB, which will check both old and new paths
+    const workdir = await this.sessionDB.getSessionWorkdir(options.session);
+    
     // Create the branch in the specified session's repo
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    
+    // Update the session record with the branch information
+    await this.sessionDB.updateSession(options.session, {
+      branch: options.branch
+    });
+    
     return {
       workdir,
       branch: options.branch
@@ -99,12 +116,11 @@ export class GitService {
     // Determine the working directory
     let workdir: string;
     if (options.session) {
-      const db = new SessionDB();
-      const record = await db.getSession(options.session);
+      const record = await this.sessionDB.getSession(options.session);
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      workdir = this.getSessionWorkdir(record.repoName, options.session);
+      workdir = await this.sessionDB.getSessionWorkdir(options.session);
     } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
@@ -235,95 +251,107 @@ export class GitService {
       return { stdout: '' };
     });
 
-    // Format untracked files to match git diff format (prefix with A for added)
-    const untrackedFiles = untrackedOut
-      .trim()
-      .split("\n")
+    // Get a list of all commits
+    const { stdout: commitsOut } = await execAsync(
+      `git -C ${workdir} log --oneline ${mergeBase}..${branch}`
+    ).catch((err) => {
+      if (options.debug) {
+        console.error(`[DEBUG] Failed to get commits: ${err}`);
+      }
+      return { stdout: '' };
+    });
+
+    // Simple stats
+    const { stdout: statsOut } = await execAsync(
+      `git -C ${workdir} diff --stat ${mergeBase} ${branch}`
+    ).catch((err) => {
+      if (options.debug) {
+        console.error(`[DEBUG] Failed to get stats: ${err}`);
+      }
+      return { stdout: '' };
+    });
+
+    // Format the changes
+    const filesByType = filesOut.split('\n')
       .filter(Boolean)
-      .map(file => `A\t${file}`);
-    
-    // Combine committed, uncommitted and untracked changes
-    const allChanges = new Set([
-      ...filesOut.trim().split("\n").filter(Boolean),
-      ...uncommittedOut.trim().split("\n").filter(Boolean),
-      ...untrackedFiles
-    ]);
-    let files = Array.from(allChanges);
+      .reduce<Record<string, string[]>>((acc, line: string) => {
+        const type = line[0];
+        if (type) {
+          const file = line.substring(2);
+          if (!acc[type]) acc[type] = [];
+          acc[type].push(file);
+        }
+        return acc;
+      }, {});
 
-    // Basic stats for committed changes
-    const statCmd = `git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`;
-    const { stdout: statOut } = await execAsync(statCmd).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get diff stats: ${err}`);
+    const commits = commitsOut.split('\n').filter(Boolean);
+
+    let markdownOutput = `# Pull Request for branch \`${branch}\`\n\n`;
+
+    // Add commits
+    markdownOutput += `## Commits\n`;
+    if (commits.length) {
+      for (const commit of commits) {
+        markdownOutput += `- ${commit}\n`;
       }
-      return { stdout: '' };
-    });
-    // Also get working directory diff stats
-    const { stdout: wdStatOut } = await execAsync(`git -C ${workdir} diff --shortstat`).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get working directory stats: ${err}`);
-      }
-      return { stdout: '' };
-    });
-    // Debug output
-    if (options.debug) {
-      console.error(`[DEBUG] Running: ${statCmd}`);
-      console.error(`[DEBUG] Stat output:`, statOut);
-      console.error(`[DEBUG] Working directory stat:`, wdStatOut);
+    } else {
+      markdownOutput += `- **${workdir}**\n`;
     }
 
-    // Markdown output
-    let md = `# Pull Request for branch \`${branch}\`\n\n`;
-    md += `## Commits\n`;
+    // Add changed files
+    markdownOutput += `\n## Modified Files (${comparisonDescription})\n`;
     
-    // Get commits between merge base and current branch
-    const logCmd = `git -C ${workdir} log --reverse --pretty=format:"%H%x1f%s%x1f%b%x1e" ${mergeBase}..${branch}`;
-    if (options.debug) {
-      console.error(`[DEBUG] Running: ${logCmd}`);
-    }
-    const { stdout: logOut } = await execAsync(logCmd).catch((err) => {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get commit log: ${err}`);
+    if (Object.keys(filesByType).length) {
+      for (const [type, files] of Object.entries(filesByType)) {
+        for (const file of files) {
+          let typeChar = '';
+          switch (type) {
+            case 'A': typeChar = 'A'; break; // Added
+            case 'M': typeChar = 'M'; break; // Modified
+            case 'D': typeChar = 'D'; break; // Deleted
+            case 'R': typeChar = 'R'; break; // Renamed
+            case 'C': typeChar = 'C'; break; // Copied
+            case 'U': typeChar = 'U'; break; // Unmerged
+            case 'T': typeChar = 'T'; break; // Type changed
+            default: typeChar = '?';
+          }
+          markdownOutput += `- ${typeChar === '?' ? type : typeChar}\t${file}\n`;
+        }
       }
-      return { stdout: '' };
-    });
-    
-    const commits = logOut
-      .split("\x1e")
-      .filter(Boolean)
-      .map(line => {
-        const [hash, title, body] = line.split("\x1f");
-        return { hash, title, body };
-      });
+    } else {
+      markdownOutput += `- ${workdir}\n`;
+    }
 
-    if (commits.length === 0) {
-      md += "*No commits found between merge base and current branch*\n";
-    } else {
-      for (const c of commits) {
-        md += `- **${c.title}**\n`;
-        if (c.body && c.body.trim()) md += `  \n  ${c.body.trim().replace(/\n/g, '  \n')}\n`;
+    // Add stats
+    markdownOutput += `\n## Stats\n${statsOut.trim() || workdir}`;
+
+    // Add uncommitted changes
+    if (uncommittedOut.trim() || untrackedOut.trim()) {
+      markdownOutput += `\n\n_Uncommitted changes in working directory:_\n`;
+      if (uncommittedOut.trim()) {
+        markdownOutput += uncommittedOut.split('\n').filter(Boolean).map(line => {
+          const type = line[0];
+          const file = line.substring(2);
+          let typeChar = '';
+          switch (type) {
+            case 'A': typeChar = 'A'; break; // Added
+            case 'M': typeChar = 'M'; break; // Modified
+            case 'D': typeChar = 'D'; break; // Deleted
+            case 'R': typeChar = 'R'; break; // Renamed
+            case 'C': typeChar = 'C'; break; // Copied
+            default: typeChar = '?';
+          }
+          return `- ${typeChar === '?' ? type : typeChar}\t${file}`;
+        }).join('\n');
+      }
+      if (untrackedOut.trim()) {
+        if (uncommittedOut.trim()) markdownOutput += '\n';
+        markdownOutput += untrackedOut.split('\n').filter(Boolean).map(file => `- U\t${file}`).join('\n');
       }
     }
-    
-    md += `\n## Modified Files (${comparisonDescription})\n`;
-    if (files.length === 0) {
-      md += "*No modified files detected with the current comparison method*\n";
-    } else {
-      for (const f of files) {
-        md += `- ${f}\n`;
-      }
-    }
-    
-    md += `\n## Stats\n`;
-    if (statOut.trim()) {
-      md += statOut.trim() + '\n';
-    } else {
-      md += "*No stats available with the current comparison method*\n";
-    }
-    if (wdStatOut.trim()) {
-      md += `\n_Uncommitted changes in working directory:_\n` + wdStatOut.trim() + '\n';
-    }
-    
-    return { markdown: md };
+
+    return {
+      markdown: markdownOutput
+    };
   }
 }
