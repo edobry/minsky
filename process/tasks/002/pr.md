@@ -276,3 +276,45 @@ Implements Task #015: Add `session delete` command
 _Uncommitted changes in working directory:_
 1 file changed, 15 deletions(-)
 
+# Per-Repository Session Storage Enhancement PR
+
+## Overview
+This PR enhances the session management system in Minsky to improve organization and extensibility. The changes include:
+
+1. **Per-Repository Storage Structure**: Session repositories are now stored under per-repo directories (e.g., `$XDG_STATE_HOME/minsky/git/<repoName>/<session>`)
+2. **Sessions Subdirectory**: Added a 'sessions' subdirectory within each repository directory for better organization (e.g., `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`)
+3. **Backward Compatibility**: Maintained backward compatibility to support existing session repositories in the legacy location
+4. **Enhanced Data Model**: Added a `repoName` field to session database records for better tracking
+
+## Implementation Details
+
+### Session Data Model
+- Added `repoName` field to the `SessionRecord` interface
+- Implemented a utility function `normalizeRepoName` to ensure consistent directory naming
+
+### Directory Structure
+- Changed from a flat session storage structure to a hierarchical one:
+  - OLD: `$XDG_STATE_HOME/minsky/git/<session>`
+  - NEW: `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`
+- Added backward compatibility to check both locations when retrieving session paths
+
+### Migration Path
+- New sessions are automatically created in the new directory structure
+- Added a `migrateSessionsToSubdirectory` method that can be used to move existing sessions to the new format
+- All session-related commands work with both old and new directory formats
+
+## Testing
+All tests have been updated to work with the new directory structure, including:
+- Session database tests
+- Git service tests
+- Workspace utility tests
+- Command-level tests for session and git operations
+
+## Benefits
+- **Improved Organization**: Repositories from the same source are grouped together
+- **Better Extensibility**: The hierarchical structure allows for more features in the future
+- **Less Clutter**: Sessions are now more logically organized, reducing directory clutter
+- **Backward Compatibility**: Existing sessions and workflows continue to work
+
+## Related Tasks
+- Implements task #002: Per-repository session storage
