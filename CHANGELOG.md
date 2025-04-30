@@ -39,6 +39,9 @@
 - Session output now includes repo-relative working paths
 - Added repoName field to SessionRecord for structured repository storage
 - Added task #020 to add a `--task` option to the `git pr` command, allowing users to generate PR descriptions for tasks directly without specifying a session or path
+- Created task specification for task #018 to add a `--task <task-id>` option to the `minsky session dir` command, allowing users to look up session directories by their associated task ID
+- Created task specification for task #023 to add a task specification path to the task object, which will be displayed by commands that show task details, making it easier to locate and access the full task specification document
+- Created task specification for task #024 to fix the `session dir` command logic
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

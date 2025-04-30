@@ -4,6 +4,8 @@
 
 After implementing task #002 for per-repo session storage, several tests are still failing. These failures are primarily due to linting issues, type errors, and mock implementation problems. These need to be fixed to maintain code quality and ensure the test suite accurately validates the codebase functionality.
 
+Additionally, there are failing tests in git.pr.test.ts and multiple failing tests in session.test.ts related to features like getSessionByTaskId, getRepoPath, migrateSessionsToSubdirectory, and others that need to be addressed.
+
 ## Requirements
 
 1. **Linting Fixes**
@@ -20,6 +22,18 @@ After implementing task #002 for per-repo session storage, several tests are sti
    - Fix parameter handling in mockExecAsyncImpl to correctly handle expected parameters
    - Implement required interfaces like promiseWithChild in mocks
    - Ensure mocks properly simulate the production environment
+
+4. **Git PR Test Fixes**
+   - Fix failing test in git.pr.test.ts with proper mocking for git operations
+   - Update base branch detection tests to properly create and detect branches
+   - Ensure PR generation correctly identifies modified files
+
+5. **Session Test Fixes**
+   - Implement missing methods like getSessionByTaskId in session tests
+   - Fix getRepoPath tests to correctly handle legacy and new paths
+   - Update deleteSession tests to match current behavior
+   - Implement migrateSessionsToSubdirectory mock for testing
+   - Fix startSession test for file:// URL conversion
 
 ## Implementation Steps
 
@@ -38,12 +52,27 @@ After implementing task #002 for per-repo session storage, several tests are sti
    - [ ] Implement the promiseWithChild interface in relevant mocks
    - [ ] Update mocks to properly simulate the real objects
 
-4. [ ] Run and verify tests
+4. [ ] Fix git pr test failures
+   - [ ] Correct PR diff generation tests to properly detect modified files
+   - [ ] Fix base branch detection logic tests
+
+5. [ ] Fix session test failures
+   - [ ] Implement getSessionByTaskId method and tests
+   - [ ] Fix getRepoPath test with correct path handling
+   - [ ] Update deleteSession test expectations
+   - [ ] Implement migrateSessionsToSubdirectory method and tests
+   - [ ] Fix startSession URL conversion test
+
+6. [ ] Fix session get CLI tests
+   - [ ] Address failing session get by task ID tests
+   - [ ] Fix error message expectations
+
+7. [ ] Run and verify tests
    - [ ] Run all tests with `bun test`
    - [ ] Fix any remaining issues
    - [ ] Ensure 100% test pass rate
 
-5. [ ] Update CHANGELOG.md
+8. [ ] Update CHANGELOG.md
    - [ ] Document the fixes made
 
 ## Verification
@@ -52,4 +81,4 @@ After implementing task #002 for per-repo session storage, several tests are sti
 - [ ] No linting errors remain in the test files
 - [ ] Type checking passes with no errors
 - [ ] No code changes to production files are required; all changes are limited to test files
-- [ ] CHANGELOG.md is updated to reflect the fixes 
+- [ ] CHANGELOG.md is updated to reflect the fixes
