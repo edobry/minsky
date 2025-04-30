@@ -20,6 +20,9 @@ let mockExecAsyncImpl = mock((cmd: string) => {
 // Wrapper for mockExecAsyncImpl that can be replaced for tests
 const mockExecAsync = (...args: any[]) => mockExecAsyncImpl(...args);
 
+// Create a mock for fs.access
+const mockFsAccess = mock(() => Promise.resolve());
+
 // Mock the modules
 mock.module('child_process', () => ({
   exec: (cmd: string, options: any, callback: any) => {

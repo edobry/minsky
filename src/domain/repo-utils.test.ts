@@ -1,6 +1,19 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { resolveRepoPath, normalizeRepoName } from './repo-utils';
 import { SessionDB } from './session';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+// Mock the dependencies
+mock.module('child_process', () => ({
+  exec: (cmd: string, options: any, callback: any) => {
+    if (cmd.includes('git rev-parse')) {
+      callback(null, { stdout: '/path/to/repo\n', stderr: '' });
+    } else {
+      callback(null, { stdout: '', stderr: '' });
+    }
+  }
+}));
 
 describe('resolveRepoPath', () => {
   it('returns explicit repo path if given', async () => {
@@ -8,17 +21,18 @@ describe('resolveRepoPath', () => {
   });
 
   it('returns session repo path if session is given', async () => {
-    // Save original method
-    const originalGetSession = SessionDB.prototype.getSession;
-
-    // Create a local implementation that doesn't depend on bun:test mock
-    SessionDB.prototype.getSession = async () => ({
+    // Create a test SessionDB
+    const testRecord = {
       session: 'test-session',
       repoUrl: '/mock/repo',
       repoName: 'mock/repo',
       createdAt: new Date().toISOString()
-    });
-    
+    };
+
+    // Override getSession just for this test
+    const originalGetSession = SessionDB.prototype.getSession;
+    SessionDB.prototype.getSession = mock(() => Promise.resolve(testRecord));
+
     try {
       const result = await resolveRepoPath({ session: 'test-session' });
       expect(result).toBe('/mock/repo');
@@ -29,16 +43,21 @@ describe('resolveRepoPath', () => {
   });
 
   it('falls back to git rev-parse if neither is given', async () => {
-    // Try to get the real value
-    const { execSync } = require('child_process');
-    let expected;
+    // Mock execAsync for this test
+    const execAsync = promisify(exec);
+    const originalExecAsync = execAsync;
+    
+    // Replace with a mock that returns a predictable value
+    const mockExecAsync = mock(() => Promise.resolve({ stdout: '/git/repo/path\n', stderr: '' }));
+    (global as any).execAsync = mockExecAsync;
+    
     try {
-      expected = execSync('git rev-parse --show-toplevel').toString().trim();
-    } catch {
-      expected = process.cwd(); // fallback if not in a git repo
+      const result = await resolveRepoPath({});
+      expect(result).toBe('/git/repo/path');
+    } finally {
+      // Clean up
+      (global as any).execAsync = originalExecAsync;
     }
-    const result = await resolveRepoPath({});
-    expect(result).toBe(expected);
   });
 });
 
