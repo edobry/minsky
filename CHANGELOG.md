@@ -26,6 +26,15 @@
 - The rule requires explicit verification of task status, session existence, and working directory before code changes
 - Documentation required for session verification steps in all implementation work
 - Enhanced minsky-workflow rule with a critical "Session-First Implementation" requirement, mandating session creation and activation before any code examination or modification
+- Added `--task <task-id>` option to `minsky session get` command, allowing users to look up sessions by associated task ID. Returns an error if both session name and --task are provided, and supports all existing options including --json. Updated documentation and tests accordingly.
+- Added automatic workspace detection for task operations. When a task command is executed from a session repository, Minsky automatically detects this and performs the operation on the main workspace instead. All task commands now support a `--workspace` option to explicitly specify the workspace path.
+- Added `session delete` command to remove session repositories and database records. This command supports the `--force` flag to skip confirmation prompts and the `--json` flag for machine-readable output. The command safely handles errors during repository deletion or database updates.
+
+_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
+_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
+_See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
+_See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md) for implementation details._
 
 ### Changed
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
@@ -53,6 +62,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
@@ -75,6 +85,7 @@ _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history
 ### Fixed
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks.
 - Fixed test reliability and linter errors in domain logic tests.
+- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
 
 ### (Previous unreleased entries)
 - Initial Bun+TypeScript project setup for the minsky CLI tool

@@ -1,0 +1,400 @@
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+All project documentation will be stored in the `.specstory` directory, following the SpecStory format. Version updates will be noted in the relevant section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").  The changelog will reference relevant SpecStory conversation histories.  See `.specstory/.what-is-this.md` for details on the SpecStory artifact system.
+
+
+## TECH STACK
+
+- TypeScript
+- Bun
+- Commander
+- Git
+- bun-promptx
+- @clack/prompts
+
+
+## CODING STANDARDS
+
+- All business logic must be organized in per-domain modules (e.g., `src/domain`).
+- Command modules (e.g., `src/commands`) should only contain CLI-related logic (reading options, setting up the environment, calling domain modules, writing output, etc.).
+- Each subcommand should reside in its own directory under `src/commands/<command-name>/`.  Main command files should be named `index.ts`.
+
+
+## WORKFLOW & RELEASE RULES
+
+- Use `bun init -y` to initialize new Bun projects.
+- Use `bun add` to add dependencies.
+- Commit frequently with clear, concise messages.
+- Follow semantic versioning for releases.
+- Use `bun link` to link the CLI globally after installation.
+- Use `chmod +x src/cli.ts` to make the main CLI file executable.
+- A session database (`session-db.json`) will track sessions, their associated repos, and branches.  This database is stored in `$XDG_STATE_HOME/minsky`.
+- Version 0.1.0 initial setup
+- Version 0.2.0 added git clone, branch, pr commands and session management
+- Version 0.3.0 added session start command and improved session management
+- Version 0.4.0 added optional repo path to `git pr` command
+- Version 0.5.0 added `tasks` command with `list`, `get`, and `status` subcommands.  Supports `process/tasks.md` as a default task backend.  Placeholder backends for GitHub Issues and other systems are planned. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.6.0 Added support for session and repo path arguments to tasks commands. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.7.0 Added git branch command.
+- Version 0.8.0 Added git pr command with optional repo path.
+- Version 0.9.0 Added session db and session management commands (list, get, cd, start).
+- Version 0.10.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format has been updated to support checklist items.
+- Version 0.11.0 Added support for session and repo path arguments to tasks commands.  The tasks.md file format is now strictly enforced.
+- Version 0.12.0 Added support for session and repo path arguments to tasks commands. The tasks.md file format is now strictly enforced.  The `git pr` command now compares against `main` by default.
+- Version 0.13.0 Added support for repo path argument to `git pr` command.  Improved base branch detection logic for `git pr`.
+- Version 0.14.0 Added support for session and repo path arguments to all tasks subcommands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.
+- Version 0.15.0 Added git branch command.  The `git pr` command now compares against `main` by default, falling back to `master`, remote HEAD, upstream, and finally first commit.
+- Version 0.16.0 Added support for session and repo path arguments to all tasks commands.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.
+- Version 0.17.0 Added tasks command with support for session and repo path arguments.  Updated tasks.md parsing to handle checklist format and ignore code blocks.  Improved error handling for invalid task statuses.  The tasks.md file format is now strictly enforced.
+- Version 0.18.0 Added support for `--debug` flag to `git pr` command, enabling debug logs to stderr. Improved base branch detection logic for `git pr`, prioritizing `main` then `master`, then remote HEAD, then upstream.  Added robust testing for `git pr` and `tasks` commands.  Improved error handling and user feedback for `tasks status set`.  Refactored `resolveRepoPath` into shared utility module.  Updated README and CHANGELOG.
+- Version 0.19.0 The `session start` command now optionally accepts a task ID. If provided, the CLI looks up task details, uses the task ID as the session name (formatted as `<repo>/task#<id>`), and stores the task details in the session metadata.  The session will have a full name and a short name (without the repo, for branch naming).
+- Version 0.20.0 The `tasks list` and `tasks get` commands now support a `--json` option for JSON output.
+- Version 0.21.0 The `session start` command now supports the `--task <task-id>` flag. If provided, the CLI looks up the task details using the `tasks` domain module, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata.  The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming.  Error handling is improved to check for existing tasks and sessions.
+- Version 0.22.0 The `minsky session start` command now optionally accepts a task ID via the `--task` flag. If provided, the CLI looks up the task details, uses the task ID as the session short name (formatted as `task#<id>`), and stores the task ID in the session metadata. The session will have a full name (`<repo>/task#<id>`) and a short name (`task#<id>`) for branch naming. Error handling is improved to check for existing tasks and sessions.  If the task ID does not exist, the CLI errors out. If a session for that task already exists, the CLI errors out and returns the existing session name.
+- Version 0.23.0 The `session list` and `session get` commands now support a `--json` option for JSON output.
+- Version 0.24.0 Added CLI-level tests for the `--json` option in `tasks list`, `tasks get`, `session list`, and `session get` commands.
+- Version 0.25.0 The session database now stores the repo name for each session. Session repos are stored under a per-repo directory (e.g., `/Users/edobry/.local/state/minsky/git/<repo>/<session>`).
+- Version 0.26.0 Renamed `session cd` command to `session dir`. The `session dir` command now prints the session directory path.  The `session cd` command has been removed.
+- Version 0.27.0 Added IN PROGRESS and IN REVIEW task statuses.  `-` represents IN PROGRESS and `+` represents IN REVIEW in markdown task lists.
+- Version 0.28.0 Added `init` command to set up minsky projects.  Supports `tasks.md` and `tasks.csv` backends and `cursor` and `generic` rule formats.  Creates `process/tasks` directory structure.  Writes `minsky.mdc` rule to `.cursor/rules` or `.ai/rules` depending on the selected rule format.  Creates `process/tasks` directory structure.  Writes `minsky.mdc` rule to `.cursor/rules` or `.ai/rules` depending on the selected rule format.
+- Version 0.29.0 Added `init` command. Supports `tasks.md` backend and `cursor` and `generic` rule formats. Creates `process/tasks` directory structure. Writes `minsky.mdc` rule to `.cursor/rules` or `.ai/rules` depending on the selected rule format. The `tasks.csv` backend is planned for a future release. The `init` command will create necessary directories if they don't exist. If files already exist, the command will prompt the user before overwriting. CLI flags override interactive prompts. If no flags or interactive input is given, the CLI defaults to creating `tasks.md` and writing to `.cursor/rules`.
+- Version 0.30.0 Added support for `--path` argument to `init` command to specify the target project directory. Improved error handling for `init` command to handle existing files and directories. Added tests for `init` command. Updated README and CHANGELOG.
+- Version 0.31.0 Added bun-promptx for interactive prompts in init command. Improved error handling and user experience for init command. Updated README and CHANGELOG.
+- Version 0.32.0 Added improved UX for init command using bun-promptx.  Improved error handling for init command. Updated README and CHANGELOG.  Added support for --repo and --session flags to init command, using resolveRepoPath for repo path resolution.  Added tests for init command including error handling and prompt logic.
+- Version 0.33.0 Updated init command to use @clack/prompts for interactive prompts. Improved error handling and user experience for init command. Updated README and CHANGELOG.
+- Version 0.34.0  Added `minsky tasks list --json` as a method for querying the backlog.
+- Version 0.35.0 Added clarification on how to query the backlog using `minsky tasks list --json`.
+- Version 0.36.0 To query the backlog, use: `minsky tasks list --json`
+- Version 0.37.0 To query the backlog, use `minsky tasks list --json`.  This command will return a JSON representation of all tasks in the backlog.  The output will include task IDs, titles, statuses, and descriptions.
+- Version 0.38.0 To query the backlog, use `minsky tasks list --json`. This command returns a JSON representation of all tasks.  The output includes task IDs, titles, statuses, and descriptions.
+- Version 0.39.0 Clarified that `minsky tasks list --json` should be used to query the backlog.
+- Version 0.40.0 The `--repo` argument for `minsky session start` is now optional.  If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If it fails to find a repository, it will error out with a clear message.
+- Version 0.41.0 Added tests for the updated `minsky session start` command, including cases where `--repo` is provided and omitted.
+- Version 0.42.0 The `minsky session start` command now correctly handles optional `--repo` argument.  If omitted, it uses `resolveRepoPath` to determine the repository path.  If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.43.0 The `--repo` argument for the `minsky session start` command is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`. If `resolveRepoPath` fails to find a repository, the command will error out with a clear message.
+- Version 0.44.0  The `minsky session start` command now correctly handles the optional `--repo` argument. If omitted, it uses `resolveRepoPath` to determine the repository path. If no repository is found, it errors out with a clear message.  Added comprehensive tests covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests now use bun:test's mocking capabilities.
+- Version 0.45.0 The `--repo` argument for `minsky session start` is now optional. If omitted, the command will attempt to determine the repository path using `resolveRepoPath`.  If `resolveRepoPath` fails, the command will error out with a clear message.  The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession` using bun:test mocking capabilities to cover various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.
+- Version 0.46.0 The `minsky session start` command's business logic has been extracted to `startSession` for better testability. Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`. The tests use Bun's mocking capabilities.  A positive test case was added for the fallback scenario where `resolveRepoPath` returns a valid path.
+- Version 0.47.0  The `--repo` argument is now optional for `minsky session start`. If omitted, the command attempts to use the current git repository root via `resolveRepoPath`. If neither a repo nor a session is provided and `resolveRepoPath` fails, the command errors out with a clear message. The `minsky session start` command's business logic has been extracted to `startSession` for better testability.  Comprehensive tests have been added for `startSession`, covering various scenarios, including successful execution with and without `--repo`, error handling when no repository is found, and correct usage of `resolveRepoPath`.  The tests use Bun's mocking capabilities.
+- Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
+- Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
+- Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
+- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
+- Version 0.52.0 Improved the minsky-workflow.mdc documentation to address feedback from junior engineer simulations.  Clarified task ID formatting, added instructions for handling JSON output using jq, clarified session name requirements, improved session start output, added instructions for updating the changelog and task spec, and clarified the use of IN-REVIEW and DONE task statuses.  Added a new task to add the task spec document path to the minsky tasks get command output.
+- Version 0.53.0 Updated instructions for finding existing sessions to use `minsky session get` instead of listing and filtering with `jq`. Added task #004 to add a `--task` option to `session get` to query sessions by task ID.
+- Version 0.54.0 Added task #005 to add a `minsky git push` command.
+- Version 0.55.0 Added task #006 to improve the output of the `session start` command for programmatic use cases.
+- Version 0.56.0 Updated minsky-workflow.mdc to reflect changes from task #006.
+- Version 0.57.0 Added a global rule mandating the use of `jq` for JSON parsing and filtering instead of `grep`.
+- Version 0.58.0 Added task #007 to add a global rule about using `jq` for JSON parsing.
+- Version 0.59.0 Added automation directive to minsky-workflow.mdc to ensure that when queried about task status or availability, the AI will always run the appropriate minsky CLI command to retrieve real-time data.
+- Version 0.60.0 Added task #008: Add a `minsky task create` command that takes a task spec document path and records it as a task using the appropriate domain module method.
+- Version 0.61.0 Added `minsky task create` command. This command takes a task spec document path as an argument and creates a new task entry in the task database.  The task spec document path is stored in the task record.
+- Version 0.62.0 Added task #009: Improve AI instructions to avoid prematurely implementing tasks.
+- Version 0.63.0 Added task #010: Create a task specification for adding a `minsky task create` command.
+- Version 0.64.0 Added task #011: Implement `minsky task create` command.
+- Version 0.65.0 Added task #008: Update `tasks list` command to filter out DONE tasks by default, adding a CLI option to include them.
+- Version 0.66.0 Added rule to always use `jq` for JSON parsing and filtering.
+- Version 0.67.0 Before implementing any task, ALWAYS ensure a valid session exists.  If no session exists for the task, create one using `minsky session start --task <task-id>`. Then, navigate to the session directory before making any code changes. Document these steps in the task specification.
+- Version 0.68.0 Enhanced minsky-workflow rule with a critical "Session-First Implementation" requirement, mandating session creation and activation before any code examination or modification.  The rule now includes a prominent warning at the beginning, three specific steps to ensure a valid session exists, and a clear statement about the consequences of violating this rule.
+- Version 0.69.0 Updated minsky-workflow.mdc; `globs` is now `["**/*"]` and `alwaysApply` is `true`.
+- Version 0.70.0 The `minsky session start --task` command now correctly handles task IDs without the leading '#'.
+- Version 0.71.0 The `minsky session start` command now accepts task IDs without a leading '#'.
+- Version 0.72.0 Added support for `--task <taskId>` option to `minsky session get` command.
+- Version 0.73.0 Added clarification regarding the proper use of session directories in the minsky workflow.  All changes for a given task must be made within the session directory.
+- Version 0.74 Added clarification on file editing mechanisms.  The AI uses an internal `edit_file` function to suggest edits, but this function only suggests changes, it does not directly modify files.  All file modifications must be done manually by the user.
+- Version 0.75 Added clarification on file editing mechanisms. The AI uses an internal `edit_file` function to suggest edits, but this function only suggests changes; it does not directly modify files. All file modifications must be done manually by the user.  The `edit_file` function's file paths are resolved relative to the workspace root, not the current working directory.  To edit files within a session directory, absolute paths to the files within the session directory must be used.
+- Version 0.76 Added support for `--task <taskId>` option to `minsky session get` command.  This allows retrieval of session details using the associated task ID.  The command handles cases where both a session name and a task ID are provided, returning an appropriate error message.  The command also supports the existing `--json` option.  The documentation and tests have been updated to reflect these changes. _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md)_
+- Version 0.77 Added task #012: Implement `minsky git push` command.
+- Version 0.78 Added task #013: Add a `git commit` command that adds all unstaged files and then commits them.
+- Version 0.79 Added rule clarification: When working in a session directory, ALWAYS use absolute paths when editing files. For example: CORRECT: /Users/username/.local/state/minsky/git/task-id/src/file.ts INCORRECT: src/file.ts (which would edit the main workspace file). Without absolute paths, changes may silently occur in the main workspace instead of the session directory.
+- Version 0.80 Added rule: After every file edit in a session directory, verify the changes are actually present by: 1. Running `git status` to confirm the file appears as modified 2. Running `git diff <filename>` to confirm the expected changes exist 3. Never assuming an edit succeeded without verification.
+- Version 0.81 Added rule: Task implementation is not complete until ALL these steps are performed, in order: 1. ✓ All code changes are made in the session directory (not main workspace) 2. ✓ All tests pass in the session directory 3. ✓ Task document is updated with Work Log and verification steps 4. ✓ All changes are committed with task ID in commit message 5. ✓ PR description is generated using `minsky git pr` and saved to process/tasks/<task-id>/pr.md 6. ✓ PR description is committed 7. ✓ Changes are pushed to remote with `git push origin <branch>` 8. ✓ Task status is updated to IN-REVIEW.
+- Version 0.82 Added rule warning: ⚠️ WARNING: The session directory contains a SEPARATE CLONE of the repository. Changes made to files in the main workspace WILL NOT appear in the session branch. Always confirm your current working directory with `pwd` before making any changes.
+- Version 0.83 Added task #014: Update `git pr` command to automatically generate an AI-summarized PR description and create a GitHub PR.  The PR title should be AI-generated in conventional commits format.  If a session is active, neither session name nor task ID need to be provided.
+- Version 0.84 Before starting work on task #008, ensure a valid session exists. If not, create one using `minsky session start --task 008`.  Then, navigate to the session directory before making any code changes.
+- Version 0.85 Added rule: ALWAYS use the minsky CLI for all task and session interactions.  Never directly manipulate the file system or the session database.  All commits must be pushed immediately after they are made.
+- Version 0.86 The `minsky session start --task` command now correctly handles task IDs with or without leading '#'.
+- Version 0.87 The `minsky session start` command now correctly handles task IDs with or without leading '#'.  The order of operations in the `startSession` function has been corrected to ensure the session is recorded in the database before the git operations are performed.
+- Version 0.88 Added task #015.
+
+
+## DEBUGGING
+
+- Use `console.log` for debugging purposes.  Remove or comment out debug statements before committing.
+
+
+## CURSOR RULES
+
+### command-organization.mdc
+```
+---
+description: Command organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts"]
+alwaysApply: true
+---
+
+# Command Organization Rules
+
+## Directory Structure
+- Each subcommand should be in its own directory under `src/commands/<command-name>/`
+- Example: `src/commands/git/clone.ts` for the git clone command
+- Main command files should be named `index.ts` in their respective directories
+
+## Module Organization
+- Business logic should be in domain modules under `src/domain/`
+- Command modules should only handle CLI concerns (options, environment, output)
+- Example: Business logic in `src/domain/git.ts`, CLI handling in `src/commands/git/clone.ts` 
+```
+
+### module-organization.mdc
+```
+---
+description: Module organization rules for the minsky CLI
+globs: ["src/commands/**/*.ts", "src/domain/**/*.ts"]
+alwaysApply: true
+---
+
+# Module Organization Rules
+
+## Domain Modules
+- All business logic should live in `src/domain/` modules
+- Domain modules should be focused on a single domain concept
+- Example: `src/domain/git.ts` for git-related business logic
+
+## Command Modules
+Command modules should only handle:
+- Parsing command-line arguments and options
+- Setting up the environment
+- Calling domain modules
+- Formatting and displaying output
+- Error handling and exit codes
+
+Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
+```
+
+### minsky-workflow.mdc
+```markdown
+---
+description: REQUIRED workflow for ANY task implementation - MUST apply when task references (#XXX, task #XXX) appear in requests. Enforces session creation before code changes.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Minsky Workflow
+
+⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
+⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
+
+This rule defines the comprehensive process for working with tasks and sessions using the Minsky tool. ANY operation related to tasks or sessions - whether viewing, querying, or modifying - MUST use the Minsky CLI to ensure data consistency and accuracy.
+
+## Core Principles
+
+1. **Always Use Minsky CLI for Task/Session Data**
+   - NEVER use file listings or static documentation
+   - NEVER directly manipulate Minsky's state files or databases
+   - NEVER delete or modify files in `~/.local/state/minsky/`
+   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
+   - ALWAYS use appropriate minsky commands:
+     ```bash
+     # For task queries
+     minsky tasks list --json          # List all tasks
+     minsky tasks get '#XXX' --json    # Get specific task details
+     minsky tasks status get '#XXX'    # Get task status
+     
+     # For session queries
+     minsky session list --json        # List all sessions
+     minsky session get <name>         # Get session details
+     ```
+
+2. **Data Integrity is Critical**
+   - Minsky maintains critical state in `~/.local/state/minsky/`
+   - Direct manipulation of these files will corrupt the system
+   - NEVER attempt to "fix" issues by deleting state files
+   - NEVER attempt to read or modify the session database directly
+   - If encountering session/task issues:
+     1. Use `minsky session list` to check current state
+     2. Use `minsky session get <name>` to inspect specific sessions
+     3. Report the issue if commands aren't working as expected
+   - Deleting state files is STRICTLY FORBIDDEN as it:
+     - Corrupts Minsky's understanding of tasks and sessions
+     - Makes session management impossible
+     - May lead to lost work or inconsistent state
+     - Violates the core principle of CLI-based management
+
+3. **Real-Time Data Over Static Files**
+   - Task information comes from the live system, not files
+   - Session state must be queried through CLI, not assumed
+   - File system should never be used as a primary data source
+
+## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
+
+**⚠️ IMPORTANT: A SESSION MUST BE CREATED AND ACTIVE BEFORE ANY CODE CHANGES**
+
+Before examining or modifying any code, you MUST:
+1. Verify task status (`minsky tasks status get '#id'`)
+2. Create or identify an existing session (`minsky session start --task id`)
+3. Enter the session directory (`cd $(minsky session dir session-name)`)
+
+No code examination or changes are permitted until these steps are complete.
+Violating this rule compromises the entire workflow system.
+
+## ⚠️ REPOSITORY ISOLATION WARNING
+
+**The session directory contains a COMPLETELY SEPARATE CLONE of the repository.**
+
+- Changes made to files in the main workspace WILL NOT appear in the session branch
+- Changes made to files in the session directory DO NOT affect the main workspace
+- Always confirm your current working directory with `pwd` before making any changes
+- Session isolation is fundamental to the Minsky model and must be preserved
+
+## FILE PATH RESOLUTION REQUIREMENTS
+
+When working in a session directory, you MUST:
+
+- **ALWAYS use absolute paths when editing files**
+  - CORRECT: `/Users/username/.local/state/minsky/git/task-id/src/file.ts`
+  - INCORRECT: `src/file.ts` (which would edit the main workspace file)
+- Relative paths in file editing tools are resolved against the main workspace, NOT the current shell directory
+- Without absolute paths, changes may silently occur in the main workspace instead of the session directory
+
+## FILE CHANGE VERIFICATION
+
+After every file edit in a session directory, verify the changes are actually present by:
+
+1. Running `git status` to confirm the file appears as modified
+2. Running `git diff <filename>` to confirm the expected changes exist
+3. Never assuming an edit succeeded without verification
+
+## Request Interpretation and Workflow Priority
+
+1. **Always interpret requests based on their literal meaning in the project context**
+   - "Create a task" means creating a task specification document, not implementing code
+   - "Implement" or "code" refers to writing the actual implementation
+   - When in doubt, default to task specification over implementation
+
+2. **Request Type Recognition**
+   - Categorize requests as either "specifying work" or "implementing work"
+   - Each category requires different response patterns:
+     - Specifying work → create task specification documents
+     - Implementing work → write code following existing specifications
+   - Never implement code until the specification is verified
+
+3. **When to Request Clarification**
+   - If a request could be interpreted multiple ways, ask for clarification
+   - Examples of ambiguous requests requiring clarification:
+     - "Work on task #123" (specify or implement?)
+     - "Handle the task creation feature" (create spec or code?)
+     - "Add the minsky task create command" (create spec or implement?)
+   - Always err on the side of creating task specifications when unclear
+
+4. **Clear vs. Ambiguous Request Examples**
+   - Clear Specification Request: "Create a task to add a minsky task create command"
+     → Create a task specification document
+   - Clear Implementation Request: "Implement the minsky task create command according to task #007"  
+     → Implement the code following the specification
+   - Ambiguous Request: "Add the minsky task create command"
+     → Default to creating a task specification unless context clearly indicates implementation
+
+**Automation Directive:** Whenever you are asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command (e.g., `minsky tasks list --json`, `minsky tasks status get <id>`, etc.) to retrieve real-time information. Do not rely solely on static documentation, code, or cached data for these queries. Only supplement with documentation or codebase details if the CLI output is insufficient or ambiguous. This ensures all answers reflect the actual, current state of the project.
+
+## Task Selection and Initial Setup
+
+When asked to work on a task (by name, description, or ID):
+
+1. **Find or Access the Task**
+   - If you already know the task ID (e.g., "001" or "#001"):
+     ```bash
+     # Get direct information about a specific task
+     minsky tasks get '#001' --json
+     ```
+   - If you need to find a task from the backlog:  When asked to list, filter, or check the status of tasks, always run:
+     ```bash
+     minsky tasks list --json
+     ```
+     and present the output directly, unless specifically instructed otherwise.
+     > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
+
+2. **Check Task Status**
+   - Before starting any work, check the current status of the task:
+     ```bash
+     minsky tasks status get '#001'
+     ```
+   - Task status meanings:
+     - `TODO`: Not started, available to work on
+     - `IN-PROGRESS`: Work has begun but is not complete
+     - `IN-REVIEW`: Work is complete and awaiting review
+     - `DONE`: Work is complete, reviewed, and merged
+   - If the task is already marked as `DONE` or `IN-REVIEW`, confirm with the user before proceeding.
+
+3. **Understand Requirements**
+   - Read the task specification document shown in the output of `minsky tasks get`
+   - The path is typically `process/tasks/<task-id>-<task-name>.md` (e.g., `process/tasks/001-update-session-start.md`)
+   - Ensure all requirements and acceptance criteria are clearly understood
+   - Note any dependencies or blocking issues
+
+## Creating New Tasks
+
+When asked to create a new task:
+
+1. **Refer to the creating-tasks rule**
+   - See detailed instructions in the `creating-tasks.mdc` rule
+   - Never implement code when asked to create a task unless explicitly instructed
+   - Always create a well-formatted task specification document
+
+2. **Checklist Steps for Task Creation**
+   - Create a task specification document following the standardized format
+   - Add the task to the main task list in `/process/tasks.md`
+   - Use the next available task ID
+   - Link the task correctly following project conventions
+
+
+## Session Management
+
+### Starting a New Session
+
+1. **Create a Task Session**
+   - Begin a new session for the task (no session name needed when using `--task`):
+     ```bash
+     minsky session start --task 001
+     ```
+   - The output will show:
+     - The auto-generated session name (e.g., `task#001`)
+     - The repository location where files were cloned
+     - The branch name that was created (same as session name)
+     - The task ID association
+     - Command to navigate to the session directory
+     - The session directory path (for programmatic use)
+
+2. **Enter the Session Directory**
+   - Navigate to the session directory using the provided command
+
+### Re-entering an Existing Session
+
+When asked to continue working on a task:
+
+1. **Find Existing Session**
+   - Look up the session associated with the task:
+     ```bash
+     # Use session get to get details about a specific session
+     minsky session get task#001
+     ```
+   - If you don't know the session name, you may need to list all sessions:
+     ```bash
+     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     ```
+   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
+
+2. **Enter Existing Session**
+   - Navigate to the session directory:
+     ```bash
+     cd $(minsky session dir task#001)
+     ```
+   - If no session exists, create one as described in "Starting a New Session"
+
+## Implementation Process
+
+1. **Planning**
+   - Review the task document to ensure full understanding
+   - For a new task, draft an implementation plan and append
