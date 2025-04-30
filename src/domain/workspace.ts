@@ -47,17 +47,29 @@ function extractSessionName(path: string, minskyPath: string): string | null {
   const relativePath = path.substring(minskyPath.length + 1);
   const pathParts = relativePath.split('/');
   
+  // Ensure we have at least repo and session parts
   if (pathParts.length < 2) {
     return null;
   }
   
-  // Check if this is the new sessions subdirectory format
+  // Check for the new format: <minsky_path>/<repo_org>/<repo_name>/sessions/<session_name>
+  // or <minsky_path>/<repo_type>/<repo_name>/sessions/<session_name>
+  if (pathParts.length >= 4 && pathParts[2] === 'sessions') {
+    return pathParts[3] || null;
+  }
+  
+  // Check for the new format with repo as a single directory: <minsky_path>/<repo_name>/sessions/<session_name>
   if (pathParts.length >= 3 && pathParts[1] === 'sessions') {
     return pathParts[2] || null;
-  } 
+  }
   
-  // Legacy format
-  return pathParts[pathParts.length - 1] || null;
+  // Legacy format with repo parts: <minsky_path>/<repo_org>/<repo_name>/<session_name>
+  if (pathParts.length >= 3) {
+    return pathParts[pathParts.length - 1] || null;
+  }
+  
+  // Simple legacy format: <minsky_path>/<repo_name>/<session_name>
+  return pathParts[1] || null;
 }
 
 /**

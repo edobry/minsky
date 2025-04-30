@@ -249,33 +249,43 @@ export class SessionDB {
   async migrateSessionsToSubdirectory(): Promise<void> {
     const sessions = await this.getSessions();
     
+    // For each session, check if it exists in the legacy path and migrate if needed
     for (const session of sessions) {
-      if (!session.repoName) {
+      if (!session.repoName || !session.session) {
         continue;
       }
       
-      const normalizedRepoName = normalizeRepoName(session.repoName);
-      const legacyPath = this.getLegacyRepoPath(normalizedRepoName, session.session);
-      const newPath = this.getNewRepoPath(normalizedRepoName, session.session);
+      // Get legacy and new paths
+      const legacyPath = this.getLegacyRepoPath(session.repoName, session.session);
+      const newPath = this.getNewRepoPath(session.repoName, session.session);
       
-      // Check if repository exists in the legacy location and not in the new location
-      const legacyExists = await this.repoExists(legacyPath);
-      const newExists = await this.repoExists(newPath);
-      
-      if (legacyExists && !newExists) {
-        // Create the sessions directory
-        const sessionsDir = join(this.baseDir, normalizedRepoName, 'sessions');
+      // Check if legacy path exists and new path doesn't
+      try {
+        await fs.access(legacyPath);
+        
+        // Check if new path already exists
+        try {
+          await fs.access(newPath);
+          continue; // Already migrated, skip
+        } catch {
+          // New path doesn't exist, proceed with migration
+        }
+        
+        // Create sessions directory if it doesn't exist
+        const sessionsDir = join(this.baseDir, session.repoName, 'sessions');
         await fs.mkdir(sessionsDir, { recursive: true });
         
-        // Move the repository
+        // Move repository to new location
         await fs.rename(legacyPath, newPath);
         
-        // Update the repo path in the session record
+        // Update session record with new path
         session.repoPath = newPath;
+      } catch {
+        // Legacy path doesn't exist, nothing to migrate
       }
     }
     
-    // Save updated sessions
+    // Save updated sessions to database
     await this.saveSessions(sessions);
   }
 } 
