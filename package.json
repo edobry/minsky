@@ -9,7 +9,7 @@
     "minsky": "./src/cli.ts"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "^1.2.11"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
