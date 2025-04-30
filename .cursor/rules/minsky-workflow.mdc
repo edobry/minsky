@@ -26,7 +26,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
      
      # For session queries
      minsky session list --json        # List all sessions
-     minsky session get <name>         # Get session details
+     minsky session get <name>         # Get session details by name
+     minsky session get --task XXX     # Get session details by task ID
      ```
 
 2. **Data Integrity is Critical**
@@ -36,8 +37,9 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - NEVER attempt to read or modify the session database directly
    - If encountering session/task issues:
      1. Use `minsky session list` to check current state
-     2. Use `minsky session get <name>` to inspect specific sessions
-     3. Report the issue if commands aren't working as expected
+     2. Use `minsky session get <name>` to inspect specific sessions by name
+     3. Use `minsky session get --task XXX` to inspect sessions by task ID
+     4. Report the issue if commands aren't working as expected
    - Deleting state files is STRICTLY FORBIDDEN as it:
      - Corrupts Minsky's understanding of tasks and sessions
      - Makes session management impossible
@@ -197,14 +199,16 @@ When asked to continue working on a task:
 1. **Find Existing Session**
    - Look up the session associated with the task:
      ```bash
-     # Use session get to get details about a specific session
+     # Use session get to get details about a specific session by name
      minsky session get task#001
+     
+     # OR use session get with the --task option to get details by task ID
+     minsky session get --task 001
      ```
-   - If you don't know the session name, you may need to list all sessions:
+   - If needed, you can also list all sessions:
      ```bash
-     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     minsky session list --json
      ```
-   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
 
 2. **Enter Existing Session**
    - Navigate to the session directory:
