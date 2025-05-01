@@ -1,136 +1,166 @@
-import { describe, test, expect, mock, beforeEach, Mock } from "bun:test";
+import { mock, describe, test, expect, beforeEach, afterEach } from "bun:test";
+import type { Mock } from "bun:test";
+import type { SessionDB, SessionRecord } from "../../domain/session";
 import { createGitCommitCommand } from "./commit";
 import { GitService } from "../../domain/git";
-import { SessionService } from "../../domain/session";
-import { resolveRepoPath } from "../../utils/repo";
+import type { GitStatus } from "../../domain/git";
 
 // Mock dependencies
+const mockGitServiceInstance = {
+  getStatus: mock.fn<() => Promise<GitStatus>>(),
+  stageAll: mock.fn<() => Promise<void>>(),
+  stageModified: mock.fn<() => Promise<void>>(),
+  commit: mock.fn<(message: string, amend?: boolean) => Promise<string>>()
+};
+
+type MockGitService = typeof mockGitServiceInstance;
+
 mock.module("../../domain/git", () => ({
-    GitService: mock.fn(() => ({
-        getStatus: mock.fn(),
-        stageAll: mock.fn(),
-        stageModified: mock.fn(),
-        commit: mock.fn()
-    }))
+  GitService: mock.fn(() => mockGitServiceInstance)
 }));
 
 mock.module("../../domain/session", () => ({
-    SessionService: mock.fn(() => ({
-        getSession: mock.fn()
-    }))
+  SessionDB: mock.fn(),
+  getSession: mock.fn<() => Promise<SessionRecord | null>>()
 }));
 
+// Mock resolveRepoPath function
+const resolveRepoPath = mock.fn<(path: string) => Promise<string>>();
 mock.module("../../utils/repo", () => ({
-    resolveRepoPath: mock.fn()
+  resolveRepoPath
 }));
 
 describe("git commit command", () => {
-    let command: ReturnType<typeof createGitCommitCommand>;
-    let mockGitService: GitService;
-    let mockSessionService: { getSession: Mock<any> };
-    let mockConsoleLog: Mock<any>;
-    let mockConsoleError: Mock<any>;
-    let mockProcessExit: Mock<any>;
+  let command: ReturnType<typeof createGitCommitCommand>;
+  let mockGitService: MockGitService;
+  let mockSessionService: { getSession: Mock<() => Promise<SessionRecord | null>> };
+  let originalConsoleLog: typeof console.log;
+  let originalConsoleError: typeof console.error;
+  let originalProcessExit: typeof process.exit;
+  let mockConsoleLog: Mock<typeof console.log>;
+  let mockConsoleError: Mock<typeof console.error>;
+  let mockProcessExit: Mock<typeof process.exit>;
 
-    beforeEach(() => {
-        command = createGitCommitCommand();
-        mockGitService = new GitService("") as any;
-        mockSessionService = { getSession: mock.fn() };
-        mockConsoleLog = mock.fn();
-        mockConsoleError = mock.fn();
-        mockProcessExit = mock.fn();
+  beforeEach(() => {
+    command = createGitCommitCommand();
+    mockGitService = mockGitServiceInstance;
+    mockSessionService = { getSession: mock.fn<() => Promise<SessionRecord | null>>() };
 
-        // Capture console output
-        console.log = mockConsoleLog;
-        console.error = mockConsoleError;
-        process.exit = mockProcessExit;
+    // Save original console methods
+    originalConsoleLog = console.log;
+    originalConsoleError = console.error;
+    originalProcessExit = process.exit;
 
-        // Reset mocks
-        mock.restoreAll();
-    });
+    // Create mock functions
+    mockConsoleLog = mock.fn<typeof console.log>();
+    mockConsoleError = mock.fn<typeof console.error>();
+    mockProcessExit = mock.fn<typeof process.exit>();
 
-    test("requires commit message unless amending", async () => {
-        await command.parseAsync(["node", "minsky", "commit"]);
-        expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Commit message is required"));
-        expect(mockProcessExit).toHaveBeenCalledWith(1);
-    });
+    // Mock console methods
+    console.log = mockConsoleLog;
+    console.error = mockConsoleError;
+    process.exit = mockProcessExit;
 
-    test("stages and commits changes with message", async () => {
-        const mockStatus = { modified: ["file1"], untracked: [], deleted: [] };
-        const mockCommitHash = "abc123";
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        mockGitService.commit.mockResolvedValue(mockCommitHash);
-        resolveRepoPath.mockResolvedValue("/path/to/repo");
+    // Reset mocks
+    mock.restoreAll();
+  });
 
-        await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
+  afterEach(() => {
+    // Restore original console methods
+    console.log = originalConsoleLog;
+    console.error = originalConsoleError;
+    process.exit = originalProcessExit;
+  });
 
-        expect(mockGitService.stageModified).toHaveBeenCalled();
-        expect(mockGitService.commit).toHaveBeenCalledWith("test commit", false);
-        expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining(mockCommitHash));
-    });
+  test("requires commit message unless amending", async () => {
+    await command.parseAsync(["node", "minsky", "commit"]);
+    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Commit message is required"));
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
+  });
 
-    test("adds task ID prefix when in session", async () => {
-        const mockStatus = { modified: ["file1"], untracked: [], deleted: [] };
-        const mockCommitHash = "abc123";
-        const mockSession = { taskId: "123", repoPath: "/path/to/repo" };
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        mockGitService.commit.mockResolvedValue(mockCommitHash);
-        mockSessionService.getSession.mockResolvedValue(mockSession);
+  test("stages and commits changes with message", async () => {
+    const mockStatus: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    const mockCommitHash = "abc123";
+    mockGitService.getStatus.mockResolvedValue(mockStatus);
+    mockGitService.commit.mockResolvedValue(mockCommitHash);
+    resolveRepoPath.mockResolvedValue("/path/to/repo");
 
-        await command.parseAsync(["node", "minsky", "commit", "-s", "test-session", "-m", "test commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
 
-        expect(mockGitService.commit).toHaveBeenCalledWith("task#123: test commit", false);
-    });
+    expect(mockGitService.stageModified).toHaveBeenCalled();
+    expect(mockGitService.commit).toHaveBeenCalledWith("test commit", false);
+    expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining(mockCommitHash));
+  });
 
-    test("uses --all flag to stage all changes", async () => {
-        const mockStatus = { modified: ["file1"], untracked: [], deleted: [] };
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        resolveRepoPath.mockResolvedValue("/path/to/repo");
+  test("adds task ID prefix when in session", async () => {
+    const mockStatus: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    const mockCommitHash = "abc123";
+    const mockSession: SessionRecord = {
+      session: "test-session",
+      repoUrl: "https://github.com/test/repo",
+      repoName: "test/repo",
+      taskId: "123",
+      repoPath: "/path/to/repo",
+      createdAt: new Date().toISOString()
+    };
+    mockGitService.getStatus.mockResolvedValue(mockStatus);
+    mockGitService.commit.mockResolvedValue(mockCommitHash);
+    mockSessionService.getSession.mockResolvedValue(mockSession);
 
-        await command.parseAsync(["node", "minsky", "commit", "-a", "-m", "test commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "-s", "test-session", "-m", "test commit"]);
 
-        expect(mockGitService.stageAll).toHaveBeenCalled();
-        expect(mockGitService.stageModified).not.toHaveBeenCalled();
-    });
+    expect(mockGitService.commit).toHaveBeenCalledWith("task#123: test commit", false);
+  });
 
-    test("skips staging with --no-stage", async () => {
-        const mockStatus = { modified: ["file1"], untracked: [], deleted: [] };
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        resolveRepoPath.mockResolvedValue("/path/to/repo");
+  test("uses --all flag to stage all changes", async () => {
+    const mockStatusAll: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    mockGitService.getStatus.mockResolvedValue(mockStatusAll);
+    resolveRepoPath.mockResolvedValue("/path/to/repo");
 
-        await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "-a", "-m", "test commit"]);
 
-        expect(mockGitService.stageAll).not.toHaveBeenCalled();
-        expect(mockGitService.stageModified).not.toHaveBeenCalled();
-    });
+    expect(mockGitService.stageAll).toHaveBeenCalled();
+    expect(mockGitService.stageModified).not.toHaveBeenCalled();
+  });
 
-    test("amends previous commit", async () => {
-        const mockStatus = { modified: ["file1"], untracked: [], deleted: [] };
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        resolveRepoPath.mockResolvedValue("/path/to/repo");
+  test("skips staging with --no-stage", async () => {
+    const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    mockGitService.getStatus.mockResolvedValue(mockStatusNoStage);
+    resolveRepoPath.mockResolvedValue("/path/to/repo");
 
-        await command.parseAsync(["node", "minsky", "commit", "--amend", "-m", "amended commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
 
-        expect(mockGitService.commit).toHaveBeenCalledWith("amended commit", true);
-    });
+    expect(mockGitService.stageAll).not.toHaveBeenCalled();
+    expect(mockGitService.stageModified).not.toHaveBeenCalled();
+  });
 
-    test("errors when no changes to commit", async () => {
-        const mockStatus = { modified: [], untracked: [], deleted: [] };
-        mockGitService.getStatus.mockResolvedValue(mockStatus);
-        resolveRepoPath.mockResolvedValue("/path/to/repo");
+  test("amends previous commit", async () => {
+    const mockStatusAmend: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    mockGitService.getStatus.mockResolvedValue(mockStatusAmend);
+    resolveRepoPath.mockResolvedValue("/path/to/repo");
 
-        await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "--amend", "-m", "amended commit"]);
 
-        expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("No changes to commit"));
-        expect(mockProcessExit).toHaveBeenCalledWith(1);
-    });
+    expect(mockGitService.commit).toHaveBeenCalledWith("amended commit", true);
+  });
 
-    test("errors when session not found", async () => {
-        mockSessionService.getSession.mockResolvedValue(null);
+  test("errors when no changes to commit", async () => {
+    const mockStatusEmpty: GitStatus = { modified: [], untracked: [], deleted: [] };
+    mockGitService.getStatus.mockResolvedValue(mockStatusEmpty);
+    resolveRepoPath.mockResolvedValue("/path/to/repo");
 
-        await command.parseAsync(["node", "minsky", "commit", "-s", "nonexistent", "-m", "test commit"]);
+    await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
 
-        expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Session 'nonexistent' not found"));
-        expect(mockProcessExit).toHaveBeenCalledWith(1);
-    });
+    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("No changes to commit"));
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
+  });
+
+  test("errors when session not found", async () => {
+    mockSessionService.getSession.mockResolvedValue(null);
+
+    await command.parseAsync(["node", "minsky", "commit", "-s", "nonexistent", "-m", "test commit"]);
+
+    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Session 'nonexistent' not found"));
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
+  });
 }); 

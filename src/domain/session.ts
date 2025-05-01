@@ -1,6 +1,6 @@
-import { join } from 'path';
-import { promises as fs } from 'fs';
-import { normalizeRepoName } from './repo-utils';
+import { join } from "path";
+import { promises as fs } from "fs";
+import { normalizeRepoName } from "./repo-utils";
 
 export interface SessionRecord {
   session: string;
@@ -10,6 +10,47 @@ export interface SessionRecord {
   createdAt: string;
   taskId?: string;
   repoPath?: string;
+}
+
+// Add SessionService class that wraps SessionDB
+export class SessionService {
+  private db: SessionDB;
+
+  constructor() {
+    this.db = new SessionDB();
+  }
+
+  async getSession(sessionName: string): Promise<SessionRecord | undefined> {
+    return this.db.getSession(sessionName);
+  }
+
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
+    return this.db.getSessionByTaskId(taskId);
+  }
+
+  async listSessions(): Promise<SessionRecord[]> {
+    return this.db.listSessions();
+  }
+
+  async addSession(record: SessionRecord): Promise<void> {
+    return this.db.addSession(record);
+  }
+
+  async updateSession(sessionName: string, update: Partial<Omit<SessionRecord, 'session'>>): Promise<void> {
+    return this.db.updateSession(sessionName, update);
+  }
+
+  async deleteSession(sessionName: string): Promise<boolean> {
+    return this.db.deleteSession(sessionName);
+  }
+
+  async getRepoPath(record: SessionRecord): Promise<string> {
+    return this.db.getRepoPath(record);
+  }
+
+  async getSessionWorkdir(sessionName: string): Promise<string> {
+    return this.db.getSessionWorkdir(sessionName);
+  }
 }
 
 export class SessionDB {
