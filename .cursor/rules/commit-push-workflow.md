@@ -1,6 +1,6 @@
 ---
 name: commit-push-workflow
-description: Always push immediately after committing changes to ensure code is properly synchronized
+description: REQUIRED for ALL git commits - must push immediately after committing to ensure synchronization
 globs: ["**/*"]
 alwaysApply: true
 ---
