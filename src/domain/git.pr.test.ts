@@ -211,4 +211,151 @@ describe('GitService.pr method', () => {
       consoleSpy.mockRestore();
     });
   });
+
+  // Add tests for task option
+  describe('PR generation with task option', () => {
+    it('should find the session for a task ID and generate PR markdown', async () => {
+      const gitService = new GitService();
+      
+      // Mock data
+      const taskId = '#123';
+      const sessionName = 'task#123';
+      const repoName = 'test-repo';
+      const workdir = '/fake/path/to/repo';
+      
+      // Track if methods were called with correct args
+      let taskIdCalled: string | null = null;
+      let repoAndSessionCalled: { repo: string, session: string } | null = null;
+      
+      // Mock the dependencies
+      const mockDeps: PrTestDependencies = {
+        execAsync: async (cmd: string) => {
+          if (cmd.includes('rev-parse --abbrev-ref HEAD')) {
+            return { stdout: 'task#123', stderr: '' };
+          } 
+          if (cmd.includes('remote show origin')) {
+            return { stdout: 'HEAD branch: main', stderr: '' };
+          }
+          if (cmd.includes('diff')) {
+            return { stdout: 'file1\nfile2', stderr: '' };
+          }
+          if (cmd.includes('log')) {
+            return { stdout: 'commit a1b2c3\nAuthor: Test\nDate: 2023-01-01\n\n    Test commit', stderr: '' };
+          }
+          return { stdout: '', stderr: '' };
+        },
+        getSession: async () => null, // Not used in this test
+        getSessionWorkdir: (repo: string, session: string) => {
+          repoAndSessionCalled = { repo, session };
+          return workdir;
+        },
+        getSessionByTaskId: async (id: string) => {
+          taskIdCalled = id;
+          if (id === taskId) {
+            return {
+              session: sessionName,
+              repoName,
+              repoUrl: 'https://github.com/user/test-repo.git'
+            };
+          }
+          return null;
+        }
+      };
+      
+      // Call the method with task ID
+      const result = await gitService.prWithDependencies(
+        { taskId, debug: true },
+        mockDeps
+      );
+      
+      // Verify the correct session was used via tracking variables
+      expect(taskIdCalled).toBe(taskId);
+      expect(repoAndSessionCalled).toEqual({ repo: repoName, session: sessionName });
+      expect(result.markdown).toBeTruthy();
+    });
+    
+    it('should handle task IDs without the # prefix', async () => {
+      const gitService = new GitService();
+      
+      // Mock data
+      const taskId = '123'; // No # prefix
+      const normalizedTaskId = '#123';
+      const sessionName = 'task#123';
+      const repoName = 'test-repo';
+      const workdir = '/fake/path/to/repo';
+      
+      // Track if methods were called with correct args
+      let taskIdCalled: string | null = null;
+      let repoAndSessionCalled: { repo: string, session: string } | null = null;
+      
+      // Mock the dependencies
+      const mockDeps: PrTestDependencies = {
+        execAsync: async (cmd: string) => {
+          if (cmd.includes('rev-parse --abbrev-ref HEAD')) {
+            return { stdout: 'task#123', stderr: '' };
+          } 
+          if (cmd.includes('remote show origin')) {
+            return { stdout: 'HEAD branch: main', stderr: '' };
+          }
+          if (cmd.includes('diff')) {
+            return { stdout: 'file1\nfile2', stderr: '' };
+          }
+          if (cmd.includes('log')) {
+            return { stdout: 'commit a1b2c3\nAuthor: Test\nDate: 2023-01-01\n\n    Test commit', stderr: '' };
+          }
+          return { stdout: '', stderr: '' };
+        },
+        getSession: async () => null, // Not used in this test
+        getSessionWorkdir: (repo: string, session: string) => {
+          repoAndSessionCalled = { repo, session };
+          return workdir;
+        },
+        getSessionByTaskId: async (id: string) => {
+          taskIdCalled = id;
+          if (id === normalizedTaskId) {
+            return {
+              session: sessionName,
+              repoName,
+              repoUrl: 'https://github.com/user/test-repo.git'
+            };
+          }
+          return null;
+        }
+      };
+      
+      // Call the method with task ID without # prefix
+      const result = await gitService.prWithDependencies(
+        { taskId, debug: true },
+        mockDeps
+      );
+      
+      // Verify the normalized task ID was used via tracking variables
+      expect(taskIdCalled).toBe(normalizedTaskId);
+      expect(repoAndSessionCalled).toEqual({ repo: repoName, session: sessionName });
+      expect(result.markdown).toBeTruthy();
+    });
+    
+    it('should throw an error when no session exists for the task', async () => {
+      const gitService = new GitService();
+      
+      // Mock data
+      const taskId = '#123';
+      
+      // Mock the dependencies
+      const mockDeps: PrTestDependencies = {
+        execAsync: async () => ({
+          stdout: '',
+          stderr: ''
+        }),
+        getSession: async () => null,
+        getSessionWorkdir: () => '',
+        getSessionByTaskId: async () => null // No session found
+      };
+      
+      // Expect an error
+      await expect(
+        gitService.prWithDependencies({ taskId }, mockDeps)
+      ).rejects.toThrow(`No session found for task '${taskId}'`);
+    });
+  });
 }); 
