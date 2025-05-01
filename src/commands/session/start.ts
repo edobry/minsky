@@ -17,7 +17,8 @@ export function createStartCommand(): Command {
     .argument('[session]', 'Session identifier (optional if --task is provided)')
     .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
     .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
-    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string }) => {
+    .option('-q, --quiet', 'Output only the session directory path (for programmatic use)')
+    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string, quiet?: boolean }) => {
       try {
         const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
@@ -33,7 +34,7 @@ export function createStartCommand(): Command {
           
           // Verify the task exists
           const taskService = new TaskService({
-            repoPath,
+            workspacePath: repoPath,
             backend: 'markdown' // Default to markdown backend
           });
           
@@ -60,18 +61,25 @@ export function createStartCommand(): Command {
           taskId
         });
         
-        console.log(`Session '${result.sessionRecord.session}' started.`);
-        console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
-        console.log(`Branch '${result.branchResult.branch}' created.`);
-        if (taskId) {
-          console.log(`Associated with task: ${taskId}`);
+        if (options.quiet) {
+          // In quiet mode, output only the session directory path
+          console.log(result.cloneResult.workdir);
+        } else {
+          // Standard verbose output for interactive use
+          console.log(`Session '${result.sessionRecord.session}' started.`);
+          console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
+          console.log(`Branch '${result.branchResult.branch}' created.`);
+          if (taskId) {
+            console.log(`Associated with task: ${taskId}`);
+          }
+          console.log(`\nTo navigate to this session's directory, run:`);
+          console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
+          console.log('');
+          console.log(result.cloneResult.workdir);
         }
-        console.log(`\nTo navigate to this session's directory, run:`);
-        console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-        console.log('');
-        console.log(result.cloneResult.workdir);
       } catch (error) {
-        console.error('Error starting session:', error.message);
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error('Error starting session:', err.message);
         process.exit(1);
       }
     });

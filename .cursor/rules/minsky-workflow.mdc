@@ -181,7 +181,13 @@ When asked to create a new task:
      ```bash
      minsky session start --task 001
      ```
-   - The output will show:
+   - Use the `--quiet` option for programmatic usage that outputs only the session directory path:
+     ```bash
+     # For programmatic use in scripts
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     cd "$SESSION_DIR"
+     ```
+   - The standard output will show:
      - The auto-generated session name (e.g., `task#001`)
      - The repository location where files were cloned
      - The branch name that was created (same as session name)
@@ -216,6 +222,54 @@ When asked to continue working on a task:
      cd $(minsky session dir task#001)
      ```
    - If no session exists, create one as described in "Starting a New Session"
+
+### Programmatic Usage
+
+When integrating minsky into automated workflows or scripts:
+
+1. **Use `--quiet` for Machine-Readable Output**
+   - The `--quiet` option provides clean, machine-readable output:
+     ```bash
+     # Create a session and capture its directory path
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     
+     # Use the path in a script
+     cd "$SESSION_DIR"
+     echo "Working in session directory: $SESSION_DIR"
+     
+     # Use with other options
+     SESSION_DIR=$(minsky session start my-session --repo https://github.com/org/repo.git --quiet)
+     ```
+
+2. **Error Handling in Scripts**
+   - Even in quiet mode, errors are sent to stderr and exit codes are set appropriately:
+     ```bash
+     # Example bash script with error handling
+     if SESSION_DIR=$(minsky session start --task 001 --quiet); then
+       cd "$SESSION_DIR"
+       echo "Successfully started session in: $SESSION_DIR"
+     else
+       echo "Failed to start session, exiting" >&2
+       exit 1
+     fi
+     ```
+
+3. **Combining with Other Commands**
+   - Chain with other minsky commands for complex workflows:
+     ```bash
+     # Example: Create session, run tests, and generate PR description
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     cd "$SESSION_DIR"
+     bun test
+     
+     if [ $? -eq 0 ]; then
+       minsky git pr --path . > process/tasks/001/pr.md
+       git add process/tasks/001/pr.md
+       git commit -m "task#001: Add PR description"
+       git push origin "$(git branch --show-current)"
+       minsky tasks status set '#001' IN-REVIEW
+     fi
+     ```
 
 ## Implementation Process
 
