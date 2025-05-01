@@ -47,13 +47,11 @@ export interface GitStatus {
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
-  private readonly workdir: string;
 
-  constructor(workdir: string) {
+  constructor() {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky", "git");
     this.sessionDb = new SessionDB();
-    this.workdir = workdir;
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -260,33 +258,38 @@ export class GitService {
     ].join("\n");
   }
 
-  async getStatus(): Promise<GitStatus> {
+  async getStatus(repoPath?: string): Promise<GitStatus> {
+    const workdir = repoPath || process.cwd();
+    
     // Get modified files
-    const { stdout: modifiedOutput } = await execAsync(`git -C ${this.workdir} diff --name-only`);
+    const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
     const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
-    const { stdout: untrackedOutput } = await execAsync(`git -C ${this.workdir} ls-files --others --exclude-standard`);
+    const { stdout: untrackedOutput } = await execAsync(`git -C ${workdir} ls-files --others --exclude-standard`);
     const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
-    const { stdout: deletedOutput } = await execAsync(`git -C ${this.workdir} ls-files --deleted`);
+    const { stdout: deletedOutput } = await execAsync(`git -C ${workdir} ls-files --deleted`);
     const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
   }
 
-  async stageAll(): Promise<void> {
-    await execAsync(`git -C ${this.workdir} add -A`);
+  async stageAll(repoPath?: string): Promise<void> {
+    const workdir = repoPath || process.cwd();
+    await execAsync(`git -C ${workdir} add -A`);
   }
 
-  async stageModified(): Promise<void> {
-    await execAsync(`git -C ${this.workdir} add .`);
+  async stageModified(repoPath?: string): Promise<void> {
+    const workdir = repoPath || process.cwd();
+    await execAsync(`git -C ${workdir} add .`);
   }
 
-  async commit(message: string, amend: boolean = false): Promise<string> {
+  async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
+    const workdir = repoPath || process.cwd();
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await execAsync(`git -C ${this.workdir} commit ${amendFlag} -m "${message}"`);
+    const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
     
     // Extract commit hash from git output
     const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
