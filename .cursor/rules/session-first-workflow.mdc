@@ -1,33 +1,23 @@
 ---
-description: Use this when working with minsky sessions
-globs: 
+description:
+globs:
 alwaysApply: false
 ---
-# Session-First Workflow
-
-## Core Rules for Session Development
-
-1. **NEVER use `bun link` in session directories**
-   - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
-   - This interferes with the globally linked main version
-   - Session directories are for testing changes in isolation, not for global installation
-   - Use `bun run` to test code changes within the session directory
-
-2. **Proper Testing in Sessions**
-   - To test changes in a session, use:
-     ```bash
-     cd $(minsky session dir <session-name>)
-     bun run ./src/cli.ts <command> <args>
-     ```
-   - Never use a globally linked command for testing session-specific changes
-   - This ensures proper isolation between your session and the main codebase
-
 3. **Session Isolation**
    - Changes in a session must remain isolated until merged into main
    - The session directory contains a separate clone of the repository
    - All tests should be run within the session directory using `bun test`
 
-4. **After Implementation**
+4. **Keeping Sessions in Sync**
+   - Use the session update command to integrate latest changes from main:
+     ```bash
+     # Update current session
+     minsky session update
+     ```
+   - This ensures your session has the latest changes without breaking isolation
+   - Regularly update to avoid diverging too far from the main branch
+
+5. **After Implementation**
    - After completing and verifying the implementation in the session:
      1. Generate a PR description with `minsky git pr`
      2. Commit all changes
