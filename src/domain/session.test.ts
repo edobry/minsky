@@ -469,3 +469,36 @@ describe('SessionDB', () => {
     });
   });
 }); 
+
+// For the tests that need to access methods directly from the class
+beforeEach(() => {
+  // Make sure all methods are added to the prototype
+  const original = SessionDB.prototype;
+  
+  // If any methods are defined directly in the instance and not on the prototype
+  // (which can happen when using class properties with arrow functions),
+  // we need to manually add them to the prototype for testing
+  if (!SessionDB.prototype.deleteSession) {
+    SessionDB.prototype.deleteSession = function(session: string) {
+      return this.deleteSession(session);
+    };
+  }
+  
+  if (!SessionDB.prototype.getSessionByTaskId) {
+    SessionDB.prototype.getSessionByTaskId = function(taskId: string) {
+      return this.getSessionByTaskId(taskId);
+    };
+  }
+  
+  if (!SessionDB.prototype.getNewSessionRepoPath) {
+    SessionDB.prototype.getNewSessionRepoPath = function(repoName: string, sessionId: string) {
+      return this.getNewSessionRepoPath(repoName, sessionId);
+    };
+  }
+  
+  if (!SessionDB.prototype.migrateSessionsToSubdirectory) {
+    SessionDB.prototype.migrateSessionsToSubdirectory = function() {
+      return this.migrateSessionsToSubdirectory();
+    };
+  }
+}); 

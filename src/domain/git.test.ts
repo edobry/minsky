@@ -9,33 +9,24 @@ describe("GitService", () => {
   const TEST_GIT_DIR = "/tmp/minsky-test/minsky/git";
   const TEST_SESSION_DB = "/tmp/minsky-test/minsky/session-db.json";
 
-  beforeEach(async () => {
-    // Mock fs.mkdir to avoid actual file system operations
-    const mockMkdir = mock(() => Promise.resolve());
-    const originalMkdir = fs.mkdir;
-    (global as any).fs = { ...fs, mkdir: mockMkdir };
-
-    // Mock execAsync for git commands
+  beforeEach(() => {
+    // Clear all mocks between tests
+    mock.restoreAll();
+    
+    // Mock SessionDB to avoid database operations
+    mock.module("./session", () => ({
+      SessionDB: class SessionDB {
+        addSession = mock(() => Promise.resolve());
+      }
+    }));
+    
+    // Set up mock execAsync globally
     (global as any).execAsync = mock(async () => ({ stdout: "", stderr: "" }));
-
-    // Mock SessionDB
-    const mockGetNewSessionRepoPath = mock((repoName: string, sessionId: string) => 
-      Promise.resolve(join(TEST_GIT_DIR, repoName, "sessions", sessionId)));
-    const mockAddSession = mock(() => Promise.resolve());
-    const originalSessionDB = SessionDB;
-    (global as any).SessionDB = class {
-      getNewSessionRepoPath = mockGetNewSessionRepoPath;
-      addSession = mockAddSession;
-    };
   });
 
   afterEach(() => {
-    // Restore original fs.mkdir
-    delete (global as any).fs;
-    // Restore original execAsync
-    delete (global as any).execAsync;
-    // Restore original SessionDB
-    delete (global as any).SessionDB;
+    // Restore all mocks
+    mock.restoreAll();
   });
 
   it("clone: should create session repo under per-repo directory", async () => {
