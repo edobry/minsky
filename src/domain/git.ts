@@ -38,14 +38,22 @@ export interface PrResult {
   markdown: string;
 }
 
+export interface GitStatus {
+  modified: string[];
+  untracked: string[];
+  deleted: string[];
+}
+
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
+  private readonly workdir: string;
 
-  constructor() {
+  constructor(workdir: string) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
     this.baseDir = join(xdgStateHome, 'minsky', 'git');
     this.sessionDb = new SessionDB();
+    this.workdir = workdir;
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -250,5 +258,41 @@ export class GitService {
       `## Modified Files (${comparisonDescription})\n${modifiedFiles || untrackedFiles || 'No changes'}\n`,
       `## Stats\n${stats || 'No changes'}`
     ].join('\n');
+  }
+
+  async getStatus(): Promise<GitStatus> {
+    // Get modified files
+    const { stdout: modifiedOutput } = await execAsync(`git -C ${this.workdir} diff --name-only`);
+    const modified = modifiedOutput.trim().split('\n').filter(Boolean);
+
+    // Get untracked files
+    const { stdout: untrackedOutput } = await execAsync(`git -C ${this.workdir} ls-files --others --exclude-standard`);
+    const untracked = untrackedOutput.trim().split('\n').filter(Boolean);
+
+    // Get deleted files
+    const { stdout: deletedOutput } = await execAsync(`git -C ${this.workdir} ls-files --deleted`);
+    const deleted = deletedOutput.trim().split('\n').filter(Boolean);
+
+    return { modified, untracked, deleted };
+  }
+
+  async stageAll(): Promise<void> {
+    await execAsync(`git -C ${this.workdir} add -A`);
+  }
+
+  async stageModified(): Promise<void> {
+    await execAsync(`git -C ${this.workdir} add .`);
+  }
+
+  async commit(message: string, amend: boolean = false): Promise<string> {
+    const amendFlag = amend ? '--amend' : '';
+    const { stdout } = await execAsync(`git -C ${this.workdir} commit ${amendFlag} -m "${message}"`);
+    
+    // Extract commit hash from git output
+    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
+    if (!match?.[1]) {
+      throw new Error("Failed to extract commit hash from git output");
+    }
+    return match[1];
   }
 }
