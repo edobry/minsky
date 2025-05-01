@@ -35,6 +35,7 @@ export interface PrOptions {
   repoPath?: string;
   branch?: string;
   baseBranch?: string;
+  taskId?: string;
   debug?: boolean;
 }
 
@@ -47,6 +48,7 @@ export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{stdout: string, stderr: string}>;
   getSession: (sessionName: string) => Promise<any>;
   getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionByTaskId: (taskId: string) => Promise<any>;
 }
 
 export class GitService {
@@ -116,7 +118,8 @@ export class GitService {
     return this.prWithDependencies(options, {
       execAsync,
       getSession: async (name) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (repoName, session) => this.getSessionWorkdir(repoName, session)
+      getSessionWorkdir: (repoName, session) => this.getSessionWorkdir(repoName, session),
+      getSessionByTaskId: async (taskId) => this.sessionDb.getSessionByTaskId(taskId)
     });
   }
   
@@ -124,12 +127,14 @@ export class GitService {
   async prWithDependencies(options: PrOptions, deps: PrTestDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
     
-    if (!options.session && !options.repoPath) {
-      throw new Error('Either session or repoPath must be provided');
+    if (!options.session && !options.repoPath && !options.taskId) {
+      throw new Error('Either session, repoPath, or taskId must be provided');
     }
     
     // Determine the working directory
     let workdir: string;
+    
+    // Precedence: session > repoPath > taskId
     if (options.session) {
       const record = await deps.getSession(options.session);
       if (!record) {
@@ -140,8 +145,24 @@ export class GitService {
       workdir = deps.getSessionWorkdir(repoName, options.session);
     } else if (options.repoPath) {
       workdir = options.repoPath;
+    } else if (options.taskId) {
+      // First, normalize the task ID by removing the hash prefix if it exists
+      const normalizedTaskId = options.taskId.startsWith('#') ? options.taskId : `#${options.taskId}`;
+      
+      // Use the sessionDb to find a session associated with this task
+      const sessionRecord = await deps.getSessionByTaskId(normalizedTaskId);
+      if (!sessionRecord) {
+        throw new Error(`No session found for task '${normalizedTaskId}'.`);
+      }
+      
+      const repoName = sessionRecord.repoName || normalizeRepoName(sessionRecord.repoUrl);
+      workdir = deps.getSessionWorkdir(repoName, sessionRecord.session);
+      
+      if (options.debug) {
+        console.error(`[DEBUG] Using session '${sessionRecord.session}' for task '${normalizedTaskId}'`);
+      }
     } else {
-      throw new Error('Either session or repoPath must be provided');
+      throw new Error('Either session, repoPath, or taskId must be provided');
     }
     
     // Determine the branch name
