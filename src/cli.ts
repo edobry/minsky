@@ -4,6 +4,7 @@ import { program } from "commander";
 import { createGitCommand } from "./commands/git";
 import { createSessionCommand } from "./commands/session";
 import { createTasksCommand } from "./commands/tasks";
+import { createInitCommand } from "./commands/init";
 
 program
   .name("minsky")
@@ -20,5 +21,6 @@ program
 program.addCommand(createGitCommand());
 program.addCommand(createSessionCommand());
 program.addCommand(createTasksCommand());
+program.addCommand(createInitCommand());
 
 program.parse(); 
