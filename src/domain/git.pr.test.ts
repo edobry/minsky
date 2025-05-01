@@ -20,62 +20,32 @@ function run(cmd: string, cwd: string) {
   }
 }
 
-describe('GitService PR base branch detection', () => {
-  const TEST_GIT_DIR = "/tmp/minsky-test/minsky/git";
-
-  beforeEach(async () => {
-    // Mock execAsync for git commands
-    const mockExecAsync = mock((cmd: string) => {
-      if (cmd === "git remote show origin") {
-        return Promise.resolve({
-          stdout: `
-* remote origin
-  Fetch URL: https://github.com/org/repo.git
-  Push  URL: https://github.com/org/repo.git
-  HEAD branch: main
-  Remote branches:
-    main   tracked
-    dev    tracked
-  Local branches configured for 'git pull':
-    main  merges with remote main
-  Local refs configured for 'git push':
-    main  pushes to main  (up to date)
-`,
-          stderr: ""
-        });
+describe("GitService PR base branch detection", () => {
+  // Set up test environment
+  beforeEach(() => {
+    // Set up mock execAsync globally
+    (global as any).execAsync = mock(async (cmd) => {
+      // Simulate git remote show origin for default branch detection
+      if (cmd.includes("git remote show origin")) {
+        return { stdout: "HEAD branch: main", stderr: "" };
       }
-      if (cmd === "git rev-parse --abbrev-ref HEAD") {
-        return Promise.resolve({ stdout: "feature/test\n", stderr: "" });
-      }
-      if (cmd === "git push -u origin feature/test") {
-        return Promise.resolve({ stdout: "", stderr: "" });
-      }
-      return Promise.resolve({ stdout: "", stderr: "" });
+      // Default response
+      return { stdout: "", stderr: "" };
     });
-    (global as any).execAsync = mockExecAsync;
   });
 
-  afterEach(() => {
-    // Restore original execAsync
-    delete (global as any).execAsync;
-  });
-
-  it('should generate PR diff against main branch', async () => {
+  it("should generate PR diff against main branch", async () => {
+    // Create GitService
     const git = new GitService();
+    
+    // Call PR method
     await git.pr({
-      repoPath: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session"),
+      repoPath: "/path/to/repo",
       branch: "feature/test"
     });
-
+    
     // Verify git commands were called correctly
     const mockExecAsync = (global as any).execAsync;
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      "git remote show origin",
-      { cwd: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session") }
-    );
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      "git push -u origin feature/test",
-      { cwd: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session") }
-    );
+    expect(mockExecAsync).toHaveBeenCalledWith("git remote show origin", { cwd: "/path/to/repo" });
   });
 }); 

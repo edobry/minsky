@@ -77,23 +77,22 @@ export class GitService {
       repoUrl,
       repoName,
       branch,
-      createdAt: new Date().toISOString(),
       taskId,
+      createdAt: new Date().toISOString(),
       repoPath
     };
 
     try {
-      // Try to add session to database - use a safe approach in case of tests
-      if (typeof this.sessionDb.addSession === "function") {
-        await this.sessionDb.addSession(sessionRecord);
-      }
+      // Add session to database
+      const sessionDB = new SessionDB();
+      await sessionDB.addSession(sessionRecord);
     } catch (err) {
       console.warn("Failed to add session to database:", err);
     }
 
-    // If branch is specified, create and switch to it
+    // If a branch was specified, check it out
     if (branch) {
-      await this.branch({ repoPath, branch });
+      await execAsync(`git -C ${repoPath} checkout -b ${branch}`);
     }
 
     return repoPath;

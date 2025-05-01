@@ -1,15 +1,47 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
-import { describe, it, expect, mock } from "bun:test";
-import { startSession, StartSessionOptions, StartSessionResult } from "./startSession";
+import { mock, expect, describe, it, beforeEach } from "bun:test";
+import { startSession } from "./startSession";
+import path from "path";
+import type { StartSessionOptions } from "./startSession";
+import { randomBytes } from "crypto";
+import { normalizeTaskId } from "../../utils/task-utils";
+import { resolveRepoPath } from "../../domain/repo-utils";
 import { GitService } from "../../domain/git";
 import { SessionDB } from "../../domain/session";
-import { TaskService } from "../../domain/tasks";
-import { resolveRepoPath } from "../../domain/repo-utils";
 import { join } from "path";
+import { TaskService } from "../../domain/tasks";
 
 describe("startSession", () => {
   const TEST_GIT_DIR = "/tmp/minsky-test/minsky/git";
+
+  beforeEach(() => {
+    // Clear all mocks between tests
+    mock.restoreAll();
+
+    // Default setup for most tests
+    // Mock SessionDB to return no existing session
+    mock.module("../../domain/session", () => ({
+      SessionDB: class {
+        getSession = mock(() => Promise.resolve(undefined));
+        addSession = mock(() => Promise.resolve());
+        getSessionByTaskId = mock(() => Promise.resolve(undefined));
+      }
+    }));
+    
+    // Mock GitService
+    mock.module("../../domain/git", () => ({
+      GitService: class {
+        clone = mock(() => Promise.resolve("/path/to/repo"));
+      }
+    }));
+
+    // Mock resolveRepoPath
+    mock.module("../../domain/repo-utils", () => ({
+      resolveRepoPath: mock(() => Promise.resolve("/path/to/repo")),
+      normalizeRepoName: mock(repoUrl => repoUrl.replace(/^https:\/\/github.com\//, ""))
+    }));
+  });
 
   it("creates a session with explicit repo", async () => {
     // Mock dependencies

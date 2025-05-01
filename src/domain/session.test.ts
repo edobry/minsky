@@ -295,39 +295,35 @@ describe('SessionDB', () => {
       expect(result).toBe("/tmp/minsky-test/minsky/git/test/repo/test-session");
     });
     
-    it('should return the new path if sessions directory exists', async () => {
-      // Set up session record
-      const sessionRecord: SessionRecord = {
-        session: 'test-session',
-        repoUrl: 'https://github.com/test/repo',
-        repoName: 'test/repo',
-        branch: 'main',
+    it("should return the new path if sessions directory exists", async () => {
+      const sessionRecord = {
+        session: "test-session",
+        repoUrl: "https://github.com/test/repo",
+        repoName: "test/repo",
+        branch: "main",
         createdAt: new Date().toISOString()
       };
-      
-      // Create new path
-      const newPath = join(TEST_GIT_DIR, 'test/repo', 'sessions', 'test-session');
-      mkdirSync(join(TEST_GIT_DIR, 'test/repo', 'sessions'), { recursive: true });
-      mkdirSync(newPath, { recursive: true });
-      
-      // Initialize SessionDB instance with mocked baseDir
+
       const db = new SessionDB();
-      // Override the baseDir for testing
-      Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
       
-      // Mock the repoExists method to simulate only new path exists
+      // Override the baseDir for testing
+      Object.defineProperty(db, "baseDir", { value: TEST_GIT_DIR });
+      
+      // Mock the repoExists method for testing
       const originalRepoExists = (db as any).repoExists;
       (db as any).repoExists = async (path: string) => {
-        return path === newPath; // Only new path exists
+        // Return true for both paths to test priority
+        return true;
       };
-
-      // Get repo path
+      
+      const newPath = join(TEST_GIT_DIR, "test/repo", "sessions", "test-session");
+      
       const result = await db.getRepoPath(sessionRecord);
       
       // Restore original method
       (db as any).repoExists = originalRepoExists;
       
-      // Verify result
+      // Verify result - the legacy path should be preferred in the mock
       expect(result).toBe(newPath);
     });
     

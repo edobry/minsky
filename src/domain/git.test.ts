@@ -16,8 +16,7 @@ describe("GitService", () => {
     (global as any).fs = { ...fs, mkdir: mockMkdir };
 
     // Mock execAsync for git commands
-    const mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
-    (global as any).execAsync = mockExecAsync;
+    (global as any).execAsync = mock(async () => ({ stdout: "", stderr: "" }));
 
     // Mock SessionDB
     const mockGetNewSessionRepoPath = mock((repoName: string, sessionId: string) => 
@@ -40,10 +39,6 @@ describe("GitService", () => {
   });
 
   it("clone: should create session repo under per-repo directory", async () => {
-    // Mock execAsync
-    const mockExecAsync = mock(async () => ({ stdout: "", stderr: "" }));
-    (global as any).execAsync = mockExecAsync;
-    
     // Create GitService
     const git = new GitService();
     
@@ -61,9 +56,8 @@ describe("GitService", () => {
     expect(repoPath).toBe(expectedPath);
     
     // Verify git command was called correctly
-    expect(mockExecAsync).toHaveBeenCalledWith(
-      "git clone https://github.com/org/repo " + expectedPath
-    );
+    const mockExecAsync = (global as any).execAsync;
+    expect(mockExecAsync).toHaveBeenCalledWith(`git clone https://github.com/org/repo ${expectedPath}`);
   });
 
   it("branch: should work with per-repo directory structure", async () => {
