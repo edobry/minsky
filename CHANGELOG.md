@@ -48,6 +48,7 @@
 - Created task specification for task #025 to add a `git approve` command that complements the existing `git pr` command, implementing a prepared-merge workflow for PR review and merging. This workflow allows reviewers to easily merge prepared PRs via fast-forward, ensuring history linearity and cleaner integration.
 - Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
 - Added new task #027 to auto-detect session context in session commands
+- Implemented auto-detection of session context in session commands. When running commands like `session dir` or `session get` from within a session workspace, Minsky now automatically detects and uses the current session, eliminating the need to specify the session name explicitly. Added `--ignore-workspace` option to bypass auto-detection when needed. This builds on the workspace detection functionality from task #016.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -78,7 +79,6 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/hist
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
 - Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
-- Enhanced minsky-workflow rule with new "Standard Session Navigation Pattern" section requiring the consistent use of the `--quiet` option with session start command to improve user workflow and prevent errors.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

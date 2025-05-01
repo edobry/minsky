@@ -110,7 +110,8 @@ mock.module('./workspace', () => {
 import { 
   isSessionRepository, 
   getSessionFromRepo, 
-  resolveWorkspacePath 
+  resolveWorkspacePath,
+  getCurrentSession
 } from './workspace';
 
 // Helper function for workspace repo detection
@@ -313,6 +314,37 @@ describe('Workspace Utils', () => {
       process.cwd = originalCwd;
       
       expect(result).toBe('/current/directory');
+    });
+  });
+
+  describe('getCurrentSession', () => {
+    it('should return the session name when in a session repository', async () => {
+      const home = process.env.HOME || '';
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
+      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'existingSession');
+      
+      const result = await getCurrentSession('/some/repo/path');
+      
+      expect(result).toBe('existingSession');
+    });
+
+    it('should return null when not in a session repository', async () => {
+      mockExecOutput.stdout = '/Users/username/Projects/repo';
+      
+      const result = await getCurrentSession('/some/repo/path');
+      
+      expect(result).toBeNull();
+    });
+
+    it('should return null when getSessionFromRepo throws an error', async () => {
+      // Create mock execAsync that throws an error
+      const mockExecAsync = mock(async () => {
+        throw new Error('Git command failed');
+      });
+      
+      const result = await getCurrentSession('/some/repo/path', mockExecAsync);
+      
+      expect(result).toBeNull();
     });
   });
 }); 
