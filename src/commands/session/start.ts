@@ -18,7 +18,19 @@ export function createStartCommand(): Command {
     .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
     .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
     .option('-q, --quiet', 'Output only the session directory path (for programmatic use)')
-    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string, quiet?: boolean }) => {
+    .option('-b, --backend <type>', 'Repository backend to use (local or github)', 'local')
+    .option('--github-token <token>', 'GitHub access token for authentication')
+    .option('--github-owner <owner>', 'GitHub repository owner')
+    .option('--github-repo <repo>', 'GitHub repository name')
+    .action(async (sessionArg: string | undefined, options: {
+      repo?: string;
+      task?: string;
+      quiet?: boolean;
+      backend?: 'local' | 'github';
+      githubToken?: string;
+      githubOwner?: string;
+      githubRepo?: string;
+    }) => {
       try {
         const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
@@ -55,10 +67,19 @@ export function createStartCommand(): Command {
           }
         }
 
+        // Configure GitHub options
+        const github = options.backend === 'github' ? {
+          token: options.githubToken,
+          owner: options.githubOwner,
+          repo: options.githubRepo
+        } : undefined;
+
         const result = await startSession({ 
           session, 
           repo: repoPath,
-          taskId
+          taskId,
+          backend: options.backend as 'local' | 'github',
+          github
         });
         
         if (options.quiet) {
@@ -69,6 +90,7 @@ export function createStartCommand(): Command {
           console.log(`Session '${result.sessionRecord.session}' started.`);
           console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
           console.log(`Branch '${result.branchResult.branch}' created.`);
+          console.log(`Backend: ${result.sessionRecord.backendType || 'local'}`);
           if (taskId) {
             console.log(`Associated with task: ${taskId}`);
           }

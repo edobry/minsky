@@ -14,6 +14,12 @@ export interface StartSessionOptions {
   session?: string;
   repo?: string;
   taskId?: string;
+  backend?: 'local' | 'github';
+  github?: {
+    token?: string;
+    owner?: string;
+    repo?: string;
+  };
   gitService?: GitService;
   sessionDB?: SessionDB;
   fs?: typeof fs;
@@ -28,7 +34,7 @@ export interface StartSessionResult {
   branchResult: { branch: string };
 }
 
-export async function startSession({ session, repo, taskId, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
+export async function startSession({ session, repo, taskId, backend = 'local', github, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
   gitService = gitService || new GitService();
   sessionDB = sessionDB || new SessionDB();
   fs = fs || fsDefault;
@@ -99,13 +105,17 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     repoUrl,
     repoName,
     createdAt: new Date().toISOString(),
-    taskId
+    taskId,
+    backendType: backend,
+    github
   });
 
   // Now clone the repo
   const cloneResult = await gitService.clone({
     repoUrl,
-    session
+    session,
+    backend,
+    github
   });
 
   // Create a branch based on the session name
@@ -115,7 +125,16 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
   });
 
   return {
-    sessionRecord: { session, repoUrl, repoName, branch: session, createdAt: new Date().toISOString(), taskId },
+    sessionRecord: { 
+      session, 
+      repoUrl, 
+      repoName, 
+      branch: session, 
+      createdAt: new Date().toISOString(), 
+      taskId,
+      backendType: backend,
+      github
+    },
     cloneResult,
     branchResult
   };

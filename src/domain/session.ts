@@ -10,6 +10,12 @@ export interface SessionRecord {
   createdAt: string;
   taskId?: string;
   repoPath?: string;
+  backendType?: 'local' | 'github';
+  github?: {
+    token?: string;
+    owner?: string;
+    repo?: string;
+  };
 }
 
 export class SessionDB {

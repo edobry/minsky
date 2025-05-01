@@ -50,6 +50,18 @@
 - Added new task #027 to auto-detect session context in session commands
 - Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
 - Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
+- Added repository backend support with abstract interface for different repository implementations
+- Created LocalGitBackend for existing git repository operations
+- Added GitHubBackend for GitHub repository integration
+- Enhanced session commands to support repository backend selection
+- Added backend-specific options to session start command:
+  - `--backend <type>` to specify repository backend (local or github)
+  - `--github-token <token>` for GitHub authentication
+  - `--github-owner <owner>` for GitHub repository owner
+  - `--github-repo <repo>` for GitHub repository name
+- Improved session records to store backend type and GitHub-specific information
+- Enhanced error handling for GitHub-specific operations
+- Added tests for both local and GitHub repository backends
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -59,6 +71,7 @@ _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.spe
 _See: SpecStory history [task-id-format-support-specification](.specstory/history/task-id-format-support-specification.md) for task creation._
 _See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
 _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/history/2025-05-XX_XX-XX-task-006-quiet-option.md) for session start command --quiet option implementation._
+_See: SpecStory history [2023-XX-XX_XX-XX-task-014-add-repository-backend-support](.specstory/history/2023-XX-XX_XX-XX-task-014-add-repository-backend-support.md) for repository backend implementation._
 
 ### Changed
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)

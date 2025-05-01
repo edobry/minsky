@@ -5,14 +5,20 @@ import { promisify } from 'util';
 import type { ExecException } from 'child_process';
 import { normalizeRepoName } from './repo-utils';
 import { SessionDB } from './session';
+import { createRepositoryBackend } from './repository';
+import type { RepositoryBackendConfig } from './repository';
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
-type ExecFunction = typeof childExec;
-type PromisifiedExec = (command: string, options?: { cwd?: string }) => Promise<{ stdout: string; stderr: string }>;
 
 export interface CloneOptions {
   repoUrl: string;
   session?: string;
+  backend?: 'local' | 'github';
+  github?: {
+    token?: string;
+    owner?: string;
+    repo?: string;
+  };
 }
 
 export interface CloneResult {
@@ -33,22 +39,25 @@ export interface BranchResult {
 export interface PrOptions {
   session?: string;
   repoPath?: string;
+  taskId?: string;
   branch?: string;
   baseBranch?: string;
-  taskId?: string;
   debug?: boolean;
+}
+
+export interface PrTestDependencies {
+  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (name: string) => Promise<any>;
+  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionByTaskId: (taskId: string) => Promise<any>;
 }
 
 export interface PrResult {
   markdown: string;
 }
 
-// Add a new interface for testing that allows dependency injection
-export interface PrTestDependencies {
-  execAsync: (command: string, options?: any) => Promise<{stdout: string, stderr: string}>;
-  getSession: (sessionName: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
-  getSessionByTaskId: (taskId: string) => Promise<any>;
+function generateSessionId(): string {
+  return `session-${Date.now().toString(36)}`;
 }
 
 export class GitService {
@@ -61,9 +70,7 @@ export class GitService {
     this.sessionDb = new SessionDB();
   }
 
-  private generateSessionId(): string {
-    return `test-${Math.random().toString(36).substring(2, 8)}`;
-  }
+  private generateSessionId = generateSessionId;
 
   private async ensureBaseDir(): Promise<void> {
     await mkdir(this.baseDir, { recursive: true });
@@ -78,22 +85,22 @@ export class GitService {
     await this.ensureBaseDir();
     
     const session = options.session || this.generateSessionId();
-    const repoName = normalizeRepoName(options.repoUrl);
     
-    // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, repoName, 'sessions');
-    await mkdir(sessionsDir, { recursive: true });
-    
-    // Get the workdir with sessions subdirectory
-    const workdir = this.getSessionWorkdir(repoName, session);
-    
-    // Clone the repository
-    await childExec(`git clone ${options.repoUrl} ${workdir}`);
-    
-    return {
-      workdir,
-      session
+    // Create repository backend configuration
+    const backendConfig: RepositoryBackendConfig = {
+      type: options.backend || 'local',
+      repoUrl: options.repoUrl,
+      github: options.github
     };
+    
+    // Create backend instance
+    const backend = await createRepositoryBackend(backendConfig);
+    
+    // Validate repository configuration
+    await backend.validate();
+    
+    // Clone the repository using the backend
+    return await backend.clone(session);
   }
 
   async branch(options: BranchOptions): Promise<BranchResult> {
@@ -102,15 +109,22 @@ export class GitService {
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    // Handle cases where repoName is missing in older records
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const workdir = this.getSessionWorkdir(repoName, options.session);
-    // Create the branch in the specified session's repo
-    await childExec(`git -C ${workdir} checkout -b ${options.branch}`);
-    return {
-      workdir,
-      branch: options.branch
+    
+    // Get backend type from session record or default to 'local'
+    const backendType = record.backendType || 'local';
+    
+    // Create repository backend configuration
+    const backendConfig: RepositoryBackendConfig = {
+      type: backendType as 'local' | 'github',
+      repoUrl: record.repoUrl,
+      github: record.github
     };
+    
+    // Create backend instance
+    const backend = await createRepositoryBackend(backendConfig);
+    
+    // Create the branch using the backend
+    return await backend.branch(options.session, options.branch);
   }
   
   async pr(options: PrOptions): Promise<PrResult> {
@@ -219,43 +233,53 @@ export class GitService {
         }
       }
       
-      // Check for main or master
+      // Try 'main' if it exists
       if (!baseBranch) {
         try {
-          await deps.execAsync(`git -C ${workdir} show-ref --verify refs/heads/main`);
-          baseBranch = 'main';
-          if (options.debug) {
-            console.error(`[DEBUG] Using 'main' as base branch`);
+          const { stdout: mainExists } = await deps.execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/main || echo "not found"`);
+          if (!mainExists.includes("not found")) {
+            baseBranch = 'main';
+            if (options.debug) {
+              console.error(`[DEBUG] Using 'main' as base branch`);
+            }
           }
         } catch (err) {
-          try {
-            await deps.execAsync(`git -C ${workdir} show-ref --verify refs/heads/master`);
+          if (options.debug) {
+            console.error(`[DEBUG] Failed to check for 'main' branch: ${err}`);
+          }
+        }
+      }
+      
+      // Try 'master' if it exists and 'main' doesn't
+      if (!baseBranch) {
+        try {
+          const { stdout: masterExists } = await deps.execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/master || echo "not found"`);
+          if (!masterExists.includes("not found")) {
             baseBranch = 'master';
             if (options.debug) {
               console.error(`[DEBUG] Using 'master' as base branch`);
             }
-          } catch (err2) {
-            if (options.debug) {
-              console.error(`[DEBUG] Neither 'main' nor 'master' found`);
-            }
+          }
+        } catch (err) {
+          if (options.debug) {
+            console.error(`[DEBUG] Failed to check for 'master' branch: ${err}`);
           }
         }
       }
     }
     
-    // Try to find merge base if we have a base branch
+    // Find the merge base if we have a base branch
     if (baseBranch) {
       try {
-        const { stdout } = await deps.execAsync(`git -C ${workdir} merge-base ${baseBranch} ${branch}`);
-        mergeBase = stdout.trim();
-        comparisonDescription = `Changes compared to merge-base with ${baseBranch}`;
+        const { stdout: mergeBaseOut } = await deps.execAsync(`git -C ${workdir} merge-base ${baseBranch} ${branch}`);
+        mergeBase = mergeBaseOut.trim();
+        comparisonDescription = `Changes compared to \`${baseBranch}\``;
         if (options.debug) {
-          console.error(`[DEBUG] Using base branch: ${baseBranch}`);
-          console.error(`[DEBUG] Using merge base: ${mergeBase}`);
+          console.error(`[DEBUG] Found merge base with ${baseBranch}: ${mergeBase}`);
         }
       } catch (err) {
         if (options.debug) {
-          console.error(`[DEBUG] Failed to find merge-base with ${baseBranch}: ${err}`);
+          console.error(`[DEBUG] Failed to find merge base: ${err}`);
         }
       }
     }
@@ -368,38 +392,65 @@ export class GitService {
       .split("\x1e")
       .filter(Boolean)
       .map(line => {
-        const [hash, title, body] = line.split("\x1f");
+        const parts = line.split("\x1f");
+        const hash = parts[0] || '';
+        const title = parts[1] || '';
+        const body = parts[2] || '';
         return { hash, title, body };
       });
 
     md += `## Commits\n`;
-    if (commits.length === 0) {
-      md += '*No commits found between merge base and current branch*\n';
+    if (commits.length > 0) {
+      commits.forEach(commit => {
+        md += `- \`${commit.hash.substring(0, 7)}\` ${commit.title}\n`;
+      });
     } else {
-      for (const c of commits) {
-        md += `- **${c.title}**\n`;
-        if (c.body && c.body.trim()) md += `  \n  ${c.body.trim().replace(/\n/g, '  \n')}\n`;
-      }
+      md += `*No commits yet*\n`;
     }
     
-    md += `\n## Modified Files (${comparisonDescription})\n`;
-    if (files.length === 0) {
-      md += '*No modified files detected*\n';
-    } else {
-      for (const f of files) {
-        md += `- ${f}\n`;
-      }
-    }
+    md += `\n## Summary\n\n`;
+    md += `${comparisonDescription}\n\n`;
     
-    md += `\n## Stats\n`;
+    // Include stats if available
     if (statOut) {
-      md += statOut;
-    } else {
-      md += '*No change statistics available*\n';
+      md += `${statOut.trim()}\n\n`;
     }
     
-    if (wdStatOut) {
-      md += `\n_Uncommitted changes in working directory:_\n${wdStatOut}`;
+    // Include working directory changes if any
+    if (wdStatOut && wdStatOut.trim()) {
+      md += `*Plus uncommitted changes: ${wdStatOut.trim()}*\n\n`;
+    }
+    
+    // Add file list
+    md += `## Files Changed\n\n`;
+    if (files.length > 0) {
+      files.forEach(file => {
+        const parts = file.split('\t');
+        const status = parts[0] || '';
+        const path = parts[1] || '';
+        let statusEmoji = '';
+        
+        switch (status[0]) {
+          case 'A':
+            statusEmoji = '✨ Added';
+            break;
+          case 'M':
+            statusEmoji = '🔄 Modified';
+            break;
+          case 'D':
+            statusEmoji = '🗑️ Deleted';
+            break;
+          case 'R':
+            statusEmoji = '📋 Renamed';
+            break;
+          default:
+            statusEmoji = `${status}`;
+        }
+        
+        md += `- ${statusEmoji}: \`${path}\`\n`;
+      });
+    } else {
+      md += `*No files changed*\n`;
     }
     
     return { markdown: md };

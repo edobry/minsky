@@ -1,9 +1,33 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { startSession } from './startSession';
+import { GitService } from '../../domain/git';
+import { SessionDB } from '../../domain/session';
+import { TaskService } from '../../domain/tasks';
+import type { SessionRecord } from '../../domain/session';
+
+// Mock dependencies
+const mockGetTask = mock(() => Promise.resolve({ id: '#001', title: 'Test Task', status: 'TODO' }));
+const mockAddSession = mock(() => Promise.resolve());
+const mockListSessions = mock(() => Promise.resolve([]));
+const mockGetSession = mock(() => Promise.resolve(null));
+const mockClone = mock(() => Promise.resolve({ workdir: '/path/to/test-workdir', session: 'test-session' }));
+const mockBranch = mock(() => Promise.resolve({ workdir: '/path/to/test-workdir', branch: 'test-branch' }));
+const mockResolveRepoPath = mock(() => Promise.resolve('/path/to/repo'));
 
 describe('startSession', () => {
+  beforeEach(() => {
+    // Reset mock counts between tests
+    mockGetTask.mockClear();
+    mockAddSession.mockClear();
+    mockListSessions.mockClear();
+    mockGetSession.mockClear();
+    mockClone.mockClear();
+    mockBranch.mockClear();
+    mockResolveRepoPath.mockClear();
+  });
+
   // Test utility to track function calls
   const trackCalls = <T = any>() => {
     const calls: any[] = [];
@@ -394,5 +418,148 @@ describe('startSession', () => {
     
     // Verify the session was created before branch was called
     expect(sessionRecordCreated).toBe(true);
+  });
+
+  it('creates a session with default local backend when no backend is specified', async () => {
+    // Arrange
+    const mockGitService = {
+      clone: mockClone,
+      branch: mockBranch
+    };
+    
+    const mockSessionDB = {
+      addSession: mockAddSession,
+      listSessions: mockListSessions,
+      getSession: mockGetSession
+    };
+    
+    // Act
+    const result = await startSession({
+      session: 'test-session',
+      repo: '/path/to/repo',
+      gitService: mockGitService as unknown as GitService,
+      sessionDB: mockSessionDB as unknown as SessionDB,
+      resolveRepoPath: mockResolveRepoPath
+    });
+    
+    // Assert
+    expect(mockAddSession).toHaveBeenCalledTimes(1);
+    expect(mockAddSession.mock.calls[0][0]).toMatchObject({
+      session: 'test-session',
+      repoUrl: '/path/to/repo',
+      backendType: 'local'
+    });
+    
+    expect(mockClone).toHaveBeenCalledTimes(1);
+    expect(mockClone.mock.calls[0][0]).toMatchObject({
+      repoUrl: '/path/to/repo',
+      session: 'test-session',
+      backend: 'local'
+    });
+    
+    expect(result.sessionRecord.backendType).toBe('local');
+  });
+
+  it('creates a session with github backend when specified', async () => {
+    // Arrange
+    const mockGitService = {
+      clone: mockClone,
+      branch: mockBranch
+    };
+    
+    const mockSessionDB = {
+      addSession: mockAddSession,
+      listSessions: mockListSessions,
+      getSession: mockGetSession
+    };
+    
+    const githubOptions = {
+      token: 'test-token',
+      owner: 'test-owner',
+      repo: 'test-repo'
+    };
+    
+    // Act
+    const result = await startSession({
+      session: 'test-session',
+      repo: 'https://github.com/test-owner/test-repo.git',
+      backend: 'github',
+      github: githubOptions,
+      gitService: mockGitService as unknown as GitService,
+      sessionDB: mockSessionDB as unknown as SessionDB,
+      resolveRepoPath: mockResolveRepoPath
+    });
+    
+    // Assert
+    expect(mockAddSession).toHaveBeenCalledTimes(1);
+    expect(mockAddSession.mock.calls[0][0]).toMatchObject({
+      session: 'test-session',
+      repoUrl: 'https://github.com/test-owner/test-repo.git',
+      backendType: 'github',
+      github: githubOptions
+    });
+    
+    expect(mockClone).toHaveBeenCalledTimes(1);
+    expect(mockClone.mock.calls[0][0]).toMatchObject({
+      repoUrl: 'https://github.com/test-owner/test-repo.git',
+      session: 'test-session',
+      backend: 'github',
+      github: githubOptions
+    });
+    
+    expect(result.sessionRecord.backendType).toBe('github');
+    expect(result.sessionRecord.github).toBe(githubOptions);
+  });
+
+  it('creates a session with task ID and local backend', async () => {
+    // Arrange
+    const mockTaskService = {
+      getTask: mockGetTask
+    };
+    
+    const mockGitService = {
+      clone: mockClone,
+      branch: mockBranch
+    };
+    
+    const mockSessionDB = {
+      addSession: mockAddSession,
+      listSessions: mockListSessions,
+      getSession: mockGetSession
+    };
+    
+    // Act
+    const result = await startSession({
+      taskId: '001',
+      repo: '/path/to/repo',
+      backend: 'local',
+      gitService: mockGitService as unknown as GitService,
+      sessionDB: mockSessionDB as unknown as SessionDB,
+      taskService: mockTaskService as unknown as TaskService,
+      resolveRepoPath: mockResolveRepoPath
+    });
+    
+    // Assert
+    expect(mockGetTask).toHaveBeenCalledTimes(1);
+    expect(mockGetTask.mock.calls[0][0]).toBe('#001');
+    
+    expect(mockAddSession).toHaveBeenCalledTimes(1);
+    expect(mockAddSession.mock.calls[0][0]).toMatchObject({
+      session: 'task#001',
+      repoUrl: '/path/to/repo',
+      taskId: '#001',
+      backendType: 'local'
+    });
+    
+    expect(mockClone).toHaveBeenCalledTimes(1);
+    expect(mockClone.mock.calls[0][0]).toMatchObject({
+      repoUrl: '/path/to/repo',
+      session: 'task#001',
+      backend: 'local'
+    });
+    
+    expect(result.sessionRecord.session).toBe('task#001');
+    expect(result.sessionRecord.taskId).toBe('#001');
+    expect(result.sessionRecord.backendType).toBe('local');
   });
 }); 
