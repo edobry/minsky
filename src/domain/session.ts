@@ -55,6 +55,11 @@ export class SessionDB {
     return sessions.find(s => s.session === session) || null;
   }
 
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+    const sessions = await this.readDb();
+    return sessions.find(s => s.taskId === taskId) || null;
+  }
+
   async listSessions(): Promise<SessionRecord[]> {
     return this.readDb();
   }
