@@ -73,6 +73,7 @@ _See: SpecStory history [task-id-format-support-specification](.specstory/histor
 - Fixed session lookup by task ID in `session get` and `session dir` commands
 - Standardized code style to use double quotes instead of single quotes
 - Normalize task IDs consistently by ensuring the '#' prefix is added if missing
+- Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -119,6 +120,13 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
 - Fixed startSession.test.ts to use proper import statements and test structure
 - Fixed syntax error in delete.test.ts JSON parse statement
 - Updated test files to follow consistent double-quote string conventions
+- Fixed test failures and linting issues throughout the codebase
+- Improved task ID normalization in SessionDB.getSessionByTaskId
+- Fixed path handling in SessionDB.getRepoPath for cases with missing repoName
+- Fixed GitService.clone to properly handle local file paths
+- Updated PR generation to handle empty repositories
+- Updated tests to use double quotes instead of single quotes
+- Fixed session repository path structure to include "sessions" subdirectory
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
@@ -131,5 +139,12 @@ _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/hi
 
 ### Added
 - Task #022 to address remaining test failures and linting issues after task #002 implementation
+
+## [0.39.0] - 2025-04-29
+
+### Changed
+- Clarified that `minsky tasks list --json` should be used to query the backlog.
+
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
  
