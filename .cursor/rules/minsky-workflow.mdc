@@ -231,6 +231,38 @@ When asked to create a new task:
 2. **Enter the Session Directory**
    - Navigate to the session directory using the provided command
 
+### Task Status Management
+
+⚠️ **CRITICAL: TASK STATUS UPDATES ARE REQUIRED AT TWO KEY POINTS**
+
+1. **When Starting Work (Set to IN-PROGRESS)**
+   - After entering a session directory, update the task status to IN-PROGRESS:
+     ```bash
+     # ALWAYS run this when beginning work (global minsky command)
+     minsky tasks status set '#XXX' IN-PROGRESS
+     
+     # Verify the status was updated successfully
+     minsky tasks status get '#XXX'
+     ```
+   - This ensures the task is properly marked as being worked on
+   - **IMPORTANT:** Always use the global `minsky` command, NOT the session's version
+
+2. **When Submitting for Review (Set to IN-REVIEW)**
+   - After completing implementation and pushing changes, update to IN-REVIEW:
+     ```bash
+     # ALWAYS run this when work is complete (global minsky command)
+     minsky tasks status set '#XXX' IN-REVIEW
+     
+     # Verify the status was updated successfully
+     minsky tasks status get '#XXX'
+     ```
+   - This is a required step in the task completion checklist (see below)
+   - Skipping this step is considered an implementation failure
+
+3. **When Work Is Merged (Set to DONE)**
+   - Only set a task to DONE after the changes have been reviewed and merged
+   - This should typically be done by the reviewer, not the implementer
+
 ### Re-entering an Existing Session
 
 When asked to continue working on a task:
@@ -366,7 +398,8 @@ Task implementation is not complete until ALL these steps are performed, in orde
 5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
 6. ✓ PR description is committed
 7. ✓ Changes are pushed to remote with `git push origin <branch>`
-8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+8. ✓ **[CRITICAL]** Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+9. ✓ Verify task status update was successful using `minsky tasks status get '#id'`
 
 ## PR Preparation
 
@@ -397,6 +430,9 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```bash
      # Use IN-REVIEW after you've generated a PR and pushed your changes
      minsky tasks status set '#001' IN-REVIEW
+     
+     # Verify the status was updated successfully
+     minsky tasks status get '#001'
      
      # Use DONE only after the changes have been reviewed and merged
      minsky tasks status set '#001' DONE

@@ -36,3 +36,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
 - [ ] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [ ] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
+- [ ] Automate Task Status Updates at Key Workflow Points [#028](tasks/028-automate-task-status-updates.md)
