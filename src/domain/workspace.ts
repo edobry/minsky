@@ -28,27 +28,35 @@ export async function isSessionRepository(
 ): Promise<boolean> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn('git rev-parse --show-toplevel', { cwd: repoPath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
     const gitRoot = stdout.trim();
     
     // Check if the git root contains a session marker
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-    const minskyPath = join(xdgStateHome, 'minsky', 'git');
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
     
-    // Check both patterns:
-    // - Legacy: /minsky/git/<repoName>/<session>
-    // - New: /minsky/git/<repoName>/sessions/<session>
     if (gitRoot.startsWith(minskyPath)) {
       // Extract the relative path from the minsky git directory
       const relativePath = gitRoot.substring(minskyPath.length + 1);
-      const pathParts = relativePath.split('/');
+      const pathParts = relativePath.split("/");
       
-      // Should have at least 2 parts for legacy format (repoName/session)
-      // or 3 parts for new format (repoName/sessions/session)
-      return pathParts.length >= 2 && (
-        pathParts.length === 2 || 
-        (pathParts.length >= 3 && pathParts[1] === 'sessions')
-      );
+      // Check for the sessions directory in the path parts
+      // This handles both legacy format (repoName/session)
+      // and nested directories with a sessions folder
+      if (pathParts.length >= 2) {
+        // Legacy format: repoName/session
+        if (pathParts.length === 2) {
+          return true;
+        }
+        
+        // Check if any part of the path is a "sessions" directory
+        // This handles nested directory structures like local/minsky/sessions/task#027
+        for (let i = 1; i < pathParts.length - 1; i++) {
+          if (pathParts[i] === "sessions") {
+            return true;
+          }
+        }
+      }
     }
     
     return false;
@@ -59,56 +67,54 @@ export async function isSessionRepository(
 
 /**
  * Get session information from a repository path
- * @param repoPath Path to the repository
- * @returns Session information if in a session repo, null otherwise
+ * @param repoPath The path to check
+ * @returns Information about the session if found, null otherwise
  */
 export async function getSessionFromRepo(
-  repoPath: string,
+  repoPath: string, 
   execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: { getSession: SessionDB['getSession'] }
+  sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{ 
-  session: string, 
-  mainWorkspace: string 
+  session: string;
+  mainWorkspace: string;
+  path: string;
 } | null> {
   try {
+    const isSession = await isSessionRepository(repoPath, execAsyncFn);
+    if (!isSession) {
+      return null;
+    }
+
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn('git rev-parse --show-toplevel', { cwd: repoPath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
     const gitRoot = stdout.trim();
-    
-    // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-    const minskyPath = join(xdgStateHome, 'minsky', 'git');
-    
-    if (!gitRoot.startsWith(minskyPath)) {
-      return null;
-    }
-    
-    // Extract session name from the path
-    // Pattern could be either:
-    // - Legacy: <minsky_path>/<repo_name>/<session_name>
-    // - New: <minsky_path>/<repo_name>/sessions/<session_name>
+
+    // Parse the path to extract the session name
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
     const relativePath = gitRoot.substring(minskyPath.length + 1);
-    const pathParts = relativePath.split('/');
-    
-    if (pathParts.length < 2) {
-      return null;
-    }
-    
-    // Get the session name from the path parts
-    let sessionName;
-    if (pathParts.length >= 3 && pathParts[1] === 'sessions') {
-      // New path format: <repo_name>/sessions/<session_name>
-      sessionName = pathParts[2];
-    } else {
-      // Legacy path format: <repo_name>/<session_name>
+    const pathParts = relativePath.split("/");
+
+    let sessionName: string | undefined;
+
+    if (pathParts.length === 2) {
+      // Legacy format: repoName/session
       sessionName = pathParts[1];
+    } else {
+      // Look for a "sessions" directory in the path
+      for (let i = 1; i < pathParts.length - 1; i++) {
+        if (pathParts[i] === "sessions") {
+          // The session name is the directory after "sessions"
+          sessionName = pathParts[i + 1];
+          break;
+        }
+      }
     }
-    
-    // Type check to ensure sessionName is a string (for the compiler)
-    if (typeof sessionName !== 'string') {
+
+    if (!sessionName) {
       return null;
     }
-    
+
     const db = sessionDbOverride || new SessionDB();
     const sessionRecord = await db.getSession(sessionName);
     
@@ -118,7 +124,8 @@ export async function getSessionFromRepo(
     
     return {
       session: sessionName,
-      mainWorkspace: sessionRecord.repoUrl
+      mainWorkspace: sessionRecord.repoUrl,
+      path: gitRoot
     };
   } catch (error) {
     return null;
@@ -162,7 +169,7 @@ export async function resolveWorkspacePath(
   
   if (sessionInfo) {
     // Strip file:// protocol if present
-    let mainWorkspace = sessionInfo.mainWorkspace;
+    let mainWorkspace = sessionInfo.path;
     if (mainWorkspace.startsWith('file://')) {
       mainWorkspace = mainWorkspace.replace(/^file:\/\//, '');
     }
