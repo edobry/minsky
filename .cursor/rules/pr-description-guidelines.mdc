@@ -3,10 +3,20 @@ description: Detailed guidelines for structuring and writing effective PR descri
 globs: 
 alwaysApply: false
 ---
-
 # PR Description Guidelines
 
 For any Pull Request, follow these standards to ensure clarity, consistency, and comprehensive documentation of changes.
+
+## Output Format
+When generating a PR description, always wrap it in a markdown code block:
+```markdown
+# feat(scope): description
+
+## Summary
+...rest of PR description...
+```
+
+This ensures the formatting is preserved and makes it easy to copy and paste into PR systems.
 
 ## PR Title Format
 - Always use the conventional commits format: `type(scope): description`
