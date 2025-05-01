@@ -7,6 +7,14 @@ alwaysApply: false
 
 ## Core Rules for Session Development
 
+⚠️ **CRITICAL: ALWAYS USE ABSOLUTE PATHS WHEN EDITING FILES IN SESSIONS** ⚠️
+- When using tools like `edit_file`, ALWAYS use absolute paths to files in the session directory
+- **CORRECT**: `/Users/username/.local/state/minsky/git/local/minsky/sessions/task#012/src/file.ts` 
+- **INCORRECT**: `src/file.ts` (which would edit the main workspace file)
+- Without absolute paths, changes silently occur in the main workspace instead of the session directory
+- After every file edit, verify the changes with `git status` and `git diff` in the session directory
+- This is a zero-tolerance requirement - any violation leads to broken workflow and wasted effort
+
 1. **NEVER use `bun link` in session directories**
    - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
    - This interferes with the globally linked main version
@@ -34,3 +42,12 @@ alwaysApply: false
      3. Push changes to the remote branch
      4. Mark the task as IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
    - Do not attempt to make the session version globally available
+
+5. **File Edit Verification Required**
+   - After editing any file, ALWAYS verify the changes with:
+     ```bash
+     git status  # Confirm the file appears as modified
+     git diff <filename>  # Confirm the expected changes exist
+     ```
+   - Never assume an edit succeeded without verification
+   - If the git commands show no changes, you likely edited the main workspace file instead
