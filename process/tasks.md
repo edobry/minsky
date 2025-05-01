@@ -32,5 +32,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Refactor Large Methods in GitService [#021](tasks/021-refactor-large-methods-in-git-service.md)
 - [ ] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
-- [ ] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
+- [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
