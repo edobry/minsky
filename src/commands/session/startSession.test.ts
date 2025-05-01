@@ -1,9 +1,9 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
-import { describe, it, expect } from 'bun:test';
-import { startSession } from './startSession';
+import { describe, it, expect } from "bun:test";
+import { startSession } from "./startSession";
 
-describe('startSession', () => {
+describe("startSession", () => {
   // Test utility to track function calls
   const trackCalls = <T = any>() => {
     const calls: any[] = [];
@@ -17,13 +17,13 @@ describe('startSession', () => {
   };
 
   // Basic test data
-  const testSession = 'test-session';
-  const testRepo = 'https://github.com/example/repo.git';
-  const testLocalRepo = '/local/repo';
-  const testWorkdir = '/tmp/test-workdir';
-  const testBranch = 'test-branch';
+  const testSession = "test-session";
+  const testRepo = "https://github.com/example/repo.git";
+  const testLocalRepo = "/local/repo";
+  const testWorkdir = "/tmp/test-workdir";
+  const testBranch = "test-branch";
 
-  it('creates a session with explicit repo', async () => {
+  it("creates a session with explicit repo", async () => {
     // Create tracked mock functions
     const mockClone = trackCalls<{ workdir: string }>();
     mockClone.returnValue = { workdir: testWorkdir };
@@ -76,7 +76,7 @@ describe('startSession', () => {
     expect(result.branchResult.branch).toBe(testBranch);
   });
 
-  it('throws if session already exists', async () => {
+  it("throws if session already exists", async () => {
     // Mock session DB that returns an existing session
     const mockSessionDB = {
       getSession: () => ({ session: testSession, repoUrl: testRepo }),
@@ -89,10 +89,10 @@ describe('startSession', () => {
       repo: testRepo,
       gitService: {},
       sessionDB: mockSessionDB,
-    })).rejects.toThrow('already exists');
+    })).rejects.toThrow("already exists");
   });
 
-  it('converts local path to file:// URL', async () => {
+  it("converts local path to file:// URL", async () => {
     // Mock tracked functions
     const mockClone = trackCalls<{ workdir: string }>();
     mockClone.returnValue = { workdir: testWorkdir };
@@ -145,9 +145,9 @@ describe('startSession', () => {
     expect(mockAddSession.calls[0][0].repoUrl).toBe(`file:///resolved${testLocalRepo}`);
   });
 
-  it('uses resolveRepoPath when no repo is provided', async () => {
+  it("uses resolveRepoPath when no repo is provided", async () => {
     // Mock implementations
-    const mockResolveRepoPath = async () => '/detected/git/repo';
+    const mockResolveRepoPath = async () => "/detected/git/repo";
     
     const mockClone = trackCalls<{ workdir: string }>();
     mockClone.returnValue = { workdir: testWorkdir };
@@ -185,13 +185,13 @@ describe('startSession', () => {
     
     // Verify detected repo path was used
     expect(mockClone.calls.length).toBe(1);
-    expect(mockClone.calls[0][0].repoUrl).toBe('/detected/git/repo');
+    expect(mockClone.calls[0][0].repoUrl).toBe("/detected/git/repo");
   });
 
-  it('throws if resolveRepoPath fails and no repo is provided', async () => {
+  it("throws if resolveRepoPath fails and no repo is provided", async () => {
     // Mock resolveRepoPath to throw
     const mockResolveRepoPath = async () => {
-      throw new Error('not in git repo');
+      throw new Error("not in git repo");
     };
     
     // Run with no repo (should throw)
@@ -200,10 +200,10 @@ describe('startSession', () => {
       gitService: {},
       sessionDB: { getSession: () => null },
       resolveRepoPath: mockResolveRepoPath
-    })).rejects.toThrow('--repo is required');
+    })).rejects.toThrow("--repo is required");
   });
 
-  it('creates a session with task ID', async () => {
+  it("creates a session with task ID", async () => {
     // Create tracked mock functions
     const mockClone = trackCalls<{ workdir: string }>();
     mockClone.returnValue = { workdir: testWorkdir };
@@ -228,7 +228,7 @@ describe('startSession', () => {
       listSessions: () => [] // Add empty list for no existing sessions
     };
     
-    const testTaskId = '#123';
+    const testTaskId = "#123";
     
     // Run the function with task ID
     const result = await startSession({
@@ -250,10 +250,10 @@ describe('startSession', () => {
     expect(mockBranch.calls[0][0].branch).toBe(testSession);
   });
 
-  it('creates a session with just taskId', async () => {
+  it("creates a session with just taskId", async () => {
     // Mock task service that returns a valid task
     const mockTaskService = {
-      getTask: () => ({ id: '#001', title: 'Test Task' })
+      getTask: () => ({ id: "#001", title: "Test Task" })
     };
 
     // Mock tracked functions
@@ -282,7 +282,7 @@ describe('startSession', () => {
     
     // Run the function with just taskId
     const result = await startSession({
-      taskId: '#001',
+      taskId: "#001",
       repo: testRepo,
       gitService: mockGitService,
       sessionDB: mockSessionDB,
@@ -290,7 +290,7 @@ describe('startSession', () => {
     });
     
     // Verify session name was derived from task ID
-    const expectedSessionName = 'task#001';
+    const expectedSessionName = "task#001";
     
     expect(mockGetSession.calls.length).toBe(1);
     expect(mockGetSession.calls[0][0]).toBe(expectedSessionName);
@@ -306,7 +306,7 @@ describe('startSession', () => {
     expect(mockAddSession.calls.length).toBe(1);
     expect(mockAddSession.calls[0][0].session).toBe(expectedSessionName);
     expect(mockAddSession.calls[0][0].repoUrl).toBe(testRepo);
-    expect(mockAddSession.calls[0][0].taskId).toBe('#001');
+    expect(mockAddSession.calls[0][0].taskId).toBe("#001");
     
     // Verify the result
     expect(result.cloneResult.workdir).toBe(testWorkdir);
@@ -314,11 +314,11 @@ describe('startSession', () => {
   });
 
   // Add test for duplicate task session
-  it('throws if a session for the task already exists', async () => {
+  it("throws if a session for the task already exists", async () => {
     const existingSession = {
-      session: 'task#001',
+      session: "task#001",
       repoUrl: testRepo,
-      taskId: '#001'
+      taskId: "#001"
     };
 
     const mockSessionDB = {
@@ -328,24 +328,24 @@ describe('startSession', () => {
     };
 
     const mockTaskService = {
-      getTask: () => ({ id: '#001', title: 'Test Task' })
+      getTask: () => ({ id: "#001", title: "Test Task" })
     };
 
     // Should throw error for existing task session
     await expect(startSession({
-      taskId: '#001',
+      taskId: "#001",
       repo: testRepo,
       gitService: {},
       sessionDB: mockSessionDB,
       taskService: mockTaskService
-    })).rejects.toThrow('already exists');
+    })).rejects.toThrow("already exists");
   });
 
   // Bug Fix Test: Session DB operations must happen before branch creation
   // Bug #008: Branch creation failed with "Session not found" when session was added to DB after branch creation
   // The bug caused "Session not found" errors because GitService.branch() checks for session existence
   // before the session record was actually added to the database
-  it('adds session to database before clone and branch operations', async () => {
+  it("adds session to database before clone and branch operations", async () => {
     // This test verifies the correct sequence of operations
     let sessionRecordCreated = false;
     

@@ -1,9 +1,9 @@
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import { parse as parsePath } from 'path';
-import { SessionDB } from './session';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { promises as fs } from "fs";
+import { join } from "path";
+import { parse as parsePath } from "path";
+import { SessionDB } from "./session";
+import { exec } from "child_process";
+import { promisify } from "util";
 const execAsync = promisify(exec);
 
 export interface Task {
@@ -29,36 +29,36 @@ export interface TaskListOptions {
 
 // Task status constants and checkbox mapping
 export const TASK_STATUS = {
-  TODO: 'TODO',
-  DONE: 'DONE',
-  IN_PROGRESS: 'IN-PROGRESS',
-  IN_REVIEW: 'IN-REVIEW',
+  TODO: "TODO",
+  DONE: "DONE",
+  IN_PROGRESS: "IN-PROGRESS",
+  IN_REVIEW: "IN-REVIEW",
 } as const;
 
 export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS];
 
 export const TASK_STATUS_CHECKBOX: Record<string, string> = {
-  [TASK_STATUS.TODO]: ' ',
-  [TASK_STATUS.DONE]: 'x',
-  [TASK_STATUS.IN_PROGRESS]: '-',
-  [TASK_STATUS.IN_REVIEW]: '+',
+  [TASK_STATUS.TODO]: " ",
+  [TASK_STATUS.DONE]: "x",
+  [TASK_STATUS.IN_PROGRESS]: "-",
+  [TASK_STATUS.IN_REVIEW]: "+",
 };
 
 export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
-  ' ': TASK_STATUS.TODO,
-  'x': TASK_STATUS.DONE,
-  '-': TASK_STATUS.IN_PROGRESS,
-  '+': TASK_STATUS.IN_REVIEW,
+  " ": TASK_STATUS.TODO,
+  "x": TASK_STATUS.DONE,
+  "-": TASK_STATUS.IN_PROGRESS,
+  "+": TASK_STATUS.IN_REVIEW,
 };
 
 export class MarkdownTaskBackend implements TaskBackend {
-  name = 'markdown';
+  name = "markdown";
   private filePath: string;
   private workspacePath: string;
   
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
-    this.filePath = join(workspacePath, 'process', 'tasks.md');
+    this.filePath = join(workspacePath, "process", "tasks.md");
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
@@ -83,59 +83,59 @@ export class MarkdownTaskBackend implements TaskBackend {
   
   async setTaskStatus(id: string, status: string): Promise<void> {
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
-      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(', ')}`);
+      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
-    const content = await fs.readFile(this.filePath, 'utf-8');
-    const idNum = id.startsWith('#') ? id.slice(1) : id;
+    const content = await fs.readFile(this.filePath, "utf-8");
+    const idNum = id.startsWith("#") ? id.slice(1) : id;
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     let inCodeBlock = false;
     const updatedLines = lines.map(line => {
-      if (line.trim().startsWith('```')) {
+      if (line.trim().startsWith("```")) {
         inCodeBlock = !inCodeBlock;
         return line;
       }
       if (inCodeBlock) return line;
       if (line.includes(`[#${idNum}]`)) {
         // Replace only the first checkbox in the line
-        return line.replace(/^(\s*- \[)( |x|\-|\+)(\])/, `$1${newStatusChar}$3`);
+        return line.replace(/^(\s*- \[)( |x|-|\+)(\])/, `$1${newStatusChar}$3`);
       }
       return line;
     });
-    await fs.writeFile(this.filePath, updatedLines.join('\n'), 'utf-8');
+    await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
   }
   
   private async parseTasks(): Promise<Task[]> {
     try {
-      const content = await fs.readFile(this.filePath, 'utf-8');
+      const content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
-      const lines = content.split('\n');
+      const lines = content.split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i] ?? '';
-        if (line.trim().startsWith('```')) {
+        const line = lines[i] ?? "";
+        if (line.trim().startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           continue;
         }
         if (inCodeBlock) continue;
         // Match top-level tasks: - [ ] Title [#123](...)
-        const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
+        const match = /^- \[( |x|-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
         if (!match) continue;
         const checkbox = match[1];
-        const title = match[2]?.trim() ?? '';
-        const id = `#${match[3] ?? ''}`;
+        const title = match[2]?.trim() ?? "";
+        const id = `#${match[3] ?? ""}`;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
         const status = CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
         // Aggregate indented lines as description
-        let description = '';
+        let description = "";
         for (let j = i + 1; j < lines.length; j++) {
-          const subline = lines[j] ?? '';
-          if (subline.trim().startsWith('```')) break;
+          const subline = lines[j] ?? "";
+          if (subline.trim().startsWith("```")) break;
           if (/^- \[.\]/.test(subline)) break; // next top-level task
           if (/^\s+- /.test(subline)) {
-            description += (subline.trim().replace(/^- /, '') ?? '') + '\n';
-          } else if ((subline.trim() ?? '') === '') {
+            description += (subline.trim().replace(/^- /, "") ?? "") + "\n";
+          } else if ((subline.trim() ?? "") === "") {
             continue;
           } else {
             break;
@@ -143,9 +143,9 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
         
         // Generate the spec path based on the task ID
-        const taskIdNum = id.startsWith('#') ? id.slice(1) : id;
-        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const specPath = join(this.workspacePath, 'process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+        const taskIdNum = id.startsWith("#") ? id.slice(1) : id;
+        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const specPath = join(this.workspacePath, "process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
         
         tasks.push({ 
           id, 
@@ -157,7 +157,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       return tasks;
     } catch (error) {
-      console.error('Error reading tasks file:', error);
+      console.error("Error reading tasks file:", error);
       return [];
     }
   }
@@ -168,7 +168,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 }
 
 export class GitHubTaskBackend implements TaskBackend {
-  name = 'github';
+  name = "github";
   private workspacePath: string;
   
   constructor(workspacePath: string) {
@@ -178,25 +178,25 @@ export class GitHubTaskBackend implements TaskBackend {
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return [];
   }
   
   async getTask(id: string): Promise<Task | null> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return null;
   }
   
   async getTaskStatus(id: string): Promise<string | null> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return null;
   }
   
   async setTaskStatus(id: string, status: string): Promise<void> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
   }
   
   getWorkspacePath(): string {

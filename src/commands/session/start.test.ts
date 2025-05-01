@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createStartCommand } from './start';
-import * as startSessionModule from './startSession';
-import * as repoUtils from '../../domain/repo-utils';
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { createStartCommand } from "./start";
+import * as startSessionModule from "./startSession";
+import * as repoUtils from "../../domain/repo-utils";
 
-describe('createStartCommand', () => {
+describe("createStartCommand", () => {
   let originalConsoleLog: typeof console.log;
   let originalConsoleError: typeof console.error;
   let originalStartSession: typeof startSessionModule.startSession;
@@ -23,22 +23,22 @@ describe('createStartCommand', () => {
     
     // Mock console.log and console.error
     console.log = (...args: any[]) => {
-      logCalls.push(args.join(' '));
+      logCalls.push(args.join(" "));
     };
     
     console.error = (...args: any[]) => {
-      errorCalls.push(args.join(' '));
+      errorCalls.push(args.join(" "));
     };
     
     // Mock startSession
     startSessionModule.startSession = async () => ({
-      sessionRecord: { session: 'test-session' },
-      cloneResult: { workdir: '/path/to/test-workdir' },
-      branchResult: { branch: 'test-branch' }
+      sessionRecord: { session: "test-session" },
+      cloneResult: { workdir: "/path/to/test-workdir" },
+      branchResult: { branch: "test-branch" }
     });
     
     // Mock resolveRepoPath
-    repoUtils.resolveRepoPath = async () => '/path/to/repo';
+    repoUtils.resolveRepoPath = async () => "/path/to/repo";
     
     // Mock process.exit
     process.exit = () => undefined as never;
@@ -57,12 +57,12 @@ describe('createStartCommand', () => {
     process.exit = originalExit;
   });
   
-  it('outputs verbose information when --quiet is not specified', async () => {
+  it("outputs verbose information when --quiet is not specified", async () => {
     // Arrange
     const command = createStartCommand();
     
     // Act - execute the command
-    await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo']);
+    await command.parseAsync(["node", "test", "test-session", "--repo", "/path/to/repo"]);
     
     // Assert
     // Should have multiple log lines when not in quiet mode
@@ -74,31 +74,31 @@ describe('createStartCommand', () => {
     expect(logCalls.some(log => log.includes("Branch 'test-branch' created."))).toBe(true);
     
     // Should include the workdir as the final output
-    expect(logCalls[logCalls.length - 1]).toBe('/path/to/test-workdir');
+    expect(logCalls[logCalls.length - 1]).toBe("/path/to/test-workdir");
   });
   
-  it('outputs only the session directory path when --quiet is specified', async () => {
+  it("outputs only the session directory path when --quiet is specified", async () => {
     // Arrange
     const command = createStartCommand();
     
     // Act - execute the command with --quiet
-    await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo', '--quiet']);
+    await command.parseAsync(["node", "test", "test-session", "--repo", "/path/to/repo", "--quiet"]);
     
     // Assert
     // Should have exactly one log line in quiet mode
     expect(logCalls.length).toBe(1);
     
     // Should output only the workdir path
-    expect(logCalls[0]).toBe('/path/to/test-workdir');
+    expect(logCalls[0]).toBe("/path/to/test-workdir");
   });
   
-  it('properly handles errors in quiet mode', async () => {
+  it("properly handles errors in quiet mode", async () => {
     // Arrange
     const command = createStartCommand();
     
     // Mock startSession to throw an error
     startSessionModule.startSession = async () => {
-      throw new Error('Test error message');
+      throw new Error("Test error message");
     };
     
     // Track process.exit calls
@@ -109,13 +109,13 @@ describe('createStartCommand', () => {
     };
     
     // Act - execute the command with --quiet
-    await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo', '--quiet']);
+    await command.parseAsync(["node", "test", "test-session", "--repo", "/path/to/repo", "--quiet"]);
     
     // Assert
     // Should log the error
     expect(errorCalls.length).toBe(1);
-    expect(errorCalls[0]).toContain('Error starting session:');
-    expect(errorCalls[0]).toContain('Test error message');
+    expect(errorCalls[0]).toContain("Error starting session:");
+    expect(errorCalls[0]).toContain("Test error message");
     
     // Should exit with a non-zero status code
     expect(exitCode).toBe(1);

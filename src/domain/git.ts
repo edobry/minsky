@@ -1,9 +1,9 @@
-import { join } from 'path';
-import { mkdir } from 'fs/promises';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { normalizeRepoName } from './repo-utils';
-import { SessionDB } from './session';
+import { join } from "path";
+import { mkdir } from "fs/promises";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { normalizeRepoName } from "./repo-utils";
+import { SessionDB } from "./session";
 
 const execAsync = promisify(exec);
 
@@ -50,8 +50,8 @@ export class GitService {
   private readonly workdir: string;
 
   constructor(workdir: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-    this.baseDir = join(xdgStateHome, 'minsky', 'git');
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(xdgStateHome, "minsky", "git");
     this.sessionDb = new SessionDB();
     this.workdir = workdir;
   }
@@ -66,7 +66,7 @@ export class GitService {
 
   private getSessionWorkdir(repoName: string, session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, repoName, 'sessions', session);
+    return join(this.baseDir, repoName, "sessions", session);
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
@@ -76,7 +76,7 @@ export class GitService {
     const repoName = normalizeRepoName(options.repoUrl);
     
     // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, repoName, 'sessions');
+    const sessionsDir = join(this.baseDir, repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
     
     // Get the workdir with sessions subdirectory
@@ -124,7 +124,7 @@ export class GitService {
     } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
-      throw new Error('Either session or repoPath must be provided');
+      throw new Error("Either session or repoPath must be provided");
     }
     
     if (options.debug) {
@@ -144,7 +144,7 @@ export class GitService {
     }
 
     // Find the base branch to merge into (prefer remote HEAD, then upstream, then main, then master)
-    let baseBranch = '';
+    let baseBranch = "";
     // 1. Remote HEAD branch
     try {
       const { stdout: remoteHead } = await execAsync(`git -C ${workdir} remote show origin | grep 'HEAD branch' | awk '{print $NF}'`);
@@ -174,7 +174,7 @@ export class GitService {
       try {
         const { stdout: hasMain } = await execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/main && echo main || echo ''`);
         if (hasMain.trim() && hasMain.trim() !== branch) {
-          baseBranch = 'main';
+          baseBranch = "main";
         }
       } catch (err) {
         if (options.debug) {
@@ -187,7 +187,7 @@ export class GitService {
       try {
         const { stdout: hasMaster } = await execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/master && echo master || echo ''`);
         if (hasMaster.trim() && hasMaster.trim() !== branch) {
-          baseBranch = 'master';
+          baseBranch = "master";
         }
       } catch (err) {
         if (options.debug) {
@@ -196,8 +196,8 @@ export class GitService {
       }
     }
     // 5. If still not found, just use the first commit
-    let mergeBase = '';
-    let comparisonDescription = '';
+    let mergeBase = "";
+    let comparisonDescription = "";
     if (baseBranch) {
       try {
         const { stdout: mb } = await execAsync(`git -C ${workdir} merge-base ${branch} ${baseBranch}`);
@@ -213,7 +213,7 @@ export class GitService {
       try {
         const { stdout: firstCommit } = await execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
         mergeBase = firstCommit.trim();
-        comparisonDescription = 'All changes since repository creation';
+        comparisonDescription = "All changes since repository creation";
       } catch (err) {
         if (options.debug) {
           console.error(`[DEBUG] Failed to get first commit: ${err}`);
@@ -240,7 +240,7 @@ export class GitService {
     const { stdout: modifiedFiles } = await execAsync(`git -C ${workdir} diff --name-only ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
     
     // Get untracked files (only if merge base is not the first commit)
-    let untrackedFiles = '';
+    let untrackedFiles = "";
     try {
       const { stdout } = await execAsync(`git -C ${workdir} ls-files --others --exclude-standard`, { maxBuffer: 1024 * 1024 });
       untrackedFiles = stdout;
@@ -254,24 +254,24 @@ export class GitService {
     // Generate the PR markdown
     return [
       `# Pull Request for branch \`${branch}\`\n`,
-      `## Commits\n${commits || 'No commits yet'}\n`,
-      `## Modified Files (${comparisonDescription})\n${modifiedFiles || untrackedFiles || 'No changes'}\n`,
-      `## Stats\n${stats || 'No changes'}`
-    ].join('\n');
+      `## Commits\n${commits || "No commits yet"}\n`,
+      `## Modified Files (${comparisonDescription})\n${modifiedFiles || untrackedFiles || "No changes"}\n`,
+      `## Stats\n${stats || "No changes"}`
+    ].join("\n");
   }
 
   async getStatus(): Promise<GitStatus> {
     // Get modified files
     const { stdout: modifiedOutput } = await execAsync(`git -C ${this.workdir} diff --name-only`);
-    const modified = modifiedOutput.trim().split('\n').filter(Boolean);
+    const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
     // Get untracked files
     const { stdout: untrackedOutput } = await execAsync(`git -C ${this.workdir} ls-files --others --exclude-standard`);
-    const untracked = untrackedOutput.trim().split('\n').filter(Boolean);
+    const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
     // Get deleted files
     const { stdout: deletedOutput } = await execAsync(`git -C ${this.workdir} ls-files --deleted`);
-    const deleted = deletedOutput.trim().split('\n').filter(Boolean);
+    const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
     return { modified, untracked, deleted };
   }
@@ -285,7 +285,7 @@ export class GitService {
   }
 
   async commit(message: string, amend: boolean = false): Promise<string> {
-    const amendFlag = amend ? '--amend' : '';
+    const amendFlag = amend ? "--amend" : "";
     const { stdout } = await execAsync(`git -C ${this.workdir} commit ${amendFlag} -m "${message}"`);
     
     // Extract commit hash from git output

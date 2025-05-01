@@ -1,11 +1,11 @@
-import { Command } from 'commander';
-import { createListCommand } from './list';
-import { createGetCommand } from './get';
-import { createStatusCommand } from './status';
+import { Command } from "commander";
+import { createListCommand } from "./list";
+import { createGetCommand } from "./get";
+import { createStatusCommand } from "./status";
 
 export function createTasksCommand(): Command {
-  const tasks = new Command('tasks')
-    .description('Task management operations');
+  const tasks = new Command("tasks")
+    .description("Task management operations");
 
   tasks.addCommand(createListCommand());
   tasks.addCommand(createGetCommand());
