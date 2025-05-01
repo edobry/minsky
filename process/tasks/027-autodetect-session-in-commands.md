@@ -83,3 +83,7 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 - Build on the existing workspace detection functionality from Task #016
 - Ensure backward compatibility for calls outside of session workspaces
 - Prioritize a clean, consistent user experience across all session commands 
+
+## Work Log
+
+- 2024-06-10: Updated minsky-workflow rule to include a "Standard Session Navigation Pattern" section that requires using the `--quiet` option for all session navigation
