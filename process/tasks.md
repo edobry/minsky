@@ -20,7 +20,7 @@ This file tracks work items for the project. Each task follows this format:
 - [+] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](tasks/008-tasks-list-done.md)
 - [ ] Add `git commit` command to stage and commit changes [#009](tasks/009-git-commit.md)
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-git-pr-github.md)
-- [+] Fix `git pr` command and add proper tests [#011](tasks/011-git-pr-fix.md)
+- [x] Fix `git pr` command and add proper tests [#011](tasks/011-git-pr-fix.md)
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012/spec.md)
 - [ ] Add Repository Backend Support [#014](mdc:tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
