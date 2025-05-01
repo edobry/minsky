@@ -48,6 +48,7 @@
 - Created task specification for task #025 to add a `git approve` command that complements the existing `git pr` command, implementing a prepared-merge workflow for PR review and merging. This workflow allows reviewers to easily merge prepared PRs via fast-forward, ensuring history linearity and cleaner integration.
 - Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
 - Added new task #027 to auto-detect session context in session commands
+- Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

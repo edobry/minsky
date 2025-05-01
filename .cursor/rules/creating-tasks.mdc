@@ -26,13 +26,35 @@ All tasks and work items must be tracked using the canonical process described h
 - Listed in `/process/tasks.md` as a checklist item
 - Linked to a detailed task spec in `/process/tasks/{id}-{name}.md`
 
-## Step-by-Step Task Creation Instructions
+## Task Creation Methods
 
-### 1. Check for Existing Tasks
+### Method 1: Using the `minsky tasks create` Command (Recommended)
+Once you have created a task specification document, you can register it in the system using:
+
+```bash
+minsky tasks create path/to/spec-document.md
+```
+
+This command will:
+- Extract the title and description from the spec document
+- Find the next available task ID
+- Add the task to process/tasks.md with the correct formatting
+- Return the details of the created task
+
+The command also supports these options:
+- `--session <session>`: Use a specific session for repository resolution
+- `--repo <repoPath>`: Specify a repository path (overrides session)
+- `--backend <backend>`: Use a specific task backend
+- `--json`: Output the task in JSON format
+
+### Method 2: Manual Task Creation
+If you need to create a task manually, follow these steps:
+
+#### 1. Check for Existing Tasks
 - Before starting any new work, check `/process/tasks.md` for an existing task that matches your intended work.
 - If a relevant task exists, follow its linked specification.
 
-### 2. Add a New Task
+#### 2. Add a New Task
 - If no relevant task exists, add a new checklist item to `/process/tasks.md` using the following format:
   ```markdown
   - [ ] Task Title [#NNN](mdc:tasks/NNN-task-title.md)
@@ -40,7 +62,7 @@ All tasks and work items must be tracked using the canonical process described h
   - Use the next available task number (NNN).
   - The title should be concise but descriptive.
 
-### 3. Create the Task Specification Document
+#### 3. Create the Task Specification Document
 - Create a new file in `/process/tasks/` named `{NNN}-task-title.md`.
 - The task spec should include:
   - **Objective**: What is the goal of the task?
@@ -56,7 +78,7 @@ All tasks and work items must be tracked using the canonical process described h
 Here's a complete example of a properly formatted task specification document:
 
 ```markdown
-# Task #007: Add `minsky task create` Command
+# Task #007: Add `minsky tasks create` Command
 
 ## Context
 

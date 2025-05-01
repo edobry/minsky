@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { MarkdownTaskBackend, TaskService } from './tasks';
+import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
+import { MarkdownTaskBackend, TaskService, TASK_STATUS } from './tasks';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { resolveRepoPath } from './repo-utils';
 import type { RepoResolutionOptions } from './repo-utils';
+import path from 'path';
 
 const SAMPLE_TASKS_MD = `
 # Tasks
@@ -186,5 +187,84 @@ describe('TaskService', () => {
 
   it('throws if backend is not found', () => {
     expect(() => new TaskService({ workspacePath: tmpDir, backend: 'notreal' })).toThrow();
+  });
+});
+
+// Mock fs
+mock.module('fs', () => ({
+  promises: {
+    readFile: async (path: string) => {
+      if (path.endsWith('tasks.md')) {
+        return `# Tasks\n\n- [ ] Task 1 [#001](process/tasks/001-task-1.md)\n`;
+      }
+      if (path.endsWith('spec.md')) {
+        return `# Task #999: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n`;
+      }
+      return '';
+    },
+    writeFile: async () => {},
+    mkdir: async () => {},
+    access: async () => {}
+  }
+}));
+
+// Add createTask tests
+describe('createTask', () => {
+  const workspacePath = '/test/workspace';
+  let taskBackend: MarkdownTaskBackend;
+  let taskService: TaskService;
+
+  beforeEach(() => {
+    taskBackend = new MarkdownTaskBackend(workspacePath);
+    taskService = new TaskService({ workspacePath });
+  });
+
+  it('should parse spec file and create a new task', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/spec.md');
+    
+    // Mock parseTasks to return tasks with ID 001
+    spyOn(taskBackend, 'parseTasks').mockImplementation(async () => [
+      { id: '#001', title: 'Task 1', description: '', status: TASK_STATUS.TODO, specPath: 'process/tasks/001-task-1.md' }
+    ]);
+
+    // Temporarily access private method for testing
+    // @ts-ignore - accessing private method for testing
+    spyOn(taskBackend, 'createTask').mockRestore();
+    
+    const task = await taskBackend.createTask(specPath);
+    
+    expect(task).toBeDefined();
+    expect(task.id).toBe('#002');
+    expect(task.title).toBe('Test Task');
+    expect(task.status).toBe(TASK_STATUS.TODO);
+    expect(task.description).toBeTruthy();
+    expect(task.specPath).toBe(specPath);
+  });
+
+  it('should throw error if spec file does not exist', async () => {
+    const invalidPath = '/invalid/path.md';
+    
+    // Mock fs.access to throw an error
+    mock.module('fs', () => ({
+      promises: {
+        access: async () => { throw new Error('File not found'); }
+      }
+    }));
+    
+    await expect(taskBackend.createTask(invalidPath)).rejects.toThrow('Spec file not found');
+  });
+
+  it('should throw error if spec file has invalid format', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/invalid-spec.md');
+    
+    // Mock fs.readFile to return invalid content
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => 'Invalid spec content',
+        access: async () => {}
+      }
+    }));
+    
+    await expect(taskBackend.createTask(specPath)).rejects.toThrow('Invalid spec file');
   });
 }); 
