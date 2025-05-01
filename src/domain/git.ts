@@ -162,7 +162,7 @@ export class GitService {
     
     let baseBranch = options.baseBranch;
     let mergeBase: string | null = null;
-    let comparisonDescription = 'Changes compared to merge-base with';
+    let comparisonDescription = '';
     
     if (!baseBranch) {
       // Try to find remote HEAD
@@ -228,22 +228,32 @@ export class GitService {
         const { stdout } = await deps.execAsync(`git -C ${workdir} merge-base ${baseBranch} ${branch}`);
         mergeBase = stdout.trim();
         comparisonDescription = `Changes compared to merge-base with ${baseBranch}`;
+        if (options.debug) {
+          console.error(`[DEBUG] Using base branch: ${baseBranch}`);
+          console.error(`[DEBUG] Using merge base: ${mergeBase}`);
+        }
       } catch (err) {
         if (options.debug) {
           console.error(`[DEBUG] Failed to find merge-base with ${baseBranch}: ${err}`);
         }
       }
     }
-    if (!mergeBase) {
-      // fallback to first commit
-      const { stdout: firstCommit } = await deps.execAsync(`git -C ${workdir} rev-list --max-parents=0 ${branch}`);
-      mergeBase = firstCommit.trim();
-      comparisonDescription = 'All changes since repository creation';
-    }
 
-    if (options.debug) {
-      console.error(`[DEBUG] Using base branch: ${baseBranch}`);
-      console.error(`[DEBUG] Using merge base: ${mergeBase}`);
+    // If no merge base found, use first commit
+    if (!mergeBase) {
+      try {
+        const { stdout: firstCommit } = await deps.execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
+        mergeBase = firstCommit.trim();
+        comparisonDescription = 'All changes since repository creation';
+        if (options.debug) {
+          console.error(`[DEBUG] Using first commit as base: ${mergeBase}`);
+        }
+      } catch (err) {
+        if (options.debug) {
+          console.error(`[DEBUG] Failed to find first commit: ${err}`);
+        }
+        throw new Error('Could not determine a base for comparison');
+      }
     }
 
     // Get a list of all files changed
@@ -292,35 +302,39 @@ export class GitService {
     const files = Array.from(allChanges);
 
     // Basic stats for committed changes
-    const statCmd = `git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`;
-    const { stdout: statOut } = await deps.execAsync(statCmd).catch((err) => {
+    const { stdout: statOut } = await deps.execAsync(
+      `git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`
+    ).catch((err) => {
       if (options.debug) {
         console.error(`[DEBUG] Failed to get diff stats: ${err}`);
       }
       return { stdout: '' };
     });
+
     // Also get working directory diff stats
-    const { stdout: wdStatOut } = await deps.execAsync(`git -C ${workdir} diff --shortstat`).catch((err) => {
+    const { stdout: wdStatOut } = await deps.execAsync(
+      `git -C ${workdir} diff --shortstat`
+    ).catch((err) => {
       if (options.debug) {
         console.error(`[DEBUG] Failed to get working directory stats: ${err}`);
       }
       return { stdout: '' };
     });
+
     // Debug output
     if (options.debug) {
-      console.error(`[DEBUG] Running: ${statCmd}`);
+      console.error(`[DEBUG] Running diff stats command: git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`);
       console.error(`[DEBUG] Stat output:`, statOut);
       console.error(`[DEBUG] Working directory stat:`, wdStatOut);
     }
 
     // Markdown output
     let md = `# Pull Request for branch \`${branch}\`\n\n`;
-    md += `## Commits\n`;
     
     // Get commits between merge base and current branch
     const logCmd = `git -C ${workdir} log --reverse --pretty=format:"%H%x1f%s%x1f%b%x1e" ${mergeBase}..${branch}`;
     if (options.debug) {
-      console.error(`[DEBUG] Running: ${logCmd}`);
+      console.error(`[DEBUG] Running log command: ${logCmd}`);
     }
     const { stdout: logOut } = await deps.execAsync(logCmd).catch((err) => {
       if (options.debug) {
@@ -337,6 +351,7 @@ export class GitService {
         return { hash, title, body };
       });
 
+    md += `## Commits\n`;
     if (commits.length === 0) {
       md += '*No commits found between merge base and current branch*\n';
     } else {
@@ -348,7 +363,7 @@ export class GitService {
     
     md += `\n## Modified Files (${comparisonDescription})\n`;
     if (files.length === 0) {
-      md += '*No modified files detected with the current comparison method*\n';
+      md += '*No modified files detected*\n';
     } else {
       for (const f of files) {
         md += `- ${f}\n`;
