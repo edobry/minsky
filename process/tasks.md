@@ -20,7 +20,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](tasks/008-update-tasks-list-hide-done.md)
 - [ ] Add `git commit` command to stage and commit changes [#009](tasks/009-add-git-commit-command.md)
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
-- [+] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command.md)
+- [+] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
 - [ ] Add Repository Backend Support [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
@@ -34,3 +34,4 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
+- [ ] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
