@@ -15,9 +15,10 @@ export function createGitCommitCommand() {
         .option("-r, --repo <path>", "Repository path")
         .option("-a, --all", "Stage all changes including deletions", false)
         .option("--amend", "Amend the previous commit", false)
+        .option("--no-stage", "Skip staging changes (for when files are already staged)")
         .action(async (options) => {
             try {
-                const { message, session, repo, all, amend } = options;
+                const { message, session, repo, all, amend, stage } = options;
 
                 if (!message && !amend) {
                     throw new Error("Commit message is required unless using --amend");
@@ -46,11 +47,13 @@ export function createGitCommitCommand() {
                     throw new Error("No changes to commit");
                 }
 
-                // Stage changes
-                if (all) {
-                    await gitService.stageAll();
-                } else {
-                    await gitService.stageModified();
+                // Stage changes unless --no-stage is used
+                if (stage) {
+                    if (all) {
+                        await gitService.stageAll();
+                    } else {
+                        await gitService.stageModified();
+                    }
                 }
 
                 // Get task ID from session if available
