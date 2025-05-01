@@ -81,6 +81,12 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/hist
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
 - Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
+- Refactored the GitService PR generation code by:
+  - Extracting the large `pr` method into smaller, more focused functions 
+  - Creating a `prWithDependencies` method that accepts injectable dependencies for easier testing
+  - Improving error handling throughout methods
+  - Breaking down complex logic into dedicated methods for repo path resolution, branch detection, and file diff generation
+  - Maintaining all test compatibility and coverage
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -90,6 +96,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
+_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
