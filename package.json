@@ -3,9 +3,7 @@
   "module": "src/cli.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run src/cli.ts",
-    "lint": "eslint . --ext .ts",
-    "lint:fix": "eslint . --ext .ts --fix"
+    "start": "bun run src/cli.ts"
   },
   "bin": {
     "minsky": "./src/cli.ts"

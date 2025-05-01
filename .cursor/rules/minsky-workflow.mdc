@@ -5,6 +5,39 @@ alwaysApply: false
 ---
 # Minsky Workflow
 
+⛔️ **STOP - READ THIS FIRST**
+
+## Mandatory Session Creation
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+Before implementing ANY task or making ANY code changes, you MUST:
+
+```bash
+# 1. Check task status
+minsky tasks status get '#XXX'
+
+# 2. Create or verify session exists
+minsky session start --task XXX
+
+# 3. Enter session directory
+cd $(minsky session dir task#XXX)
+```
+
+❌ If these steps are not completed:
+- DO NOT make any code changes
+- DO NOT commit any files
+- DO NOT proceed with implementation
+
+✅ These activities are allowed without a session:
+- Reading code
+- Searching the codebase
+- Investigating issues
+- Planning implementation
+- Creating new task specifications
+
+This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
+
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
 ⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
