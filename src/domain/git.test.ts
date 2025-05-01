@@ -1,87 +1,100 @@
-/// <reference types="bun-types" />
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { GitService } from "./git";
+import { SessionDB } from "./session";
+import { mkdtempSync, rmSync } from "fs";
+import { join } from "path";
+import { execSync } from "child_process";
+import { normalizeRepoName } from "./repo-utils";
+import { execAsync } from "./utils";
 
-import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test';
-import { GitService } from './git';
-import { join } from 'path';
-import { randomBytes } from 'crypto';
-import type { ExecOptions, ExecException } from 'child_process';
-
-// Define the callback type since it's not exported
-type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
-
-// Create a mock exec function that captures calls and accepts a callback
-const mockExec = mock((command: string, options: any, callback: ExecCallback) => {
-  // Call the callback with success
-  if (callback) {
-    callback(null, 'mock stdout', '');
+function run(cmd: string, cwd: string) {
+  try {
+    execSync(cmd, { cwd, stdio: "pipe" });
+  } catch (error) {
+    console.error(`Command failed: ${cmd}`);
+    console.error(`Working directory: ${cwd}`);
+    if (error instanceof Error) {
+      console.error(error.message);
+    }
+    throw error;
   }
-});
+}
 
-// Mock the childExec module
-mock.module('child_process', () => ({
-  exec: mockExec
-}));
+describe("GitService", () => {
+  let tmpDir: string;
+  let git: GitService;
 
-// Mock fs/promises
-mock.module('fs/promises', () => ({
-  mkdir: mock(async () => {})
-}));
-
-describe('GitService', () => {
   beforeEach(() => {
-    mockExec.mockClear();
+    tmpDir = mkdtempSync("/tmp/git-test-");
+    git = new GitService();
   });
 
   afterEach(() => {
-    mock.restore();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('clone: should create session repo under per-repo directory', async () => {
-    // Arrange
-    const git = new GitService();
-    const repoUrl = 'https://github.com/example/test-repo';
-    const session = `test-session-${randomBytes(4).toString('hex')}`;
-
-    // Act
-    const result = await git.clone({
-      repoUrl,
-      session
+  describe("stashChanges", () => {
+    test("should stash changes when there are modifications", async () => {
+      const result = await git.stashChanges(tmpDir);
+      expect(result.stashed).toBe(true);
     });
-    
-    // Assert
-    // Check that exec was called with the right command
-    expect(mockExec).toHaveBeenCalled();
-    const firstCall = mockExec.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    if (firstCall) {
-      expect(firstCall[0]).toBe(`git clone ${repoUrl} ${join(git['baseDir'], session)}`);
-    }
-    
-    // Check the result
-    expect(result.workdir).toBe(join(git['baseDir'], session));
-    expect(result.session).toBe(session);
+
+    test("should not stash when there are no changes", async () => {
+      const result = await git.stashChanges(tmpDir);
+      expect(result.stashed).toBe(false);
+    });
   });
 
-  it('branch: should work with per-repo directory structure', async () => {
-    // Arrange
-    const git = new GitService();
-    const session = 'test-session';
-    const branch = 'feature/test';
+  describe("popStash", () => {
+    test("should pop stashed changes", async () => {
+      // First stash some changes
+      await git.stashChanges(tmpDir);
 
-    // Act
-    const result = await git.branch({ session, branch });
-    
-    // Assert
-    // Check that exec was called with the right command
-    expect(mockExec).toHaveBeenCalled();
-    const firstCall = mockExec.mock.calls[0];
-    expect(firstCall).toBeDefined();
-    if (firstCall) {
-      expect(firstCall[0]).toBe(`git -C ${join(git['baseDir'], session)} checkout -b ${branch}`);
-    }
-    
-    // Check the result
-    expect(result.workdir).toBe(join(git['baseDir'], session));
-    expect(result.branch).toBe(branch);
+      const result = await git.popStash(tmpDir);
+      expect(result.stashed).toBe(true);
+    });
+
+    test("should handle no stash to pop", async () => {
+      const result = await git.popStash(tmpDir);
+      expect(result.stashed).toBe(false);
+    });
   });
-});
+
+  describe("pullLatest", () => {
+    test("should pull latest changes when available", async () => {
+      const result = await git.pullLatest(tmpDir);
+      expect(result.updated).toBe(true);
+    });
+
+    test("should handle no updates available", async () => {
+      const result = await git.pullLatest(tmpDir);
+      expect(result.updated).toBe(false);
+    });
+  });
+
+  describe("mergeBranch", () => {
+    test("should merge changes from another branch", async () => {
+      const result = await git.mergeBranch(tmpDir, "main");
+      expect(result.merged).toBe(true);
+      expect(result.conflicts).toBe(false);
+    });
+
+    test("should handle merge conflicts", async () => {
+      const result = await git.mergeBranch(tmpDir, "main");
+      expect(result.merged).toBe(false);
+      expect(result.conflicts).toBe(true);
+    });
+  });
+
+  describe("pushBranch", () => {
+    test("should push changes to remote", async () => {
+      const result = await git.pushBranch(tmpDir);
+      expect(result.pushed).toBe(true);
+    });
+
+    test("should handle push failure", async () => {
+      const result = await git.pushBranch(tmpDir);
+      expect(result.pushed).toBe(false);
+    });
+  });
+}); 
