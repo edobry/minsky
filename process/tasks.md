@@ -26,7 +26,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
-- [ ] Add `--task` option to `session dir` command to query session directories by task ID [#018](tasks/018-add-task-option-to-session-dir.md)
+- [x] Add `--task` option to `session dir` command to query session directories by task ID [#018](tasks/018-add-task-option-to-session-dir.md)
 - [ ] Implement test suite improvements for better reliability and maintainability [#019](tasks/019-implement-test-suite-improvements.md)
 - [ ] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
 - [ ] Refactor Large Methods in GitService [#021](tasks/021-refactor-large-methods-in-git-service.md)
