@@ -37,3 +37,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [ ] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Automate Task Status Updates at Key Workflow Points [#028](tasks/028-automate-task-status-updates.md)
+- [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
