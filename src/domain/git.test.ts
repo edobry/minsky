@@ -40,13 +40,30 @@ describe("GitService", () => {
   });
 
   it("clone: should create session repo under per-repo directory", async () => {
+    // Mock execAsync
+    const mockExecAsync = mock(async () => ({ stdout: "", stderr: "" }));
+    (global as any).execAsync = mockExecAsync;
+    
+    // Create GitService
     const git = new GitService();
+    
+    // Calculate the expected path
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const baseDir = join(xdgStateHome, "minsky", "git");
+    const expectedPath = join(baseDir, "github.com/org/repo/sessions/test-session");
+    
+    // Call clone
     const repoPath = await git.clone({
       repoUrl: "https://github.com/org/repo",
       session: "test-session"
     });
-
-    expect(repoPath).toBe(join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session"));
+    
+    expect(repoPath).toBe(expectedPath);
+    
+    // Verify git command was called correctly
+    expect(mockExecAsync).toHaveBeenCalledWith(
+      "git clone https://github.com/org/repo " + expectedPath
+    );
   });
 
   it("branch: should work with per-repo directory structure", async () => {

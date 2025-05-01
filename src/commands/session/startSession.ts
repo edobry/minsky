@@ -1,10 +1,10 @@
-import { GitService } from '../../domain/git';
-import { SessionDB } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
-import { normalizeTaskId } from '../../utils/task-utils';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { normalizeRepoName } from '../../domain/repo-utils';
-import { randomBytes } from 'crypto';
+import { GitService } from "../../domain/git";
+import { SessionDB } from "../../domain/session";
+import { TaskService } from "../../domain/tasks";
+import { normalizeTaskId } from "../../utils/task-utils";
+import { resolveRepoPath } from "../../domain/repo-utils";
+import { normalizeRepoName } from "../../domain/repo-utils";
+import { randomBytes } from "crypto";
 
 export interface StartSessionOptions {
   repo?: string;
@@ -31,7 +31,7 @@ export async function startSession(options: StartSessionOptions): Promise<string
     const sessionDb = new SessionDB();
     const existingTaskSession = await sessionDb.getSessionByTaskId(taskId);
     if (existingTaskSession) {
-      throw new Error(`A session for task '${taskId}' already exists: ${existingTaskSession.session}`);
+      throw new Error(`A session for task "${taskId}" already exists: ${existingTaskSession.session}`);
     }
   }
 
@@ -42,7 +42,7 @@ export async function startSession(options: StartSessionOptions): Promise<string
   const sessionDB = new SessionDB();
   const existingSession = await sessionDB.getSession(session);
   if (existingSession) {
-    throw new Error(`Session '${session}' already exists`);
+    throw new Error(`Session "${session}" already exists`);
   }
 
   // Get repository URL

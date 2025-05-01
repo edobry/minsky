@@ -81,7 +81,7 @@ describe("startSession", () => {
     await expect(startSession({
       repo: "https://github.com/org/repo",
       session: "test-session"
-    })).rejects.toThrow("Session 'test-session' already exists");
+    })).rejects.toThrow("Session \"test-session\" already exists");
   });
 
   it("converts local path to file:// URL", async () => {
@@ -161,20 +161,22 @@ describe("startSession", () => {
 
   it("throws if a session for the task already exists", async () => {
     // Mock SessionDB to return an existing session for the task
-    (global as any).SessionDB = class {
-      getSessionByTaskId = mock(() => Promise.resolve({
-        session: "existing-session",
-        repoUrl: "https://github.com/org/repo",
-        repoName: "org/repo",
-        createdAt: "2024-01-01",
-        taskId: "#123"
-      }));
-    };
+    mock.module("../../domain/session", () => ({
+      SessionDB: class {
+        getSessionByTaskId = mock(() => Promise.resolve({
+          session: "existing-session",
+          repoUrl: "https://github.com/org/repo",
+          repoName: "org/repo",
+          createdAt: "2024-01-01",
+          taskId: "#123"
+        }));
+      }
+    }));
 
     await expect(startSession({
       repo: "https://github.com/org/repo",
       taskId: "#123"
-    })).rejects.toThrow("A session for task '#123' already exists: existing-session");
+    })).rejects.toThrow("A session for task \"#123\" already exists: existing-session");
   });
 
   it("adds session to database before clone and branch operations", async () => {
