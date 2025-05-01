@@ -1,6 +1,6 @@
 ---
 name: commit-push-workflow
-description: REQUIRED for ALL git commits - must push immediately after committing to ensure synchronization
+description: REQUIRED for git workflow when making commits to any branch
 globs: ["**/*"]
 alwaysApply: true
 ---
