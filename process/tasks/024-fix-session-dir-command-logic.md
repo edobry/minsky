@@ -28,37 +28,41 @@ The `session dir` command is used to print the working directory path for a sess
 
 ## Implementation Steps
 
-1. [ ] **Investigation**
-   - [ ] Review current implementation of the `session dir` command
-   - [ ] Identify specific logical issues and edge cases
-   - [ ] Document the current behavior and desired improvements
+1. [x] **Investigation**
+   - [x] Review current implementation of the `session dir` command
+   - [x] Identify specific logical issues and edge cases
+   - [x] Document the current behavior and desired improvements
 
-2. [ ] **Implementation**
-   - [ ] Add the `--task` option to the command definition
-   - [ ] Implement task ID normalization using the existing utility
-   - [ ] Update the session directory resolution logic to fix any identified issues
-   - [ ] Add proper error handling for non-existent sessions or tasks
-   - [ ] Update the command description and help text
+2. [x] **Implementation**
+   - [x] Add the `--task` option to the command definition
+   - [x] Implement task ID normalization using the existing utility
+   - [x] Update the session directory resolution logic to fix any identified issues
+   - [x] Add proper error handling for non-existent sessions or tasks
+   - [x] Update the command description and help text
 
-3. [ ] **Testing**
-   - [ ] Write tests for the updated command, including edge cases
-   - [ ] Test integration with the existing task ID normalization
-   - [ ] Verify behavior with both existing sessions and non-existent sessions
-   - [ ] Test the command with task IDs in both formats
+3. [x] **Testing**
+   - [x] Write tests for the updated command, including edge cases
+   - [x] Test integration with the existing task ID normalization
+   - [x] Verify behavior with both existing sessions and non-existent sessions
+   - [x] Test the command with task IDs in both formats
 
-4. [ ] **Documentation**
-   - [ ] Update command usage examples in relevant documentation
-   - [ ] Add examples for the new `--task` option in help text
+4. [x] **Documentation**
+   - [x] Update command usage examples in relevant documentation
+   - [x] Add examples for the new `--task` option in help text
 
 ## Verification
 
-- [ ] The `session dir` command correctly identifies and returns the session directory
-- [ ] The command handles non-existent sessions with clear error messages
-- [ ] The command works correctly with the `--task` option to find sessions by task ID
-- [ ] Task IDs are properly normalized (both `000` and `#000` formats work)
-- [ ] The command maintains backwards compatibility with existing usage patterns
-- [ ] All tests for the updated command pass successfully
+- [x] The `session dir` command correctly identifies and returns the session directory
+- [x] The command handles non-existent sessions with clear error messages
+- [x] The command works correctly with the `--task` option to find sessions by task ID
+- [x] Task IDs are properly normalized (both `000` and `#000` formats work)
+- [x] The command maintains backwards compatibility with existing usage patterns
+- [x] All tests for the updated command pass successfully
 
 ## Work Log
 
-- [DATE] - Created task specification 
+- [2025-04-29] - Created task specification
+- [2025-04-30] - Fixed the session dir command by removing the local getSessionRepoPath function and using SessionDB.getRepoPath instead, which correctly handles both legacy paths and new paths with the sessions subdirectory
+- [2025-04-30] - Added support for --task option to allow finding session directories by associated task ID
+- [2025-04-30] - Added proper error handling for non-existent sessions, non-existent tasks, and invalid argument combinations
+- [2025-04-30] - Updated tests to thoroughly verify all functionality, including legacy path structure, new sessions subdirectory, task ID support, and error scenarios 
