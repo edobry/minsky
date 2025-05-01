@@ -127,12 +127,18 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
 - Updated PR generation to handle empty repositories
 - Updated tests to use double quotes instead of single quotes
 - Fixed session repository path structure to include "sessions" subdirectory
+- Fixed test failures in SessionDB class by properly defining methods on prototype
+- Fixed GitService.clone method to avoid session database errors
+- Fixed string quotes in test files to use double quotes consistently
+- Updated mock setup in git.test.ts for proper execAsync mocking
+- Fixed type errors in the SessionRecord interface implementation
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
