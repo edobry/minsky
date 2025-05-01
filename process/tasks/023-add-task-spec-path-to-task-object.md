@@ -50,16 +50,16 @@ Adding the specification path to the task object would improve the workflow by p
 
 ## Verification
 
-- [ ] The Task interface includes the new `specPath` property
-- [ ] The MarkdownTaskBackend correctly populates the `specPath` property
-- [ ] The `tasks get` command displays the spec path in its output
-- [ ] The `--json` output includes the new property
-- [ ] All tests pass
-- [ ] Documentation is updated
+- [x] The Task interface includes the new `specPath` property
+- [x] The MarkdownTaskBackend correctly populates the `specPath` property
+- [x] The `tasks get` command displays the spec path in its output
+- [x] The `--json` output includes the new property
+- [x] All tests pass
+- [x] Documentation is updated
 
 ## Work Log
 
-- Not started
+- 2025-05-01: Implemented specPath property in Task interface, updated MarkdownTaskBackend to populate it, and updated tasks get command to display it
 
 ## Notes
 

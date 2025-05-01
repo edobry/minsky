@@ -56,6 +56,9 @@ export function createGetCommand(): Command {
           console.log(`Task ID: ${task.id}`);
           console.log(`Title: ${task.title}`);
           console.log(`Status: ${task.status}`);
+          if (task.specPath) {
+            console.log(`Spec Path: ${task.specPath}`);
+          }
           if (task.description) {
             console.log('\nDescription:');
             console.log(task.description);
