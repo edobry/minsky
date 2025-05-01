@@ -346,8 +346,31 @@ When integrating minsky into automated workflows or scripts:
 2. **Implementation**
    - Follow all project coding standards and best practices
    - Implement the required changes, addressing all requirements
-   - Commit changes at logical intervals with clear, descriptive messages
-   - Reference the task ID in all commit messages (e.g., "task#001: Implement feature X")
+   - Stage and commit changes using the `minsky git commit` command:
+     ```bash
+     # Stage and commit changes with task ID prefix
+     minsky git commit -m "Implement feature X"
+     # Results in: "task#XXX: Implement feature X"
+
+     # Stage all changes including deletions
+     minsky git commit -a -m "Update feature Y"
+
+     # Commit from a specific session
+     minsky git commit -s session-name -m "Fix bug Z"
+
+     # Commit from a specific repository
+     minsky git commit -r /path/to/repo -m "Update docs"
+
+     # Skip staging (for when files are already staged)
+     minsky git commit --no-stage -m "Fix typo"
+
+     # Amend the previous commit
+     minsky git commit --amend -m "Fix typo in previous commit"
+     ```
+   - The command will automatically:
+     - Stage all changes (unless `--no-stage` is used)
+     - Add task ID prefix when in a session
+     - Handle error cases (no changes, no message, etc.)
    - **ALWAYS push immediately after committing:**
      ```bash
      # After every commit, immediately push to the session branch

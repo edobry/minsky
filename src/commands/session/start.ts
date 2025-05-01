@@ -1,23 +1,23 @@
-import { Command } from 'commander';
-import { GitService } from '../../domain/git';
-import { SessionDB } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
-import fs from 'fs';
-import path from 'path';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { startSession } from './startSession';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { Command } from "commander";
+import { GitService } from "../../domain/git";
+import { SessionDB } from "../../domain/session";
+import { TaskService } from "../../domain/tasks";
+import fs from "fs";
+import path from "path";
+import { resolveRepoPath } from "../../domain/repo-utils";
+import { startSession } from "./startSession";
+import { normalizeTaskId } from "../../utils/task-utils";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
   const sessionDB = new SessionDB();
 
-  return new Command('start')
-    .description('Start a new session with a cloned repository')
-    .argument('[session]', 'Session identifier (optional if --task is provided)')
-    .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
-    .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
-    .option('-q, --quiet', 'Output only the session directory path (for programmatic use)')
+  return new Command("start")
+    .description("Start a new session with a cloned repository")
+    .argument("[session]", "Session identifier (optional if --task is provided)")
+    .option("-r, --repo <repo>", "Repository URL or local path to clone (optional)")
+    .option("-t, --task <taskId>", "Task ID to associate with the session (uses task ID as session name if provided)")
+    .option("-q, --quiet", "Output only the session directory path (for programmatic use)")
     .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string, quiet?: boolean }) => {
       try {
         const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
@@ -35,7 +35,7 @@ export function createStartCommand(): Command {
           // Verify the task exists
           const taskService = new TaskService({
             workspacePath: repoPath,
-            backend: 'markdown' // Default to markdown backend
+            backend: "markdown" // Default to markdown backend
           });
           
           const task = await taskService.getTask(taskId);
@@ -72,14 +72,14 @@ export function createStartCommand(): Command {
           if (taskId) {
             console.log(`Associated with task: ${taskId}`);
           }
-          console.log(`\nTo navigate to this session's directory, run:`);
+          console.log("\nTo navigate to this session's directory, run:");
           console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-          console.log('');
+          console.log("");
           console.log(result.cloneResult.workdir);
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        console.error('Error starting session:', err.message);
+        console.error("Error starting session:", err.message);
         process.exit(1);
       }
     });

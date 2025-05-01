@@ -1,6 +1,6 @@
-import { join } from 'path';
-import { promises as fs } from 'fs';
-import { normalizeRepoName } from './repo-utils';
+import { join } from "path";
+import { promises as fs } from "fs";
+import { normalizeRepoName } from "./repo-utils";
 
 export interface SessionRecord {
   session: string;
@@ -12,19 +12,60 @@ export interface SessionRecord {
   repoPath?: string;
 }
 
+// Add SessionService class that wraps SessionDB
+export class SessionService {
+  private db: SessionDB;
+
+  constructor() {
+    this.db = new SessionDB();
+  }
+
+  async getSession(sessionName: string): Promise<SessionRecord | undefined> {
+    return this.db.getSession(sessionName);
+  }
+
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
+    return this.db.getSessionByTaskId(taskId);
+  }
+
+  async listSessions(): Promise<SessionRecord[]> {
+    return this.db.listSessions();
+  }
+
+  async addSession(record: SessionRecord): Promise<void> {
+    return this.db.addSession(record);
+  }
+
+  async updateSession(sessionName: string, update: Partial<Omit<SessionRecord, "session">>): Promise<void> {
+    return this.db.updateSession(sessionName, update);
+  }
+
+  async deleteSession(sessionName: string): Promise<boolean> {
+    return this.db.deleteSession(sessionName);
+  }
+
+  async getRepoPath(record: SessionRecord): Promise<string> {
+    return this.db.getRepoPath(record);
+  }
+
+  async getSessionWorkdir(sessionName: string): Promise<string> {
+    return this.db.getSessionWorkdir(sessionName);
+  }
+}
+
 export class SessionDB {
   private readonly dbPath: string;
   readonly baseDir: string;
 
   constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-    this.dbPath = join(xdgStateHome, 'minsky', 'session-db.json');
-    this.baseDir = join(xdgStateHome, 'minsky', 'git');
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+    this.baseDir = join(xdgStateHome, "minsky", "git");
   }
 
   private async readDb(): Promise<SessionRecord[]> {
     try {
-      const data = await fs.readFile(this.dbPath, 'utf-8');
+      const data = await fs.readFile(this.dbPath, "utf-8");
       const sessions = JSON.parse(data);
       // Migrate existing sessions to include repoName
       return sessions.map((session: SessionRecord) => {
@@ -44,8 +85,8 @@ export class SessionDB {
   }
 
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
-    await fs.mkdir(join(this.dbPath, '..'), { recursive: true });
-    await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2), 'utf-8');
+    await fs.mkdir(join(this.dbPath, ".."), { recursive: true });
+    await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2), "utf-8");
   }
 
   // Alias for writeDb to maintain backward compatibility with tests
@@ -68,7 +109,7 @@ export class SessionDB {
     return sessions.find(s => s.session === session);
   }
 
-  async updateSession(session: string, update: Partial<Omit<SessionRecord, 'session'>>): Promise<void> {
+  async updateSession(session: string, update: Partial<Omit<SessionRecord, "session">>): Promise<void> {
     const sessions = await this.readDb();
     const idx = sessions.findIndex(s => s.session === session);
     if (idx !== -1) {
@@ -104,7 +145,7 @@ export class SessionDB {
    */
   async getRepoPath(record: SessionRecord): Promise<string> {
     // Check for new path first (with sessions subdirectory)
-    const newPath = join(this.baseDir, record.repoName, 'sessions', record.session);
+    const newPath = join(this.baseDir, record.repoName, "sessions", record.session);
     const legacyPath = join(this.baseDir, record.repoName, record.session);
     
     // If the record already has a repoPath, use that
@@ -147,7 +188,7 @@ export class SessionDB {
    * @returns The new repository path
    */
   getNewSessionRepoPath(repoName: string, sessionId: string): string {
-    return join(this.baseDir, repoName, 'sessions', sessionId);
+    return join(this.baseDir, repoName, "sessions", sessionId);
   }
   
   /**
@@ -174,17 +215,17 @@ export class SessionDB {
     
     for (const session of sessions) {
       // Skip sessions that already have a repoPath
-      if (session.repoPath && session.repoPath.includes('/sessions/')) {
+      if (session.repoPath && session.repoPath.includes("/sessions/")) {
         continue;
       }
       
       const legacyPath = join(this.baseDir, session.repoName, session.session);
-      const newPath = join(this.baseDir, session.repoName, 'sessions', session.session);
+      const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
       
       // Check if legacy path exists
       if (await this.repoExists(legacyPath)) {
         // Create new path directory structure
-        await fs.mkdir(join(this.baseDir, session.repoName, 'sessions'), { recursive: true });
+        await fs.mkdir(join(this.baseDir, session.repoName, "sessions"), { recursive: true });
         
         // Move repository to new location
         try {

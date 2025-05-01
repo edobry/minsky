@@ -1,10 +1,10 @@
-import { GitService } from '../../domain/git';
-import { SessionDB, type SessionRecord } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
-import fs from 'fs';
-import path from 'path';
-import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { GitService } from "../../domain/git";
+import { SessionDB, type SessionRecord } from "../../domain/session";
+import { TaskService } from "../../domain/tasks";
+import fs from "fs";
+import path from "path";
+import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils";
+import { normalizeTaskId } from "../../utils/task-utils";
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -43,7 +43,7 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     // Verify the task exists
     taskService = taskService || new TaskService({
       workspacePath: repo || await resolveRepoPath({}),
-      backend: 'markdown' // Default to markdown backend
+      backend: "markdown" // Default to markdown backend
     });
 
     const task = await taskService.getTask(taskId);
@@ -55,7 +55,7 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
   }
 
   if (!session) {
-    throw new Error('Either session name or taskId must be provided');
+    throw new Error("Either session name or taskId must be provided");
   }
 
   // Check if session already exists
