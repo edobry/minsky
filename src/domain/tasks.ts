@@ -142,10 +142,14 @@ export class MarkdownTaskBackend implements TaskBackend {
           }
         }
         
-        // Generate the spec path based on the task ID
+        // Generate the spec path based on the task ID and title
         const taskIdNum = id.startsWith('#') ? id.slice(1) : id;
-        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const specPath = join(this.workspacePath, 'process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+        const normalizedTitle = title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+          .replace(/-+/g, '-'); // Replace multiple consecutive hyphens with a single one
+        const specPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
         
         tasks.push({ 
           id, 
@@ -221,16 +225,16 @@ export class TaskService {
     this.backends.push(new MarkdownTaskBackend(workspacePath));
     this.backends.push(new GitHubTaskBackend(workspacePath));
     
-    // Select the backend to use
+    // Initialize with the default backend
+    this.currentBackend = this.backends[0];
+    
+    // If a specific backend is requested, try to use it
     if (options.backend) {
       const backend = this.backends.find(b => b.name === options.backend);
       if (!backend) {
         throw new Error(`Task backend '${options.backend}' not found.`);
       }
-      this.currentBackend = backend;
-    } else {
-      // Default to markdown backend
-      this.currentBackend = this.backends[0];
+      this.currentBackend = backend as TaskBackend;
     }
   }
   
@@ -252,5 +256,15 @@ export class TaskService {
   
   getWorkspacePath(): string {
     return this.currentBackend.getWorkspacePath();
+  }
+
+  setBackend(options: TaskServiceOptions = {}) {
+    if (options.backend) {
+      const backend = this.backends.find(b => b.name === options.backend);
+      if (!backend) {
+        throw new Error(`Task backend '${options.backend}' not found.`);
+      }
+      this.currentBackend = backend as TaskBackend;
+    }
   }
 } 
