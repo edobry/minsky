@@ -41,6 +41,7 @@
 - Added task #020 to add a `--task` option to the `git pr` command, allowing users to generate PR descriptions for tasks directly without specifying a session or path
 - Created task specification for task #018 to add a `--task <task-id>` option to the `minsky session dir` command, allowing users to look up session directories by their associated task ID
 - Created task specification for task #023 to add a task specification path to the task object, which will be displayed by commands that show task details, making it easier to locate and access the full task specification document
+- Added task specification path to the task object, which is displayed by the `tasks get` command in both standard and JSON output formats. This makes it easier to locate and access the full task specification document.
 - Created task specification for task #024 to fix the `session dir` command logic
 - New task for refactoring large methods in GitService, focusing on `prWithDependencies` method (#021)
 - Added `--quiet` option to `session start` command that outputs only the session directory path, making it suitable for programmatic use in scripts and automated workflows. When the option is specified, all informational messages are suppressed, and only the essential path is returned.

@@ -11,6 +11,7 @@ export interface Task {
   title: string;
   description: string;
   status: string;
+  specPath?: string; // Path to the task specification document
 }
 
 export interface TaskBackend {
@@ -140,7 +141,19 @@ export class MarkdownTaskBackend implements TaskBackend {
             break;
           }
         }
-        tasks.push({ id, title, status, description: description.trim() });
+        
+        // Generate the spec path based on the task ID
+        const taskIdNum = id.startsWith('#') ? id.slice(1) : id;
+        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const specPath = join(this.workspacePath, 'process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+        
+        tasks.push({ 
+          id, 
+          title, 
+          status, 
+          description: description.trim(),
+          specPath
+        });
       }
       return tasks;
     } catch (error) {

@@ -31,5 +31,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
 - [ ] Refactor Large Methods in GitService [#021](tasks/021-refactor-large-methods-in-git-service.md)
 - [ ] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
-- [ ] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
+- [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [ ] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
