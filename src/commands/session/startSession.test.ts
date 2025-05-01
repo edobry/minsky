@@ -1,7 +1,7 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
-import { describe, it, expect, mock } from 'bun:test';
-import { startSession, StartSessionOptions, StartSessionResult } from './startSession';
+import { describe, it, expect, mock } from "bun:test";
+import { startSession, StartSessionOptions, StartSessionResult } from "./startSession";
 import { GitService } from "../../domain/git";
 import { SessionDB } from "../../domain/session";
 import { TaskService } from "../../domain/tasks";
@@ -11,59 +11,72 @@ import { join } from "path";
 describe("startSession", () => {
   const TEST_GIT_DIR = "/tmp/minsky-test/minsky/git";
 
-  beforeEach(() => {
+  it("creates a session with explicit repo", async () => {
+    // Mock dependencies
+    const originalSessionDB = SessionDB;
+    const originalGitService = GitService;
+    const originalTaskService = TaskService;
+    
     // Mock SessionDB
     const mockGetSession = mock(() => Promise.resolve(undefined));
     const mockAddSession = mock(() => Promise.resolve());
     const mockGetSessionByTaskId = mock(() => Promise.resolve(undefined));
-    const originalSessionDB = SessionDB;
-    (global as any).SessionDB = class {
-      getSession = mockGetSession;
-      addSession = mockAddSession;
-      getSessionByTaskId = mockGetSessionByTaskId;
-    };
+    
+    mock.module("../../domain/session", () => ({
+      SessionDB: class {
+        getSession = mockGetSession;
+        addSession = mockAddSession;
+        getSessionByTaskId = mockGetSessionByTaskId;
+      }
+    }));
 
     // Mock GitService
     const mockClone = mock(() => Promise.resolve("/path/to/repo"));
-    const originalGitService = GitService;
-    (global as any).GitService = class {
-      clone = mockClone;
-    };
+    mock.module("../../domain/git", () => ({
+      GitService: class {
+        clone = mockClone;
+      }
+    }));
 
     // Mock TaskService
     const mockGetTask = mock(() => Promise.resolve({ id: "#123", title: "Test Task" }));
-    const originalTaskService = TaskService;
-    (global as any).TaskService = class {
-      getTask = mockGetTask;
-    };
-  });
+    mock.module("../../domain/tasks", () => ({
+      TaskService: class {
+        getTask = mockGetTask;
+      }
+    }));
+    
+    // Import the startSession function after mocking
+    const { startSession } = await import("./startSession");
+    
+    try {
+      const result = await startSession({
+        repo: "https://github.com/org/repo",
+        session: "test-session"
+      });
 
-  afterEach(() => {
-    // Restore original classes
-    delete (global as any).SessionDB;
-    delete (global as any).GitService;
-    delete (global as any).TaskService;
-  });
-
-  it("creates a session with explicit repo", async () => {
-    const result = await startSession({
-      repo: "https://github.com/org/repo",
-      session: "test-session"
-    });
-
-    expect(result).toBe("/path/to/repo");
+      expect(result).toBe("/path/to/repo");
+    } finally {
+      // Clean up mocks if needed
+    }
   });
 
   it("throws if session already exists", async () => {
     // Mock SessionDB to return an existing session
-    (global as any).SessionDB = class {
-      getSession = mock(() => Promise.resolve({
-        session: "test-session",
-        repoUrl: "https://github.com/org/repo",
-        repoName: "org/repo",
-        createdAt: "2024-01-01"
-      }));
-    };
+    mock.module("../../domain/session", () => ({
+      SessionDB: class {
+        getSession = mock(() => Promise.resolve({
+          session: "test-session",
+          repoUrl: "https://github.com/org/repo",
+          repoName: "org/repo",
+          createdAt: "2024-01-01"
+        }));
+        getSessionByTaskId = mock(() => Promise.resolve(undefined));
+      }
+    }));
+    
+    // Import the startSession function after mocking
+    const { startSession } = await import("./startSession");
 
     await expect(startSession({
       repo: "https://github.com/org/repo",
