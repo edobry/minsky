@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { TaskService } from '../../domain/tasks';
+import { TaskService, TASK_STATUS } from '../../domain/tasks';
 import { resolveRepoPath } from '../../domain/repo-utils';
 import { resolveWorkspacePath } from '../../domain/workspace';
 import { exec } from 'child_process';
@@ -16,13 +16,15 @@ export function createListCommand(): Command {
     .option('--workspace <workspacePath>', 'Path to main workspace (overrides repo and session)')
     .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
     .option('--json', 'Output tasks as JSON')
+    .option('--all', 'Include DONE tasks in the output (by default, DONE tasks are hidden)')
     .action(async (options: { 
       status?: string, 
       backend?: string, 
       session?: string, 
       repo?: string, 
       workspace?: string,
-      json?: boolean 
+      json?: boolean,
+      all?: boolean 
     }) => {
       try {
         // First get the repo path (needed for workspace resolution)
@@ -35,13 +37,26 @@ export function createListCommand(): Command {
         });
         
         const taskService = new TaskService({
-          workspacePath,
+          workspacePath: workspacePath,
           backend: options.backend
         });
         
-        const tasks = await taskService.listTasks({
-          status: options.status
-        });
+        let tasks;
+        
+        // If status filter is explicitly provided, use it
+        if (options.status) {
+          tasks = await taskService.listTasks({
+            status: options.status
+          });
+        } else {
+          // Otherwise get all tasks first
+          tasks = await taskService.listTasks();
+          
+          // Unless --all is provided, filter out DONE tasks
+          if (!options.all) {
+            tasks = tasks.filter(task => task.status !== TASK_STATUS.DONE);
+          }
+        }
         
         if (tasks.length === 0) {
           if (options.json) {
