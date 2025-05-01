@@ -38,3 +38,5 @@ This file tracks work items for the project. Each task follows this format:
 - [+] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Automate Task Status Updates at Key Workflow Points [#028](tasks/028-automate-task-status-updates.md)
 - [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
+- [ ] Add Filter Messages to `tasks list` Command [#031](process/tasks/027-add-task-filter-messages.md)
+- [ ] Auto-Rename Task Spec Files in `tasks create` Command [#032](process/tasks/032-auto-rename-task-spec-files.md)
