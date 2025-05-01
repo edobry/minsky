@@ -38,6 +38,23 @@ cd $(minsky session dir task#XXX)
 
 This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
 
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them:**
+
+```bash
+# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern MUST be used:
+- In all scripts and automations
+- In all interactive usage where directory navigation follows
+- Any time you intend to navigate to the session directory after creation
+
+DO NOT use separate commands for starting a session and then navigating to it.
+
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
 ⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
