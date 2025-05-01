@@ -66,6 +66,13 @@ _See: SpecStory history [task-id-format-support-specification](.specstory/histor
 - Completely reimplemented the SessionDB class to handle both legacy and new directory structures
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
+- Support for HTTPS and SSH git URL normalization in `normalizeRepoName` to produce consistent paths
+- Enhanced URL handling to preserve domain names for github.com repositories
+- Improved session directory path handling with support for backward compatibility
+- Updated implementation to handle both legacy and new session path formats (with "sessions" subdirectory)
+- Fixed session lookup by task ID in `session get` and `session dir` commands
+- Standardized code style to use double quotes instead of single quotes
+- Normalize task IDs consistently by ensuring the '#' prefix is added if missing
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -75,6 +82,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -94,6 +102,10 @@ _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.spe
   - Fixed getSession mocking in repo-utils.test.ts
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
+- Fixed test failures arising from inconsistent session path handling
+- Fixed task ID normalization to handle IDs with and without '#' prefix
+- Resolved mismatch between implementation and test expectations in repo path handling 
+- Fixed error handling in session lookup by task ID
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._

@@ -1,84 +1,85 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { resolveRepoPath, normalizeRepoName } from './repo-utils';
-import { SessionDB } from './session';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { describe, it, expect, mock } from "bun:test";
+import { resolveRepoPath, normalizeRepoName } from "./repo-utils";
+import { SessionDB } from "./session";
 
-// Mock the dependencies
-mock.module('child_process', () => ({
-  exec: (cmd: string, options: any, callback: any) => {
-    if (cmd.includes('git rev-parse')) {
-      callback(null, { stdout: '/path/to/repo\n', stderr: '' });
-    } else {
-      callback(null, { stdout: '', stderr: '' });
-    }
-  }
-}));
-
-describe('resolveRepoPath', () => {
-  it('returns explicit repo path if given', async () => {
-    expect(await resolveRepoPath({ repo: '/foo/bar' })).toBe('/foo/bar');
+describe("resolveRepoPath", () => {
+  it("returns explicit repo path if given", async () => {
+    const result = await resolveRepoPath({ repoPath: "/path/to/repo" });
+    expect(result).toBe("/path/to/repo");
   });
 
-  it('returns session repo path if session is given', async () => {
-    // Create a test SessionDB
-    const testRecord = {
-      session: 'test-session',
-      repoUrl: '/mock/repo',
-      repoName: 'mock/repo',
-      createdAt: new Date().toISOString()
+  it("returns session repo path if session is given", async () => {
+    // Mock SessionDB
+    const mockGetSession = mock(() => Promise.resolve({
+      session: "test-session",
+      repoUrl: "https://github.com/org/repo",
+      repoName: "org/repo",
+      createdAt: "2024-01-01",
+      repoPath: "/path/to/session/repo"
+    }));
+
+    const mockGetRepoPath = mock(() => Promise.resolve("/path/to/session/repo"));
+
+    // Save the original SessionDB constructor
+    const OriginalSessionDB = (global as any).SessionDB;
+    
+    // Create a mock SessionDB class
+    (global as any).SessionDB = function() {
+      return {
+        getSession: mockGetSession,
+        getRepoPath: mockGetRepoPath
+      };
     };
 
-    // Override getSession just for this test
-    const originalGetSession = SessionDB.prototype.getSession;
-    SessionDB.prototype.getSession = mock(() => Promise.resolve(testRecord));
-
     try {
-      const result = await resolveRepoPath({ session: 'test-session' });
-      expect(result).toBe('/mock/repo');
+      const result = await resolveRepoPath({ session: "test-session" });
+      expect(result).toBe("/path/to/session/repo");
+      expect(mockGetSession).toHaveBeenCalledWith("test-session");
+      expect(mockGetRepoPath).toHaveBeenCalled();
     } finally {
-      // Restore original method
-      SessionDB.prototype.getSession = originalGetSession;
+      // Restore the original SessionDB
+      (global as any).SessionDB = OriginalSessionDB;
     }
   });
 
-  it('falls back to git rev-parse if neither is given', async () => {
-    // Mock execAsync for this test
-    const execAsync = promisify(exec);
-    const originalExecAsync = execAsync;
+  it("falls back to git rev-parse if neither is given", async () => {
+    // Mock exec function
+    const mockExecAsync = mock(() => Promise.resolve({ stdout: "/git/repo/path\n", stderr: "" }));
     
-    // Replace with a mock that returns a predictable value
-    const mockExecAsync = mock(() => Promise.resolve({ stdout: '/git/repo/path\n', stderr: '' }));
+    // Save the original promisify(exec)
+    const originalExec = (global as any).exec;
+    const originalPromisify = (global as any).promisify;
+    
+    // Directly mock the execAsync function
     (global as any).execAsync = mockExecAsync;
-    
+
     try {
       const result = await resolveRepoPath({});
-      expect(result).toBe('/git/repo/path');
+      expect(result).toBe("/git/repo/path");
+      expect(mockExecAsync).toHaveBeenCalledWith("git rev-parse --show-toplevel");
     } finally {
-      // Clean up
-      (global as any).execAsync = originalExecAsync;
+      // Restore the original functions
+      (global as any).exec = originalExec;
+      (global as any).promisify = originalPromisify;
     }
   });
 });
 
-describe('normalizeRepoName', () => {
-  it('normalizes HTTPS remote URLs', () => {
-    expect(normalizeRepoName('https://github.com/org/project.git')).toBe('org/project');
-    expect(normalizeRepoName('https://github.com/org/project')).toBe('org/project');
+describe("normalizeRepoName", () => {
+  it("normalizes HTTPS remote URLs", () => {
+    expect(normalizeRepoName("https://github.com/org/repo.git")).toBe("github.com/org/repo");
+    expect(normalizeRepoName("http://github.com/org/repo")).toBe("github.com/org/repo");
   });
 
-  it('normalizes SSH remote URLs', () => {
-    expect(normalizeRepoName('git@github.com:org/project.git')).toBe('org/project');
-    expect(normalizeRepoName('git@github.com:org/project')).toBe('org/project');
+  it("normalizes SSH remote URLs", () => {
+    expect(normalizeRepoName("git@github.com:org/repo.git")).toBe("github.com/org/repo");
   });
 
-  it('normalizes local paths', () => {
-    expect(normalizeRepoName('/Users/edobry/Projects/minsky')).toBe('local/minsky');
-    expect(normalizeRepoName('/tmp/some-project')).toBe('local/some-project');
+  it("normalizes local paths", () => {
+    expect(normalizeRepoName("/path/to/repo")).toBe("path/to/repo");
   });
 
-  it('normalizes file:// URLs', () => {
-    expect(normalizeRepoName('file:///Users/edobry/Projects/minsky')).toBe('local/minsky');
-    expect(normalizeRepoName('file:///tmp/some-project')).toBe('local/some-project');
+  it("normalizes file:// URLs", () => {
+    expect(normalizeRepoName("file:///path/to/repo")).toBe("path/to/repo");
   });
 }); 

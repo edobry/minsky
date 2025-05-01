@@ -1,15 +1,19 @@
-import { join } from 'path';
-import { mkdir } from 'fs/promises';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { normalizeRepoName } from './repo-utils';
-import { SessionDB } from './session';
+import { join } from "path";
+import { mkdir } from "fs/promises";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { normalizeRepoName } from "./repo-utils";
+import { SessionDB } from "./session";
+import { execAsync } from "../utils/exec";
+import { promises as fs } from "fs";
 
-const execAsync = promisify(exec);
+const execAsyncPromisify = promisify(exec);
 
 export interface CloneOptions {
   repoUrl: string;
-  session?: string;
+  session: string;
+  branch?: string;
+  taskId?: string;
 }
 
 export interface CloneResult {
@@ -18,7 +22,7 @@ export interface CloneResult {
 }
 
 export interface BranchOptions {
-  session: string;
+  repoPath: string;
   branch: string;
 }
 
@@ -28,10 +32,9 @@ export interface BranchResult {
 }
 
 export interface PrOptions {
-  session?: string;
-  repoPath?: string;
-  branch?: string;
-  debug?: boolean;
+  repoPath: string;
+  branch: string;
+  baseBranch?: string;
 }
 
 export interface PrResult {
@@ -39,216 +42,93 @@ export interface PrResult {
 }
 
 export class GitService {
-  private readonly baseDir: string;
-  private sessionDb: SessionDB;
+  private readonly sessionDb: SessionDB;
 
   constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-    this.baseDir = join(xdgStateHome, 'minsky', 'git');
     this.sessionDb = new SessionDB();
   }
 
-  private async ensureBaseDir(): Promise<void> {
-    await mkdir(this.baseDir, { recursive: true });
-  }
+  async clone(options: CloneOptions): Promise<string> {
+    const { repoUrl, session, branch, taskId } = options;
 
-  private generateSessionId(): string {
-    return Math.random().toString(36).substring(2, 8);
-  }
+    // Get the repository name
+    const repoName = normalizeRepoName(repoUrl);
 
-  private getSessionWorkdir(repoName: string, session: string): string {
-    // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, repoName, 'sessions', session);
-  }
+    // Get the session repository path
+    const repoPath = await this.sessionDb.getNewSessionRepoPath(repoName, session);
 
-  async clone(options: CloneOptions): Promise<CloneResult> {
-    await this.ensureBaseDir();
-    
-    const session = options.session || this.generateSessionId();
-    const repoName = normalizeRepoName(options.repoUrl);
-    
-    // Create the repo/sessions directory structure
-    const sessionsDir = join(this.baseDir, repoName, 'sessions');
-    await mkdir(sessionsDir, { recursive: true });
-    
-    // Get the workdir with sessions subdirectory
-    const workdir = this.getSessionWorkdir(repoName, session);
-    
+    // Create the parent directory
+    await fs.mkdir(join(repoPath, ".."), { recursive: true });
+
     // Clone the repository
-    await execAsync(`git clone ${options.repoUrl} ${workdir}`);
-    
-    return {
-      workdir,
-      session
-    };
+    await execAsync(`git clone ${repoUrl} ${repoPath}`);
+
+    // Add session to database
+    await this.sessionDb.addSession({
+      session,
+      repoUrl,
+      repoName,
+      branch,
+      createdAt: new Date().toISOString(),
+      taskId,
+      repoPath
+    });
+
+    // If branch is specified, create and switch to it
+    if (branch) {
+      await this.branch({ repoPath, branch });
+    }
+
+    return repoPath;
   }
 
-  async branch(options: BranchOptions): Promise<BranchResult> {
-    await this.ensureBaseDir();
-    const record = await this.sessionDb.getSession(options.session);
-    if (!record) {
-      throw new Error(`Session '${options.session}' not found.`);
-    }
-    // Handle cases where repoName is missing in older records
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const workdir = this.getSessionWorkdir(repoName, options.session);
-    // Create the branch in the specified session's repo
-    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
-    return {
-      workdir,
-      branch: options.branch
-    };
+  async branch(options: BranchOptions): Promise<void> {
+    const { repoPath, branch } = options;
+
+    // Create and switch to the branch
+    await execAsync(`git checkout -b ${branch}`, { cwd: repoPath });
   }
 
-  async pr(options: PrOptions): Promise<PrResult> {
-    await this.ensureBaseDir();
-    
-    // Determine the working directory
-    let workdir: string;
-    if (options.session) {
-      const record = await this.sessionDb.getSession(options.session);
-      if (!record) {
-        throw new Error(`Session '${options.session}' not found.`);
+  async pr(options: PrOptions): Promise<void> {
+    const { repoPath, branch, baseBranch } = options;
+
+    // Get the current branch if not provided
+    const currentBranch = branch || (await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: repoPath })).stdout.trim();
+
+    // Determine base branch
+    let base = baseBranch;
+    if (!base) {
+      // Try to find the default branch
+      try {
+        const { stdout } = await execAsync("git remote show origin", { cwd: repoPath });
+        const match = stdout.match(/HEAD branch: (.+)/);
+        if (match) {
+          base = match[1];
+        }
+      } catch (err) {
+        // If remote show fails, try common default branch names
+        for (const defaultBranch of ["main", "master"]) {
+          try {
+            await execAsync(`git rev-parse --verify origin/${defaultBranch}`, { cwd: repoPath });
+            base = defaultBranch;
+            break;
+          } catch {
+            // Branch doesn't exist, try next one
+          }
+        }
       }
-      // Handle cases where repoName is missing in older records
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
-    } else if (options.repoPath) {
-      workdir = options.repoPath;
-    } else {
-      throw new Error('Either session or repoPath must be provided');
-    }
-    
-    if (options.debug) {
-      console.error(`[DEBUG] Using workdir: ${workdir}`);
-    }
-    
-    // Determine branch
-    let branch = options.branch;
-    if (!branch) {
-      // Get current branch
-      const { stdout } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-      branch = stdout.trim();
-    }
-    
-    if (options.debug) {
-      console.error(`[DEBUG] Using branch: ${branch}`);
     }
 
-    // Find the base branch to merge into (prefer remote HEAD, then upstream, then main, then master)
-    let baseBranch = '';
-    // 1. Remote HEAD branch
-    try {
-      const { stdout: remoteHead } = await execAsync(`git -C ${workdir} remote show origin | grep 'HEAD branch' | awk '{print $NF}'`);
-      if (remoteHead && remoteHead.trim() && remoteHead.trim() !== branch) {
-        baseBranch = remoteHead.trim();
-      }
-    } catch (err) {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get remote HEAD: ${err}`);
-      }
-    }
-    // 2. Upstream tracking branch
-    if (!baseBranch) {
-      try {
-        const { stdout: upstream } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`);
-        if (upstream && upstream.trim() && upstream.trim() !== branch) {
-          baseBranch = upstream.trim();
-        }
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to get upstream branch: ${err}`);
-        }
-      }
-    }
-    // 3. Local main branch
-    if (!baseBranch) {
-      try {
-        const { stdout: hasMain } = await execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/main && echo main || echo ''`);
-        if (hasMain.trim() && hasMain.trim() !== branch) {
-          baseBranch = 'main';
-        }
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to check main branch: ${err}`);
-        }
-      }
-    }
-    // 4. Local master branch
-    if (!baseBranch) {
-      try {
-        const { stdout: hasMaster } = await execAsync(`git -C ${workdir} show-ref --verify --quiet refs/heads/master && echo master || echo ''`);
-        if (hasMaster.trim() && hasMaster.trim() !== branch) {
-          baseBranch = 'master';
-        }
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to check master branch: ${err}`);
-        }
-      }
-    }
-    // 5. If still not found, just use the first commit
-    let mergeBase = '';
-    let comparisonDescription = '';
-    if (baseBranch) {
-      try {
-        const { stdout: mb } = await execAsync(`git -C ${workdir} merge-base ${branch} ${baseBranch}`);
-        mergeBase = mb.trim();
-        comparisonDescription = `Changes compared to merge-base with ${baseBranch}`;
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to get merge base: ${err}`);
-        }
-      }
-    }
-    if (!mergeBase) {
-      try {
-        const { stdout: firstCommit } = await execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
-        mergeBase = firstCommit.trim();
-        comparisonDescription = 'All changes since repository creation';
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to get first commit: ${err}`);
-        }
-      }
-    }
-    
-    if (options.debug) {
-      console.error(`[DEBUG] Using merge base: ${mergeBase}`);
-      console.error(`[DEBUG] Comparison: ${comparisonDescription}`);
+    if (!base) {
+      throw new Error("Could not determine base branch");
     }
 
-    // Create the PR markdown
-    const markdown = await this.generatePrMarkdown(workdir, branch, mergeBase, comparisonDescription);
-    
-    return { markdown };
-  }
+    // Push the branch
+    await execAsync(`git push -u origin ${currentBranch}`, { cwd: repoPath });
 
-  private async generatePrMarkdown(workdir: string, branch: string, mergeBase: string, comparisonDescription: string): Promise<string> {
-    // Get commits on the branch
-    const { stdout: commits } = await execAsync(`git -C ${workdir} log --oneline ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
-    
-    // Get modified files in the branch
-    const { stdout: modifiedFiles } = await execAsync(`git -C ${workdir} diff --name-only ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
-    
-    // Get untracked files (only if merge base is not the first commit)
-    let untrackedFiles = '';
-    try {
-      const { stdout } = await execAsync(`git -C ${workdir} ls-files --others --exclude-standard`, { maxBuffer: 1024 * 1024 });
-      untrackedFiles = stdout;
-    } catch (err) {
-      // Ignore errors for untracked files
-    }
-    
-    // Get changes stats
-    const { stdout: stats } = await execAsync(`git -C ${workdir} diff --stat ${mergeBase}..${branch}`, { maxBuffer: 1024 * 1024 });
-    
-    // Generate the PR markdown
-    return [
-      `# Pull Request for branch \`${branch}\`\n`,
-      `## Commits\n${commits || 'No commits yet'}\n`,
-      `## Modified Files (${comparisonDescription})\n${modifiedFiles || untrackedFiles || 'No changes'}\n`,
-      `## Stats\n${stats || 'No changes'}`
-    ].join('\n');
+    // Print PR creation instructions
+    console.log(`\nTo create a PR, visit your repository's web interface and create a PR with:
+- Base branch: ${base}
+- Compare branch: ${currentBranch}`);
   }
 }

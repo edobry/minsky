@@ -3,6 +3,7 @@ import { SessionDB } from '../../domain/session';
 import { join } from 'path';
 import { promises as fs } from 'fs';
 import { createInterface } from 'readline';
+import { normalizeRepoName } from '../../domain/repo-utils';
 
 export function createDeleteCommand(): Command {
   return new Command('delete')
@@ -122,9 +123,10 @@ export function createDeleteCommand(): Command {
 }
 
 // Helper function to get session repository path
-function getSessionRepoPath(session: { repoName: string, session: string }): string {
+function getSessionRepoPath(session: { repoName?: string, repoUrl: string, session: string }): string {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-  return join(xdgStateHome, 'minsky', 'git', session.repoName, session.session);
+  const repoName = session.repoName || normalizeRepoName(session.repoUrl);
+  return join(xdgStateHome, 'minsky', 'git', repoName, 'sessions', session.session);
 }
 
 // Helper function to prompt for confirmation

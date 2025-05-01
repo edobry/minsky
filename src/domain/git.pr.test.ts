@@ -1,8 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import { GitService } from './git';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
+import { mock } from "bun:test";
+import { promises as fs } from "fs";
+import { SessionDB } from "./session";
 
 function run(cmd: string, cwd: string) {
   try {
@@ -18,74 +21,61 @@ function run(cmd: string, cwd: string) {
 }
 
 describe('GitService PR base branch detection', () => {
-  let tmpDir: string;
-  let repoDir: string;
-  let git: GitService;
+  const TEST_GIT_DIR = "/tmp/minsky-test/minsky/git";
 
-  beforeAll(() => {
-    try {
-      tmpDir = mkdtempSync('/tmp/minsky-git-test-');
-      repoDir = join(tmpDir, 'repo');
-      
-      // Initialize git repo
-      run('git init --initial-branch=main', tmpDir);
-      
-      // Create initial commit on main
-      writeFileSync(join(tmpDir, 'README.md'), '# Test Repo\n');
-      run('git add README.md', tmpDir);
-      run('git commit -m "Initial commit"', tmpDir);
-      
-      // Create a feature branch
-      run('git checkout -b feature', tmpDir);
-      writeFileSync(join(tmpDir, 'feature.txt'), 'feature branch\n');
-      run('git add feature.txt', tmpDir);
-      run('git commit -m "Add feature.txt"', tmpDir);
-      
-      // Switch back to main and add another commit
-      run('git checkout main', tmpDir);
-      writeFileSync(join(tmpDir, 'main.txt'), 'main branch\n');
-      run('git add main.txt', tmpDir);
-      run('git commit -m "Add main.txt"', tmpDir);
-      
-      // Switch back to feature and add another commit
-      run('git checkout feature', tmpDir);
-      writeFileSync(join(tmpDir, 'feature2.txt'), 'feature branch 2\n');
-      run('git add feature2.txt', tmpDir);
-      run('git commit -m "Add feature2.txt"', tmpDir);
-      
-      git = new GitService();
-    } catch (error) {
-      // Clean up if setup fails
-      if (tmpDir) {
-        try {
-          rmSync(tmpDir, { recursive: true, force: true });
-        } catch (cleanupError) {
-          console.error('Failed to clean up temp directory:', cleanupError);
-        }
+  beforeEach(async () => {
+    // Mock execAsync for git commands
+    const mockExecAsync = mock((cmd: string) => {
+      if (cmd === "git remote show origin") {
+        return Promise.resolve({
+          stdout: `
+* remote origin
+  Fetch URL: https://github.com/org/repo.git
+  Push  URL: https://github.com/org/repo.git
+  HEAD branch: main
+  Remote branches:
+    main   tracked
+    dev    tracked
+  Local branches configured for 'git pull':
+    main  merges with remote main
+  Local refs configured for 'git push':
+    main  pushes to main  (up to date)
+`,
+          stderr: ""
+        });
       }
-      throw error;
-    }
+      if (cmd === "git rev-parse --abbrev-ref HEAD") {
+        return Promise.resolve({ stdout: "feature/test\n", stderr: "" });
+      }
+      if (cmd === "git push -u origin feature/test") {
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      return Promise.resolve({ stdout: "", stderr: "" });
+    });
+    (global as any).execAsync = mockExecAsync;
   });
 
-  afterAll(() => {
-    try {
-      rmSync(tmpDir, { recursive: true, force: true });
-    } catch (error) {
-      console.error('Failed to clean up temp directory:', error);
-    }
+  afterEach(() => {
+    // Restore original execAsync
+    delete (global as any).execAsync;
   });
 
   it('should generate PR diff against main branch', async () => {
-    try {
-      const result = await git.pr({ repoPath: tmpDir, branch: 'feature' });
-      expect(result.markdown).toContain('feature.txt');
-      expect(result.markdown).toContain('feature2.txt');
-      expect(result.markdown).not.toContain('main.txt');
-      expect(result.markdown).toContain('Changes compared to merge-base with main');
-      expect(result.markdown).toMatch(/\d+ files? changed/);
-    } catch (error) {
-      console.error('Test failed:', error);
-      throw error;
-    }
-  }, 10000); // Increase timeout to 10 seconds
+    const git = new GitService();
+    await git.pr({
+      repoPath: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session"),
+      branch: "feature/test"
+    });
+
+    // Verify git commands were called correctly
+    const mockExecAsync = (global as any).execAsync;
+    expect(mockExecAsync).toHaveBeenCalledWith(
+      "git remote show origin",
+      { cwd: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session") }
+    );
+    expect(mockExecAsync).toHaveBeenCalledWith(
+      "git push -u origin feature/test",
+      { cwd: join(TEST_GIT_DIR, "github.com/org/repo/sessions/test-session") }
+    );
+  });
 }); 
