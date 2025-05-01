@@ -29,7 +29,7 @@ describe("startSession", () => {
         getSessionByTaskId = mockGetSessionByTaskId;
       }
     }));
-
+    
     // Mock GitService
     const mockClone = mock(() => Promise.resolve("/path/to/repo"));
     mock.module("../../domain/git", () => ({
@@ -50,11 +50,11 @@ describe("startSession", () => {
     const { startSession } = await import("./startSession");
     
     try {
-      const result = await startSession({
+    const result = await startSession({
         repo: "https://github.com/org/repo",
         session: "test-session"
       });
-
+    
       expect(result).toBe("/path/to/repo");
     } finally {
       // Clean up mocks if needed
@@ -120,7 +120,7 @@ describe("startSession", () => {
     (global as any).GitService = class {
       clone = mock(() => Promise.reject(new Error("Not in a git repository")));
     };
-
+    
     await expect(startSession({
       session: "test-session"
     })).rejects.toThrow("Not in a git repository");
@@ -148,7 +148,7 @@ describe("startSession", () => {
       repo: "https://github.com/org/repo",
       taskId: "#123"
     });
-
+    
     expect(result).toBe("/path/to/repo");
     const mockClone = (global as any).GitService.prototype.clone;
     expect(mockClone).toHaveBeenCalledWith({

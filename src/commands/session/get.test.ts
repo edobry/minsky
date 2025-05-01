@@ -116,4 +116,4 @@ describe("minsky session get CLI", () => {
     expect(stdout).toBe("");
     expect(stderr || "").toContain("You must provide either a session name or --task.");
   });
-});
+}); 

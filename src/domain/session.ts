@@ -85,7 +85,7 @@ export class SessionDB {
       await this.writeDb(sessions);
     }
   }
-
+  
   /**
    * Find a session by its associated task ID
    * @param taskId The task ID to search for (will be normalized if not already)
@@ -197,12 +197,12 @@ export class SessionDB {
         await fs.mkdir(join(this.baseDir, repoName, "sessions"), { recursive: true });
         
         // Move repository to new location
-        await fs.rename(legacyPath, newPath);
-        // Update session record
-        session.repoPath = newPath;
+          await fs.rename(legacyPath, newPath);
+          // Update session record
+          session.repoPath = newPath;
         session.repoName = repoName;
-        modified = true;
-      } catch (err) {
+          modified = true;
+        } catch (err) {
         // Skip if legacy path doesn"t exist
       }
     }
