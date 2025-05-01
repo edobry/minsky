@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { join } from 'path';
 import { promises as fs } from 'fs';
+import type { Mock } from 'bun:test';
 
 // For Bun testing, use mock.module to mock modules
 const mockExecOutput = {
@@ -8,17 +9,14 @@ const mockExecOutput = {
   stderr: '',
 };
 
-// Create a mutable mockExecAsync function wrapper
-let mockExecAsyncImpl = mock((cmd: string) => {
+// Create a mutable mockExecAsync function wrapper that can be typed properly
+const mockExecAsyncImpl = mock(async (cmd: string) => {
   // If this is a git rev-parse command, return our mockExecOutput.stdout
   if (cmd.includes('git rev-parse')) {
-    return Promise.resolve(mockExecOutput);
+    return mockExecOutput;
   }
-  return Promise.resolve({ stdout: '', stderr: '' });
+  return { stdout: '', stderr: '' };
 });
-
-// Wrapper for mockExecAsyncImpl that can be replaced for tests
-const mockExecAsync = (...args: any[]) => mockExecAsyncImpl(...args);
 
 // Create a mock for fs.access
 const mockFsAccess = mock(() => Promise.resolve());
@@ -26,14 +24,14 @@ const mockFsAccess = mock(() => Promise.resolve());
 // Mock the modules
 mock.module('child_process', () => ({
   exec: (cmd: string, options: any, callback: any) => {
-    mockExecAsync(cmd, options)
+    mockExecAsyncImpl(cmd, options)
       .then((result: any) => callback(null, result))
       .catch((error: any) => callback(error));
   }
 }));
 
 mock.module('util', () => ({
-  promisify: () => mockExecAsync,
+  promisify: () => mockExecAsyncImpl,
 }));
 
 // Mock the SessionDB
@@ -47,6 +45,14 @@ mock.module('./session', () => {
               session: 'existingSession',
               repoUrl: '/path/to/main/workspace',
               repoName: 'workspace',
+              createdAt: new Date().toISOString()
+            };
+          }
+          if (sessionName === 'task#027') {
+            return {
+              session: 'task#027',
+              repoUrl: '/path/to/main/workspace',
+              repoName: 'minsky',
               createdAt: new Date().toISOString()
             };
           }
@@ -73,13 +79,13 @@ mock.module('./workspace', () => {
     ...original,
     isSessionRepository: async (repoPath: string) => {
       // For test simplicity, let our mock consider paths with 'minsky/git' as session repos
-      const { stdout } = await mockExecAsync('git rev-parse --show-toplevel');
+      const { stdout } = await mockExecAsyncImpl('git rev-parse --show-toplevel');
       const gitRoot = stdout.trim();
       return gitRoot.includes('minsky/git');
     },
     getSessionFromRepo: async (repoPath: string) => {
       // For test simplicity, if the path contains 'existingSession', return hardcoded session info
-      const { stdout } = await mockExecAsync('git rev-parse --show-toplevel');
+      const { stdout } = await mockExecAsyncImpl('git rev-parse --show-toplevel');
       const gitRoot = stdout.trim();
       if (gitRoot.includes('existingSession')) {
         return {
@@ -118,7 +124,7 @@ import {
 async function checkSessionRepository(repoPath: string): Promise<boolean> {
   try {
     // Call our mocked exec function
-    const { stdout } = await mockExecAsync('git rev-parse --show-toplevel');
+    const { stdout } = await mockExecAsyncImpl('git rev-parse --show-toplevel');
     const gitRoot = stdout.trim();
     
     // Check if the git root is in the minsky/git directory structure
@@ -141,7 +147,7 @@ async function checkSessionRepository(repoPath: string): Promise<boolean> {
 async function getRepoSessionInfo(repoPath: string): Promise<{ session: string, mainWorkspace: string } | null> {
   try {
     // Call our mocked exec function
-    const { stdout } = await mockExecAsync('git rev-parse --show-toplevel');
+    const { stdout } = await mockExecAsyncImpl('git rev-parse --show-toplevel');
     const gitRoot = stdout.trim();
     
     // For testing, we want to handle all the session directory formats
@@ -190,7 +196,7 @@ describe('Workspace Utils', () => {
       mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'sessions', 'session-name');
       
       // Call the function with the mock
-      const result = await isSessionRepository('/some/repo/path', mockExecAsync);
+      const result = await isSessionRepository('/some/repo/path', mockExecAsyncImpl);
       
       expect(result).toBe(true);
     });
@@ -199,9 +205,29 @@ describe('Workspace Utils', () => {
       mockExecOutput.stdout = '/Users/username/Projects/repo';
       
       // Call the function with the mock
-      const result = await isSessionRepository('/some/repo/path', mockExecAsync);
+      const result = await isSessionRepository('/some/repo/path', mockExecAsyncImpl);
       
       expect(result).toBe(false);
+    });
+
+    it('should return true for a deeply nested session repository path with sessions subdirectory', async () => {
+      const home = process.env.HOME || '';
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
+      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'minsky', 'sessions', 'task#027');
+      
+      const result = await isSessionRepository('/some/repo/path', mockExecAsyncImpl);
+      
+      expect(result).toBe(true);
+    });
+
+    it('should detect multi-level nesting with sessions directory', async () => {
+      const home = process.env.HOME || '';
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
+      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'org', 'repo', 'nested', 'sessions', 'feature-branch');
+      
+      const result = await isSessionRepository('/some/repo/path', mockExecAsyncImpl);
+      
+      expect(result).toBe(true);
     });
   });
 
@@ -209,38 +235,38 @@ describe('Workspace Utils', () => {
     it('should extract session info from a legacy session repository path', async () => {
       const home = process.env.HOME || '';
       const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
-      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'existingSession');
+      const sessionPath = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'existingSession');
+      mockExecOutput.stdout = sessionPath;
       
-      const result = await getSessionFromRepo('/some/repo/path');
+      const result = await getSessionFromRepo('/some/repo/path', mockExecAsyncImpl);
       
       expect(result).toEqual({
         session: 'existingSession',
-        mainWorkspace: '/path/to/main/workspace'
+        mainWorkspace: '/path/to/main/workspace',
+        path: sessionPath
       });
     });
 
-    it('should extract session info from a new session repository path with sessions subdirectory', async () => {
+    it('should extract session info from a deeply nested session repository path', async () => {
       const home = process.env.HOME || '';
       const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
-      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'sessions', 'existingSession');
+      const sessionPath = join(xdgStateHome, 'minsky', 'git', 'local', 'minsky', 'sessions', 'task#027');
+      mockExecOutput.stdout = sessionPath;
       
-      const result = await getSessionFromRepo('/some/repo/path');
+      const result = await getSessionFromRepo('/some/repo/path', mockExecAsyncImpl);
       
       expect(result).toEqual({
-        session: 'existingSession',
-        mainWorkspace: '/path/to/main/workspace'
+        session: 'task#027',
+        mainWorkspace: '/path/to/main/workspace',
+        path: sessionPath
       });
     });
 
     it('should return null for a non-session repository path', async () => {
       // Create mock execAsync that returns a non-session repository path
-      const mockExecAsync = mock(async () => ({ 
-        stdout: '/Users/username/Projects/repo',
-        stderr: '' 
-      }));
+      mockExecOutput.stdout = '/Users/username/Projects/repo';
       
-      // Call the function with the mock
-      const result = await getSessionFromRepo('/some/repo/path', mockExecAsync);
+      const result = await getSessionFromRepo('/some/repo/path', mockExecAsyncImpl);
       
       expect(result).toBeNull();
     });
@@ -318,31 +344,32 @@ describe('Workspace Utils', () => {
   });
 
   describe('getCurrentSession', () => {
-    it('should return the session name when in a session repository', async () => {
+    it('should return session name when in a session repository', async () => {
       const home = process.env.HOME || '';
       const xdgStateHome = process.env.XDG_STATE_HOME || join(home, '.local/state');
-      mockExecOutput.stdout = join(xdgStateHome, 'minsky', 'git', 'local', 'repo', 'existingSession');
+      const sessionPath = join(xdgStateHome, 'minsky', 'git', 'local', 'minsky', 'sessions', 'task#027');
+      mockExecOutput.stdout = sessionPath;
       
-      const result = await getCurrentSession('/some/repo/path');
+      const result = await getCurrentSession(sessionPath, mockExecAsyncImpl);
       
-      expect(result).toBe('existingSession');
+      expect(result).toBe('task#027');
     });
 
     it('should return null when not in a session repository', async () => {
       mockExecOutput.stdout = '/Users/username/Projects/repo';
       
-      const result = await getCurrentSession('/some/repo/path');
+      const result = await getCurrentSession('/Users/username/Projects/repo', mockExecAsyncImpl);
       
       expect(result).toBeNull();
     });
 
-    it('should return null when getSessionFromRepo throws an error', async () => {
-      // Create mock execAsync that throws an error
-      const mockExecAsync = mock(async () => {
-        throw new Error('Git command failed');
+    it('should handle errors gracefully and return null', async () => {
+      // Set up mock that throws an error
+      const errorMockExec = mock(() => {
+        throw new Error('Test error');
       });
       
-      const result = await getCurrentSession('/some/repo/path', mockExecAsync);
+      const result = await getCurrentSession('/some/path', errorMockExec as any);
       
       expect(result).toBeNull();
     });
