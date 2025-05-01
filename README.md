@@ -48,6 +48,39 @@ minsky git branch new-feature --session feature-x
 minsky git pr --session feature-x
 ```
 
+#### `minsky git commit`
+
+Stage and commit changes in a single step. When used in a session, automatically prefixes the commit message with the task ID.
+
+```bash
+# Stage and commit changes with task ID prefix
+minsky git commit -m "Implement feature X"
+# Results in: "task#XXX: Implement feature X"
+
+# Stage all changes including deletions
+minsky git commit -a -m "Update feature Y"
+
+# Commit from a specific session
+minsky git commit -s session-name -m "Fix bug Z"
+
+# Commit from a specific repository
+minsky git commit -r /path/to/repo -m "Update docs"
+
+# Skip staging (for when files are already staged)
+minsky git commit --no-stage -m "Fix typo"
+
+# Amend the previous commit
+minsky git commit --amend -m "Fix typo in previous commit"
+```
+
+Options:
+- `-m, --message <message>` - Commit message (required unless using --amend)
+- `-s, --session <session>` - Session name
+- `-r, --repo <path>` - Repository path
+- `-a, --all` - Stage all changes including deletions (default: false)
+- `--amend` - Amend the previous commit (default: false)
+- `--no-stage` - Skip staging changes (for when files are already staged)
+
 > **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
 
 ### Session Management
@@ -159,20 +192,3 @@ minsky session start auth-api --repo https://github.com/org/project.git
 # Agent 2: Frontend integration
 minsky session start auth-ui --repo https://github.com/org/project.git
 ```
-
-Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
-
-## Future Plans
-
-- Team organization patterns for agents
-- Session continuity and context management
-- Automated code reviews
-- Task planning and allocation (with more backends)
-
-## Contributing
-
-This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
-
-## License
-
-MIT
