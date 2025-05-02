@@ -1,23 +1,24 @@
-import { Command } from 'commander';
-import { GitService } from '../../domain/git';
-import { SessionDB } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
-import fs from 'fs';
-import path from 'path';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { startSession } from './startSession';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { Command } from "commander";
+import { GitService } from "../../domain/git";
+import { SessionDB } from "../../domain/session";
+import { TaskService } from "../../domain/tasks";
+import fs from "fs";
+import path from "path";
+import { resolveRepoPath } from "../../domain/repo-utils";
+import { startSession } from "./startSession";
+import { normalizeTaskId } from "../../utils/task-utils";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
   const sessionDB = new SessionDB();
 
-  return new Command('start')
-    .description('Start a new session with a cloned repository')
-    .argument('[session]', 'Session identifier (optional if --task is provided)')
-    .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
-    .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
-    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string }) => {
+  return new Command("start")
+    .description("Start a new session with a cloned repository")
+    .argument("[session]", "Session identifier (optional if --task is provided)")
+    .option("-r, --repo <repo>", "Repository URL or local path to clone (optional)")
+    .option("-t, --task <taskId>", "Task ID to associate with the session (uses task ID as session name if provided)")
+    .option("-q, --quiet", "Output only the session directory path (for programmatic use)")
+    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string, quiet?: boolean }) => {
       try {
         const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
@@ -33,8 +34,8 @@ export function createStartCommand(): Command {
           
           // Verify the task exists
           const taskService = new TaskService({
-            repoPath,
-            backend: 'markdown' // Default to markdown backend
+            workspacePath: repoPath,
+            backend: "markdown" // Default to markdown backend
           });
           
           const task = await taskService.getTask(taskId);
@@ -60,18 +61,25 @@ export function createStartCommand(): Command {
           taskId
         });
         
-        console.log(`Session '${result.sessionRecord.session}' started.`);
-        console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
-        console.log(`Branch '${result.branchResult.branch}' created.`);
-        if (taskId) {
-          console.log(`Associated with task: ${taskId}`);
+        if (options.quiet) {
+          // In quiet mode, output only the session directory path
+          console.log(result.cloneResult.workdir);
+        } else {
+          // Standard verbose output for interactive use
+          console.log(`Session '${result.sessionRecord.session}' started.`);
+          console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
+          console.log(`Branch '${result.branchResult.branch}' created.`);
+          if (taskId) {
+            console.log(`Associated with task: ${taskId}`);
+          }
+          console.log("\nTo navigate to this session's directory, run:");
+          console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
+          console.log("");
+          console.log(result.cloneResult.workdir);
         }
-        console.log(`\nTo navigate to this session's directory, run:`);
-        console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-        console.log('');
-        console.log(result.cloneResult.workdir);
       } catch (error) {
-        console.error('Error starting session:', error.message);
+        const err = error instanceof Error ? error : new Error(String(error));
+        console.error("Error starting session:", err.message);
         process.exit(1);
       }
     });

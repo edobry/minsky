@@ -11,6 +11,7 @@ export interface Task {
   title: string;
   description: string;
   status: string;
+  specPath?: string; // Path to the task specification document
 }
 
 export interface TaskBackend {
@@ -20,6 +21,7 @@ export interface TaskBackend {
   getTaskStatus(id: string): Promise<string | null>;
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
+  createTask(specPath: string): Promise<Task>;
 }
 
 export interface TaskListOptions {
@@ -104,6 +106,31 @@ export class MarkdownTaskBackend implements TaskBackend {
     await fs.writeFile(this.filePath, updatedLines.join('\n'), 'utf-8');
   }
   
+  private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
+    const taskIdNum = taskId.startsWith('#') ? taskId.slice(1) : taskId;
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const specPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+    const fullPath = join(this.workspacePath, specPath);
+
+    try {
+      await fs.access(fullPath);
+      return specPath; // Return relative path if file exists
+    } catch {
+      // If file doesn't exist, try looking for any file with the task ID prefix
+      const taskDir = join(this.workspacePath, 'process', 'tasks');
+      try {
+        const files = await fs.readdir(taskDir);
+        const matchingFile = files.find(f => f.startsWith(`${taskIdNum}-`));
+        if (matchingFile) {
+          return join('process', 'tasks', matchingFile);
+        }
+      } catch {
+        // Directory doesn't exist or can't be read
+      }
+      return undefined;
+    }
+  }
+  
   private async parseTasks(): Promise<Task[]> {
     try {
       const content = await fs.readFile(this.filePath, 'utf-8');
@@ -140,7 +167,17 @@ export class MarkdownTaskBackend implements TaskBackend {
             break;
           }
         }
-        tasks.push({ id, title, status, description: description.trim() });
+        
+        // Use the new validateSpecPath function to get the correct path
+        const specPath = await this.validateSpecPath(id, title);
+        
+        tasks.push({ 
+          id, 
+          title, 
+          status, 
+          description: description.trim(),
+          specPath
+        });
       }
       return tasks;
     } catch (error) {
@@ -151,6 +188,70 @@ export class MarkdownTaskBackend implements TaskBackend {
   
   getWorkspacePath(): string {
     return this.workspacePath;
+  }
+
+  async createTask(specPath: string): Promise<Task> {
+    // Validate that the spec file exists
+    try {
+      await fs.access(specPath);
+    } catch (error) {
+      throw new Error(`Spec file not found: ${specPath}`);
+    }
+
+    // Read and parse the spec file
+    const specContent = await fs.readFile(specPath, 'utf-8');
+    const lines = specContent.split('\n');
+
+    // Extract title from the first heading
+    const titleLine = lines.find(line => line.startsWith('# '));
+    if (!titleLine) {
+      throw new Error('Invalid spec file: Missing title heading');
+    }
+    const titleMatch = titleLine.match(/^# Task #\d+: (.+)$/);
+    if (!titleMatch?.[1]) {
+      throw new Error('Invalid spec file: Missing or invalid title. Expected format: "# Task #XXX: Title"');
+    }
+    const title = titleMatch[1];
+
+    // Extract description from the Context section
+    const contextIndex = lines.findIndex(line => line.trim() === '## Context');
+    if (contextIndex === -1) {
+      throw new Error('Invalid spec file: Missing Context section');
+    }
+    let description = '';
+    for (let i = contextIndex + 1; i < lines.length; i++) {
+      const line = lines[i] || '';
+      if (line.trim().startsWith('## ')) break;
+      if (line.trim()) description += line.trim() + '\n';
+    }
+    if (!description.trim()) {
+      throw new Error('Invalid spec file: Empty Context section');
+    }
+
+    // Find the next available task ID
+    const tasks = await this.parseTasks();
+    const maxId = tasks.reduce((max, task) => {
+      const id = parseInt(task.id.slice(1));
+      return id > max ? id : max;
+    }, 0);
+    const nextId = `#${String(maxId + 1).padStart(3, '0')}`;
+
+    // Create the task entry
+    const task: Task = {
+      id: nextId,
+      title,
+      description: description.trim(),
+      status: TASK_STATUS.TODO,
+      specPath
+    };
+
+    // Add the task to tasks.md
+    const content = await fs.readFile(this.filePath, 'utf-8');
+    const taskEntry = `- [ ] ${title} [${nextId}](${specPath})\n`;
+    const updatedContent = content + '\n' + taskEntry;
+    await fs.writeFile(this.filePath, updatedContent, 'utf-8');
+
+    return task;
   }
 }
 
@@ -189,6 +290,11 @@ export class GitHubTaskBackend implements TaskBackend {
   getWorkspacePath(): string {
     return this.workspacePath;
   }
+
+  async createTask(specPath: string): Promise<Task> {
+    // Implementation needed
+    throw new Error('Method not implemented');
+  }
 }
 
 export interface TaskServiceOptions {
@@ -201,24 +307,20 @@ export class TaskService {
   private currentBackend: TaskBackend;
   
   constructor(options: TaskServiceOptions = {}) {
-    // Default to current directory if no workspacePath is provided
-    const workspacePath = options.workspacePath || process.cwd();
+    const { workspacePath = process.cwd(), backend = 'markdown' } = options;
     
-    // Add all available backends
-    this.backends.push(new MarkdownTaskBackend(workspacePath));
-    this.backends.push(new GitHubTaskBackend(workspacePath));
+    // Initialize backends
+    this.backends = [
+      new MarkdownTaskBackend(workspacePath),
+      new GitHubTaskBackend(workspacePath)
+    ];
     
-    // Select the backend to use
-    if (options.backend) {
-      const backend = this.backends.find(b => b.name === options.backend);
-      if (!backend) {
-        throw new Error(`Task backend '${options.backend}' not found.`);
-      }
-      this.currentBackend = backend;
-    } else {
-      // Default to markdown backend
-      this.currentBackend = this.backends[0];
+    // Set current backend
+    const selectedBackend = this.backends.find(b => b.name === backend);
+    if (!selectedBackend) {
+      throw new Error(`Backend '${backend}' not found. Available backends: ${this.backends.map(b => b.name).join(', ')}`);
     }
+    this.currentBackend = selectedBackend;
   }
   
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
@@ -239,5 +341,9 @@ export class TaskService {
   
   getWorkspacePath(): string {
     return this.currentBackend.getWorkspacePath();
+  }
+
+  async createTask(specPath: string): Promise<Task> {
+    return this.currentBackend.createTask(specPath);
   }
 } 

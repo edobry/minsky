@@ -1,59 +1,45 @@
 declare module "bun:test" {
-  export function describe(name: string, fn: () => void): void;
-  export function it(name: string, fn: () => Promise<void> | void): void;
-  export function expect<T>(value: T): {
-    toBe(expected: any): void;
-    toEqual(expected: any): void;
-    toContain(expected: any): void;
-    toBeDefined(): void;
-    toBeUndefined(): void;
-    toBeNull(): void;
-    toHaveBeenCalled(): void;
-    toHaveBeenCalledWith(...args: any[]): void;
-    not: {
-      toBe(expected: any): void;
-      toBeNull(): void;
-      toEqual(expected: any): void;
-      toContain(expected: any): void;
-      toBeDefined(): void;
-      toBeUndefined(): void;
-    };
-    rejects: {
-      toThrow(message?: string): Promise<void>;
-    };
+  export const describe: (name: string, fn: () => void) => void;
+  export const test: (name: string, fn: () => void | Promise<void>) => void;
+  export const expect: jest.Expect;
+  export const mock: {
+    fn: <T extends (...args: any[]) => any>(implementation?: T) => jest.Mock<T>;
+    module: (path: string, factory: () => any) => void;
+    restoreAll: () => void;
   };
-  export function beforeEach(fn: () => Promise<void> | void): void;
-  export function afterEach(fn: () => Promise<void> | void): void;
-  export function beforeAll(fn: () => Promise<void> | void): void;
-  export function afterAll(fn: () => Promise<void> | void): void;
-  export function mock<T extends (...args: any[]) => any>(
-    implementation?: T
-  ): jest.Mock<ReturnType<T>, Parameters<T>>;
-  
-  export namespace mock {
-    function module(moduleName: string, factory: () => any): void;
-    function restoreAll(): void;
+  export const beforeEach: (fn: () => void | Promise<void>) => void;
+  export const afterEach: (fn: () => void | Promise<void>) => void;
+  export type Mock<T> = jest.Mock<T>;
+}
+
+declare namespace jest {
+  interface Expect {
+    <T = any>(actual: T): jest.Matchers<T>;
+    stringContaining(expected: string): any;
+    any(constructor: any): any;
   }
   
-  namespace jest {
-    interface Mock<T = any, Y extends any[] = any[]> {
-      (...args: Y): T;
-      getMockName(): string;
-      mock: {
-        calls: Y[];
-        instances: T[];
-        invocationCallOrder: number[];
-        results: { type: string; value: T }[];
-      };
-      mockClear(): this;
-      mockReset(): this;
-      mockRestore(): void;
-      mockImplementation(fn: (...args: Y) => T): this;
-      mockImplementationOnce(fn: (...args: Y) => T): this;
-      mockName(name: string): this;
-      mockReturnThis(): this;
-      mockReturnValue(value: T): this;
-      mockReturnValueOnce(value: T): this;
-    }
+  interface Matchers<R> {
+    toHaveBeenCalled(): R;
+    toHaveBeenCalledWith(...args: any[]): R;
+    toBe(expected: any): R;
+    toEqual(expected: any): R;
+    toContain(expected: any): R;
+    toMatch(expected: string | RegExp): R;
+    not: Matchers<R>;
   }
+  
+  interface Mock<T = any> {
+    (...args: Parameters<T>): ReturnType<T>;
+    mockResolvedValue(value: any): void;
+    mockImplementation(fn: (...args: any[]) => any): void;
+    mockReturnValue(value: any): void;
+    mockReset(): void;
+  }
+  
+  type Mocked<T> = {
+    [P in keyof T]: T[P] extends (...args: any[]) => any
+      ? Mock<T[P]>
+      : T[P];
+  };
 } 

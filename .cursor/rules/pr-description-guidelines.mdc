@@ -3,10 +3,46 @@ description: Detailed guidelines for structuring and writing effective PR descri
 globs: 
 alwaysApply: false
 ---
-
 # PR Description Guidelines
 
 For any Pull Request, follow these standards to ensure clarity, consistency, and comprehensive documentation of changes.
+
+## Output Format
+When generating a PR description, always wrap it in a markdown code block with the markdown language specifier:
+```markdown
+# feat(scope): description
+
+## Summary
+...rest of PR description...
+```
+
+This ensures the formatting is preserved and makes it easy to copy and paste into PR systems.
+
+## Handling Nested Code Blocks
+When including code examples within your PR description, you MUST use alternative syntax for nested code blocks to prevent formatting issues:
+
+1. **For the outer markdown code block**: Use standard triple backticks with language specifier: ```markdown
+
+2. **For code examples inside your PR description**: Use one of these approaches:
+   - Use indentation (4 spaces) instead of backticks for simple code examples
+   - For syntax highlighting in nested blocks, use HTML syntax:
+     ```html
+     <pre><code class="language-javascript">
+     function example() {
+       return "This is properly nested";
+     }
+     </code></pre>
+     ```
+   - Alternatively, escape the backticks in nested code blocks with HTML entities:
+     ```html
+     &#96;&#96;&#96;javascript
+     function example() {
+       return "This is properly nested";
+     }
+     &#96;&#96;&#96;
+     ```
+
+3. **For simple inline code**, continue using single backticks as normal: `example`
 
 ## PR Title Format
 - Always use the conventional commits format: `type(scope): description`
@@ -62,8 +98,10 @@ For any Pull Request, follow these standards to ensure clarity, consistency, and
 9. **Screenshots/Examples** (When applicable)
    - Include visual examples for UI changes
    - Show before/after comparisons if relevant
+   - For code examples, use the nested code block techniques described above
 
-## Example PR Description Template
+## Example PR Description Template with Proper Nesting
+
 ```markdown
 # feat(#002): Store Session Repos Under Per-Repo Directories
 
@@ -81,6 +119,31 @@ We've implemented a hierarchical directory structure while maintaining backward 
 - Implemented repository name normalization (e.g., `github.com/org/project.git` → `org/project`)
 - Updated directory structure to store session repositories under `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`
 - Added migration logic for existing session records
+
+## Code Examples
+
+Example JSON structure:
+
+<pre><code class="language-json">
+{
+  "session": "task#002",
+  "repoName": "org/project",
+  "repoUrl": "https://github.com/org/project.git",
+  "branch": "task#002",
+  "createdAt": "2024-04-29T18:50:00Z"
+}
+</code></pre>
+
+Example directory structure (4-space indentation for code blocks):
+
+    $XDG_STATE_HOME/minsky/git/
+    ├── org/project/
+    │   └── sessions/
+    │       ├── task#001/
+    │       └── task#002/
+    └── another/repo/
+        └── sessions/
+            └── feature-x/
 
 ## Breaking Changes
 None. All changes maintain backward compatibility with existing sessions.

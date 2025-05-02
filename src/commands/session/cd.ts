@@ -1,16 +1,6 @@
 import { Command } from "commander";
-import { join } from "path";
 import { SessionDB } from "../../domain/session";
-import type { SessionRecord } from "../../domain/session";
 import { normalizeTaskId } from "../../utils/task-utils";
-
-/**
- * Gets the full path to a session"s repository
- */
-async function getSessionRepoPath(session: SessionRecord): Promise<string> {
-  const db = new SessionDB();
-  return db.getRepoPath(session);
-}
 
 export function createDirCommand(): Command {
   return new Command("dir")
@@ -37,7 +27,7 @@ export function createDirCommand(): Command {
           
           session = await db.getSessionByTaskId(normalizedTaskId);
           if (!session) {
-            console.error(`No session found for task ID "${normalizedTaskId}".`);
+            console.error(`No session found for task ID '${normalizedTaskId}'.`);
             process.exit(1);
             return;
           }
@@ -45,7 +35,7 @@ export function createDirCommand(): Command {
           // Otherwise look up by session name
           session = await db.getSession(sessionName);
           if (!session) {
-            console.error(`Session "${sessionName}" not found.`);
+            console.error(`Session '${sessionName}' not found.`);
             process.exit(1);
             return;
           }

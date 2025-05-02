@@ -26,8 +26,7 @@ This rule defines the comprehensive process for working with tasks and sessions 
      
      # For session queries
      minsky session list --json        # List all sessions
-     minsky session get <name>         # Get session details by name
-     minsky session get --task XXX     # Get session details by task ID
+     minsky session get <name>         # Get session details
      ```
 
 2. **Data Integrity is Critical**
@@ -37,9 +36,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - NEVER attempt to read or modify the session database directly
    - If encountering session/task issues:
      1. Use `minsky session list` to check current state
-     2. Use `minsky session get <name>` to inspect specific sessions by name
-     3. Use `minsky session get --task XXX` to inspect sessions by task ID
-     4. Report the issue if commands aren't working as expected
+     2. Use `minsky session get <name>` to inspect specific sessions
+     3. Report the issue if commands aren't working as expected
    - Deleting state files is STRICTLY FORBIDDEN as it:
      - Corrupts Minsky's understanding of tasks and sessions
      - Makes session management impossible
@@ -181,7 +179,13 @@ When asked to create a new task:
      ```bash
      minsky session start --task 001
      ```
-   - The output will show:
+   - Use the `--quiet` option for programmatic usage that outputs only the session directory path:
+     ```bash
+     # For programmatic use in scripts
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     cd "$SESSION_DIR"
+     ```
+   - The standard output will show:
      - The auto-generated session name (e.g., `task#001`)
      - The repository location where files were cloned
      - The branch name that was created (same as session name)
@@ -192,6 +196,33 @@ When asked to create a new task:
 2. **Enter the Session Directory**
    - Navigate to the session directory using the provided command
 
+### Keeping Sessions in Sync
+
+1. **Update from Main Branch**
+   - Synchronize your session with the latest changes from the main branch:
+     ```bash
+     # Update current session (defaults to merging from main)
+     minsky session update
+     
+     # Update a specific session
+     minsky session update task#001
+     
+     # Update with customized options
+     minsky session update --no-stash --no-push --branch develop --remote upstream
+     ```
+   - This command handles:
+     - Stashing uncommitted changes
+     - Pulling latest updates from the remote
+     - Merging changes from specified branch
+     - Pushing updates to remote
+     - Restoring stashed changes
+
+2. **Best Practices**
+   - Update regularly to avoid diverging too far from main
+   - Update before generating a PR to ensure integration with the latest changes
+   - Use `--no-stash` when you want to keep working changes visible
+   - Use `--no-push` when testing integration locally before pushing
+
 ### Re-entering an Existing Session
 
 When asked to continue working on a task:
@@ -199,16 +230,14 @@ When asked to continue working on a task:
 1. **Find Existing Session**
    - Look up the session associated with the task:
      ```bash
-     # Use session get to get details about a specific session by name
+     # Use session get to get details about a specific session
      minsky session get task#001
-     
-     # OR use session get with the --task option to get details by task ID
-     minsky session get --task 001
      ```
-   - If needed, you can also list all sessions:
+   - If you don't know the session name, you may need to list all sessions:
      ```bash
-     minsky session list --json
+     minsky session list --json | jq '.[] | select(.taskId == "#001")'
      ```
+   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
 
 2. **Enter Existing Session**
    - Navigate to the session directory:
@@ -236,7 +265,16 @@ When asked to continue working on a task:
      ```
    - Never leave commits unpushed at the end of an implementation session
 
-3. **Work Log**
+3. **Synchronization**
+   - Regularly update your session with changes from the main branch:
+     ```bash
+     # Update current session with main branch changes
+     minsky session update
+     ```
+   - This helps avoid integration issues by keeping your branch current
+   - It's especially important to update before generating a PR
+
+4. **Work Log**
    - Maintain a "Work Log" section in the task document:
      ```markdown
      ## Work Log
@@ -246,7 +284,7 @@ When asked to continue working on a task:
      ```
    - This log will be used to update the changelog when the task is complete
 
-4. **Testing**
+5. **Testing**
    - Write appropriate tests for all new functionality
    - Ensure all existing tests continue to pass
    - Document any complex test scenarios or edge cases addressed
