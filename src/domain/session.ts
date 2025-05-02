@@ -14,9 +14,13 @@ export interface SessionRecord {
 export class SessionDB {
   private readonly dbPath: string;
 
-  constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+  constructor(dbPath?: string) {
+    if (dbPath) {
+      this.dbPath = dbPath;
+    } else {
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+    }
   }
 
   private async ensureDbDir(): Promise<void> {

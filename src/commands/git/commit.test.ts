@@ -1,50 +1,59 @@
-import { mock, describe, test, expect, beforeEach, afterEach } from "bun:test";
-import type { Mock } from "bun:test";
-import type { SessionDB, SessionRecord } from "../../domain/session";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import type { SessionRecord } from "../../domain/session";
 import { createGitCommitCommand } from "./commit";
-import { GitService } from "../../domain/git";
 import type { GitStatus } from "../../domain/git";
 
-// Mock dependencies
+// Manual mock function factory
+function createMockFn(impl?: any) {
+  const fn: any = (...args: any[]) => {
+    fn.calls.push(args);
+    if (fn._impl) return fn._impl(...args);
+    if (impl) return impl(...args);
+  };
+  fn.calls = [];
+  fn.mockImplementation = (f: any) => { fn._impl = f; };
+  fn._impl = null;
+  fn.mockResolvedValue = (v: any) => { fn._impl = () => Promise.resolve(v); };
+  fn.mockReturnValue = (v: any) => { fn._impl = () => v; };
+  fn.toHaveBeenCalledWith = (...expected: any[]) => {
+    expect(fn.calls.some((call: any) => JSON.stringify(call) === JSON.stringify(expected))).toBe(true);
+  };
+  return fn;
+}
+
 const mockGitServiceInstance = {
-  getStatus: mock.fn<() => Promise<GitStatus>>(),
-  stageAll: mock.fn<() => Promise<void>>(),
-  stageModified: mock.fn<() => Promise<void>>(),
-  commit: mock.fn<(message: string, amend?: boolean) => Promise<string>>()
+  getStatus: createMockFn(async () => ({})),
+  stageAll: createMockFn(async () => {}),
+  stageModified: createMockFn(async () => {}),
+  commit: createMockFn(async (message: string, amend?: boolean) => "commit-sha")
 };
 
-type MockGitService = typeof mockGitServiceInstance;
+const GitService = createMockFn(() => mockGitServiceInstance);
+const SessionDB = createMockFn();
+const getSession = createMockFn(async () => null);
+const resolveRepoPath = createMockFn(async (path: string) => "/mock/repo/path");
 
-mock.module("../../domain/git", () => ({
-  GitService: mock.fn(() => mockGitServiceInstance)
-}));
+let mockSessionService: { getSession: any };
 
-mock.module("../../domain/session", () => ({
-  SessionDB: mock.fn(),
-  getSession: mock.fn<() => Promise<SessionRecord | null>>()
-}));
-
-// Mock resolveRepoPath function
-const resolveRepoPath = mock.fn<(path: string) => Promise<string>>();
-mock.module("../../utils/repo", () => ({
-  resolveRepoPath
-}));
+const mockConsoleLog = createMockFn();
+const mockConsoleError = createMockFn();
+const mockProcessExit = createMockFn();
 
 describe("git commit command", () => {
   let command: ReturnType<typeof createGitCommitCommand>;
-  let mockGitService: MockGitService;
-  let mockSessionService: { getSession: Mock<() => Promise<SessionRecord | null>> };
+  let mockGitService: typeof mockGitServiceInstance;
+  let mockSessionService: { getSession: any };
   let originalConsoleLog: typeof console.log;
   let originalConsoleError: typeof console.error;
   let originalProcessExit: typeof process.exit;
-  let mockConsoleLog: Mock<typeof console.log>;
-  let mockConsoleError: Mock<typeof console.error>;
-  let mockProcessExit: Mock<typeof process.exit>;
+  let mockConsoleLog: any;
+  let mockConsoleError: any;
+  let mockProcessExit: any;
 
   beforeEach(() => {
     command = createGitCommitCommand();
     mockGitService = mockGitServiceInstance;
-    mockSessionService = { getSession: mock.fn<() => Promise<SessionRecord | null>>() };
+    mockSessionService = { getSession: createMockFn(async () => null) };
 
     // Save original console methods
     originalConsoleLog = console.log;
@@ -52,17 +61,14 @@ describe("git commit command", () => {
     originalProcessExit = process.exit;
 
     // Create mock functions
-    mockConsoleLog = mock.fn<typeof console.log>();
-    mockConsoleError = mock.fn<typeof console.error>();
-    mockProcessExit = mock.fn<typeof process.exit>();
+    mockConsoleLog = createMockFn();
+    mockConsoleError = createMockFn();
+    mockProcessExit = createMockFn();
 
     // Mock console methods
     console.log = mockConsoleLog;
     console.error = mockConsoleError;
     process.exit = mockProcessExit;
-
-    // Reset mocks
-    mock.restoreAll();
   });
 
   afterEach(() => {
@@ -100,7 +106,6 @@ describe("git commit command", () => {
       repoUrl: "https://github.com/test/repo",
       repoName: "test/repo",
       taskId: "123",
-      repoPath: "/path/to/repo",
       createdAt: new Date().toISOString()
     };
     mockGitService.getStatus.mockResolvedValue(mockStatus);

@@ -10,7 +10,7 @@ describe("SessionDB", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync("/tmp/session-test-");
-    sessionDb = new SessionDB();
+    sessionDb = new SessionDB(join(tmpDir, "session-db.json"));
   });
 
   afterEach(() => {
@@ -39,7 +39,7 @@ describe("SessionDB", () => {
       await writeFileSync(join(tmpDir, "session-db.json"), JSON.stringify(sessions, null, 2));
 
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new SessionDB(join(tmpDir, "session-db.json"));
 
       // Delete the first session
       const result = await db.deleteSession("test-session-1");
@@ -49,7 +49,7 @@ describe("SessionDB", () => {
 
       // Check that only the second session remains
       const remainingSessions = await db.listSessions();
-      expect(remainingSessions).toHaveLength(1);
+      expect(remainingSessions.length).toBe(1);
       expect(remainingSessions[0]?.session).toBe("test-session-2");
     });
 
@@ -68,7 +68,7 @@ describe("SessionDB", () => {
       await writeFileSync(join(tmpDir, "session-db.json"), JSON.stringify(sessions, null, 2));
 
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new SessionDB(join(tmpDir, "session-db.json"));
 
       // Try to delete a non-existent session
       const result = await db.deleteSession("non-existent-session");
@@ -78,7 +78,7 @@ describe("SessionDB", () => {
 
       // Check that the original session still exists
       const remainingSessions = await db.listSessions();
-      expect(remainingSessions).toHaveLength(1);
+      expect(remainingSessions.length).toBe(1);
       expect(remainingSessions[0]?.session).toBe("test-session");
     });
 
@@ -87,7 +87,7 @@ describe("SessionDB", () => {
       await writeFileSync(join(tmpDir, "session-db.json"), JSON.stringify([], null, 2));
 
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new SessionDB(join(tmpDir, "session-db.json"));
 
       // Try to delete a session
       const result = await db.deleteSession("test-session");
@@ -100,7 +100,7 @@ describe("SessionDB", () => {
       // Don't create the database file
 
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new SessionDB(join(tmpDir, "session-db.json"));
 
       // Try to delete a session
       const result = await db.deleteSession("test-session");
