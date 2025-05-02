@@ -49,11 +49,11 @@ describe("session command workspace auto-detection", () => {
       // Create a special version of the CLI file for this test that uses the environment variable
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -95,11 +95,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -140,11 +140,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -186,11 +186,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -232,11 +232,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -278,11 +278,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
@@ -322,11 +322,11 @@ program.parse();`;
       // Create a special version of the CLI file for this test
       const testCliContent = `#!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
+import { createSessionCommand } from "./src/commands/session";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
+import * as workspaceModule from "./src/domain/workspace";
 
 // Mock getCurrentSession to return the test environment variable
 workspaceModule.getCurrentSession = async () => {
