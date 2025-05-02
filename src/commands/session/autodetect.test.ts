@@ -17,6 +17,21 @@ const ENV_VARS = {
   MINSKY_TEST_CURRENT_SESSION: "auto-detected-session"
 };
 
+/**
+ * Note: This test file is currently failing with "Attempted to assign to readonly property"
+ * errors due to issues with directly modifying imported module properties in Bun's testing
+ * environment. This approach doesn't work with the current version of Bun.
+ * 
+ * As an alternative, we've created:
+ * 1. test-session-mock-helper.ts - A helper module that uses dependency injection instead of
+ *    module property modification to mock getCurrentSession
+ * 2. test-mock-session-autodetect.ts - A manual test script that verifies the auto-detection
+ *    functionality using the helper module
+ * 
+ * These files provide a more maintainable approach to testing the auto-detection functionality
+ * and allow us to verify the behavior without modifying module properties directly.
+ */
+
 describe("session command workspace auto-detection", () => {
   beforeEach(() => {
     setupSessionDb([
@@ -55,8 +70,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -66,7 +82,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -101,8 +122,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -112,7 +134,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -146,8 +173,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -157,7 +185,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -192,8 +225,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -203,7 +237,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -238,8 +277,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -249,7 +289,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -284,8 +329,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -295,7 +341,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
@@ -328,8 +379,9 @@ import { createSessionCommand } from "./src/commands/session";
 import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
 import * as workspaceModule from "./src/domain/workspace";
 
-// Mock getCurrentSession to return the test environment variable
-workspaceModule.getCurrentSession = async () => {
+// Use environment variable directly rather than trying to mock the function
+// This avoids the "Attempted to assign to readonly property" error
+const getCurrentSession = async () => {
   return process.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
@@ -339,7 +391,12 @@ program
   .description("CLI for managing Minsky workflow")
   .version("0.1.0");
 
-program.addCommand(createSessionCommand());
+// Use a modified session command that uses our custom getCurrentSession function
+const sessionCommand = createSessionCommand({ 
+  getCurrentSession 
+});
+
+program.addCommand(sessionCommand);
 
 program.parse();`;
 
