@@ -47,30 +47,28 @@ describe("session command workspace auto-detection", () => {
   describe("session dir command", () => {
     it("auto-detects session when no arguments are provided", () => {
       // Create a special version of the CLI file for this test that uses the environment variable
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -95,30 +93,28 @@ describe("session command workspace auto-detection", () => {
 
     it("uses explicit session name when provided", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -142,30 +138,28 @@ describe("session command workspace auto-detection", () => {
 
     it("respects --ignore-workspace flag", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -190,30 +184,28 @@ describe("session command workspace auto-detection", () => {
   describe("session get command", () => {
     it("auto-detects session when no arguments are provided", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -238,30 +230,28 @@ describe("session command workspace auto-detection", () => {
 
     it("uses explicit session name when provided", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -286,30 +276,28 @@ describe("session command workspace auto-detection", () => {
 
     it("respects --ignore-workspace flag", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
@@ -332,30 +320,28 @@ describe("session command workspace auto-detection", () => {
 
     it("outputs JSON format with auto-detection", () => {
       // Create a special version of the CLI file for this test
-      const testCliContent = `
-        #!/usr/bin/env bun
-        import { Command } from 'commander';
-        import { createSessionCommand } from './commands/session';
+      const testCliContent = `#!/usr/bin/env bun
+import { Command } from "commander";
+import { createSessionCommand } from "./commands/session";
 
-        // Override getCurrentSession for testing
-        import { getCurrentSession as originalGetCurrentSession } from './domain/workspace';
-        import * as workspaceModule from './domain/workspace';
+// Override getCurrentSession for testing
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
-        // Mock getCurrentSession to return the test environment variable
-        workspaceModule.getCurrentSession = async () => {
-          return process.env.MINSKY_TEST_CURRENT_SESSION || null;
-        };
+// Mock getCurrentSession to return the test environment variable
+workspaceModule.getCurrentSession = async () => {
+  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+};
 
-        const program = new Command();
-        program
-          .name('minsky')
-          .description('CLI for managing Minsky workflow')
-          .version('0.1.0');
+const program = new Command();
+program
+  .name("minsky")
+  .description("CLI for managing Minsky workflow")
+  .version("0.1.0");
 
-        program.addCommand(createSessionCommand());
+program.addCommand(createSessionCommand());
 
-        program.parse();
-      `;
+program.parse();`;
 
       const testCliPath = join(process.cwd(), "test-cli.ts");
       try {
