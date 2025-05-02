@@ -1,22 +1,22 @@
-import { Command } from 'commander';
-import { TaskService } from '../../domain/tasks';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { resolveWorkspacePath } from '../../domain/workspace';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { Command } from "commander";
+import { TaskService } from "../../domain/tasks";
+import { resolveRepoPath } from "../../domain/repo-utils";
+import { resolveWorkspacePath } from "../../domain/workspace";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { normalizeTaskId } from "../../utils/task-utils";
 
 const execAsync = promisify(exec);
 
 export function createGetCommand(): Command {
-  return new Command('get')
-    .description('Get task details')
-    .argument('<task-id>', 'ID of the task')
-    .option('--session <session>', 'Session name to use for repo resolution')
-    .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
-    .option('--workspace <workspacePath>', 'Path to main workspace (overrides repo and session)')
-    .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
-    .option('--json', 'Output task as JSON')
+  return new Command("get")
+    .description("Get task details")
+    .argument("<task-id>", "ID of the task")
+    .option("--session <session>", "Session name to use for repo resolution")
+    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
+    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
+    .option("--json", "Output task as JSON")
     .action(async (taskId: string, options: { 
       backend?: string, 
       session?: string, 
@@ -60,12 +60,12 @@ export function createGetCommand(): Command {
             console.log(`Spec Path: ${task.specPath}`);
           }
           if (task.description) {
-            console.log('\nDescription:');
+            console.log("\nDescription:");
             console.log(task.description);
           }
         }
       } catch (error) {
-        console.error('Error getting task:', error);
+        console.error("Error getting task:", error);
         process.exit(1);
       }
     });

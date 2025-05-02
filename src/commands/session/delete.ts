@@ -1,15 +1,15 @@
-import { Command } from 'commander';
-import { SessionDB } from '../../domain/session';
-import { join } from 'path';
-import { promises as fs } from 'fs';
-import { createInterface } from 'readline';
+import { Command } from "commander";
+import { SessionDB } from "../../domain/session";
+import { join } from "path";
+import { promises as fs } from "fs";
+import { createInterface } from "readline";
 
 export function createDeleteCommand(): Command {
-  return new Command('delete')
-    .description('Delete a session and its repository')
-    .argument('<session-name>', 'Name of the session to delete')
-    .option('--force', 'Skip confirmation prompt')
-    .option('--json', 'Output result as JSON')
+  return new Command("delete")
+    .description("Delete a session and its repository")
+    .argument("<session-name>", "Name of the session to delete")
+    .option("--force", "Skip confirmation prompt")
+    .option("--json", "Output result as JSON")
     .action(async (sessionName: string, options: { force?: boolean, json?: boolean }) => {
       try {
         // First, check if the session exists
@@ -33,7 +33,7 @@ export function createDeleteCommand(): Command {
           );
           
           if (!answer) {
-            const message = 'Deletion cancelled.';
+            const message = "Deletion cancelled.";
             if (options.json) {
               console.log(JSON.stringify({ success: false, message }));
             } else {
@@ -73,7 +73,7 @@ export function createDeleteCommand(): Command {
           recordDeleted = await db.deleteSession(sessionName);
           
           if (!recordDeleted) {
-            throw new Error('Failed to delete session record from database');
+            throw new Error("Failed to delete session record from database");
           }
         } catch (error) {
           const errorMessage = `Error removing session record: ${error instanceof Error ? error.message : String(error)}`;
@@ -86,11 +86,11 @@ export function createDeleteCommand(): Command {
                 error: errorMessage,
                 repoDeleted: true,
                 recordDeleted: false,
-                warning: 'Repository was deleted but session record remains. Database might be in an inconsistent state.'
+                warning: "Repository was deleted but session record remains. Database might be in an inconsistent state."
               }));
             } else {
               console.error(errorMessage);
-              console.error('WARNING: Repository was deleted but session record remains. Database might be in an inconsistent state.');
+              console.error("WARNING: Repository was deleted but session record remains. Database might be in an inconsistent state.");
             }
             process.exit(1);
           }
@@ -123,8 +123,8 @@ export function createDeleteCommand(): Command {
 
 // Helper function to get session repository path
 function getSessionRepoPath(session: { repoName: string, session: string }): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
-  return join(xdgStateHome, 'minsky', 'git', session.repoName, session.session);
+  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  return join(xdgStateHome, "minsky", "git", session.repoName, session.session);
 }
 
 // Helper function to prompt for confirmation
@@ -137,7 +137,7 @@ async function promptConfirmation(prompt: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     rl.question(prompt, (answer) => {
       rl.close();
-      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
     });
   });
 } 

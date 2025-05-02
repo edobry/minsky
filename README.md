@@ -50,26 +50,61 @@ minsky git pr --session feature-x
 
 > **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
 
-### Session Management
+### Session Commands
 
+#### `minsky session start [options] [session-name]`
+
+Start a new session with the given name. If no name is provided, a random one will be generated.
+
+Options:
+- `-r, --repo <repo-url>`: URL of the repository to clone (optional if in a git repository)
+- `-t, --task <task-id>`: Task ID to associate with this session
+
+#### `minsky session list [options]`
+
+List all sessions.
+
+Options:
+- `--json`: Output in JSON format
+
+#### `minsky session get [options] <session-name>`
+
+Get details about a specific session.
+
+Options:
+- `--json`: Output in JSON format
+- `--task <task-id>`: Get session by task ID
+
+#### `minsky session dir <session-name>`
+
+Print the directory path for a session.
+
+#### `minsky session update [options] [session-name]`
+
+Update a session with the latest changes from the main branch. If no session name is provided, uses the current session.
+
+Options:
+- `--no-stash`: Skip stashing changes
+- `--no-push`: Skip pushing changes to remote
+- `--branch <branch>`: Branch to merge from (defaults to main)
+- `--remote <remote>`: Remote to use (defaults to origin)
+
+Example:
 ```bash
-# Start a new session
-minsky session start my-session --repo https://github.com/user/repo.git
+# Update current session with latest changes from main
+minsky session update
 
-# Start a session associated with a task
-minsky session start --repo https://github.com/user/repo.git --task 001
+# Update specific session with latest changes from develop branch
+minsky session update my-session --branch develop
 
-# List all sessions
-minsky session list
+# Update session without stashing changes
+minsky session update --no-stash
 
-# View session details
-minsky session get my-session
+# Update session without pushing changes
+minsky session update --no-push
 
-# View session details by task ID
-minsky session get --task 001
-
-# Get session directory
-minsky session dir my-session
+# Update session using a different remote
+minsky session update --remote upstream
 ```
 
 ### Tasks Management

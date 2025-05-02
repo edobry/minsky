@@ -13,5 +13,5 @@ export function normalizeTaskId(taskId: string): string {
     return taskId;
   }
   
-  return taskId.startsWith('#') ? taskId : `#${taskId}`;
+  return taskId.startsWith("#") ? taskId : `#${taskId}`;
 } 

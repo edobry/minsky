@@ -1,11 +1,19 @@
 ---
-description: Use this when working with minsky sessions
-globs: 
+description:
+globs:
 alwaysApply: false
 ---
 # Session-First Workflow
 
 ## Core Rules for Session Development
+
+⚠️ **CRITICAL: ALWAYS USE ABSOLUTE PATHS WHEN EDITING FILES IN SESSIONS** ⚠️
+- When using tools like `edit_file`, ALWAYS use absolute paths to files in the session directory
+- **CORRECT**: `/Users/username/.local/state/minsky/git/local/minsky/sessions/task#012/src/file.ts` 
+- **INCORRECT**: `src/file.ts` (which would edit the main workspace file)
+- Without absolute paths, changes silently occur in the main workspace instead of the session directory
+- After every file edit, verify the changes with `git status` and `git diff` in the session directory
+- This is a zero-tolerance requirement - any violation leads to broken workflow and wasted effort
 
 1. **NEVER use `bun link` in session directories**
    - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
@@ -27,10 +35,28 @@ alwaysApply: false
    - The session directory contains a separate clone of the repository
    - All tests should be run within the session directory using `bun test`
 
-4. **After Implementation**
+4. **Keeping Sessions in Sync**
+   - Use the session update command to integrate latest changes from main:
+     ```bash
+     # Update current session
+     minsky session update
+     ```
+   - This ensures your session has the latest changes without breaking isolation
+   - Regularly update to avoid diverging too far from the main branch
+
+5. **After Implementation**
    - After completing and verifying the implementation in the session:
      1. Generate a PR description with `minsky git pr`
      2. Commit all changes
      3. Push changes to the remote branch
      4. Mark the task as IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
    - Do not attempt to make the session version globally available
+
+5. **File Edit Verification Required**
+   - After editing any file, ALWAYS verify the changes with:
+     ```bash
+     git status  # Confirm the file appears as modified
+     git diff <filename>  # Confirm the expected changes exist
+     ```
+   - Never assume an edit succeeded without verification
+   - If the git commands show no changes, you likely edited the main workspace file instead

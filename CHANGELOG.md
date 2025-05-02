@@ -48,7 +48,18 @@
 - Created task specification for task #025 to add a `git approve` command that complements the existing `git pr` command, implementing a prepared-merge workflow for PR review and merging. This workflow allows reviewers to easily merge prepared PRs via fast-forward, ensuring history linearity and cleaner integration.
 - Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
 - Added new task #027 to auto-detect session context in session commands
-- Implemented auto-detection of session context in session commands. When running commands like `session dir` or `session get` from within a session workspace, Minsky now automatically detects and uses the current session, eliminating the need to specify the session name explicitly. Added `--ignore-workspace` option to bypass auto-detection when needed. This builds on the workspace detection functionality from task #016.
+- Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
+- Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
+- Added `git commit` command for staging and committing changes in a single step, with support for automatic staging (can be disabled with `--no-stage`), staging all changes (via `--all`), task ID prefixing for commit messages, and amending commits (via `--amend`). Supports specifying a session or repository path.
+- Added `init` command to set up a project for Minsky. This command creates the necessary directory structure for tasks, initializes a tasks.md file, and adds the minsky-workflow rule to either .cursor/rules or .ai/rules based on the selected rule format. It supports interactive prompts via @clack/prompts for missing parameters and resolves repo paths using the same patterns as other commands.
+- New `session update` command to sync a session with the main branch
+  - Stashes local changes before updating (can be disabled with `--no-stash`)
+  - Pulls latest changes from remote
+  - Merges specified branch (defaults to main)
+  - Pushes changes to remote (can be disabled with `--no-push`)
+  - Restores stashed changes after update
+  - Handles merge conflicts gracefully
+  - Supports custom branch and remote options
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -79,6 +90,12 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/hist
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
 - Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
+- Refactored the GitService PR generation code by:
+  - Extracting the large `pr` method into smaller, more focused functions 
+  - Creating a `prWithDependencies` method that accepts injectable dependencies for easier testing
+  - Improving error handling throughout methods
+  - Breaking down complex logic into dedicated methods for repo path resolution, branch detection, and file diff generation
+  - Maintaining all test compatibility and coverage
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -88,6 +105,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
+_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic

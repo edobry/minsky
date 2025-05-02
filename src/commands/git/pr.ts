@@ -10,24 +10,33 @@ export function createPrCommand(): Command {
     .description('Output a markdown document containing the git history for the current or specified branch')
     .option('-s, --session <session>', 'Session identifier for the repo')
     .option('-p, --path <path>', 'Path to a git repository (instead of using a session)')
+    .option('-t, --task <taskId>', 'Task ID to use (will look up the associated session)')
     .option('-b, --branch <branch>', 'Branch to use (defaults to current branch)')
     .option('--debug', 'Enable debug logging to stderr')
-    .action(async (options: { session?: string; path?: string; branch?: string; debug?: boolean }) => {
-      // We need either a session or a path
-      if (!options.session && !options.path) {
-        console.error('Error: Either --session or --path must be provided');
+    .action(async (options: { session?: string; path?: string; task?: string; branch?: string; debug?: boolean }) => {
+      // We need either a session, path, or task
+      if (!options.session && !options.path && !options.task) {
+        console.error('Error: Either --session, --path, or --task must be provided');
         process.exit(1);
       }
       
-      // If both are provided, prefer session
-      if (options.session && options.path) {
-        if (options.debug) console.error('Warning: Both session and path provided. Using session.');
+      // Define precedence if multiple options are provided
+      if ((options.session && options.path) || (options.session && options.task) || (options.path && options.task)) {
+        if (options.debug) {
+          if (options.session && options.path) {
+            console.error('Warning: Both session and path provided. Using session.');
+          } else if (options.session && options.task) {
+            console.error('Warning: Both session and task provided. Using session.');
+          } else if (options.path && options.task) {
+            console.error('Warning: Both path and task provided. Using path.');
+          }
+        }
       }
       
       try {
         // Validate and prepare path if provided
         let repoPath: string | undefined;
-        if (options.path && !options.session) {
+        if (options.path && !options.session && !options.task) {
           repoPath = path.resolve(options.path);
           // Check if it's a git repository
           if (!fs.existsSync(path.join(repoPath, '.git'))) {
@@ -40,6 +49,7 @@ export function createPrCommand(): Command {
           session: options.session,
           repoPath,
           branch: options.branch,
+          taskId: options.task,
           debug: options.debug
         });
         console.log(result.markdown);
