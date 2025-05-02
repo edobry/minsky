@@ -86,7 +86,58 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 
 ## Work Log
 
-- 2025-05-01: Added `getCurrentSession` utility function to workspace module with tests
-- 2025-05-01: Updated `session dir` command to use auto-detection with the `--ignore-workspace` option
-- 2025-05-01: Updated `session get` command with auto-detection and the `--ignore-workspace` option
-- 2025-05-01: Added integration test script to verify auto-detection functionality 
+### 2025-05-01
+- Created initial implementation of auto-detection functionality
+- Added `getCurrentSession` utility function to workspace module
+- Updated `session dir` and `session get` commands to use the auto-detection
+- Added `--ignore-workspace` flag to bypass auto-detection when needed
+
+### 2025-05-02
+- Created test script to manually verify auto-detection functionality
+- Added dedicated integration tests in `src/commands/session/autodetect.test.ts`
+- Enhanced the workspace module to better handle deeply nested session directories
+- Updated tests for the modified commands
+
+### 2025-05-07
+- Merged origin/main into task#027 branch to resolve conflicts
+- Fixed merge conflicts in:
+  - CHANGELOG.md
+  - process/tasks.md
+  - src/commands/session/cd.test.ts
+  - src/commands/session/get.ts
+  - src/domain/workspace.ts
+  - src/domain/workspace.test.ts
+- Began fixing test failures after the merge
+
+### 2025-05-08
+- Fixed test failures in `src/commands/session/autodetect.test.ts`
+  - Corrected JavaScript syntax errors in test scripts
+  - Fixed indentation and string quotes
+- Fixed test failures in `src/commands/session/get.test.ts`
+  - Updated task ID normalization in tests to match implementation
+  - Fixed expected error message to match actual output
+  - Removed TEST_DIR references and replaced with '/tmp'
+
+## Remaining Work
+
+1. **Fix Remaining Test Failures**:
+   - ✅ Fixed test script syntax errors in autodetect.test.ts
+   - ✅ Fixed task ID lookup tests in get.test.ts
+   - Fix mock function usage in `src/domain/workspace.test.ts` - need to use `mock.fn()` correctly
+   - Address any other test failures discovered during testing
+
+2. **Documentation and Code Clean-up**:
+   - Review code for any unnecessary commented-out sections
+   - Ensure consistent code style across all modified files
+   - Update inline documentation as needed
+
+3. **Final Verification**:
+   - Run a final manual test using the test script to verify functionality
+   - Ensure all tests pass before merging to main
+
+4. **Session Update Command**:
+   - If a `session update` command exists, apply the same auto-detection pattern
+   - If not, note this for potential future work
+
+5. **Address PR Feedback**:
+   - Once the PR is submitted, address any feedback from reviewers 
