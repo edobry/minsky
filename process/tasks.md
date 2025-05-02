@@ -29,4 +29,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `--task` option to `session dir` command to query session directories by task ID [#018](tasks/018-add-task-option-to-session-dir.md)
 - [ ] Implement test suite improvements for better reliability and maintainability [#019](tasks/019-implement-test-suite-improvements.md)
 - [ ] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
-- [ ] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
+- [+] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
