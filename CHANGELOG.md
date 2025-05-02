@@ -111,6 +111,9 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Replaced single quotes with double quotes in test files for better linting compliance
   - Improved test stability by avoiding direct manipulation of sessions array
   - Fixed file URL conversion test to accurately reflect expected behavior
+  - Added TypeScript declarations for bun:test to fix module resolution errors
+  - Fixed type issues in mock implementations and test utility functions
+  - Added type safety for possibly undefined object properties in tests
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
