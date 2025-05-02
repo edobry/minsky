@@ -114,6 +114,10 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Added TypeScript declarations for bun:test to fix module resolution errors
   - Fixed type issues in mock implementations and test utility functions
   - Added type safety for possibly undefined object properties in tests
+  - Fixed git PR test failures by properly mocking execAsync and handling git push commands
+  - Fixed lint errors in workspace.test.ts, repo-utils.test.ts, and session.test.ts by converting single quotes to double quotes
+  - Added appropriate type signatures to reduce any usage in test files
+  - Improved mock implementation of execAsync in git PR tests for better reliability
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
