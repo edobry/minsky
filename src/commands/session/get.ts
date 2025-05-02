@@ -1,9 +1,13 @@
 import { Command } from 'commander';
 import { SessionDB } from '../../domain/session';
 import { normalizeTaskId } from '../../utils/task-utils';
-import { getCurrentSession } from '../../domain/workspace';
+import { getCurrentSession as defaultGetCurrentSession } from '../../domain/workspace';
+import type { SessionCommandDependencies } from './index';
 
-export function createGetCommand(): Command {
+export function createGetCommand(dependencies: SessionCommandDependencies = {}): Command {
+  // Use provided dependency or fall back to default
+  const getCurrentSession = dependencies.getCurrentSession || defaultGetCurrentSession;
+
   return new Command('get')
     .description('Get details for a specific session or by task ID')
     .argument('[session]', 'Session identifier')
@@ -35,7 +39,7 @@ export function createGetCommand(): Command {
           
           record = await db.getSessionByTaskId(normalizedTaskId);
           if (!record) {
-            const msg = `No session found for task ID '${normalizedTaskId}'.`;
+            const msg = `No session found for task ID "${normalizedTaskId}".`;
             if (options.json) {
               console.log(JSON.stringify(null));
             } else {
@@ -49,7 +53,7 @@ export function createGetCommand(): Command {
             if (options.json) {
               console.log(JSON.stringify(null));
             } else {
-              console.error(`Session '${session}' not found.`);
+              console.error(`Session "${session}" not found.`);
             }
             process.exit(1);
           }
@@ -59,7 +63,7 @@ export function createGetCommand(): Command {
           if (currentSession) {
             record = await db.getSession(currentSession);
             if (!record) {
-              const msg = `Current session '${currentSession}' not found in session database.`;
+              const msg = `Current session "${currentSession}" not found in session database.`;
               if (options.json) {
                 console.log(JSON.stringify({ error: msg }));
               } else {

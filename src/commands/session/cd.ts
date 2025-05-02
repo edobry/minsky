@@ -1,9 +1,13 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session";
 import { normalizeTaskId } from "../../utils/task-utils";
-import { getCurrentSession } from "../../domain/workspace";
+import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace";
+import type { SessionCommandDependencies } from "./index";
 
-export function createDirCommand(): Command {
+export function createDirCommand(dependencies: SessionCommandDependencies = {}): Command {
+  // Use provided dependency or fall back to default
+  const getCurrentSession = dependencies.getCurrentSession || defaultGetCurrentSession;
+
   return new Command("dir")
     .description("Print the workdir path for a session (for use with cd $(minsky session dir <session>))")
     .argument("[session]", "Session identifier")
@@ -29,7 +33,7 @@ export function createDirCommand(): Command {
           
           session = await db.getSessionByTaskId(normalizedTaskId);
           if (!session) {
-            console.error(`No session found for task ID '${normalizedTaskId}'.`);
+            console.error(`No session found for task ID "${normalizedTaskId}".`);
             process.exit(1);
             return;
           }
@@ -37,7 +41,7 @@ export function createDirCommand(): Command {
           // Look up by session name
           session = await db.getSession(sessionName);
           if (!session) {
-            console.error(`Session '${sessionName}' not found.`);
+            console.error(`Session "${sessionName}" not found.`);
             process.exit(1);
             return;
           }
@@ -47,7 +51,7 @@ export function createDirCommand(): Command {
           if (currentSession) {
             session = await db.getSession(currentSession);
             if (!session) {
-              console.error(`Current session '${currentSession}' not found in session database.`);
+              console.error(`Current session "${currentSession}" not found in session database.`);
               process.exit(1);
               return;
             }
