@@ -15,6 +15,34 @@ alwaysApply: false
 - After every file edit, verify the changes with `git status` and `git diff` in the session directory
 - This is a zero-tolerance requirement - any violation leads to broken workflow and wasted effort
 
+---
+
+## Absolute Path Enforcement for File Edits (Critical)
+
+1. **Absolute Path Enforcement**
+   - All file edit, read, and diff operations must use absolute paths that begin with the current session directory (e.g., `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/`).
+   - The AI and all automation must always prepend the session directory to any file path for edit operations.
+   - If the session directory is not known, it must be determined using `minsky session dir <session-name>` or equivalent before proceeding.
+   - Any attempt to edit a file using a relative path or a path outside the session directory is a violation and must be aborted.
+
+2. **Pre-Edit Session Directory Verification**
+   - Before any file edit, the current session directory must be verified and logged.
+   - The target file path must be checked to ensure it starts with the session directory path.
+   - If not, the operation must be aborted and an error raised.
+
+3. **Reject/Abort on Workspace Mismatch**
+   - If a file edit is attempted outside the session workspace, the operation must be aborted and an explicit error must be raised, indicating the violation.
+
+4. **Audit Trail for All Edits**
+   - Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+   - Example log message: `Editing file: /Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/CHANGELOG.md (session: task#027)`
+
+5. **Rule Violation = Hard Error**
+   - Any violation of these rules is a hard error and must be reported immediately.
+   - The AI must not attempt to "fix up" after the fact, but must stop and require explicit user intervention or correction.
+
+---
+
 1. **NEVER use `bun link` in session directories**
    - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
    - This interferes with the globally linked main version

@@ -5,6 +5,80 @@ alwaysApply: false
 ---
 # Minsky Workflow
 
+⛔️ **STOP - READ THIS FIRST**
+
+## Mandatory Session Creation
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+Before implementing ANY task or making ANY code changes, you MUST:
+
+```bash
+# 1. Check task status
+minsky tasks status get '#XXX'
+
+# 2. Create or verify session exists
+minsky session start --task XXX
+
+# 3. Enter session directory
+cd $(minsky session dir task#XXX)
+```
+
+❌ If these steps are not completed:
+- DO NOT make any code changes
+- DO NOT commit any files
+- DO NOT proceed with implementation
+
+✅ These activities are allowed without a session:
+- Reading code
+- Searching the codebase
+- Investigating issues
+- Planning implementation
+- Creating new task specifications
+
+This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
+
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them:**
+
+```bash
+# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern MUST be used:
+- In all scripts and automations
+- In all interactive usage where directory navigation follows
+- Any time you intend to navigate to the session directory after creation
+
+DO NOT use separate commands for starting a session and then navigating to it.
+
+## Session-First File Edit Enforcement (Critical)
+
+1. **Absolute Path Enforcement**
+   - All file edit, read, and diff operations must use absolute paths that begin with the current session directory (e.g., `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/`).
+   - The AI and all automation must always prepend the session directory to any file path for edit operations.
+   - If the session directory is not known, it must be determined using `minsky session dir <session-name>` or equivalent before proceeding.
+   - Any attempt to edit a file using a relative path or a path outside the session directory is a violation and must be aborted.
+
+2. **Pre-Edit Session Directory Verification**
+   - Before any file edit, the current session directory must be verified and logged.
+   - The target file path must be checked to ensure it starts with the session directory path.
+   - If not, the operation must be aborted and an error raised.
+
+3. **Reject/Abort on Workspace Mismatch**
+   - If a file edit is attempted outside the session workspace, the operation must be aborted and an explicit error must be raised, indicating the violation.
+
+4. **Audit Trail for All Edits**
+   - Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+   - Example log message: `Editing file: /Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/CHANGELOG.md (session: task#027)`
+
+5. **Rule Violation = Hard Error**
+   - Any violation of these rules is a hard error and must be reported immediately.
+   - The AI must not attempt to "fix up" after the fact, but must stop and require explicit user intervention or correction.
+
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
 ⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
