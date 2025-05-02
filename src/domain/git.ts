@@ -98,56 +98,36 @@ export class GitService {
     return repoPath;
   }
 
-  async branch(options: BranchOptions): Promise<void> {
-    const { repoPath, branch } = options;
-
-    // Create and switch to the branch
-    await execAsync(`git checkout -b ${branch}`, { cwd: repoPath });
+  async branch({ repoPath, branch }: BranchOptions): Promise<void> {
+    await execAsync(`git -C ${repoPath} checkout -b ${branch}`);
   }
 
-  async pr(options: PrOptions): Promise<void> {
-    const { repoPath, branch, baseBranch } = options;
-
+  async pr({ repoPath, branch, baseBranch }: PrOptions): Promise<void> {
     // Get the current branch if not provided
     const currentBranch = branch || (await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: repoPath })).stdout.trim();
 
-    // Determine base branch
-    let base = baseBranch;
-    if (!base) {
-      // Try to find the default branch
+    // Try to determine base branch
+    let baseBranchToUse: string | undefined;
+    if (baseBranch) {
+      baseBranchToUse = baseBranch;
+    } else {
       try {
         const { stdout } = await execAsync("git remote show origin", { cwd: repoPath });
         const match = stdout.match(/HEAD branch: (.+)/);
         if (match) {
-          base = match[1];
+          baseBranchToUse = match[1];
         }
       } catch (err) {
-        // If remote show fails, try common default branch names
-        for (const defaultBranch of ["main", "master"]) {
-          try {
-            await execAsync(`git rev-parse --verify origin/${defaultBranch}`, { cwd: repoPath });
-            base = defaultBranch;
-            break;
-          } catch {
-            // Branch doesn't exist, try next one
-          }
-        }
+        console.warn("Could not determine base branch. This may be a new repository.");
       }
-    }
-
-    // If still no base branch, this may be a new repo with only one branch
-    // In this case, we'll just use a placeholder
-    if (!base) {
-      console.log("Could not determine base branch. This may be a new repository.");
-      base = "main"; // Default to main as a placeholder
     }
 
     // Push the branch
     await execAsync(`git push -u origin ${currentBranch}`, { cwd: repoPath });
 
     // Print PR creation instructions
-    console.log(`\nTo create a PR, visit your repository's web interface and create a PR with:
-- Base branch: ${base}
-- Compare branch: ${currentBranch}`);
+    console.log("\nTo create a PR, visit your repository's web interface and create a PR with:");
+    console.log(`- Base branch: ${baseBranchToUse || "main"}`);
+    console.log(`- Compare branch: ${currentBranch}`);
   }
 }
