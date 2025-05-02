@@ -18,7 +18,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@clack/prompts": "^0.7.0",
+    "@clack/prompts": "^0.10.1",
     "commander": "^13.1.0",
     "fs-extra": "^11.3.0"
   }
