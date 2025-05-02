@@ -12,7 +12,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Update session start command to support task IDs [#001](tasks/001-update-session-start-task-id.md)
 - [x] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-per-repo-session-storage.md)
-- [-] Add `init` command to set up a project for Minsky [#003](tasks/003-add-init-command.md)
+- [+] Add `init` command to set up a project for Minsky [#003](tasks/003-add-init-command.md)
 - [x] Add `--task` option to `session get` command to query sessions by task ID [#004](tasks/004-add-task-option-to-session-get.md)
 - [ ] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-add-git-push-command.md)
 - [x] Add `--quiet` option to `session start` for programmatic output [#006](tasks/006-add-quiet-option-to-session-start.md)
@@ -37,3 +37,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [ ] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Automate Task Status Updates at Key Workflow Points [#028](tasks/028-automate-task-status-updates.md)
+- [ ] Add `rules` command for managing Minsky rules [#029](tasks/029-add-rules-command.md)

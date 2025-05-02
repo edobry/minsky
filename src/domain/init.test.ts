@@ -53,6 +53,7 @@ describe("initializeProject", () => {
     expect(existsCalls).toContain(path.join(repoPath, "process", "tasks.md"));
     expect(existsCalls).toContain(path.join(repoPath, ".cursor", "rules"));
     expect(existsCalls).toContain(path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc"));
+    expect(existsCalls).toContain(path.join(repoPath, ".cursor", "rules", "index.mdc"));
 
     // Should create directories
     const mkdirCalls = mockMkdirSync.calls.map(args => args[0]);
@@ -71,6 +72,12 @@ describe("initializeProject", () => {
       String(args[1]).includes("# Minsky Workflow")
     );
     expect(writeRuleCheck).toBe(true);
+    
+    const writeIndexCheck = mockWriteFileSync.calls.some(args => 
+      args[0] === path.join(repoPath, ".cursor", "rules", "index.mdc") && 
+      String(args[1]).includes("# Minsky Rules Index")
+    );
+    expect(writeIndexCheck).toBe(true);
   });
 
   test("should create directories and files for tasks.md backend and generic rule format", async () => {
@@ -93,6 +100,7 @@ describe("initializeProject", () => {
     const existsCalls = mockExistsSync.calls.map(args => args[0]);
     expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules"));
     expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules", "minsky-workflow.mdc"));
+    expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules", "index.mdc"));
 
     // Should create directories
     const mkdirCalls = mockMkdirSync.calls.map(args => args[0]);
@@ -104,6 +112,12 @@ describe("initializeProject", () => {
       String(args[1]).includes("# Minsky Workflow")
     );
     expect(writeRuleCheck).toBe(true);
+    
+    const writeIndexCheck = mockWriteFileSync.calls.some(args => 
+      args[0] === path.join(repoPath, ".ai", "rules", "index.mdc") && 
+      String(args[1]).includes("# Minsky Rules Index")
+    );
+    expect(writeIndexCheck).toBe(true);
   });
 
   test("should throw error for unimplemented backend", async () => {
