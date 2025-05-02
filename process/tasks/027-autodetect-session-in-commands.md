@@ -76,7 +76,7 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 - [x] Clear error messages are shown when not in a session workspace and no session name is provided
 - [x] The `--ignore-workspace` option successfully bypasses auto-detection
 - [ ] All tests pass, including unit and integration tests
-- [ ] Documentation and help text accurately reflect the new behavior
+- [x] Documentation and help text accurately reflect the new behavior
 
 ## Implementation Notes
 
@@ -117,6 +117,7 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
   - Updated task ID normalization in tests to match implementation
   - Fixed expected error message to match actual output
   - Removed TEST_DIR references and replaced with '/tmp'
+- Verified that there's no existing `session update` command to modify
 
 ## Remaining Work
 
@@ -136,8 +137,8 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
    - Ensure all tests pass before merging to main
 
 4. **Session Update Command**:
-   - If a `session update` command exists, apply the same auto-detection pattern
-   - If not, note this for potential future work
+   - ✅ Verified that there's no existing `session update` command to modify
+   - Note in PR that if a `session update` command is added in the future, it should include the same auto-detection pattern
 
 5. **Address PR Feedback**:
-   - Once the PR is submitted, address any feedback from reviewers 
+   - Once the PR is submitted, address any feedback from reviewers
