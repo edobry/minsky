@@ -80,8 +80,8 @@ describe("git commit command", () => {
 
   test("requires commit message unless amending", async () => {
     await command.parseAsync(["node", "minsky", "commit"]);
-    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Commit message is required"));
-    expect(mockProcessExit).toHaveBeenCalledWith(1);
+    expect(mockConsoleError.calls.some((args: any[]) => args[0]?.includes("Commit message is required"))).toBe(true);
+    expect(mockProcessExit.calls.some((args: any[]) => args[0] === 1)).toBe(true);
   });
 
   test("stages and commits changes with message", async () => {
@@ -93,9 +93,9 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
 
-    expect(mockGitService.stageModified).toHaveBeenCalled();
-    expect(mockGitService.commit).toHaveBeenCalledWith("test commit", false);
-    expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringContaining(mockCommitHash));
+    expect(mockGitService.stageModified.calls.length > 0).toBe(true);
+    expect(mockGitService.commit.calls.some((args: any[]) => args[0] === "test commit" && args[1] === false)).toBe(true);
+    expect(mockConsoleLog.calls.some((args: any[]) => (args[0] || "").includes(mockCommitHash))).toBe(true);
   });
 
   test("adds task ID prefix when in session", async () => {
@@ -114,7 +114,7 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-s", "test-session", "-m", "test commit"]);
 
-    expect(mockGitService.commit).toHaveBeenCalledWith("task#123: test commit", false);
+    expect(mockGitService.commit.calls.some((args: any[]) => args[0] === "task#123: test commit" && args[1] === false)).toBe(true);
   });
 
   test("uses --all flag to stage all changes", async () => {
@@ -124,8 +124,8 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-a", "-m", "test commit"]);
 
-    expect(mockGitService.stageAll).toHaveBeenCalled();
-    expect(mockGitService.stageModified).not.toHaveBeenCalled();
+    expect(mockGitService.stageAll.calls.length > 0).toBe(true);
+    expect(mockGitService.stageModified.calls.length).toBe(0);
   });
 
   test("skips staging with --no-stage", async () => {
@@ -135,8 +135,8 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
 
-    expect(mockGitService.stageAll).not.toHaveBeenCalled();
-    expect(mockGitService.stageModified).not.toHaveBeenCalled();
+    expect(mockGitService.stageAll.calls.length).toBe(0);
+    expect(mockGitService.stageModified.calls.length).toBe(0);
   });
 
   test("amends previous commit", async () => {
@@ -146,7 +146,7 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "--amend", "-m", "amended commit"]);
 
-    expect(mockGitService.commit).toHaveBeenCalledWith("amended commit", true);
+    expect(mockGitService.commit.calls.some((args: any[]) => args[0] === "amended commit" && args[1] === true)).toBe(true);
   });
 
   test("errors when no changes to commit", async () => {
@@ -156,8 +156,8 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
 
-    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("No changes to commit"));
-    expect(mockProcessExit).toHaveBeenCalledWith(1);
+    expect(mockConsoleError.calls.some((args: any[]) => args[0]?.includes("No changes to commit"))).toBe(true);
+    expect(mockProcessExit.calls.some((args: any[]) => args[0] === 1)).toBe(true);
   });
 
   test("errors when session not found", async () => {
@@ -165,7 +165,7 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-s", "nonexistent", "-m", "test commit"]);
 
-    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining("Session 'nonexistent' not found"));
-    expect(mockProcessExit).toHaveBeenCalledWith(1);
+    expect(mockConsoleError.calls.some((args: any[]) => args[0]?.includes("Session 'nonexistent' not found"))).toBe(true);
+    expect(mockProcessExit.calls.some((args: any[]) => args[0] === 1)).toBe(true);
   });
 }); 
