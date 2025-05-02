@@ -25,9 +25,9 @@ describe("resolveRepoPath", () => {
         
         async getRepoPath() {
           return "/path/to/session/repo";
-    }
-  }
-}));
+        }
+      }
+    }));
 
     // Import the function after mocking
     const { resolveRepoPath } = await import("./repo-utils");
@@ -49,7 +49,7 @@ describe("resolveRepoPath", () => {
           }
           if (options.session) {
             return `/session/${options.session}/repo`;
-    }
+          }
           // For empty options, return our test path
           return "/git/repo/path";
         }
@@ -60,7 +60,7 @@ describe("resolveRepoPath", () => {
     const { resolveRepoPath } = await import("./repo-utils");
     
     // Call with empty options to test the git fallback
-      const result = await resolveRepoPath({});
+    const result = await resolveRepoPath({});
     expect(result).toBe("/git/repo/path");
   });
 });

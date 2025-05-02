@@ -1,15 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
-import { GitService } from './git';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { execSync } from 'child_process';
-import { mock } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, mock } from "bun:test";
+import { GitService } from "./git";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
+import { execSync } from "child_process";
 import { promises as fs } from "fs";
 import { SessionDB } from "./session";
+import * as execModule from "../utils/exec";
+
+// Define the type for exec result
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+}
 
 function run(cmd: string, cwd: string) {
   try {
-    execSync(cmd, { cwd, stdio: 'pipe' });
+    execSync(cmd, { cwd, stdio: "pipe" });
   } catch (error) {
     console.error(`Command failed: ${cmd}`);
     console.error(`Working directory: ${cwd}`);
@@ -22,16 +28,29 @@ function run(cmd: string, cwd: string) {
 
 describe("GitService PR base branch detection", () => {
   // Set up test environment
+  let execAsyncMock: ReturnType<typeof mock<(cmd: string, options?: any) => Promise<ExecResult>>>;
+  
   beforeEach(() => {
-    // Set up mock execAsync globally
-    (global as any).execAsync = mock(async (cmd) => {
+    // Create a mock for execAsync that properly returns a promise with expected stdout
+    execAsyncMock = mock((cmd: string, options?: any) => {
       // Simulate git remote show origin for default branch detection
       if (cmd.includes("git remote show origin")) {
-        return { stdout: "HEAD branch: main", stderr: "" };
+        return Promise.resolve({ stdout: "HEAD branch: main", stderr: "" });
       }
+      
+      // Handle git push command
+      if (cmd.includes("git push")) {
+        return Promise.resolve({ stdout: "", stderr: "" });
+      }
+      
       // Default response
-      return { stdout: "", stderr: "" };
+      return Promise.resolve({ stdout: "", stderr: "" });
     });
+    
+    // Mock the execAsync function from the module
+    mock.module("../utils/exec", () => ({
+      execAsync: execAsyncMock
+    }));
   });
 
   it("should generate PR diff against main branch", async () => {
@@ -45,7 +64,7 @@ describe("GitService PR base branch detection", () => {
     });
     
     // Verify git commands were called correctly
-    const mockExecAsync = (global as any).execAsync;
-    expect(mockExecAsync).toHaveBeenCalledWith("git remote show origin", { cwd: "/path/to/repo" });
+    expect(execAsyncMock).toHaveBeenCalledWith("git remote show origin", { cwd: "/path/to/repo" });
+    expect(execAsyncMock).toHaveBeenCalledWith("git push -u origin feature/test", { cwd: "/path/to/repo" });
   });
 }); 
