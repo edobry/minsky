@@ -103,35 +103,14 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Fixed getSession mocking in repo-utils.test.ts
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
-- Fixed test failures arising from inconsistent session path handling
-- Fixed task ID normalization to handle IDs with and without '#' prefix
-- Resolved mismatch between implementation and test expectations in repo path handling 
-- Fixed error handling in session lookup by task ID
-- Fixed `normalizeRepoName` to preserve domain names for GitHub URLs to match test expectations
-- Updated `SessionDB` to handle both legacy and session-subdirectory formats for backward compatibility
-- Fixed path handling in sessions to support session paths both with and without the "sessions" subdirectory
-- Fixed task ID normalization to consistently handle task IDs with or without the "#" prefix
-- Fixed quote style consistency by converting single quotes to double quotes in test files to match project style
-- Updated tests to properly mock external dependencies like file system operations
-- Fixed test expectations to match the actual implementation of various session and repo utility functions
-- Fixed TypeScript errors in tests by properly typing mock functions and variables
-- Fixed mocking approach in testing by using mock.module instead of global object replacement
-- Fixed fs.access mocking to correctly handle PathLike types
-- Fixed startSession.test.ts to use proper import statements and test structure
-- Fixed syntax error in delete.test.ts JSON parse statement
-- Updated test files to follow consistent double-quote string conventions
-- Fixed test failures and linting issues throughout the codebase
-- Improved task ID normalization in SessionDB.getSessionByTaskId
-- Fixed path handling in SessionDB.getRepoPath for cases with missing repoName
-- Fixed GitService.clone to properly handle local file paths
-- Updated PR generation to handle empty repositories
-- Updated tests to use double quotes instead of single quotes
-- Fixed session repository path structure to include "sessions" subdirectory
-- Fixed test failures in SessionDB class by properly defining methods on prototype
-- Fixed GitService.clone method to avoid session database errors
-- Fixed string quotes in test files to use double quotes consistently
-- Updated mock setup in git.test.ts for proper execAsync mocking
-- Fixed type errors in the SessionRecord interface implementation
+- Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
+- Fixed session test and implementation issues from task #022:
+  - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
+  - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
+  - Fixed startSession.test.ts to minimize mock dependencies and focus on core functionality
+  - Replaced single quotes with double quotes in test files for better linting compliance
+  - Improved test stability by avoiding direct manipulation of sessions array
+  - Fixed file URL conversion test to accurately reflect expected behavior
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._

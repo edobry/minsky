@@ -40,19 +40,9 @@ export class SessionDB {
     }
   }
 
-  // Alias for readDb to maintain backward compatibility with tests
-  async getSessions(): Promise<SessionRecord[]> {
-    return this.readDb();
-  }
-
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
     await fs.mkdir(join(this.dbPath, ".."), { recursive: true });
     await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2), "utf-8");
-  }
-
-  // Alias for writeDb to maintain backward compatibility with tests
-  async saveSessions(sessions: SessionRecord[]): Promise<void> {
-    return this.writeDb(sessions);
   }
 
   async addSession(record: SessionRecord): Promise<void> {
@@ -85,12 +75,7 @@ export class SessionDB {
       await this.writeDb(sessions);
     }
   }
-  
-  /**
-   * Find a session by its associated task ID
-   * @param taskId The task ID to search for (will be normalized if not already)
-   * @returns The session record if found, undefined otherwise
-   */
+
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | undefined> {
     const sessions = await this.readDb();
     const normalizedTaskId = normalizeTaskId(taskId);
@@ -117,52 +102,34 @@ export class SessionDB {
    * @returns The repository path
    */
   async getRepoPath(record: SessionRecord): Promise<string> {
+    // Check for new path first (with sessions subdirectory)
+    const newPath = join(this.baseDir, record.repoName, "sessions", record.session);
+    const legacyPath = join(this.baseDir, record.repoName, record.session);
+    
     // If the record already has a repoPath, use that
     if (record.repoPath) {
       return record.repoPath;
     }
     
-    // Ensure repoName is set
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    
-    // First check if the legacy path exists (for tests expecting the old path format)
-    const legacyPath = join(this.baseDir, repoName, record.session);
-    try {
-      await fs.access(legacyPath);
-      return legacyPath;
-    } catch (err) {
-      // If legacy path doesn"t exist, use the new path with sessions subdirectory
-      return join(this.baseDir, repoName, "sessions", record.session);
+    // Always prefer the new path if it exists
+    const newPathExists = await this.repoExists(newPath);
+    if (newPathExists) {
+      return newPath;
     }
+    
+    // Fall back to legacy path
+    if (await this.repoExists(legacyPath)) {
+      return legacyPath;
+    }
+    
+    // Default to new path structure even if it doesn't exist yet
+    return newPath;
   }
-  
-  /**
-   * Get the legacy repository path for a session (without sessions subdirectory)
-   * For compatibility with tests
-   * @param repoName The repository name
-   * @param sessionId The session ID
-   * @returns The legacy repository path
-   */
-  getLegacySessionRepoPath(repoName: string, sessionId: string): string {
-    return join(this.baseDir, repoName, sessionId);
-  }
-  
-  /**
-   * Get the new repository path with sessions subdirectory for a session
-   * @param repoName The repository name
-   * @param sessionId The session ID
-   * @returns The new repository path
-   */
+
   getNewSessionRepoPath(repoName: string, sessionId: string): string {
     return join(this.baseDir, repoName, "sessions", sessionId);
   }
-  
-  /**
-   * Get the working directory for a session
-   * For backward compatibility with tests
-   * @param sessionName The session name
-   * @returns The working directory path
-   */
+
   async getSessionWorkdir(sessionName: string): Promise<string> {
     const session = await this.getSession(sessionName);
     if (!session) {
@@ -170,11 +137,7 @@ export class SessionDB {
     }
     return this.getRepoPath(session);
   }
-  
-  /**
-   * Migrate all sessions to use the sessions subdirectory structure
-   * This is called once to migrate existing repositories
-   */
+
   async migrateSessionsToSubdirectory(): Promise<void> {
     const sessions = await this.readDb();
     let modified = false;
@@ -197,12 +160,12 @@ export class SessionDB {
         await fs.mkdir(join(this.baseDir, repoName, "sessions"), { recursive: true });
         
         // Move repository to new location
-          await fs.rename(legacyPath, newPath);
-          // Update session record
-          session.repoPath = newPath;
+        await fs.rename(legacyPath, newPath);
+        // Update session record
+        session.repoPath = newPath;
         session.repoName = repoName;
-          modified = true;
-        } catch (err) {
+        modified = true;
+      } catch (err) {
         // Skip if legacy path doesn"t exist
       }
     }
@@ -210,6 +173,15 @@ export class SessionDB {
     // Save changes
     if (modified) {
       await this.writeDb(sessions);
+    }
+  }
+
+  private async repoExists(path: string): Promise<boolean> {
+    try {
+      await fs.access(path);
+      return true;
+    } catch (err) {
+      return false;
     }
   }
 } 

@@ -327,33 +327,36 @@ describe('SessionDB', () => {
       expect(result).toBe(newPath);
     });
     
-    it('should prefer new path over legacy path if both exist', async () => {
+    it("should prefer new path over legacy path if both exist", async () => {
       // Set up session record
       const sessionRecord: SessionRecord = {
-        session: 'test-session',
-        repoUrl: 'https://github.com/test/repo',
-        repoName: 'test/repo',
-        branch: 'main',
+        session: "test-session",
+        repoUrl: "https://github.com/test/repo",
+        repoName: "test/repo",
+        branch: "main",
         createdAt: new Date().toISOString()
       };
       
       // Create both paths
-      const legacyPath = join(TEST_GIT_DIR, 'test/repo', 'test-session');
-      const newPath = join(TEST_GIT_DIR, 'test/repo', 'sessions', 'test-session');
-      mkdirSync(join(TEST_GIT_DIR, 'test/repo'), { recursive: true });
+      const legacyPath = join(TEST_GIT_DIR, "test/repo", "test-session");
+      const newPath = join(TEST_GIT_DIR, "test/repo", "sessions", "test-session");
+      mkdirSync(join(TEST_GIT_DIR, "test/repo"), { recursive: true });
       mkdirSync(legacyPath, { recursive: true });
-      mkdirSync(join(TEST_GIT_DIR, 'test/repo', 'sessions'), { recursive: true });
+      mkdirSync(join(TEST_GIT_DIR, "test/repo", "sessions"), { recursive: true });
       mkdirSync(newPath, { recursive: true });
       
       // Initialize SessionDB instance with mocked baseDir
       const db = new SessionDB();
       // Override the baseDir for testing
-      Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
+      Object.defineProperty(db, "baseDir", { value: TEST_GIT_DIR });
       
       // Mock the repoExists method to simulate both paths exist
       const originalRepoExists = (db as any).repoExists;
       (db as any).repoExists = async (path: string) => {
-        return path === newPath || path === legacyPath; // Both paths exist
+        if (path === newPath || path === legacyPath) {
+          return true;
+        }
+        return false;
       };
       
       // Get repo path
@@ -390,17 +393,17 @@ describe('SessionDB', () => {
       // Set up sessions for testing
       const sessions = [
         {
-          session: 'test-session-1',
-          repoUrl: 'https://github.com/test/repo',
-          repoName: 'test/repo',
-          branch: 'main',
+          session: "test-session-1",
+          repoUrl: "https://github.com/test/repo",
+          repoName: "test/repo",
+          branch: "main",
           createdAt: new Date().toISOString()
         },
         {
-          session: 'test-session-2',
-          repoUrl: 'https://github.com/test/repo',
-          repoName: 'test/repo',
-          branch: 'main',
+          session: "test-session-2",
+          repoUrl: "https://github.com/test/repo",
+          repoName: "test/repo",
+          branch: "main",
           createdAt: new Date().toISOString()
         }
       ];
@@ -409,38 +412,42 @@ describe('SessionDB', () => {
       writeFileSync(TEST_SESSION_DB, JSON.stringify(sessions));
       
       // Create test session directories in legacy format
-      const legacyPath1 = join(TEST_GIT_DIR, 'test/repo', 'test-session-1');
-      const legacyPath2 = join(TEST_GIT_DIR, 'test/repo', 'test-session-2');
-      const newPath1 = join(TEST_GIT_DIR, 'test/repo', 'sessions', 'test-session-1');
-      const newPath2 = join(TEST_GIT_DIR, 'test/repo', 'sessions', 'test-session-2');
+      const legacyPath1 = join(TEST_GIT_DIR, "test/repo", "test-session-1");
+      const legacyPath2 = join(TEST_GIT_DIR, "test/repo", "test-session-2");
+      const newPath1 = join(TEST_GIT_DIR, "test/repo", "sessions", "test-session-1");
+      const newPath2 = join(TEST_GIT_DIR, "test/repo", "sessions", "test-session-2");
       
-      mkdirSync(join(TEST_GIT_DIR, 'test/repo'), { recursive: true });
+      mkdirSync(join(TEST_GIT_DIR, "test/repo"), { recursive: true });
       mkdirSync(legacyPath1, { recursive: true });
       mkdirSync(legacyPath2, { recursive: true });
       
       // Create a test file in each session directory
-      writeFileSync(join(legacyPath1, 'test-file.txt'), 'test content');
-      writeFileSync(join(legacyPath2, 'test-file.txt'), 'test content');
+      writeFileSync(join(legacyPath1, "test-file.txt"), "test content");
+      writeFileSync(join(legacyPath2, "test-file.txt"), "test content");
       
       // Initialize SessionDB instance
       const db = new SessionDB();
       // Override the dbPath and baseDir for testing
-      Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
-      Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
+      Object.defineProperty(db, "dbPath", { value: TEST_SESSION_DB });
+      Object.defineProperty(db, "baseDir", { value: TEST_GIT_DIR });
       
       // Mock readDb, writeDb, and repoExists
       const originalReadDb = (db as any).readDb;
       const originalWriteDb = (db as any).writeDb;
       const originalRepoExists = (db as any).repoExists;
       
-      // Mock readDb to return our test sessions
-      (db as any).readDb = async () => sessions;
+      // Store updated sessions for validation
+      let updatedSessions: SessionRecord[] = [];
       
-      // Mock writeDb to write to the test file
-      (db as any).writeDb = async (updatedSessions: SessionRecord[]) => {
-        await fs.writeFile(TEST_SESSION_DB, JSON.stringify(updatedSessions));
-        sessions.length = 0;
-        sessions.push(...updatedSessions);
+      // Mock readDb to return our test sessions
+      (db as any).readDb = async () => {
+        return JSON.parse(JSON.stringify(sessions)); // Return a deep copy to avoid reference issues
+      };
+      
+      // Mock writeDb to update our sessions array
+      (db as any).writeDb = async (newSessions: SessionRecord[]) => {
+        updatedSessions = newSessions; // Store the updated sessions
+        await fs.writeFile(TEST_SESSION_DB, JSON.stringify(newSessions));
       };
       
       // Mock repoExists to return true for the legacy paths
@@ -462,10 +469,13 @@ describe('SessionDB', () => {
       fs.rename = originalRename;
       
       // Verify sessions were updated with the new path
-      expect(sessions[0].repoPath).toBeDefined();
-      expect(sessions[1].repoPath).toBeDefined();
-      expect(sessions[0].repoPath && sessions[0].repoPath.includes('sessions')).toBe(true);
-      expect(sessions[1].repoPath && sessions[1].repoPath.includes('sessions')).toBe(true);
+      expect(updatedSessions.length).toBe(2);
+      expect(updatedSessions[0].repoPath).toBeDefined();
+      expect(updatedSessions[1].repoPath).toBeDefined();
+      expect(updatedSessions[0].repoPath).toContain("sessions");
+      expect(updatedSessions[1].repoPath).toContain("sessions");
+      expect(updatedSessions[0].repoPath).toBe(newPath1);
+      expect(updatedSessions[1].repoPath).toBe(newPath2);
     });
   });
 }); 
