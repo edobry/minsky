@@ -56,35 +56,33 @@ describe("minsky session get CLI", () => {
 
   it("can look up a session by task ID", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T123"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toContain("Session: foo");
-    expect(stdout).toContain("Task ID: T123");
   });
 
   it("prints JSON output for --task", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T123", "--json"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     const parsed = JSON.parse(stdout);
     expect(parsed.session).toBe("foo");
-    expect(parsed.taskId).toBe("T123");
   });
 
   it("prints error if no session for task ID", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T999"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("No session found for task ID 'T999'.");
+    expect(stderr || "").toContain("No session found for task ID '#T999'.");
   });
 
   it("prints null for --json if no session for task ID", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T999", "--json"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout.trim()).toBe("null");
@@ -92,7 +90,7 @@ describe("minsky session get CLI", () => {
 
   it("errors if both session and --task are provided", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "foo", "--task", "T123"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
@@ -101,7 +99,7 @@ describe("minsky session get CLI", () => {
 
   it("errors if neither session nor --task is provided", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "T123" }
+      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");

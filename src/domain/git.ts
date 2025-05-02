@@ -53,6 +53,28 @@ export interface GitStatus {
   deleted: string[];
 }
 
+// Add interfaces needed for the session update command
+export interface GitResult {
+  workdir: string;
+}
+
+export interface StashResult extends GitResult {
+  stashed: boolean;
+}
+
+export interface PullResult extends GitResult {
+  updated: boolean;
+}
+
+export interface MergeResult extends GitResult {
+  merged: boolean;
+  conflicts: boolean;
+}
+
+export interface PushResult extends GitResult {
+  pushed: boolean;
+}
+
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
@@ -71,7 +93,8 @@ export class GitService {
     return Math.random().toString(36).substring(2, 8);
   }
 
-  private getSessionWorkdir(repoName: string, session: string): string {
+  // Make this public as it's needed by the update command
+  getSessionWorkdir(repoName: string, session: string): string {
     // Use the new path structure with sessions subdirectory
     return join(this.baseDir, repoName, "sessions", session);
   }
@@ -584,5 +607,106 @@ export class GitService {
       throw new Error("Failed to extract commit hash from git output");
     }
     return match[1];
+  }
+
+  // Add methods for session update command
+  async stashChanges(workdir: string): Promise<StashResult> {
+    try {
+      // Check if there are changes to stash
+      const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
+      if (!status.trim()) {
+        // No changes to stash
+        return { workdir, stashed: false };
+      }
+
+      // Stash changes
+      await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(`Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async popStash(workdir: string): Promise<StashResult> {
+    try {
+      // Check if there's a stash to pop
+      const { stdout: stashList } = await execAsync(`git -C ${workdir} stash list`);
+      if (!stashList.trim()) {
+        // No stash to pop
+        return { workdir, stashed: false };
+      }
+
+      // Pop the stash
+      await execAsync(`git -C ${workdir} stash pop`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
+    try {
+      // Get current branch
+      const { stdout: branch } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      const currentBranch = branch.trim();
+
+      // Get current commit hash
+      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Pull latest changes
+      await execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+
+      // Get new commit hash
+      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Return whether any changes were pulled
+      return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
+    } catch (err) {
+      throw new Error(`Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async mergeBranch(workdir: string, branch: string): Promise<MergeResult> {
+    try {
+      // Get current commit hash
+      const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Try to merge the branch
+      try {
+        await execAsync(`git -C ${workdir} merge ${branch}`);
+      } catch (err) {
+        // Check if there are merge conflicts
+        const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
+        if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
+          // Abort the merge and report conflicts
+          await execAsync(`git -C ${workdir} merge --abort`);
+          return { workdir, merged: false, conflicts: true };
+        }
+        throw err;
+      }
+
+      // Get new commit hash
+      const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Return whether any changes were merged
+      return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
+    } catch (err) {
+      throw new Error(`Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async pushBranch(workdir: string, remote: string = "origin"): Promise<PushResult> {
+    try {
+      // Get current branch
+      const { stdout: branch } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      const currentBranch = branch.trim();
+
+      // Push changes
+      await execAsync(`git -C ${workdir} push ${remote} ${currentBranch}`);
+
+      return { workdir, pushed: true };
+    } catch (err) {
+      throw new Error(`Failed to push branch: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
