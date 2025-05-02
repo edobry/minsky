@@ -132,6 +132,14 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
   3. String quote inconsistencies throughout test files
 - Not marking the task as DONE until all errors are fixed, per the dont-ignore-errors rule
 
+### 2025-05-10
+- Created a new testing approach for session auto-detection:
+  - Added `test-session-mock-helper.ts` module that provides a factory function for creating CLI instances with mocked getCurrentSession functionality
+  - Added `test-mock-session-autodetect.ts` script that uses the helper to test all auto-detection scenarios
+  - The new approach avoids directly modifying module properties, which was causing "Attempted to assign to readonly property" errors
+  - Tests verify that auto-detection works correctly for `session dir`, `session get`, and `session get --json` commands
+  - Tests also verify behavior when using explicit session names and the `--ignore-workspace` flag
+
 ## Remaining Work
 
 1. **Fix Remaining Test Failures**:
