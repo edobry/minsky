@@ -113,6 +113,7 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 - Fixed test failures in `src/commands/session/autodetect.test.ts`
   - Corrected JavaScript syntax errors in test scripts
   - Fixed indentation and string quotes
+  - Updated module import paths to use correct relative paths
 - Fixed test failures in `src/commands/session/get.test.ts`
   - Updated task ID normalization in tests to match implementation
   - Fixed expected error message to match actual output
