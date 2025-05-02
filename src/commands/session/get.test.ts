@@ -103,7 +103,7 @@ describe('minsky session get CLI', () => {
     ]);
     const { stdout, stderr } = spawnSync('bun', ['run', CLI, 'session', 'get'], { encoding: 'utf-8', env: { ...process.env, XDG_STATE_HOME: '/tmp' } });
     expect(stdout).toBe('');
-    expect(stderr || '').toContain('You must provide either a session name or --task.');
+    expect(stderr || '').toContain('Not in a session workspace');
   });
 
   it('returns an error when neither session nor --task are provided', () => {
