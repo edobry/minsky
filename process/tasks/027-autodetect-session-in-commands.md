@@ -137,32 +137,26 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 1. **Fix Remaining Test Failures**:
    - ✅ Fixed test script syntax errors in autodetect.test.ts
    - ✅ Fixed task ID lookup tests in get.test.ts
-   - Fix mock function usage in `src/domain/workspace.test.ts` - need to use `mock.fn()` correctly
-   - Address any other test failures discovered during testing
+   - Need to fix bun:test mocking approach in autodetect.test.ts to avoid "Attempted to assign to readonly property" errors
+   - Need to update mock function usage in workspace.test.ts
+   - Need to fix string quote inconsistencies in test files
 
-2. **Documentation and Code Clean-up**:
+2. **Implement Better Testing Approach**:
+   - For autodetect.test.ts, move from direct module property modification to dependency injection or a test module pattern
+   - Consider creating a test helper module for mock management
+
+3. **Documentation and Code Clean-up**:
    - Review code for any unnecessary commented-out sections
    - Ensure consistent code style across all modified files
    - Update inline documentation as needed
 
-3. **Final Verification**:
+4. **Final Verification**:
    - Run a final manual test using the test script to verify functionality
    - Ensure all tests pass before merging to main
 
-4. **Session Update Command**:
+5. **Session Update Command**:
    - ✅ Verified that there's no existing `session update` command to modify
    - Note in PR that if a `session update` command is added in the future, it should include the same auto-detection pattern
 
-5. **Address PR Feedback**:
+6. **Address PR Feedback**:
    - Once the PR is submitted, address any feedback from reviewers
-### 2025-05-09
-- Started fixing linting errors in test files:
-  - Fixed string quote inconsistencies in workspace.test.ts
-  - Fixed expected error message in get.test.ts to match actual implementation
-- Identified main test issues to fix:
-  1. Module property modification errors in autodetect.test.ts:
-     - "Attempted to assign to readonly property" when trying to mock getCurrentSession
-     - Need to modify test approach to avoid direct module property assignment
-  2. Mock function syntax (mock.fn vs mock) in workspace.test.ts
-  3. String quote inconsistencies throughout test files
-- Not marking the task as DONE until all errors are fixed, per the dont-ignore-errors rule
