@@ -1,19 +1,19 @@
-import { Command } from 'commander';
-import { SessionDB } from '../../domain/session';
-import { normalizeTaskId } from '../../utils/task-utils';
-import { getCurrentSession as defaultGetCurrentSession } from '../../domain/workspace';
-import type { SessionCommandDependencies } from './index';
+import { Command } from "commander";
+import { SessionDB } from "../../domain/session";
+import { normalizeTaskId } from "../../utils/task-utils";
+import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace";
+import type { SessionCommandDependencies } from "./index";
 
 export function createGetCommand(dependencies: SessionCommandDependencies = {}): Command {
   // Use provided dependency or fall back to default
   const getCurrentSession = dependencies.getCurrentSession || defaultGetCurrentSession;
 
-  return new Command('get')
-    .description('Get details for a specific session or by task ID')
-    .argument('[session]', 'Session identifier')
-    .option('--task <taskId>', 'Find session by associated task ID')
-    .option('--json', 'Output session as JSON')
-    .option('--ignore-workspace', 'Ignore auto-detection from workspace')
+  return new Command("get")
+    .description("Get details for a specific session or by task ID")
+    .argument("[session]", "Session identifier")
+    .option("--task <taskId>", "Find session by associated task ID")
+    .option("--json", "Output session as JSON")
+    .option("--ignore-workspace", "Ignore auto-detection from workspace")
     .action(async (session: string | undefined, options: { 
       json?: boolean; 
       task?: string;
@@ -23,7 +23,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
         const db = new SessionDB();
         // Error if both session and --task are provided
         if (session && options.task) {
-          const msg = 'Provide either a session name or --task, not both.';
+          const msg = "Provide either a session name or --task, not both.";
           if (options.json) {
             console.log(JSON.stringify({ error: msg }));
           } else {
@@ -72,7 +72,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
               process.exit(1);
             }
           } else {
-            const msg = 'Not in a session workspace. Please provide a session name or --task option.';
+            const msg = "Not in a session workspace. Please provide a session name or --task option.";
             if (options.json) {
               console.log(JSON.stringify({ error: msg }));
             } else {
@@ -81,7 +81,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
             process.exit(1);
           }
         } else {
-          const msg = 'You must provide either a session name or --task.';
+          const msg = "You must provide either a session name or --task.";
           if (options.json) {
             console.log(JSON.stringify({ error: msg }));
           } else {
@@ -96,7 +96,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
           // Print a human-readable summary (mimic list output)
           console.log(`Session: ${record.session}`);
           console.log(`Repo: ${record.repoUrl}`);
-          console.log(`Branch: ${record.branch || '(none)'}`);
+          console.log(`Branch: ${(record as any).branch || "(none)"}`);
           console.log(`Created: ${record.createdAt}`);
           if (record.taskId) {
             console.log(`Task ID: ${record.taskId}`);
