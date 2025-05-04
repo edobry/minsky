@@ -104,6 +104,7 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
+- Fixed test failures in backend/TaskService tests caused by spec file path inconsistencies, by aligning file naming in test fixtures and improving mock file system behavior to maintain state across test operations.
 - Fixed session test and implementation issues from task #022:
   - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
   - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
@@ -125,6 +126,7 @@ _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
 _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
+_See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
