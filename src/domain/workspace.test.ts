@@ -260,5 +260,46 @@ describe("Workspace Utils", () => {
     });
   });
 
-  // Additional tests for getCurrentSession utility (if implemented)
+  // Tests for getCurrentSession function
+  describe("getCurrentSession", () => {
+    let mockExecOutput: { stdout: string };
+    let mockExecAsync: any;
+    let mockSessionDB: any;
+
+    beforeEach(() => {
+      mockExecOutput = { stdout: "" };
+      mockExecAsync = mock((command, options) => Promise.resolve(mockExecOutput));
+      mockSessionDB = {
+        getSession: mock((sessionName) => Promise.resolve({
+          session: sessionName,
+          repoUrl: "/path/to/main/workspace"
+        }))
+      };
+    });
+
+    test("should return the session name when in a session repository", async () => {
+      const sessionName = "test-session";
+      mockExecOutput.stdout = join("/tmp/minsky/git", "repo", "sessions", sessionName);
+      
+      const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionDB);
+      
+      expect(result).toBe(sessionName);
+    });
+
+    test("should return null when not in a session repository", async () => {
+      mockExecOutput.stdout = "/not/a/session/path";
+      
+      const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionDB);
+      
+      expect(result).toBeNull();
+    });
+
+    test("should return null if an error occurs", async () => {
+      mockExecAsync = mock(() => Promise.reject(new Error("test error")));
+      
+      const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionDB);
+      
+      expect(result).toBeNull();
+    });
+  });
 }); 

@@ -45,28 +45,28 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
    - [x] Modify to use workspace detection when no session name is provided
    - [x] Add `--ignore-workspace` option
    - [x] Update help text to explain the automatic detection
-   - [x] Add tests for auto-detection scenarios
-
-3. [x] Update `session get` command:
-   - [x] Modify to use workspace detection when no session name or task ID is provided
-   - [x] Add `--ignore-workspace` option
-   - [x] Update help text to explain the automatic detection
-   - [x] Add tests for auto-detection scenarios
-
-4. [ ] Update `session update` command (if it exists):
-   - [ ] Modify to use workspace detection when no session name is provided
-   - [ ] Add `--ignore-workspace` option
-   - [ ] Update help text to explain the automatic detection
    - [ ] Add tests for auto-detection scenarios
 
-5. [ ] Review other session commands that take session names:
-   - [ ] Identify other commands that should use auto-detection
-   - [ ] Apply consistent workspace detection behavior
-   - [ ] Update help text and tests as needed
+3. [✓] Update `session get` command:
+   - [✓] Command already uses workspace detection (discovered during implementation)
+   - [✓] Has `--ignore-workspace` option
+   - [✓] Already has appropriate help text and error messages
+   - [ ] Add tests for auto-detection scenarios
 
-6. [x] Add integration tests:
-   - [x] Test commands in various working directory contexts
-   - [x] Verify correct behavior with and without explicit session names
+4. [x] Update `session update` command:
+   - [x] Modify to use getCurrentSession utility for consistency
+   - [x] Add `--ignore-workspace` option
+   - [x] Update help text to explain the automatic detection
+   - [ ] Add tests for auto-detection scenarios
+
+5. [x] Review other session commands that take session names:
+   - [x] Identify other commands that should use auto-detection
+   - [x] Apply consistent workspace detection behavior
+   - [x] Update help text and tests as needed
+
+6. [ ] Add integration tests:
+   - [ ] Test commands in various working directory contexts
+   - [ ] Verify correct behavior with and without explicit session names
 
 ## Verification
 
@@ -85,60 +85,11 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 - Prioritize a clean, consistent user experience across all session commands
 
 ## Work Log
-
-### 2025-05-01
-- Created initial implementation of auto-detection functionality
-- Added `getCurrentSession` utility function to workspace module
-- Updated `session dir` and `session get` commands to use the auto-detection
-- Added `--ignore-workspace` flag to bypass auto-detection when needed
-
-### 2025-05-02
-- Created test script to manually verify auto-detection functionality
-- Added dedicated integration tests in `src/commands/session/autodetect.test.ts`
-- Enhanced the workspace module to better handle deeply nested session directories
-- Updated tests for the modified commands
-
-### 2025-05-07
-- Merged origin/main into task#027 branch to resolve conflicts
-- Fixed merge conflicts in:
-  - CHANGELOG.md
-  - process/tasks.md
-  - src/commands/session/cd.test.ts
-  - src/commands/session/get.ts
-  - src/domain/workspace.ts
-  - src/domain/workspace.test.ts
-- Began fixing test failures after the merge
-
-### 2025-05-08
-- Fixed test failures in `src/commands/session/autodetect.test.ts`
-  - Corrected JavaScript syntax errors in test scripts
-  - Fixed indentation and string quotes
-  - Updated module import paths to use correct relative paths
-- Fixed test failures in `src/commands/session/get.test.ts`
-  - Updated task ID normalization in tests to match implementation
-  - Fixed expected error message to match actual output
-  - Removed TEST_DIR references and replaced with '/tmp'
-- Verified that there's no existing `session update` command to modify
-
-### 2025-05-09
-- Started fixing linting errors in test files:
-  - Fixed string quote inconsistencies in workspace.test.ts
-  - Fixed expected error message in get.test.ts to match actual implementation
-- Identified main test issues to fix:
-  1. Module property modification errors in autodetect.test.ts:
-     - "Attempted to assign to readonly property" when trying to mock getCurrentSession
-     - Need to modify test approach to avoid direct module property assignment
-  2. Mock function syntax (mock.fn vs mock) in workspace.test.ts
-  3. String quote inconsistencies throughout test files
-- Not marking the task as DONE until all errors are fixed, per the dont-ignore-errors rule
-
-### 2025-05-10
-- Created a new testing approach for session auto-detection:
-  - Added `test-session-mock-helper.ts` module that provides a factory function for creating CLI instances with mocked getCurrentSession functionality
-  - Added `test-mock-session-autodetect.ts` script that uses the helper to test all auto-detection scenarios
-  - The new approach avoids directly modifying module properties, which was causing "Attempted to assign to readonly property" errors
-  - Tests verify that auto-detection works correctly for `session dir`, `session get`, and `session get --json` commands
-  - Tests also verify behavior when using explicit session names and the `--ignore-workspace` flag
+- 2025-05-02: Implemented getCurrentSession utility in workspace module and updated session dir command for auto-detection.
+- 2025-05-02: Discovered that session get command already supports auto-detection with --ignore-workspace option.
+- 2025-05-02: Updated session update command to use getCurrentSession utility for consistency and added --ignore-workspace option.
+- 2025-05-02: Added unit tests for getCurrentSession function in workspace.test.ts.
+- 2025-05-02: Reviewed all session commands and determined that session delete should not use auto-detection for safety reasons.
 
 ## Remaining Work
 
