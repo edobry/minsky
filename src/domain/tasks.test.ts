@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
 import { MarkdownTaskBackend, TaskService, TASK_STATUS } from './tasks';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { resolveRepoPath } from './repo-utils';
 import type { RepoResolutionOptions } from './repo-utils';
@@ -30,11 +30,17 @@ describe('MarkdownTaskBackend', () => {
   let backend: MarkdownTaskBackend;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
-    const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
-    tasksPath = join(processDir, 'tasks.md');
+    tmpDir = mkdtempSync("/tmp/minsky-tasks-test-");
+    const processDir = join(tmpDir, "process");
+    mkdirSync(processDir);
+    tasksPath = join(processDir, "tasks.md");
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
+    // Create expected spec files for tasks 001, 002, 003 (matching SAMPLE_TASKS_MD)
+    const tasksDir = join(processDir, "tasks");
+    mkdirSync(tasksDir);
+    writeFileSync(join(tasksDir, "001-first.md"), "# Task #001: First Task\n\n## Context\n\nThis is the first task description.");
+    writeFileSync(join(tasksDir, "002-second.md"), "# Task #002: Second Task\n\n## Context\n\nThis is the second task description.");
+    writeFileSync(join(tasksDir, "003-third.md"), "# Task #003: Third Task\n\n## Context\n\nThis is the third task description.");
     backend = new MarkdownTaskBackend(tmpDir);
   });
 
@@ -162,11 +168,17 @@ describe('TaskService', () => {
   let service: TaskService;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
-    const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
-    tasksPath = join(processDir, 'tasks.md');
+    tmpDir = mkdtempSync("/tmp/minsky-tasks-test-");
+    const processDir = join(tmpDir, "process");
+    mkdirSync(processDir);
+    tasksPath = join(processDir, "tasks.md");
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
+    // Create expected spec files for tasks 001, 002, 003 (matching SAMPLE_TASKS_MD)
+    const tasksDir = join(processDir, "tasks");
+    mkdirSync(tasksDir);
+    writeFileSync(join(tasksDir, "001-first.md"), "# Task #001: First Task\n\n## Context\n\nThis is the first task description.");
+    writeFileSync(join(tasksDir, "002-second.md"), "# Task #002: Second Task\n\n## Context\n\nThis is the second task description.");
+    writeFileSync(join(tasksDir, "003-third.md"), "# Task #003: Third Task\n\n## Context\n\nThis is the third task description.");
     service = new TaskService({ workspacePath: tmpDir });
   });
 
@@ -190,23 +202,87 @@ describe('TaskService', () => {
   });
 });
 
-// Mock fs
-mock.module('fs', () => ({
-  promises: {
-    readFile: async (path: string) => {
-      if (path.endsWith('tasks.md')) {
-        return `# Tasks\n\n- [ ] Task 1 [#001](process/tasks/001-task-1.md)\n`;
+// Mock fs with better in-memory handling
+const mockFileSystem = new Map<string, string>();
+const mockDirs = new Set<string>();
+
+// Mock the implementation with in-memory operations
+mock.module("fs", () => {
+  return {
+    promises: {
+      readFile: async (path: string) => {
+        if (mockFileSystem.has(path)) {
+          return mockFileSystem.get(path);
+        }
+
+        // Default content
+        if (path.endsWith("tasks.md")) {
+          const content = `# Tasks\n\n- [ ] First Task [#001](process/tasks/001-first.md)\n- [x] Second Task [#002](process/tasks/002-second.md)\n- [ ] Third Task [#003](process/tasks/003-third.md)\n`;
+          mockFileSystem.set(path, content);
+          return content;
+        }
+        if (path.endsWith("spec.md")) {
+          return `# Task #999: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n`;
+        }
+        if (path.includes("001-first")) {
+          return `# Task #001: First Task\n\n## Context\n\nThis is the first task description.\n`;
+        }
+        if (path.includes("002-second")) {
+          return `# Task #002: Second Task\n\n## Context\n\nThis is the second task description.\n`;
+        }
+        if (path.includes("003-third")) {
+          return `# Task #003: Third Task\n\n## Context\n\nThis is the third task description.\n`;
+        }
+        return "";
+      },
+      writeFile: async (path: string, content: string) => {
+        mockFileSystem.set(path, content);
+      },
+      mkdir: async (path: string) => {
+        mockDirs.add(path.toString());
+      },
+      access: async (path: string) => {
+        if (path.includes("001-first") || 
+            path.includes("002-second") || 
+            path.includes("003-third") ||
+            path.includes("spec.md") || 
+            path.endsWith("tasks.md") ||
+            mockFileSystem.has(path) ||
+            mockDirs.has(path)) {
+          return;
+        }
+        throw new Error("File not found");
+      },
+      readdir: async (path: string) => {
+        if (path.includes("tasks")) {
+          return ["001-first.md", "002-second.md", "003-third.md"];
+        }
+        return [];
       }
-      if (path.endsWith('spec.md')) {
-        return `# Task #999: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n`;
-      }
-      return '';
     },
-    writeFile: async () => {},
-    mkdir: async () => {},
-    access: async () => {}
-  }
-}));
+    // Add sync versions too for readFileSync used in tests
+    mkdtempSync: (prefix: string) => prefix + Date.now(),
+    mkdirSync: (path: string) => {
+      mockDirs.add(path.toString());
+    },
+    rmSync: () => {},
+    writeFileSync: (path: string, content: string) => {
+      mockFileSystem.set(path.toString(), content.toString());
+    },
+    readFileSync: (path: string) => {
+      if (mockFileSystem.has(path.toString())) {
+        return mockFileSystem.get(path.toString());
+      }
+      // Default content same as async version
+      if (path.toString().endsWith("tasks.md")) {
+        const content = `# Tasks\n\n- [ ] First Task [#001](process/tasks/001-first.md)\n- [x] Second Task [#002](process/tasks/002-second.md)\n- [ ] Third Task [#003](process/tasks/003-third.md)\n`;
+        mockFileSystem.set(path.toString(), content);
+        return content;
+      }
+      return "";
+    }
+  };
+});
 
 // Add createTask tests
 describe('createTask', () => {
@@ -224,7 +300,7 @@ describe('createTask', () => {
     
     // Mock parseTasks to return tasks with ID 001
     spyOn(taskBackend, 'parseTasks').mockImplementation(async () => [
-      { id: '#001', title: 'Task 1', description: '', status: TASK_STATUS.TODO, specPath: 'process/tasks/001-task-1.md' }
+      { id: '#001', title: 'First Task', description: '', status: TASK_STATUS.TODO, specPath: 'process/tasks/001-first.md' }
     ]);
 
     // Temporarily access private method for testing

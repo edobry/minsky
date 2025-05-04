@@ -46,7 +46,8 @@ export function createDirCommand(): Command {
         }
         
         // Use the SessionDB.getRepoPath method to get the correct repository path
-        const workdir = await db.getRepoPath(session);
+        // const workdir = await db.getRepoPath(session);
+        const workdir = session.repoUrl;
         console.log(workdir);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));

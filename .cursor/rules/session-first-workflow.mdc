@@ -1,62 +1,59 @@
 ---
-description:
-globs:
+description: description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
+globs: 
 alwaysApply: false
 ---
 # Session-First Workflow
 
-## Core Rules for Session Development
+**Purpose:**  
+To ensure all code, test, and configuration changes for a task are made exclusively within the session workspace, maintaining strict isolation and traceability as required by the Minsky workflow.
 
-⚠️ **CRITICAL: ALWAYS USE ABSOLUTE PATHS WHEN EDITING FILES IN SESSIONS** ⚠️
-- When using tools like `edit_file`, ALWAYS use absolute paths to files in the session directory
-- **CORRECT**: `/Users/username/.local/state/minsky/git/local/minsky/sessions/task#012/src/file.ts` 
-- **INCORRECT**: `src/file.ts` (which would edit the main workspace file)
-- Without absolute paths, changes silently occur in the main workspace instead of the session directory
-- After every file edit, verify the changes with `git status` and `git diff` in the session directory
-- This is a zero-tolerance requirement - any violation leads to broken workflow and wasted effort
+---
 
-1. **NEVER use `bun link` in session directories**
-   - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
-   - This interferes with the globally linked main version
-   - Session directories are for testing changes in isolation, not for global installation
-   - Use `bun run` to test code changes within the session directory
+## 1. Scope and Applicability
 
-2. **Proper Testing in Sessions**
-   - To test changes in a session, use:
-     ```bash
-     cd $(minsky session dir <session-name>)
-     bun run ./src/cli.ts <command> <args>
-     ```
-   - Never use a globally linked command for testing session-specific changes
-   - This ensures proper isolation between your session and the main codebase
+- **All changes** (code, tests, configs, fixtures, docs, etc.) related to a task MUST be made **directly within the session workspace** for that task.
+- This applies to any file that could affect the outcome of tests, builds, or reviews, including test files, fixtures, helper scripts, and configuration files.
+- **No edits to the main workspace are allowed** during an active session, except for the final merge after review.
 
-3. **Session Isolation**
-   - Changes in a session must remain isolated until merged into main
-   - The session directory contains a separate clone of the repository
-   - All tests should be run within the session directory using `bun test`
+## 2. Workflow Enforcement
 
-4. **Keeping Sessions in Sync**
-   - Use the session update command to integrate latest changes from main:
-     ```bash
-     # Update current session
-     minsky session update
-     ```
-   - This ensures your session has the latest changes without breaking isolation
-   - Regularly update to avoid diverging too far from the main branch
+- **Session workspace** is a full, isolated clone of the repository, created and managed by the Minsky CLI.
+- All edits, commits, and pushes must be performed from within the session workspace.
+- **Never copy files from the main workspace into the session workspace.**  
+  The session workspace already contains all project files as of the session's creation or last update.
+- **Never copy files from the session workspace back to the main workspace manually.**  
+  All changes must be merged via the session branch after review.
 
-5. **After Implementation**
-   - After completing and verifying the implementation in the session:
-     1. Generate a PR description with `minsky git pr`
-     2. Commit all changes
-     3. Push changes to the remote branch
-     4. Mark the task as IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
-   - Do not attempt to make the session version globally available
+## 3. Edit Location Verification
 
-5. **File Edit Verification Required**
-   - After editing any file, ALWAYS verify the changes with:
-     ```bash
-     git status  # Confirm the file appears as modified
-     git diff <filename>  # Confirm the expected changes exist
-     ```
-   - Never assume an edit succeeded without verification
-   - If the git commands show no changes, you likely edited the main workspace file instead
+- Before any file edit, verify that the file path is within the session workspace directory.
+- Any attempt to edit a file outside the session workspace is a hard error and must be aborted immediately.
+
+## 4. No Temporary or Test-Only Main Workspace Changes
+
+- **No "temporary" or "test-only" changes in the main workspace are permitted.**
+- All test expectation, fixture, and helper file changes must be made in the session workspace.
+
+## 5. Audit and Logging
+
+- Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+
+## 6. Automated Enforcement
+
+- Automated tools and contributors must check that all changes for a task are present only in the session workspace until the session is merged.
+
+## 7. Rationale
+
+- This ensures all work is traceable, reviewable, and isolated to the session, preventing accidental pollution or loss of context in the main workspace.
+- It guarantees that the main workspace remains stable and unaffected by in-progress work.
+
+---
+
+### Rule Description (for discoverability and relevance)
+
+**Description:**  
+This rule applies to all code, test, configuration, fixture, and documentation changes for a task.  
+It requires that all such changes be made exclusively within the session workspace created by the Minsky CLI, which is a full, isolated clone of the repository.  
+No changes may be made to the main workspace during an active session, except for the final merge after review.  
+This rule is relevant to any operation that could affect the outcome of tests, builds, or code reviews for a task, including but not limited to source code, test files, fixtures, and configuration files.

@@ -3,7 +3,6 @@ description: Guidelines for creating or updating .mdc rule files. REQUIRED when 
 globs: ["**/*.mdc"]
 alwaysApply: false
 ---
-
 # Cursor Rule Creation Guidelines
 
 Rules are read by AI assistants with limited attention spans and context windows. Every word must count.
@@ -16,6 +15,8 @@ Rules are read by AI assistants with limited attention spans and context windows
 - **Clarity**: Use simple language and clear examples
 - **Hierarchy**: Structure content from most to least important
 - **No Duplication**: Never repeat content across rules
+- **Update Existing Sections**: Prefer updating existing relevant sections over adding new sections when modifying rules, to avoid redundancy and keep rules concise.
+
 ## Rule Structure
 
 1. **Metadata Header (Required)**
@@ -43,6 +44,7 @@ Rules are read by AI assistants with limited attention spans and context windows
    ```
 
 6. **Rationale**: Only if not self-evident from principles
+
 ## File Location
 
 **RULE FILES MUST BE STORED IN THE `.cursor/rules` DIRECTORY AT THE ROOT OF THE PROJECT.**
@@ -54,12 +56,14 @@ Rules are read by AI assistants with limited attention spans and context windows
 
 The description is **critically important** as it's the main trigger for rule application:
 
+- Focus ONLY on WHEN the rule applies, not WHAT the rule instructs
 - Begin with "Use when..." or "Guidelines for..." to clearly state when the rule applies
 - Include all relevant trigger keywords (e.g., "required for testing components")
 - Specify file types or contexts where the rule applies
 - Use "REQUIRED" or "MUST" for non-negotiable rules
 - Keep under 100 characters while remaining specific
 - Test by asking: "Would an AI correctly apply this rule based solely on this description?"
+
 ## Rule Assessment Checklist
 
 Before submitting a rule, verify it:
