@@ -87,7 +87,10 @@ This rule defines the comprehensive process for working with tasks and sessions 
 ## Core Principles
 
 1. **Always Use Minsky CLI for Task/Session Data**
-   - NEVER use file listings or static documentation
+   - For checking the existence, status, or details of tasks and sessions, ALWAYS use the Minsky CLI (e.g., `minsky tasks get`, `minsky session get`).
+   - NEVER use file listings, static documentation, or direct file/database access for task/session state.
+   - Listing files, reading code, and searching the codebase is PERMITTED for navigation, planning, or investigation.
+   - Using file listings or static docs to determine if a session exists or to check task/session status is FORBIDDEN.
    - NEVER directly manipulate Minsky's state files or databases
    - NEVER delete or modify files in `~/.local/state/minsky/`
    - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
