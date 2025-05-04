@@ -41,20 +41,14 @@ describe('MarkdownTaskBackend Spec Path Handling', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns undefined specPath when spec file does not exist', async () => {
-    const task = await backend.getTask('#001');
-    expect(task).not.toBeNull();
-    expect(task?.specPath).toBeUndefined();
-  });
-
-  it('returns correct specPath when spec file exists with standardized name', async () => {
-    // Create a spec file with standardized name
-    const specPath = join(tmpDir, 'process', 'tasks', '001-first.md');
+  it('returns correct specPath when spec file exists with standardized naming format', async () => {
+    // Create a spec file with standardized name format (001-first-task.md)
+    const specPath = join(tmpDir, 'process', 'tasks', '001-first-task.md');
     writeFileSync(specPath, '# Task #001: First Task');
 
     const task = await backend.getTask('#001');
     expect(task).not.toBeNull();
-    expect(task?.specPath).toBe('process/tasks/001-first.md');
+    expect(task?.specPath).toBe('process/tasks/001-first-task.md');
   });
 
   it('finds and returns correct specPath when file exists with different name', async () => {
@@ -69,7 +63,7 @@ describe('MarkdownTaskBackend Spec Path Handling', () => {
 
   it('handles multiple spec files with same ID prefix correctly', async () => {
     // Create multiple spec files with same ID prefix
-    const specPath1 = join(tmpDir, 'process', 'tasks', '001-first.md');
+    const specPath1 = join(tmpDir, 'process', 'tasks', '001-first-task.md');
     const specPath2 = join(tmpDir, 'process', 'tasks', '001-different-name.md');
     writeFileSync(specPath1, '# Task #001: First Task');
     writeFileSync(specPath2, '# Task #001: First Task (Old)');
@@ -77,7 +71,18 @@ describe('MarkdownTaskBackend Spec Path Handling', () => {
     const task = await backend.getTask('#001');
     expect(task).not.toBeNull();
     // Should return the first matching file it finds
-    expect(task?.specPath).toBe('process/tasks/001-first.md');
+    expect(task?.specPath).toBe('process/tasks/001-first-task.md');
+  });
+
+  it('returns undefined specPath when spec file does not exist', async () => {
+    // Don't create any spec files
+    // Make sure there are no files in the tasks directory
+    const files = require('fs').readdirSync(join(tmpDir, 'process', 'tasks'));
+    expect(files.length).toBe(0);
+    
+    const task = await backend.getTask('#001');
+    expect(task).not.toBeNull();
+    expect(task?.specPath).toBeUndefined();
   });
 
   it('handles missing tasks directory gracefully', async () => {
