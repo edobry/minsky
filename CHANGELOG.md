@@ -105,6 +105,11 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
 - Fixed test failures in backend/TaskService tests caused by spec file path inconsistencies, by aligning file naming in test fixtures and improving mock file system behavior to maintain state across test operations.
+- Fixed test failures in domain modules and session implementation tests:
+  - Corrected mock expectations in tasks.specpath.test.ts to align with actual implementation behavior
+  - Updated repo-utils.test.ts to test the correct fallback behavior when git commands fail
+  - Fixed SessionDB.deleteSession tests to properly match the implementation's behavior
+  - Corrected startSession.test.ts to use the correct local path handling expectations
 - Fixed session test and implementation issues from task #022:
   - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
   - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
