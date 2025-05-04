@@ -10,6 +10,7 @@ const CLI = join(process.cwd(), "src/cli.ts");
 // Test directory
 const TEST_DIR = "/tmp/minsky-tasks-list-test";
 const PROCESS_DIR = join(TEST_DIR, "process");
+const TASKS_DIR = join(PROCESS_DIR, "tasks");
 
 const SAMPLE_TASKS_MD = `
 # Tasks
@@ -33,15 +34,27 @@ const SAMPLE_TASKS_MD = `
 describe("minsky tasks list CLI", () => {
   beforeEach(() => {
     // Clean up any existing test directories
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
     
     // Create test directories and files
     mkdirSync(PROCESS_DIR, { recursive: true });
+    mkdirSync(TASKS_DIR, { recursive: true });
+    
+    // Create the tasks.md file
     writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
+    
+    // Create the individual task spec files
+    writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
+    writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
+    writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
+    writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
     
     // Verify the test setup
     console.log("Test setup complete");
     console.log(`Tasks file exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
+    console.log(`Tasks dir exists: ${existsSync(TASKS_DIR)}`);
     console.log(`CLI exists: ${existsSync(CLI)}`);
     console.log(`Working directory: ${process.cwd()}`);
   });
@@ -52,7 +65,7 @@ describe("minsky tasks list CLI", () => {
   });
   
   it("hides DONE tasks by default", () => {
-    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR], { 
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR], { 
       encoding: "utf-8",
     });
     
@@ -77,7 +90,7 @@ describe("minsky tasks list CLI", () => {
   });
   
   it("includes DONE tasks when --all is specified", () => {
-    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--all"], { 
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--all"], { 
       encoding: "utf-8",
     });
     
@@ -101,14 +114,14 @@ describe("minsky tasks list CLI", () => {
   
   it("respects --all flag in JSON output", () => {
     // First without --all
-    const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--json"], { 
+    const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json"], { 
       encoding: "utf-8",
     });
     
     console.log("Command stdout (json):", resultDefault.stdout);
     console.log("Command stderr (json):", resultDefault.stderr);
     
-    const { stdout: stdoutDefault } = resultDefault;
+    const { stdout: stdoutDefault, stderr: stderrDefault } = resultDefault;
     
     // Skip if no output
     if (!stdoutDefault.trim()) {
@@ -128,7 +141,7 @@ describe("minsky tasks list CLI", () => {
     expect(taskIds).not.toContain("#002");
     
     // Now with --all
-    const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--json", "--all"], { 
+    const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json", "--all"], { 
       encoding: "utf-8",
     });
     
@@ -157,7 +170,7 @@ describe("minsky tasks list CLI", () => {
   });
   
   it("filters by specific status when provided", () => {
-    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "IN-PROGRESS"], { 
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS"], { 
       encoding: "utf-8",
     });
     
