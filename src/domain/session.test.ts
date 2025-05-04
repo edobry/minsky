@@ -86,7 +86,7 @@ describe("SessionDB", () => {
       // Try to delete a session
       const result = await db.deleteSession("test-session");
 
-      // Check that the operation returned false
+      // Based on the implementation, deleteSession returns false if the session is not found
       expect(result).toBe(false);
     });
 
