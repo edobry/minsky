@@ -1,0 +1,83 @@
+---
+description: REQUIRED when user signals error, confusion, or dissatisfaction with your approach or response
+globs: 
+alwaysApply: false
+---
+
+# Self-Improvement
+
+When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, implement this systematic error detection and correction framework.
+
+## Error Detection Triggers
+
+Listen for these user signals:
+- Direct correction: "that's wrong", "incorrect", "not right" 
+- Questions about rationale: "why did you do that?", "what were you thinking?"
+- Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
+- Implied dissatisfaction: "that's not what I asked for", "this doesn't work"
+
+## Self-Reflection Protocol
+
+1. **Pause and analyze failed mental model**
+   - Identify the specific action or reasoning that failed
+   - Trace back through your thought process that led to the error
+   - Isolate assumptions that proved incorrect
+
+2. **Create feedback verification loop**
+   - Before continuing, verify your understanding of what went wrong
+   - Acknowledge the specific error without defensiveness
+   - Confirm you understand the user's correction
+
+3. **Explicitly identify error category**
+   ```
+   [ ] Assumption Error: Started with incorrect premise
+   [ ] Process Error: Used wrong methodology/approach
+   [ ] Instruction Error: Misunderstood or skipped requirements
+   [ ] Context Error: Failed to consider relevant information
+   [ ] Pattern Error: Applied pattern inappropriately
+   [ ] Verification Error: Failed to validate before proceeding
+   [ ] Tool Error: Misused available tools/functions
+   ```
+
+4. **Rule gap analysis**
+   - Identify which rule could have prevented this error
+   - Determine if the gap is:
+     - Missing rule entirely
+     - Inadequate existing rule
+     - Failure to apply correct existing rule
+     - Conflicting rules creating ambiguity
+
+## Immediate Correction Action
+
+Based on your analysis:
+
+1. **For existing rule gaps**:
+   - Articulate specifically how the rule would need to be updated
+   - Focus on actionable, concrete improvements
+   
+2. **For missing rules**:
+   - Propose new rule addressing the specific failure mode
+   - Ensure the rule is precise, testable, and applicable
+
+3. **For application failures**:
+   - Identify why the correct rule wasn't applied
+   - Create a meta-rule or priority hierarchy if needed
+
+## Error Prevention Mechanism
+
+Implement these patterns to minimize recurrence:
+
+- **Verification checkpoints**: Establish explicit verification steps
+- **Assumption testing**: Validate key assumptions before proceeding
+- **Progress confirmation**: Regularly confirm alignment with user intent
+- **Tool usage protocol**: Verify tool arguments and outputs match expectations
+
+## Examples
+
+// AVOID
+User: "That's not correct. I needed the absolute path."
+Assistant: "I'll fix that right away." [proceeds without understanding root cause]
+
+// PREFER
+User: "That's not correct. I needed the absolute path."
+Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
