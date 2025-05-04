@@ -171,4 +171,17 @@ export async function resolveWorkspacePath(
   
   // If not in a session repo, use current directory
   return checkPath;
+}
+
+/**
+ * Returns the current session name if in a session repository, or null otherwise.
+ * Uses getSessionFromRepo to extract the session context from the current working directory.
+ */
+export async function getCurrentSession(
+  cwd: string = process.cwd(),
+  execAsyncFn: typeof execAsync = execAsync,
+  sessionDbOverride?: { getSession: SessionDB["getSession"] }
+): Promise<string | null> {
+  const sessionInfo = await getSessionFromRepo(cwd, execAsyncFn, sessionDbOverride);
+  return sessionInfo ? sessionInfo.session : null;
 } 
