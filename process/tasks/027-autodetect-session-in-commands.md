@@ -93,29 +93,37 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 
 ## Remaining Work
 
-1. **Fix Remaining Test Failures**:
-   - ✅ Fixed test script syntax errors in autodetect.test.ts
-   - ✅ Fixed task ID lookup tests in get.test.ts
-   - ✅ Created alternative testing approach for session auto-detection with test-session-mock-helper.ts
-   - Need to update mock function usage in workspace.test.ts
-   - Need to fix string quote inconsistencies in test files
+1. **Fix Test Failures and Linter Errors**:
+   - Fix linter errors in `src/domain/workspace.test.ts`:
+     - Fix string quote inconsistencies (use double quotes)
+     - Fix mock calls that are "possibly undefined"
+     - Fix `getCurrentSession` import issue for the test assertions
+     - Fix spread arguments that require tuple types
+     - Fix mock function typings
+   - Update integration tests in `src/commands/session/autodetect.test.ts`:
+     - Use dependency injection for mocking instead of direct module property assignment
+     - Fix "Attempted to assign to readonly property" errors
 
-2. **Update Integration Tests**:
-   - Consider updating src/commands/session/autodetect.test.ts to use the new test helper approach
-   - Or add a note explaining that we have manual test scripts as alternatives to the failing integration tests
+2. **Complete Test Coverage**:
+   - Add the missing tests for auto-detection in each command:
+     - Update `cd.test.ts` to verify auto-detection functionality
+     - Update `get.test.ts` to verify auto-detection functionality
+     - Add tests for `update.ts` auto-detection
+   - Create proper test fixtures and setup/teardown helpers for each test suite
 
-3. **Documentation and Code Clean-up**:
-   - Review code for any unnecessary commented-out sections
-   - Ensure consistent code style across all modified files
-   - Update inline documentation as needed
+3. **Verify Implementation**:
+   - Manually verify that all session commands work correctly with auto-detection
+   - Test both the new format (`<repoName>/sessions/<session>`) and legacy format (`<repoName>/<session>`)
+   - Ensure error messages are helpful and user-friendly in all error conditions
+   - Verify the `--ignore-workspace` option works as expected for all commands
 
-4. **Final Verification**:
-   - ✅ Created and verified test-mock-session-autodetect.ts manual test script
-   - Ensure core functionality tests pass before merging to main
+4. **Documentation and Final Steps**:
+   - Update and finalize the Work Log with all implementation details
+   - Update the CHANGELOG.md with the changes made
+   - Prepare the PR description with detailed information about the changes
+   - Check all implemented and verified requirements against the Verification section
 
-5. **Session Update Command**:
-   - ✅ Verified that there's no existing `session update` command to modify
-   - Note in PR that if a `session update` command is added in the future, it should include the same auto-detection pattern
-
-6. **Address PR Feedback**:
-   - Once the PR is submitted, address any feedback from reviewers
+5. **Addressing Specific Issues**:
+   - The mock function in `workspace.test.ts` needs to be updated to use `mock.fn()` instead of custom mock implementation
+   - Update the expected return value for `getSessionFromRepo` test to match the actual implementation
+   - Fix path construction for session directories to match both legacy and new formats
