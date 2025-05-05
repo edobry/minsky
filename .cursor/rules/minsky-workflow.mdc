@@ -7,6 +7,19 @@ alwaysApply: false
 
 ⛔️ **STOP - READ THIS FIRST**
 
+## CLI Usage Enforcement (Critical)
+
+**For all user-facing Minsky operations (task/session management, status, etc.), you MUST use the globally installed `minsky` CLI (available on your PATH, typically via `bun link`).**
+
+- Example:
+  ```bash
+  minsky tasks list --json
+  minsky session start --task 001
+  minsky tasks status get '#001'
+  ```
+- **Do NOT use `bun run ...` or direct script execution for these operations.**
+- Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself (i.e., when working on the implementation of Minsky, not when using it as a tool).
+
 ## Mandatory Session Creation
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
@@ -62,6 +75,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
      minsky session get <name>         # Get session details by name
      minsky session get --task XXX     # Get session details by task ID
      ```
+   - **Do NOT use `bun run ...` for these operations.**
+   - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself.
 
 2. **Data Integrity is Critical**
    - Minsky maintains critical state in `~/.local/state/minsky/`
