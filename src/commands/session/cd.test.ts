@@ -240,7 +240,7 @@ describe("minsky session dir CLI", () => {
     
     // The command should return an error
     expect(status).not.toBe(0);
-    expect(stderr).toContain("You must provide either a session name or --task");
+    expect(stderr).toContain("No session name provided and not in a session workspace");
     expect(stdout).toBe("");
   });
 }); 
