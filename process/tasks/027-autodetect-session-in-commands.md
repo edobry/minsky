@@ -36,8 +36,8 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 
 ## Implementation Steps
 
-1. [ ] Add session context detection utilities:
-   - [ ] Create `getCurrentSession` function in workspace module
+1. [x] Add session context detection utilities:
+   - [x] Create `getCurrentSession` function in workspace module
    - [ ] Build on existing `getSessionFromRepo` function
    - [ ] Add unit tests for new functions
 
@@ -83,3 +83,6 @@ Currently, when running commands like `minsky session get`, `minsky session dir`
 - Build on the existing workspace detection functionality from Task #016
 - Ensure backward compatibility for calls outside of session workspaces
 - Prioritize a clean, consistent user experience across all session commands 
+
+## Work Log
+- 2025-05-02: Implemented getCurrentSession utility in workspace module and updated session dir command for auto-detection.
