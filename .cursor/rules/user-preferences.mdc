@@ -35,6 +35,7 @@ The above is not optional guidance - it is a mandatory filter that must be appli
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Balance proactiveness with task interpretation:** When the user asks to "create a task", always create a task specification document first. Only proceed to implementation if explicitly directed to do so.
 - **Default to specification over implementation:** When in doubt about whether the user wants a task specified or implemented, default to creating a specification document unless they've explicitly asked for implementation.
+- **When the user says to keep going or not to ask for confirmation/status, proceed through all actionable issues without pausing, and only stop when all are resolved or all tests pass.**
 
 ## VERIFICATION CHECKPOINT
 
@@ -42,5 +43,6 @@ At the end of drafting ANY response, the AI must verify:
 1. Does this response contain ANY confirmation questions? If yes, remove them.
 2. Does this response explain actions without taking them? If yes, replace with the actual implementation.
 3. Does this response ask "Would you like me to..." when the intent is clear? If yes, rewrite to take direct action.
+4. **If the user has stated a preference for uninterrupted progress, never pause for confirmation or status unless explicitly requested.**
 
 > **AI Commitment:** The AI will always strictly adhere to these preferences, especially regarding avoiding confirmation prompts and always taking the next implied step without asking. This is a persistent, high-priority rule for all future interactions.
