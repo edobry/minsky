@@ -96,6 +96,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
           // Print a human-readable summary (mimic list output)
           console.log(`Session: ${record.session}`);
           console.log(`Repo: ${record.repoUrl}`);
+          // The branch property might not exist on SessionRecord type, so access it safely
           console.log(`Branch: ${(record as any).branch || "(none)"}`);
           console.log(`Created: ${record.createdAt}`);
           if (record.taskId) {
