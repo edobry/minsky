@@ -24,27 +24,27 @@ Currently, when using the `minsky tasks list` command with filters like `--statu
 
 ## Implementation Steps
 
-1. [ ] Update the `tasks list` command:
-   - [ ] Add message output for status filter
-   - [ ] Add message output for done task visibility
-   - [ ] Ensure messages are not shown in JSON mode
-   - [ ] Add tests for message output
+1. [x] Update the `tasks list` command:
+   - [x] Add message output for status filter
+   - [x] Add message output for done task visibility
+   - [x] Ensure messages are not shown in JSON mode
+   - [x] Add tests for message output
 
-2. [ ] Add filter message utility:
-   - [ ] Create utility function for generating filter messages
-   - [ ] Support multiple concurrent filters
-   - [ ] Make messages easily extensible for future filters
+2. [x] Add filter message utility:
+   - [x] Create utility function for generating filter messages
+   - [x] Support multiple concurrent filters
+   - [x] Make messages easily extensible for future filters
 
-3. [ ] Update tests:
-   - [ ] Add tests for filter message output
-   - [ ] Verify messages are correct for each filter type
-   - [ ] Verify messages are not shown in JSON mode
-   - [ ] Test combinations of multiple filters
+3. [x] Update tests:
+   - [x] Add tests for filter message output
+   - [x] Verify messages are correct for each filter type
+   - [x] Verify messages are not shown in JSON mode
+   - [x] Test combinations of multiple filters
 
-4. [ ] Update documentation:
-   - [ ] Document new message output in help text
-   - [ ] Update README if necessary
-   - [ ] Update changelog
+4. [x] Update documentation:
+   - [x] Document new message output in help text
+   - [x] Update README if necessary
+   - [x] Update changelog
 
 ## Example Messages
 
@@ -63,10 +63,18 @@ Tasks:
 
 ## Verification
 
-- [ ] Running `minsky tasks list --status IN-PROGRESS` shows a clear message about the status filter
-- [ ] Running `minsky tasks list` (without `--all`) shows a message about hidden completed tasks
-- [ ] Running `minsky tasks list --json` does not show any filter messages
-- [ ] Messages are clear and help users understand why they're seeing specific tasks
-- [ ] All tests pass
-- [ ] Documentation is updated
-- [ ] Changelog is updated with a reference to this task spec 
+- [x] Running `minsky tasks list --status IN-PROGRESS` shows a clear message about the status filter
+- [x] Running `minsky tasks list` (without `--all`) shows a message about hidden completed tasks
+- [x] Running `minsky tasks list --json` does not show any filter messages
+- [x] Messages are clear and help users understand why they're seeing specific tasks
+- [x] All tests pass
+- [x] Documentation is updated
+- [x] Changelog is updated with a reference to this task spec 
+
+## Work Log
+
+- 2023-10-09: Created filter message utility in a new file `src/utils/filter-messages.ts`
+- 2023-10-09: Updated `tasks list` command to display filter messages in non-JSON mode
+- 2023-10-09: Added tests for filter message utilities
+- 2023-10-09: Updated CLI tests to verify filter message display in different scenarios
+- 2023-10-09: Updated CHANGELOG.md with new feature details 

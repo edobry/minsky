@@ -60,6 +60,10 @@
   - Restores stashed changes after update
   - Handles merge conflicts gracefully
   - Supports custom branch and remote options
+- Added filter messages to `tasks list` command to clearly indicate when filters are being applied. Messages are displayed before the task list in non-JSON output mode and include:
+  - Status filter message when using `--status` option (e.g., "Showing tasks with status 'TODO'")
+  - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
+  - Messages are not shown in JSON output to maintain machine-readable format
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
