@@ -1,4 +1,39 @@
-# Pull Request for branch `task#027`
+# feat(#027): Auto-detect Session Context in Session Commands
+
+## Summary
+This PR implements task #027, adding automatic session context detection to session commands when run from within a session workspace. This improves the user experience by eliminating the need to specify session names when working within session directories.
+
+## Motivation & Context
+Currently, when running commands like `minsky session get`, `minsky session dir`, or other session-related commands within a session workspace, users must explicitly provide the session name. This creates unnecessary friction as the session context is already implicitly available from the workspace location. Building on the workspace detection implemented in task #016, this change extends this functionality to session commands.
+
+## Design/Approach
+The implementation follows a layered approach:
+1. A core utility function `getCurrentSession` that leverages existing workspace detection
+2. Command-level integration with fallback to explicit parameters
+3. Consistent error messaging and option handling across all session commands
+
+This approach maintains backward compatibility while providing a more intuitive experience.
+
+## Key Changes
+- Added `getCurrentSession` utility function to extract session context from current working directory
+- Updated `session dir` command to auto-detect current session when no name is provided
+- Updated `session get` command to use workspace detection for automatic context
+- Updated `session update` command with similar auto-detection capabilities
+- Added `--ignore-workspace` option to all commands to bypass auto-detection when needed
+- Implemented consistent error messaging across all commands
+- Added comprehensive tests for auto-detection functionality
+
+## Testing
+- Added unit tests for the `getCurrentSession` utility function
+- Updated command tests to verify auto-detection behavior
+- Added test cases for both legacy and new directory structures
+- Ensured error messages are helpful and consistent
+
+## Ancillary Changes
+- Improved type safety by adding proper type assertions for properties that may not exist in some interfaces
+- Enhanced test infrastructure for mocking session context detection
+- Fixed path handling to support both legacy path format and new sessions subdirectory format for backward compatibility
+
 
 ## Commits
 5fe1e50 Update error message to match expected test output
@@ -297,5 +332,3 @@ M	process/tasks/027/pr.md
 
 .specstory/history/2025-05-02_18-13-task-027-test-failures.log
 session-test.log
-
-
