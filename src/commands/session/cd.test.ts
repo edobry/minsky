@@ -240,7 +240,28 @@ describe("minsky session dir CLI", () => {
     
     // The command should return an error
     expect(status).not.toBe(0);
+    expect(stderr).toContain("Not in a session workspace");
+    expect(stdout).toBe("");
+  });
+  
+  it("returns an error when not in a session workspace and using --ignore-workspace", () => {
+    // Run the command with --ignore-workspace
+    const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir", "--ignore-workspace"], { 
+      encoding: "utf-8", 
+      env: { 
+        ...process.env, 
+        XDG_STATE_HOME: TEST_DIR 
+      } 
+    });
+    
+    // The command should return an error
+    expect(status).not.toBe(0);
     expect(stderr).toContain("You must provide either a session name or --task");
     expect(stdout).toBe("");
   });
+
+  // The following test would require complex mocking of the getCurrentSession function
+  // This is a placeholder test description for what should be tested
+  // A more complete integration test would simulate a real session workspace environment
+  it.todo("auto-detects the current session when in a session workspace");
 }); 

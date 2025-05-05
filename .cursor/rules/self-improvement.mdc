@@ -1,23 +1,36 @@
 ---
+<<<<<<< HEAD
+description: REQUIRED when user signals error, confusion, or dissatisfaction with your approach or response
+=======
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
+>>>>>>> origin/main
 globs: ["**/*"]
 alwaysApply: true
 ---
 
 # Self-Improvement
 
+<<<<<<< HEAD
+When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, implement this systematic error detection and correction framework.
+=======
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
+>>>>>>> origin/main
 
 ## Error Detection Triggers
 
 Listen for these user signals:
+<<<<<<< HEAD
+=======
 
 ### Error and Dissatisfaction Signals
+>>>>>>> origin/main
 - Direct correction: "that's wrong", "incorrect", "not right" 
 - Questions about rationale: "why did you do that?", "what were you thinking?"
 - Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
 - Implied dissatisfaction: "that's not what I asked for", "this doesn't work"
 
+<<<<<<< HEAD
+=======
 ### Preference and Directive Signals
 - Future instructions: "make sure to always...", "going forward, always..."
 - Preference statements: "remember that I want...", "I prefer..."
@@ -25,6 +38,7 @@ Listen for these user signals:
 - Conditional directives: "every time X happens, do Y"
 - Standard setting: "from now on, when..."
 
+>>>>>>> origin/main
 ## Self-Reflection Protocol
 
 1. **Pause and analyze failed mental model**
@@ -46,7 +60,10 @@ Listen for these user signals:
    [ ] Pattern Error: Applied pattern inappropriately
    [ ] Verification Error: Failed to validate before proceeding
    [ ] Tool Error: Misused available tools/functions
+<<<<<<< HEAD
+=======
    [ ] Preference Error: Failed to adhere to user preferences
+>>>>>>> origin/main
    ```
 
 4. **Rule gap analysis**
@@ -56,7 +73,10 @@ Listen for these user signals:
      - Inadequate existing rule
      - Failure to apply correct existing rule
      - Conflicting rules creating ambiguity
+<<<<<<< HEAD
+=======
      - Missing user preference
+>>>>>>> origin/main
 
 ## Immediate Correction Action
 
@@ -74,6 +94,8 @@ Based on your analysis:
    - Identify why the correct rule wasn't applied
    - Create a meta-rule or priority hierarchy if needed
 
+<<<<<<< HEAD
+=======
 4. **For user preference directives**:
    - Document the preference clearly in the user-preferences rule
    - If no user-preferences rule exists, propose creating one
@@ -98,6 +120,7 @@ When updating rules based on user feedback:
    - Add clear section headers for discoverability
    - Ensure the scope and triggers are well-defined
 
+>>>>>>> origin/main
 ## Error Prevention Mechanism
 
 Implement these patterns to minimize recurrence:
@@ -106,18 +129,27 @@ Implement these patterns to minimize recurrence:
 - **Assumption testing**: Validate key assumptions before proceeding
 - **Progress confirmation**: Regularly confirm alignment with user intent
 - **Tool usage protocol**: Verify tool arguments and outputs match expectations
+<<<<<<< HEAD
+
+## Examples
+
+=======
 - **Preference review**: Scan for user preferences at the start of new sessions
 
 ## Examples
 
 ### Error Correction
 
+>>>>>>> origin/main
 // AVOID
 User: "That's not correct. I needed the absolute path."
 Assistant: "I'll fix that right away." [proceeds without understanding root cause]
 
 // PREFER
 User: "That's not correct. I needed the absolute path."
+<<<<<<< HEAD
+Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
+=======
 Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
 
 ### Preference Handling
@@ -129,3 +161,4 @@ Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
 // PREFER
 User: "Going forward, always use absolute paths when editing files in the session workspace."
 Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
+>>>>>>> origin/main
