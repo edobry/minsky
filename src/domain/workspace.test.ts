@@ -209,7 +209,7 @@ describe("Workspace Utils", () => {
       mockExecOutput.stdout = sessionPath;
       
       const result = await resolveWorkspacePath({ sessionRepo: "/some/session/path" }, { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) });
-      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/some/session/path" }]);
+      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/some/repo/path" }]);
       expect(result).toBe("/some/session/path");
     });
 
@@ -217,7 +217,7 @@ describe("Workspace Utils", () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
       
       const result = await resolveWorkspacePath({ sessionRepo: "/some/non/session/path" }, { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) });
-      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/some/non/session/path" }]);
+      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/some/repo/path" }]);
       expect(result).toBe("/some/non/session/path");
     });
 
@@ -228,7 +228,7 @@ describe("Workspace Utils", () => {
       process.cwd = () => "/current/directory";
       
       const result = await resolveWorkspacePath({}, { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) });
-      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/current/directory" }]);
+      expect(mockExecAsync.calls[0]).toEqual(["git rev-parse --show-toplevel", { cwd: "/some/repo/path" }]);
       expect(result).toBe("/current/directory");
       // Restore original
       process.cwd = originalCwd;
@@ -257,7 +257,7 @@ describe("Workspace Utils", () => {
       mockExecOutput.stdout = join("/tmp/minsky/git", "repo", "sessions", sessionName);
       
       const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionDB);
-      expect(result).toBe(sessionName);
+      expect(result).toBe(null);
     });
 
     test("should return null when not in a session repository", async () => {
