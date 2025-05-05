@@ -7,7 +7,7 @@ import type { Task } from "../../domain/tasks";
 // Path to the CLI entry point - use absolute path
 const CLI = join(process.cwd(), "src/cli.ts");
 
-// Test directory
+// Test directory - needs to be a properly structured workspace
 const TEST_DIR = "/tmp/minsky-tasks-list-test";
 const PROCESS_DIR = join(TEST_DIR, "process");
 const TASKS_DIR = join(PROCESS_DIR, "tasks");
@@ -38,14 +38,15 @@ describe("minsky tasks list CLI", () => {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
     
-    // Create test directories and files
+    // Create test directories and files - ensure the workspace is properly structured
+    // The resolveWorkspacePath function validates this structure
     mkdirSync(PROCESS_DIR, { recursive: true });
     mkdirSync(TASKS_DIR, { recursive: true });
     
-    // Create the tasks.md file
+    // Write necessary files to make this a valid workspace structure
     writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
     
-    // Create the individual task spec files
+    // Create the individual task spec files in the tasks directory
     writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
     writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
     writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
@@ -166,7 +167,7 @@ describe("minsky tasks list CLI", () => {
     expect(allTaskIds).toContain("#004");
     
     // Should have more tasks with --all than without
-    expect(tasksAll.length).toBeGreaterThan(tasksDefault.length);
+    expect(tasksAll.length > tasksDefault.length).toBe(true);
   });
   
   it("filters by specific status when provided", () => {
