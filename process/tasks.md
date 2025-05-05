@@ -37,7 +37,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
-- [+] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
+- [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [ ] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
 

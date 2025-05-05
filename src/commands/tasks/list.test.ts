@@ -51,7 +51,7 @@ describe("minsky tasks list CLI", () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
   
-  it("hides DONE tasks by default", () => {
+  it("hides DONE tasks by default and shows active tasks message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR], { 
       encoding: "utf-8",
     });
@@ -60,6 +60,9 @@ describe("minsky tasks list CLI", () => {
     console.log("Command stderr:", result.stderr);
     
     const { stdout, stderr } = result;
+    
+    // Should include active tasks message
+    expect(stdout).toContain("Showing active tasks (use --all to include completed tasks)");
     
     // Should include non-DONE tasks
     expect(stdout).toContain("#001");
@@ -76,7 +79,7 @@ describe("minsky tasks list CLI", () => {
     expect(stderr).toBe("");
   });
   
-  it("includes DONE tasks when --all is specified", () => {
+  it("includes DONE tasks when --all is specified and does not show filter message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--all"], { 
       encoding: "utf-8",
     });
@@ -85,6 +88,9 @@ describe("minsky tasks list CLI", () => {
     console.log("Command stderr (all):", result.stderr);
     
     const { stdout, stderr } = result;
+    
+    // Should NOT include active tasks message
+    expect(stdout).not.toContain("Showing active tasks (use --all to include completed tasks)");
     
     // Should include all tasks
     expect(stdout).toContain("#001");
@@ -118,6 +124,9 @@ describe("minsky tasks list CLI", () => {
     
     const tasksDefault = JSON.parse(stdoutDefault) as Task[];
     const taskIds = tasksDefault.map((t: Task) => t.id);
+    
+    // Should NOT include filter message in JSON output
+    expect(stdoutDefault).not.toContain("Showing active tasks");
     
     // Should include non-DONE tasks
     expect(taskIds).toContain("#001");
@@ -156,7 +165,7 @@ describe("minsky tasks list CLI", () => {
     expect(tasksAll.length).toBeGreaterThan(tasksDefault.length);
   });
   
-  it("filters by specific status when provided", () => {
+  it("filters by specific status when provided and shows status filter message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "IN-PROGRESS"], { 
       encoding: "utf-8",
     });
@@ -166,6 +175,9 @@ describe("minsky tasks list CLI", () => {
     
     const { stdout } = result;
     
+    // Should include status filter message
+    expect(stdout).toContain("Showing tasks with status 'IN-PROGRESS'");
+    
     // Should only include IN-PROGRESS tasks
     expect(stdout).toContain("#003");
     expect(stdout).toContain("Third Task");
@@ -173,6 +185,46 @@ describe("minsky tasks list CLI", () => {
     // Should NOT include other tasks
     expect(stdout).not.toContain("#001");
     expect(stdout).not.toContain("#002");
+    expect(stdout).not.toContain("#004");
+  });
+  
+  it("does not show filter messages in JSON output with status filter", () => {
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "IN-PROGRESS", "--json"], { 
+      encoding: "utf-8",
+    });
+    
+    console.log("Command stdout (status json):", result.stdout);
+    console.log("Command stderr (status json):", result.stderr);
+    
+    const { stdout } = result;
+    
+    // Should NOT include filter message in JSON output
+    expect(stdout).not.toContain("Showing tasks with status");
+    
+    // Should be valid JSON
+    expect(() => JSON.parse(stdout)).not.toThrow();
+  });
+  
+  it("shows no tasks found message with filter message when no tasks match filter", () => {
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "NONEXISTENT-STATUS"], { 
+      encoding: "utf-8",
+    });
+    
+    console.log("Command stdout (no tasks):", result.stdout);
+    console.log("Command stderr (no tasks):", result.stderr);
+    
+    const { stdout } = result;
+    
+    // Should include status filter message
+    expect(stdout).toContain("Showing tasks with status 'NONEXISTENT-STATUS'");
+    
+    // Should include no tasks message
+    expect(stdout).toContain("No tasks found.");
+    
+    // Should NOT include any task IDs
+    expect(stdout).not.toContain("#001");
+    expect(stdout).not.toContain("#002");
+    expect(stdout).not.toContain("#003");
     expect(stdout).not.toContain("#004");
   });
 }); 
