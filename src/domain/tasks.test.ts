@@ -30,11 +30,17 @@ describe('MarkdownTaskBackend', () => {
   let backend: MarkdownTaskBackend;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
-    const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
-    tasksPath = join(processDir, 'tasks.md');
+    tmpDir = mkdtempSync("/tmp/minsky-tasks-test-");
+    const processDir = join(tmpDir, "process");
+    require("fs").mkdirSync(processDir);
+    tasksPath = join(processDir, "tasks.md");
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
+    // Create expected spec files for tasks 001, 002, 003
+    const tasksDir = join(processDir, "tasks");
+    require("fs").mkdirSync(tasksDir);
+    writeFileSync(join(tasksDir, "001-first-task.md"), "# Task #001: First Task\n\n## Context\n\nThis is the first task description.");
+    writeFileSync(join(tasksDir, "002-second-task.md"), "# Task #002: Second Task\n\n## Context\n\nThis is the second task description.");
+    writeFileSync(join(tasksDir, "003-third-task.md"), "# Task #003: Third Task\n\n## Context\n\nThis is the third task description.");
     backend = new MarkdownTaskBackend(tmpDir);
   });
 
@@ -162,11 +168,17 @@ describe('TaskService', () => {
   let service: TaskService;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
-    const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
-    tasksPath = join(processDir, 'tasks.md');
+    tmpDir = mkdtempSync("/tmp/minsky-tasks-test-");
+    const processDir = join(tmpDir, "process");
+    require("fs").mkdirSync(processDir);
+    tasksPath = join(processDir, "tasks.md");
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
+    // Create expected spec files for tasks 001, 002, 003
+    const tasksDir = join(processDir, "tasks");
+    require("fs").mkdirSync(tasksDir);
+    writeFileSync(join(tasksDir, "001-first-task.md"), "# Task #001: First Task\n\n## Context\n\nThis is the first task description.");
+    writeFileSync(join(tasksDir, "002-second-task.md"), "# Task #002: Second Task\n\n## Context\n\nThis is the second task description.");
+    writeFileSync(join(tasksDir, "003-third-task.md"), "# Task #003: Third Task\n\n## Context\n\nThis is the third task description.");
     service = new TaskService({ workspacePath: tmpDir });
   });
 

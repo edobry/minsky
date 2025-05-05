@@ -183,22 +183,14 @@ export async function resolveWorkspacePath(
 }
 
 /**
- * Get the current session name from the working directory
- * @returns The session name if in a session workspace, null otherwise
+ * Returns the current session name if in a session repository, or null otherwise.
+ * Uses getSessionFromRepo to extract the session context from the current working directory.
  */
 export async function getCurrentSession(
-  workingDir: string = process.cwd(),
-  execAsyncFn: typeof execAsync = execAsync
+  cwd: string = process.cwd(),
+  execAsyncFn: typeof execAsync = execAsync,
+  sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<string | null> {
-  try {
-    const sessionInfo = await getSessionFromRepo(workingDir, execAsyncFn);
-    
-    if (sessionInfo) {
-      return sessionInfo.session;
-    }
-    
-    return null;
-  } catch (error) {
-    return null;
-  }
+  const sessionInfo = await getSessionFromRepo(cwd, execAsyncFn, sessionDbOverride);
+  return sessionInfo ? sessionInfo.session : null;
 } 
