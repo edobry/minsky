@@ -51,7 +51,7 @@ describe("minsky session get CLI", () => {
     setupSessionDb([]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "notfound"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("Session 'notfound' not found.");
+    expect(stderr || "").toContain("Session \"notfound\" not found.");
   });
 
   it("can look up a session by task ID", () => {
@@ -77,7 +77,7 @@ describe("minsky session get CLI", () => {
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T999"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("No session found for task ID '#T999'.");
+    expect(stderr || "").toContain("No session found for task ID \"#T999\"");
   });
 
   it("prints null for --json if no session for task ID", () => {
@@ -103,6 +103,42 @@ describe("minsky session get CLI", () => {
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("You must provide either a session name or --task.");
+    expect(stderr || "").toContain("Not in a session workspace");
   });
+
+  it("returns an error when neither session nor --task are provided", () => {
+    // Run the command with neither a session name nor --task
+    const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "get"], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        XDG_STATE_HOME: "/tmp"
+      }
+    });
+    
+    expect(status).not.toBe(0);
+    expect(stderr).toContain("Not in a session workspace");
+  });
+  
+  it("returns an error when not in a session workspace and using --ignore-workspace", () => {
+    // Run the command with --ignore-workspace
+    const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "get", "--ignore-workspace"], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        XDG_STATE_HOME: "/tmp"
+      }
+    });
+    
+    expect(status).not.toBe(0);
+    expect(stderr).toContain("You must provide either a session name or --task");
+  });
+
+  // The following test would require complex mocking of the getCurrentSession function
+  // This is a placeholder test description for what should be tested
+  // A more complete integration test would simulate a real session workspace environment
+  it.todo("auto-detects the current session when in a session workspace");
+  
+  // The following test would check the JSON output format for the auto-detected session
+  it.todo("correctly formats JSON output for auto-detected session");
 }); 

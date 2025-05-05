@@ -1,15 +1,17 @@
 import { Command } from "commander";
 import { GitService } from "../../domain/git";
 import { SessionDB } from "../../domain/session";
+import { getCurrentSession } from "../../domain/workspace";
 
 export function createUpdateCommand(gitService: GitService, sessionDb: SessionDB) {
   const command = new Command("update")
-    .description("Update a session with the latest changes from the main branch")
+    .description("Update a session with the latest changes from the main branch. If no session is provided, auto-detects the current session if run from a session workspace.")
     .argument("[session]", "Session name (defaults to current session)")
     .option("--no-stash", "Don't stash changes before updating")
     .option("--no-push", "Don't push changes after updating")
     .option("--branch <branch>", "Branch to merge from", "main")
     .option("--remote <remote>", "Remote to pull from", "origin")
+    .option("--ignore-workspace", "Bypass workspace auto-detection")
     .action(async (session?: string, options?: any) => {
       try {
         // Get session info
@@ -20,15 +22,19 @@ export function createUpdateCommand(gitService: GitService, sessionDb: SessionDB
             throw new Error(`Session '${session}' not found.`);
           }
           workdir = gitService.getSessionWorkdir(record.repoName, session);
-        } else {
-          // Try to detect current session from working directory
-          const sessions = await sessionDb.listSessions();
-          const cwd = process.cwd();
-          const currentSession = sessions.find(s => cwd.includes(s.session));
-          if (!currentSession) {
-            throw new Error("No session specified and not in a session directory");
+        } else if (!options.ignoreWorkspace) {
+          // Try to detect current session from working directory using the utility
+          const currentSessionName = await getCurrentSession();
+          if (!currentSessionName) {
+            throw new Error("No session specified and not in a session workspace. Please provide a session name.");
           }
-          workdir = gitService.getSessionWorkdir(currentSession.repoName, currentSession.session);
+          const record = await sessionDb.getSession(currentSessionName);
+          if (!record) {
+            throw new Error(`Current session '${currentSessionName}' not found in session database.`);
+          }
+          workdir = gitService.getSessionWorkdir(record.repoName, record.session);
+        } else {
+          throw new Error("You must provide a session name when using --ignore-workspace.");
         }
 
         // Stash changes if needed

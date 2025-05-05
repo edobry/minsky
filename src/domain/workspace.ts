@@ -35,9 +35,6 @@ export async function isSessionRepository(
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyPath = join(xdgStateHome, "minsky", "git");
     
-    // Check both patterns:
-    // - Legacy: /minsky/git/<repoName>/<session>
-    // - New: /minsky/git/<repoName>/sessions/<session>
     if (gitRoot.startsWith(minskyPath)) {
       // Extract the relative path from the minsky git directory
       const relativePath = gitRoot.substring(minskyPath.length + 1);
@@ -47,7 +44,10 @@ export async function isSessionRepository(
       // or 3 parts for new format (repoName/sessions/session)
       return pathParts.length >= 2 && (
         pathParts.length === 2 || 
-        (pathParts.length >= 3 && pathParts[1] === "sessions")
+        (pathParts.length >= 3 && pathParts[1] === "sessions") ||
+        // Check if any part of the path is a "sessions" directory
+        // This handles nested directory structures like local/minsky/sessions/task#027
+        pathParts.some((part, index) => index > 0 && index < pathParts.length - 1 && part === "sessions")
       );
     }
     
@@ -59,16 +59,16 @@ export async function isSessionRepository(
 
 /**
  * Get session information from a repository path
- * @param repoPath Path to the repository
- * @returns Session information if in a session repo, null otherwise
+ * @param repoPath The path to check
+ * @returns Information about the session if found, null otherwise
  */
 export async function getSessionFromRepo(
-  repoPath: string,
+  repoPath: string, 
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{ 
-  session: string, 
-  mainWorkspace: string 
+  session: string;
+  mainWorkspace: string;
 } | null> {
   try {
     // Get the git root of the provided path
@@ -99,16 +99,25 @@ export async function getSessionFromRepo(
     if (pathParts.length >= 3 && pathParts[1] === "sessions") {
       // New path format: <repo_name>/sessions/<session_name>
       sessionName = pathParts[2];
-    } else {
+    } else if (pathParts.length === 2) {
       // Legacy path format: <repo_name>/<session_name>
       sessionName = pathParts[1];
+    } else {
+      // Look for a "sessions" directory in the path
+      for (let i = 1; i < pathParts.length - 1; i++) {
+        if (pathParts[i] === "sessions") {
+          // The session name is the directory after "sessions"
+          sessionName = pathParts[i + 1];
+          break;
+        }
+      }
     }
     
     // Type check to ensure sessionName is a string (for the compiler)
     if (typeof sessionName !== "string") {
       return null;
     }
-    
+
     const db = sessionDbOverride || new SessionDB();
     const sessionRecord = await db.getSession(sessionName);
     

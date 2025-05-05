@@ -38,47 +38,6 @@ cd $(minsky session dir task#XXX)
 
 This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
 
-## Standard Session Navigation Pattern
-
-**ALWAYS use this exact pattern for starting sessions and navigating to them:**
-
-```bash
-# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
-SESSION_DIR=$(minsky session start --task <id> --quiet)
-cd "$SESSION_DIR"
-```
-
-This pattern MUST be used:
-- In all scripts and automations
-- In all interactive usage where directory navigation follows
-- Any time you intend to navigate to the session directory after creation
-
-DO NOT use separate commands for starting a session and then navigating to it.
-
-## Session-First File Edit Enforcement (Critical)
-
-1. **Absolute Path Enforcement**
-   - All file edit, read, and diff operations must use absolute paths that begin with the current session directory (e.g., `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/`).
-   - The AI and all automation must always prepend the session directory to any file path for edit operations.
-   - If the session directory is not known, it must be determined using `minsky session dir <session-name>` or equivalent before proceeding.
-   - Any attempt to edit a file using a relative path or a path outside the session directory is a violation and must be aborted.
-
-2. **Pre-Edit Session Directory Verification**
-   - Before any file edit, the current session directory must be verified and logged.
-   - The target file path must be checked to ensure it starts with the session directory path.
-   - If not, the operation must be aborted and an error raised.
-
-3. **Reject/Abort on Workspace Mismatch**
-   - If a file edit is attempted outside the session workspace, the operation must be aborted and an explicit error must be raised, indicating the violation.
-
-4. **Audit Trail for All Edits**
-   - Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
-   - Example log message: `Editing file: /Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/CHANGELOG.md (session: task#027)`
-
-5. **Rule Violation = Hard Error**
-   - Any violation of these rules is a hard error and must be reported immediately.
-   - The AI must not attempt to "fix up" after the fact, but must stop and require explicit user intervention or correction.
-
 ⚠️ **CRITICAL: ALL TASK AND SESSION QUERIES MUST USE THE MINSKY CLI**
 ⚠️ **CRITICAL: ALL COMMITS MUST BE PUSHED IMMEDIATELY**
 
@@ -87,10 +46,7 @@ This rule defines the comprehensive process for working with tasks and sessions 
 ## Core Principles
 
 1. **Always Use Minsky CLI for Task/Session Data**
-   - For checking the existence, status, or details of tasks and sessions, ALWAYS use the Minsky CLI (e.g., `minsky tasks get`, `minsky session get`).
-   - NEVER use file listings, static documentation, or direct file/database access for task/session state.
-   - Listing files, reading code, and searching the codebase is PERMITTED for navigation, planning, or investigation.
-   - Using file listings or static docs to determine if a session exists or to check task/session status is FORBIDDEN.
+   - NEVER use file listings or static documentation
    - NEVER directly manipulate Minsky's state files or databases
    - NEVER delete or modify files in `~/.local/state/minsky/`
    - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
@@ -103,7 +59,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
      
      # For session queries
      minsky session list --json        # List all sessions
-     minsky session get <name>         # Get session details
+     minsky session get <name>         # Get session details by name
+     minsky session get --task XXX     # Get session details by task ID
      ```
 
 2. **Data Integrity is Critical**
@@ -113,8 +70,9 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - NEVER attempt to read or modify the session database directly
    - If encountering session/task issues:
      1. Use `minsky session list` to check current state
-     2. Use `minsky session get <name>` to inspect specific sessions
-     3. Report the issue if commands aren't working as expected
+     2. Use `minsky session get <name>` to inspect specific sessions by name
+     3. Use `minsky session get --task XXX` to inspect sessions by task ID
+     4. Report the issue if commands aren't working as expected
    - Deleting state files is STRICTLY FORBIDDEN as it:
      - Corrupts Minsky's understanding of tasks and sessions
      - Makes session management impossible
@@ -273,33 +231,6 @@ When asked to create a new task:
 2. **Enter the Session Directory**
    - Navigate to the session directory using the provided command
 
-### Keeping Sessions in Sync
-
-1. **Update from Main Branch**
-   - Synchronize your session with the latest changes from the main branch:
-     ```bash
-     # Update current session (defaults to merging from main)
-     minsky session update
-     
-     # Update a specific session
-     minsky session update task#001
-     
-     # Update with customized options
-     minsky session update --no-stash --no-push --branch develop --remote upstream
-     ```
-   - This command handles:
-     - Stashing uncommitted changes
-     - Pulling latest updates from the remote
-     - Merging changes from specified branch
-     - Pushing updates to remote
-     - Restoring stashed changes
-
-2. **Best Practices**
-   - Update regularly to avoid diverging too far from main
-   - Update before generating a PR to ensure integration with the latest changes
-   - Use `--no-stash` when you want to keep working changes visible
-   - Use `--no-push` when testing integration locally before pushing
-
 ### Re-entering an Existing Session
 
 When asked to continue working on a task:
@@ -307,14 +238,16 @@ When asked to continue working on a task:
 1. **Find Existing Session**
    - Look up the session associated with the task:
      ```bash
-     # Use session get to get details about a specific session
+     # Use session get to get details about a specific session by name
      minsky session get task#001
+     
+     # OR use session get with the --task option to get details by task ID
+     minsky session get --task 001
      ```
-   - If you don't know the session name, you may need to list all sessions:
+   - If needed, you can also list all sessions:
      ```bash
-     minsky session list --json | jq '.[] | select(.taskId == "#001")'
+     minsky session list --json
      ```
-   - Note: A future enhancement will add a `--task` option to the `session get` command to directly query sessions by task ID
 
 2. **Enter Existing Session**
    - Navigate to the session directory:
@@ -322,6 +255,54 @@ When asked to continue working on a task:
      cd $(minsky session dir task#001)
      ```
    - If no session exists, create one as described in "Starting a New Session"
+
+### Programmatic Usage
+
+When integrating minsky into automated workflows or scripts:
+
+1. **Use `--quiet` for Machine-Readable Output**
+   - The `--quiet` option provides clean, machine-readable output:
+     ```bash
+     # Create a session and capture its directory path
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     
+     # Use the path in a script
+     cd "$SESSION_DIR"
+     echo "Working in session directory: $SESSION_DIR"
+     
+     # Use with other options
+     SESSION_DIR=$(minsky session start my-session --repo https://github.com/org/repo.git --quiet)
+     ```
+
+2. **Error Handling in Scripts**
+   - Even in quiet mode, errors are sent to stderr and exit codes are set appropriately:
+     ```bash
+     # Example bash script with error handling
+     if SESSION_DIR=$(minsky session start --task 001 --quiet); then
+       cd "$SESSION_DIR"
+       echo "Successfully started session in: $SESSION_DIR"
+     else
+       echo "Failed to start session, exiting" >&2
+       exit 1
+     fi
+     ```
+
+3. **Combining with Other Commands**
+   - Chain with other minsky commands for complex workflows:
+     ```bash
+     # Example: Create session, run tests, and generate PR description
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     cd "$SESSION_DIR"
+     bun test
+     
+     if [ $? -eq 0 ]; then
+       minsky git pr --path . > process/tasks/001/pr.md
+       git add process/tasks/001/pr.md
+       git commit -m "task#001: Add PR description"
+       git push origin "$(git branch --show-current)"
+       minsky tasks status set '#001' IN-REVIEW
+     fi
+     ```
 
 ## Implementation Process
 
@@ -342,16 +323,7 @@ When asked to continue working on a task:
      ```
    - Never leave commits unpushed at the end of an implementation session
 
-3. **Synchronization**
-   - Regularly update your session with changes from the main branch:
-     ```bash
-     # Update current session with main branch changes
-     minsky session update
-     ```
-   - This helps avoid integration issues by keeping your branch current
-   - It's especially important to update before generating a PR
-
-4. **Work Log**
+3. **Work Log**
    - Maintain a "Work Log" section in the task document:
      ```markdown
      ## Work Log
@@ -361,7 +333,7 @@ When asked to continue working on a task:
      ```
    - This log will be used to update the changelog when the task is complete
 
-5. **Testing**
+4. **Testing**
    - Write appropriate tests for all new functionality
    - Ensure all existing tests continue to pass
    - Document any complex test scenarios or edge cases addressed
@@ -451,3 +423,48 @@ Task implementation is not complete until ALL these steps are performed, in orde
 > - "Which tasks are in the backlog?"
 >
 > **Do NOT** answer these queries by listing files or reading static documentation. **Always** run the appropriate minsky CLI command (e.g., `minsky tasks list --json`) and present the output directly.
+
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them:**
+
+```bash
+# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern MUST be used:
+- In all scripts and automations
+- In all interactive usage where directory navigation follows
+- Any time you intend to navigate to the session directory after creation
+
+DO NOT use separate commands for starting a session and then navigating to it.
+
+---
+
+## Session-First File Edit Enforcement (Critical)
+
+1. **Absolute Path Enforcement**
+   - All file edit, read, and diff operations must use absolute paths that begin with the current session directory (e.g., `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/`).
+   - The AI and all automation must always prepend the session directory to any file path for edit operations.
+   - If the session directory is not known, it must be determined using `minsky session dir <session-name>` or equivalent before proceeding.
+   - Any attempt to edit a file using a relative path or a path outside the session directory is a violation and must be aborted.
+
+2. **Pre-Edit Session Directory Verification**
+   - Before any file edit, the current session directory must be verified and logged.
+   - The target file path must be checked to ensure it starts with the session directory path.
+   - If not, the operation must be aborted and an error raised.
+
+3. **Reject/Abort on Workspace Mismatch**
+   - If a file edit is attempted outside the session workspace, the operation must be aborted and an explicit error must be raised, indicating the violation.
+
+4. **Audit Trail for All Edits**
+   - Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+   - Example log message: `Editing file: /Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/CHANGELOG.md (session: task#027)`
+
+5. **Rule Violation = Hard Error**
+   - Any violation of these rules is a hard error and must be reported immediately.
+   - The AI must not attempt to "fix up" after the fact, but must stop and require explicit user intervention or correction.
+
+---

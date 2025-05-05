@@ -1,5 +1,5 @@
 ---
-description: description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
+description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
 globs: 
 alwaysApply: false
 ---
@@ -47,6 +47,40 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 
 - This ensures all work is traceable, reviewable, and isolated to the session, preventing accidental pollution or loss of context in the main workspace.
 - It guarantees that the main workspace remains stable and unaffected by in-progress work.
+
+## 8. AI Tool Usage Guidelines
+
+### File Editing Tools
+
+- When using the `edit_file` tool, **ALWAYS use absolute paths** that begin with the session workspace directory.
+- Correct format: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>/path/to/file`
+- Incorrect format: `path/to/file` (relative paths will modify files in the main workspace)
+- Before each edit, output a verification message confirming the absolute path being edited:
+  ```
+  Editing file in session workspace:
+  - Session directory: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN
+  - Target file: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN/src/path/to/file
+  ```
+- The `edit_file` tool resolves relative paths against the main workspace root, NOT the current terminal directory.
+- CRITICAL: Even if your terminal is in the session workspace, the `edit_file` tool will still use the main workspace as its root for relative paths.
+
+### Automated Verification Process
+
+1. **Before any edit_file call**:
+   - Get current session directory: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>`
+   - Construct absolute path: `<session_dir>/path/to/file`
+   - Verify the file exists: `ls -la <absolute_path>`
+   - Only then proceed with `edit_file` using the absolute path
+
+### Example Edit Pattern
+
+```
+// CORRECT - Uses absolute path with session directory prefix
+edit_file("/Users/username/.local/state/minsky/git/repo/sessions/task#123/src/file.ts", ...)
+
+// INCORRECT - Uses relative path which modifies main workspace
+edit_file("src/file.ts", ...)
+```
 
 ---
 

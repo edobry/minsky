@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
@@ -13,7 +13,13 @@ const TEST_DIR = "/tmp/minsky-session-dir-test";
 const GIT_DIR = join(TEST_DIR, "minsky", "git");
 
 // Helper to setup session DB
-function setupSessionDb(sessions: SessionRecord[]) {
+// We need to provide a custom type that extends SessionRecord to include the branch property
+// which is used in tests but might not be part of the official SessionRecord type
+interface TestSessionRecord extends SessionRecord {
+  branch?: string;
+}
+
+function setupSessionDb(sessions: TestSessionRecord[]) {
   // Create directories
   mkdirSync(join(TEST_DIR, "minsky"), { recursive: true });
   
@@ -50,7 +56,7 @@ describe("minsky session dir CLI", () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
   
-  it("returns the correct path for a session with legacy path structure", () => {
+  test("returns the correct path for a session with legacy path structure", () => {
     // Setup a session with repoName field in legacy structure
     setupSessionDb([
       { 
@@ -82,7 +88,7 @@ describe("minsky session dir CLI", () => {
     expect(existsSync(expectedPath)).toBe(true);
   });
   
-  it("returns the correct path for a session with new sessions subdirectory", () => {
+  test("returns the correct path for a session with new sessions subdirectory", () => {
     // Setup a session with repoName field in new structure
     setupSessionDb([
       { 
@@ -114,7 +120,7 @@ describe("minsky session dir CLI", () => {
     expect(existsSync(expectedPath)).toBe(true);
   });
   
-  it("handles sessions with task IDs correctly", () => {
+  test("handles sessions with task IDs correctly", () => {
     // Setup a session associated with a task
     setupSessionDb([
       { 
@@ -147,7 +153,7 @@ describe("minsky session dir CLI", () => {
     expect(existsSync(expectedPath)).toBe(true);
   });
   
-  it("finds a session by task ID using --task option", () => {
+  test("finds a session by task ID using --task option", () => {
     // Setup a session associated with a task
     setupSessionDb([
       { 
@@ -180,7 +186,7 @@ describe("minsky session dir CLI", () => {
     expect(existsSync(expectedPath)).toBe(true);
   });
   
-  it("returns an error for non-existent sessions", () => {
+  test("returns an error for non-existent sessions", () => {
     // Run the command with a non-existent session
     const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir", "non-existent-session"], { 
       encoding: "utf-8", 
@@ -196,7 +202,7 @@ describe("minsky session dir CLI", () => {
     expect(stdout).toBe("");
   });
   
-  it("returns an error for non-existent task IDs with --task", () => {
+  test("returns an error for non-existent task IDs with --task", () => {
     // Run the command with a non-existent task ID
     const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir", "--task", "999"], { 
       encoding: "utf-8", 
@@ -212,7 +218,7 @@ describe("minsky session dir CLI", () => {
     expect(stdout).toBe("");
   });
   
-  it("returns an error when both session and --task are provided", () => {
+  test("returns an error when both session and --task are provided", () => {
     // Run the command with both a session name and --task
     const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir", "test-session", "--task", "009"], { 
       encoding: "utf-8", 
@@ -228,7 +234,7 @@ describe("minsky session dir CLI", () => {
     expect(stdout).toBe("");
   });
   
-  it("returns an error when neither session nor --task are provided", () => {
+  test("returns an error when neither session nor --task are provided", () => {
     // Run the command with neither a session name nor --task
     const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir"], { 
       encoding: "utf-8", 
@@ -240,7 +246,28 @@ describe("minsky session dir CLI", () => {
     
     // The command should return an error
     expect(status).not.toBe(0);
-    expect(stderr).toContain("No session name provided and not in a session workspace");
+    expect(stderr).toContain("Not in a session workspace");
     expect(stdout).toBe("");
   });
+  
+  test("returns an error when not in a session workspace and using --ignore-workspace", () => {
+    // Run the command with --ignore-workspace
+    const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "dir", "--ignore-workspace"], { 
+      encoding: "utf-8", 
+      env: { 
+        ...process.env, 
+        XDG_STATE_HOME: TEST_DIR 
+      } 
+    });
+    
+    // The command should return an error
+    expect(status).not.toBe(0);
+    expect(stderr).toContain("You must provide either a session name or --task");
+    expect(stdout).toBe("");
+  });
+
+  // The following test would require complex mocking of the getCurrentSession function
+  // This is a placeholder test description for what should be tested
+  // A more complete integration test would simulate a real session workspace environment
+  // TODO: auto-detects the current session when in a session workspace
 }); 
