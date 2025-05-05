@@ -1,9 +1,8 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs:
+globs: 
 alwaysApply: false
 ---
-
 # Self-Improvement
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
@@ -136,3 +135,12 @@ Whenever a process, application, or verification error occurs (i.e., a rule is n
 - Document the error and the rule update in the session worklog or changelog.
 
 This applies to all failures, including those due to misunderstanding, oversight, or failure to apply an existing rule. The goal is to ensure that the rule system evolves to prevent not just gaps, but also lapses in application.
+
+## Pre-Change Communication Protocol
+
+- Before making any rule or process change in response to user feedback:
+  1. Pause and analyze the root cause of the failure.
+  2. Explicitly communicate this analysis, including the error category and reasoning, to the user.
+  3. Only proceed with the change after this analysis and communication step.
+
+This ensures transparency and gives the user a chance to correct or clarify the assistant's analysis.
