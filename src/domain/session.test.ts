@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { SessionDB } from './session';
-import type { SessionRecord } from './session';
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import { mkdirSync, writeFileSync, existsSync, rmSync, unlinkSync } from 'fs';
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { SessionDB } from "./session";
+import type { SessionRecord } from "./session";
+import { promises as fs } from "fs";
+import { join } from "path";
+import { mkdirSync, writeFileSync, existsSync, rmSync, unlinkSync } from "fs";
 
 // Mock the normalizeRepoName function
 mock.module('./repo-utils', () => ({
@@ -60,7 +60,7 @@ describe('SessionDB', () => {
   });
   
   describe('deleteSession', () => {
-    it('should delete a session from the database', async () => {
+    test('should delete a session from the database', async () => {
       // Set up test data
       const sessions: SessionRecord[] = [
         {
@@ -112,7 +112,7 @@ describe('SessionDB', () => {
       expect(existsSync(sessionDir1)).toBe(true);
     });
     
-    it('should return false if session does not exist', async () => {
+    test('should return false if session does not exist', async () => {
       // Set up test data
       const sessions: SessionRecord[] = [
         {
@@ -144,7 +144,7 @@ describe('SessionDB', () => {
       expect(remainingSessions[0].session).toBe('test-session');
     });
     
-    it('should handle empty database gracefully', async () => {
+    test('should handle empty database gracefully', async () => {
       // Create empty test session database
       writeFileSync(TEST_SESSION_DB, JSON.stringify([]));
       
@@ -164,7 +164,7 @@ describe('SessionDB', () => {
       expect(remainingSessions.length).toBe(0);
     });
     
-    it('should handle non-existent database gracefully', async () => {
+    test('should handle non-existent database gracefully', async () => {
       // Ensure database doesn't exist
       if (existsSync(TEST_SESSION_DB)) {
         unlinkSync(TEST_SESSION_DB);
@@ -184,7 +184,7 @@ describe('SessionDB', () => {
   });
   
   describe('getSessionByTaskId', () => {
-    it('should find a session by task ID', async () => {
+    test('should find a session by task ID', async () => {
       // Set up test data
       const sessions: SessionRecord[] = [
         {
@@ -223,7 +223,7 @@ describe('SessionDB', () => {
       expect(result?.taskId).toBe('#002');
     });
     
-    it('should return undefined if no session has the given task ID', async () => {
+    test('should return null if no session has the given task ID', async () => {
       // Set up test data
       const sessions: SessionRecord[] = [
         {
@@ -248,7 +248,7 @@ describe('SessionDB', () => {
       const result = await db.getSessionByTaskId('#999');
       
       // Verify result
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
   });
   
