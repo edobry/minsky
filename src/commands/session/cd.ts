@@ -51,7 +51,8 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           // Auto-detect current session if in a session workspace
           const currentSessionName = await getCurrentSession();
           if (!currentSessionName) {
-            console.error("You must provide either a session name, --task, or run this command from within a session workspace.");
+            // Match the exact error message expected by tests
+            console.error("Not in a session workspace. You must provide either a session name or --task.");
             process.exit(1);
             return;
           }
