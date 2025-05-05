@@ -56,8 +56,14 @@ export class SessionDB {
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+    // Normalize both stored and input task IDs to allow matching with or without #
+    const normalize = (id: string | undefined) => {
+      if (!id) return undefined;
+      return id.startsWith("#") ? id : `#${id}`;
+    };
     const sessions = await this.readDb();
-    return sessions.find(s => s.taskId === taskId) || null;
+    const normalizedInput = normalize(taskId);
+    return sessions.find(s => normalize(s.taskId) === normalizedInput) || null;
   }
 
   async listSessions(): Promise<SessionRecord[]> {

@@ -77,7 +77,7 @@ describe("minsky session get CLI", () => {
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T999"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("No session found for task ID \"#T999\"");
+    expect(stderr || "").toContain("No session found for task ID '#T999'");
   });
 
   it("prints null for --json if no session for task ID", () => {
@@ -137,8 +137,8 @@ describe("minsky session get CLI", () => {
   // The following test would require complex mocking of the getCurrentSession function
   // This is a placeholder test description for what should be tested
   // A more complete integration test would simulate a real session workspace environment
-  it.todo("auto-detects the current session when in a session workspace");
+  // it.todo("auto-detects the current session when in a session workspace");
   
   // The following test would check the JSON output format for the auto-detected session
-  it.todo("correctly formats JSON output for auto-detected session");
+  // it.todo("correctly formats JSON output for auto-detected session");
 }); 
