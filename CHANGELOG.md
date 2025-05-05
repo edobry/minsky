@@ -115,6 +115,7 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Simplified tasks.specpath.test.ts to avoid brittle mocking of internal methods
   - Fixed SessionDB.deleteSession test for empty database to align with implementation
   - Fixed session start command tests by replacing direct module property assignment with proper mock.module approach
+  - Fixed tasks list CLI tests by ensuring correct workspace structure for path validation
 - Fixed session test and implementation issues from task #022:
   - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
   - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
