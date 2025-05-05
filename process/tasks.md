@@ -41,7 +41,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
 - [-] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
-- [ ] Make git commit command push by default, unless --no-push flag is supplied [#037](tasks/037-git-commit-push-by-default.md)
+- [ ] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](tasks/037-session-commit-command.md)
 - [ ] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
 
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
