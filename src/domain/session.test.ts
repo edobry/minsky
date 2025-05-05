@@ -77,17 +77,26 @@ describe("SessionDB", () => {
     });
 
     test("should handle empty database gracefully", async () => {
-      // Ensure database file exists but is empty
-      writeFileSync(join(tmpDir, "session-db.json"), JSON.stringify([], null, 2));
+      // Create a completely isolated test directory for this test
+      const emptyDbDir = mkdtempSync("/tmp/session-empty-test-");
+      const emptyDbPath = join(emptyDbDir, "empty-session-db.json");
       
-      // Initialize SessionDB instance
-      const db = new SessionDB(join(tmpDir, "session-db.json"));
+      try {
+        // Ensure database file exists but is empty (empty array)
+        writeFileSync(emptyDbPath, JSON.stringify([], null, 2));
+        
+        // Initialize SessionDB instance with the empty database
+        const db = new SessionDB(emptyDbPath);
 
-      // Try to delete a session
-      const result = await db.deleteSession("test-session");
+        // Try to delete a session
+        const result = await db.deleteSession("non-existent-session");
 
-      // The implementation returns false when the session is not found
-      expect(result).toBe(false);
+        // The implementation returns false when the session is not found
+        expect(result).toBe(false);
+      } finally {
+        // Clean up the isolated test directory
+        rmSync(emptyDbDir, { recursive: true, force: true });
+      }
     });
 
     test("should handle non-existent database gracefully", async () => {
