@@ -36,7 +36,9 @@ This approach maintains backward compatibility while providing a more intuitive 
 
 
 ## Commits
-5fe1e50 Update error message to match expected test output
+cc0a019 Merge origin/main into task#027 and resolve conflicts
+2e9fd25 docs: Update session-first-workflow rule and tasks metadata
+a8cfc1e Update error message to match expected test output
 b11987d Fix session dir command to support both legacy and new path formats for tests
 fd13504 Fix linter error in get.ts by safely accessing branch property with type assertion
 f98ae33 Update session-first-workflow rule with explicit guidance on using edit_file tool with absolute paths
