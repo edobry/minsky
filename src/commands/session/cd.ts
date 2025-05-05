@@ -17,7 +17,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
     .option("--ignore-workspace", "Bypass workspace auto-detection")
     .action(async (sessionName: string | undefined, options: { task?: string; ignoreWorkspace?: boolean }) => {
       try {
-        // Initialize the session DB
+        // Initialize the session DB and Git service for getting session workspace path
         const db = new SessionDB();
         let session;
         

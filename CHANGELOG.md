@@ -71,8 +71,6 @@ _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-r
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md) for implementation details._
 _See: SpecStory history [task-id-format-support-specification](.specstory/history/task-id-format-support-specification.md) for task creation._
-_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
-_See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/history/2025-05-XX_XX-XX-task-006-quiet-option.md) for session start command --quiet option implementation._
 
 ### Changed
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
@@ -93,13 +91,14 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/hist
 - Completely reimplemented the SessionDB class to handle both legacy and new directory structures
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
-- Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
-- Refactored the GitService PR generation code by:
-  - Extracting the large `pr` method into smaller, more focused functions 
-  - Creating a `prWithDependencies` method that accepts injectable dependencies for easier testing
-  - Improving error handling throughout methods
-  - Breaking down complex logic into dedicated methods for repo path resolution, branch detection, and file diff generation
-  - Maintaining all test compatibility and coverage
+- Support for HTTPS and SSH git URL normalization in `normalizeRepoName` to produce consistent paths
+- Enhanced URL handling to preserve domain names for github.com repositories
+- Improved session directory path handling with support for backward compatibility
+- Updated implementation to handle both legacy and new session path formats (with "sessions" subdirectory)
+- Fixed session lookup by task ID in `session get` and `session dir` commands
+- Standardized code style to use double quotes instead of single quotes
+- Normalize task IDs consistently by ensuring the '#' prefix is added if missing
+- Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -109,7 +108,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
-_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -130,16 +129,57 @@ _See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
+- Fixed test failures in backend/TaskService tests caused by spec file path inconsistencies, by aligning file naming in test fixtures and improving mock file system behavior to maintain state across test operations.
+- Fixed test failures in domain modules and session implementation tests:
+  - Corrected mock expectations in tasks.specpath.test.ts to align with actual implementation behavior
+  - Updated repo-utils.test.ts to test the correct fallback behavior when git commands fail
+  - Fixed SessionDB.deleteSession tests to properly match the implementation's behavior
+  - Corrected startSession.test.ts to use the correct local path handling expectations
+  - Fixed minsky tasks list CLI tests by creating proper task spec file structures and directories
+  - Updated CLI argument from `--repo` to `--workspace` in task list tests to match implementation
+  - Simplified tasks.specpath.test.ts to avoid brittle mocking of internal methods
+  - Fixed SessionDB.deleteSession test for empty database to align with implementation
+  - Fixed session start command tests by replacing direct module property assignment with proper mock.module approach
+  - Fixed tasks list CLI tests by ensuring correct workspace structure for path validation
+- Fixed session test and implementation issues from task #022:
+  - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
+  - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
+  - Fixed startSession.test.ts to minimize mock dependencies and focus on core functionality
+  - Replaced single quotes with double quotes in test files for better linting compliance
+  - Improved test stability by avoiding direct manipulation of sessions array
+  - Fixed file URL conversion test to accurately reflect expected behavior
+  - Added TypeScript declarations for bun:test to fix module resolution errors
+  - Fixed type issues in mock implementations and test utility functions
+  - Fixed type safety for possibly undefined object properties in tests
+  - Fixed git PR test failures by properly mocking execAsync and handling git push commands
+  - Fixed lint errors in workspace.test.ts, repo-utils.test.ts, and session.test.ts by converting single quotes to double quotes
+  - Added appropriate type signatures to reduce any usage in test files
+  - Improved mock implementation of execAsync in git PR tests for better reliability
+  - Fixed session dir command implementation to correctly handle both legacy paths and new paths with sessions subdirectory
+  - Fixed session dir command tests to reflect correct legacy and new path expectations
+  - Updated session dir command error messages to be more informative and aligned with test expectations
+  - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
+  - Fixed placeholder tests for git PR to prevent linting errors
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
+_See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
+_See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
 
 ### Added
 - Task #022 to address remaining test failures and linting issues after task #002 implementation
+
+## [0.39.0] - 2025-04-29
+
+### Changed
+- Clarified that `minsky tasks list --json` should be used to query the backlog.
+
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
  

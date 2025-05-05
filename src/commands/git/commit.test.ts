@@ -1,7 +1,6 @@
 import { mock, describe, test, expect, beforeEach, afterEach } from "bun:test";
 import type { SessionDB, SessionRecord } from "../../domain/session";
 import { createGitCommitCommand } from "./commit";
-import { GitService } from "../../domain/git";
 import type { GitStatus } from "../../domain/git";
 
 // Manual mock function utility
@@ -169,7 +168,7 @@ describe("git commit command", () => {
 
     await command.parseAsync(["node", "minsky", "commit", "-s", "nonexistent", "-m", "test commit"]);
 
-    if (typeof mockConsoleError === "function") mockConsoleError(expect.stringContaining("Session "nonexistent" not found"));
+    if (typeof mockConsoleError === "function") mockConsoleError(expect.stringContaining("Session \"nonexistent\" not found"));
     if (typeof mockProcessExit === "function") mockProcessExit(1);
   });
 }); 

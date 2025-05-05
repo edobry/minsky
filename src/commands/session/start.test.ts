@@ -1,13 +1,28 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { createStartCommand } from "./start";
-import * as startSessionModule from "./startSession";
-import * as repoUtils from "../../domain/repo-utils";
+
+// Mock the startSession module
+const mockStartSession = mock(() => ({
+  sessionRecord: { session: "test-session" },
+  cloneResult: { workdir: "/path/to/test-workdir" },
+  branchResult: { branch: "test-branch" }
+}));
+
+// Mock the repo-utils module
+const mockResolveRepoPath = mock(() => "/path/to/repo");
+
+// Setup mocks before importing the actual modules
+mock.module("./startSession", () => ({
+  startSession: mockStartSession
+}));
+
+mock.module("../../domain/repo-utils", () => ({
+  resolveRepoPath: mockResolveRepoPath
+}));
 
 describe("createStartCommand", () => {
   let originalConsoleLog: typeof console.log;
   let originalConsoleError: typeof console.error;
-  let originalStartSession: typeof startSessionModule.startSession;
-  let originalResolveRepoPath: typeof repoUtils.resolveRepoPath;
   let originalExit: typeof process.exit;
   
   const logCalls: string[] = [];
@@ -17,9 +32,11 @@ describe("createStartCommand", () => {
     // Save original functions
     originalConsoleLog = console.log;
     originalConsoleError = console.error;
-    originalStartSession = startSessionModule.startSession;
-    originalResolveRepoPath = repoUtils.resolveRepoPath;
     originalExit = process.exit;
+    
+    // Reset mocks
+    mockStartSession.mockClear();
+    mockResolveRepoPath.mockClear();
     
     // Mock console.log and console.error
     console.log = (...args: any[]) => {
@@ -29,16 +46,6 @@ describe("createStartCommand", () => {
     console.error = (...args: any[]) => {
       errorCalls.push(args.join(" "));
     };
-    
-    // Mock startSession
-    startSessionModule.startSession = async () => ({
-      sessionRecord: { session: "test-session" },
-      cloneResult: { workdir: "/path/to/test-workdir" },
-      branchResult: { branch: "test-branch" }
-    });
-    
-    // Mock resolveRepoPath
-    repoUtils.resolveRepoPath = async () => "/path/to/repo";
     
     // Mock process.exit
     process.exit = () => undefined as never;
@@ -52,8 +59,6 @@ describe("createStartCommand", () => {
     // Restore original functions
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
-    startSessionModule.startSession = originalStartSession;
-    repoUtils.resolveRepoPath = originalResolveRepoPath;
     process.exit = originalExit;
   });
   
@@ -97,9 +102,9 @@ describe("createStartCommand", () => {
     const command = createStartCommand();
     
     // Mock startSession to throw an error
-    startSessionModule.startSession = async () => {
+    mockStartSession.mockImplementationOnce(() => {
       throw new Error("Test error message");
-    };
+    });
     
     // Track process.exit calls
     let exitCode = 0;
