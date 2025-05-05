@@ -21,11 +21,15 @@ export interface TaskBackend {
   getTaskStatus(id: string): Promise<string | null>;
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
-  createTask(specPath: string): Promise<Task>;
+  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
 }
 
 export interface TaskListOptions {
   status?: string;
+}
+
+export interface CreateTaskOptions {
+  force?: boolean;
 }
 
 // Task status constants and checkbox mapping
@@ -190,7 +194,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string): Promise<Task> {
+  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
     try {
       await fs.access(specPath);
@@ -207,11 +211,22 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (!titleLine) {
       throw new Error('Invalid spec file: Missing title heading');
     }
-    const titleMatch = titleLine.match(/^# Task #\d+: (.+)$/);
-    if (!titleMatch?.[1]) {
-      throw new Error('Invalid spec file: Missing or invalid title. Expected format: "# Task #XXX: Title"');
+
+    // Support both "# Task: Title" and "# Task #XXX: Title" formats
+    const titleWithIdMatch = titleLine.match(/^# Task #\d+: (.+)$/);
+    const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+    
+    let title: string;
+    let hasTaskId = false;
+    
+    if (titleWithIdMatch?.[1]) {
+      title = titleWithIdMatch[1];
+      hasTaskId = true;
+    } else if (titleWithoutIdMatch?.[1]) {
+      title = titleWithoutIdMatch[1];
+    } else {
+      throw new Error('Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"');
     }
-    const title = titleMatch[1];
 
     // Extract description from the Context section
     const contextIndex = lines.findIndex(line => line.trim() === '## Context');
@@ -235,6 +250,61 @@ export class MarkdownTaskBackend implements TaskBackend {
       return id > max ? id : max;
     }, 0);
     const nextId = `#${String(maxId + 1).padStart(3, '0')}`;
+    const nextIdNum = nextId.slice(1); // Remove the # prefix for file naming
+
+    // Generate the standardized filename
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const newSpecPath = join('process', 'tasks', `${nextIdNum}-${normalizedTitle}.md`);
+    const fullNewPath = join(this.workspacePath, newSpecPath);
+    
+    // Update the title in the spec file to include the task number
+    let updatedContent = specContent;
+    if (!hasTaskId) {
+      const updatedTitleLine = `# Task ${nextId}: ${title}`;
+      updatedContent = updatedContent.replace(titleLine, updatedTitleLine);
+    }
+    
+    // Rename and update the spec file
+    try {
+      // Create the tasks directory if it doesn't exist
+      const tasksDir = join(this.workspacePath, 'process', 'tasks');
+      try {
+        await fs.mkdir(tasksDir, { recursive: true });
+      } catch (error) {
+        // Ignore if directory already exists
+      }
+      
+      // Check if the target file already exists
+      try {
+        await fs.access(fullNewPath);
+        if (!options.force) {
+          throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
+        }
+      } catch (error) {
+        // File doesn't exist, which is fine
+      }
+      
+      // Write the updated content to the new file
+      await fs.writeFile(fullNewPath, updatedContent, 'utf-8');
+      
+      // Delete the original file if it's different from the new one
+      const fullOrigPath = join(
+        specPath.startsWith('/') ? '' : this.workspacePath, 
+        specPath
+      );
+      
+      if (fullOrigPath !== fullNewPath) {
+        try {
+          await fs.access(fullOrigPath);
+          await fs.unlink(fullOrigPath);
+        } catch (error) {
+          // If file doesn't exist or can't be deleted, just log it
+          console.warn(`Warning: Could not delete original spec file: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    } catch (error) {
+      throw new Error(`Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     // Create the task entry
     const task: Task = {
@@ -242,14 +312,14 @@ export class MarkdownTaskBackend implements TaskBackend {
       title,
       description: description.trim(),
       status: TASK_STATUS.TODO,
-      specPath
+      specPath: newSpecPath
     };
 
     // Add the task to tasks.md
     const content = await fs.readFile(this.filePath, 'utf-8');
-    const taskEntry = `- [ ] ${title} [${nextId}](${specPath})\n`;
-    const updatedContent = content + '\n' + taskEntry;
-    await fs.writeFile(this.filePath, updatedContent, 'utf-8');
+    const taskEntry = `- [ ] ${title} [${nextId}](${newSpecPath})\n`;
+    const tasksFileContent = content + '\n' + taskEntry;
+    await fs.writeFile(this.filePath, tasksFileContent, 'utf-8');
 
     return task;
   }
@@ -291,7 +361,7 @@ export class GitHubTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string): Promise<Task> {
+  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Implementation needed
     throw new Error('Method not implemented');
   }
@@ -343,7 +413,7 @@ export class TaskService {
     return this.currentBackend.getWorkspacePath();
   }
 
-  async createTask(specPath: string): Promise<Task> {
-    return this.currentBackend.createTask(specPath);
+  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+    return this.currentBackend.createTask(specPath, options);
   }
 } 

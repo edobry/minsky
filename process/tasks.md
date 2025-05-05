@@ -40,6 +40,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [ ] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
+- [x] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
 
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
