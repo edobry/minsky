@@ -133,6 +133,8 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Fixed session dir command implementation to correctly handle both legacy paths and new paths with sessions subdirectory
   - Fixed session dir command tests to reflect correct legacy and new path expectations
   - Updated session dir command error messages to be more informative and aligned with test expectations
+  - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
+  - Fixed placeholder tests for git PR to prevent linting errors
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
