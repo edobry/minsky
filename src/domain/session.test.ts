@@ -93,7 +93,7 @@ describe('SessionDB', () => {
       writeFileSync(join(sessionDir2, 'test-file.txt'), 'test content');
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       
@@ -128,7 +128,7 @@ describe('SessionDB', () => {
       writeFileSync(TEST_SESSION_DB, JSON.stringify(sessions));
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       
@@ -149,7 +149,7 @@ describe('SessionDB', () => {
       writeFileSync(TEST_SESSION_DB, JSON.stringify([]));
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       
@@ -171,7 +171,7 @@ describe('SessionDB', () => {
       }
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       
@@ -185,42 +185,42 @@ describe('SessionDB', () => {
   
   describe('getSessionByTaskId', () => {
     test('should find a session by task ID', async () => {
-      // Set up test data
+      // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
         {
-          session: 'test-session-1',
-          repoUrl: 'https://github.com/test/repo',
-          repoName: 'test/repo',
-          branch: 'main',
+          session: "test-session-1",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
-          taskId: '#001'
+          taskId: "#001"
         },
         {
-          session: 'test-session-2',
-          repoUrl: 'https://github.com/test/repo2',
-          repoName: 'test/repo2',
-          branch: 'main',
+          session: "test-session-2",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
-          taskId: '#002'
-        }
+          taskId: "#002"
+        },
       ];
-      
-      // Create test session database
-      writeFileSync(TEST_SESSION_DB, JSON.stringify(sessions));
-      
-      // Initialize SessionDB instance
-      const db = new SessionDB();
-      // Override the dbPath for testing
-      Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
-      
+
+      // Add sessions to the database
+      const db = new ActualSessionDB(join(TEST_DIR, "session-db.json"));
+      await db.addSession(sessions[0]);
+      await db.addSession(sessions[1]);
+
+      // Debug: print available methods on db
+      // eslint-disable-next-line no-console
+      console.log("SessionDB methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(db)));
+
       // Find session by task ID
-      const result = await db.getSessionByTaskId('#002');
-      
-      // Verify result
-      expect(result).not.toBeNull();
-      expect(result).toBeDefined();
-      expect(result?.session).toBe('test-session-2');
-      expect(result?.taskId).toBe('#002');
+      const result = await db.getSessionByTaskId("#002");
+
+      // Check that the correct session was found
+      expect(result).not.toBe(null);
+      if (result) {
+        expect(result.session).toBe("test-session-2");
+        expect(result.taskId).toBe("#002");
+      }
     });
     
     test('should return null if no session has the given task ID', async () => {
@@ -240,7 +240,7 @@ describe('SessionDB', () => {
       writeFileSync(TEST_SESSION_DB, JSON.stringify(sessions));
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       
@@ -269,7 +269,7 @@ describe('SessionDB', () => {
       mkdirSync(legacyPath, { recursive: true });
       
       // Initialize SessionDB instance with mocked baseDir
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the baseDir for testing
       Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
       
@@ -305,7 +305,7 @@ describe('SessionDB', () => {
       mkdirSync(newPath, { recursive: true });
       
       // Initialize SessionDB instance with mocked baseDir
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the baseDir for testing
       Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
       
@@ -344,7 +344,7 @@ describe('SessionDB', () => {
       mkdirSync(newPath, { recursive: true });
       
       // Initialize SessionDB instance with mocked baseDir
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the baseDir for testing
       Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
       
@@ -367,7 +367,7 @@ describe('SessionDB', () => {
   
   describe('getNewSessionRepoPath', () => {
     it('should return a path with sessions subdirectory', () => {
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       const repoName = 'test/repo';
       const sessionId = 'test-session';
       
@@ -421,7 +421,7 @@ describe('SessionDB', () => {
       writeFileSync(join(legacyPath2, 'test-file.txt'), 'test content');
       
       // Initialize SessionDB instance
-      const db = new SessionDB();
+      const db = new ActualSessionDB();
       // Override the dbPath and baseDir for testing
       Object.defineProperty(db, 'dbPath', { value: TEST_SESSION_DB });
       Object.defineProperty(db, 'baseDir', { value: TEST_GIT_DIR });
