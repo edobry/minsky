@@ -61,15 +61,17 @@ export const createCommand = new Command("create")
           throw new Error('Invalid spec file: Missing title heading');
         }
         
-        // Support both title formats
-        const titleWithIdMatch = titleLine.match(/^# Task #\d+: (.+)$/);
+        // Support both title formats with improved regex
+        const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
         const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
         
         let title: string;
         let hasTaskId = false;
+        let existingId: string | null = null;
         
-        if (titleWithIdMatch && titleWithIdMatch[1]) {
-          title = titleWithIdMatch[1];
+        if (titleWithIdMatch && titleWithIdMatch[2]) {
+          title = titleWithIdMatch[2];
+          existingId = `#${titleWithIdMatch[1]}`;
           hasTaskId = true;
         } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
           title = titleWithoutIdMatch[1];
@@ -77,38 +79,50 @@ export const createCommand = new Command("create")
           throw new Error('Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"');
         }
         
-        // Find the next available task ID
+        // Find the next available task ID or validate existing one
         const taskService = new TaskService({
           workspacePath,
           backend: options.backend
         });
         
-        const tasks = await taskService.listTasks();
-        const maxId = tasks.reduce((max, task) => {
-          const id = parseInt(task.id.slice(1));
-          return id > max ? id : max;
-        }, 0);
-        const nextId = `#${String(maxId + 1).padStart(3, '0')}`;
-        const nextIdNum = nextId.slice(1);
+        let taskId: string;
+        if (hasTaskId && existingId) {
+          // Verify the task ID doesn't already exist
+          const existingTask = await taskService.getTask(existingId);
+          if (existingTask) {
+            console.log(`Warning: Task ${existingId} already exists. Will use --force when creating.`);
+          }
+          taskId = existingId;
+        } else {
+          // Find the next available task ID
+          const tasks = await taskService.listTasks();
+          const maxId = tasks.reduce((max, task) => {
+            const id = parseInt(task.id.slice(1));
+            return id > max ? id : max;
+          }, 0);
+          taskId = `#${String(maxId + 1).padStart(3, '0')}`;
+        }
+        
+        const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
         
         // Generate the standardized filename
         const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const newSpecPath = join('process', 'tasks', `${nextIdNum}-${normalizedTitle}.md`);
+        const newSpecPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
         
         if (options.json) {
           console.log(JSON.stringify({
-            id: nextId,
+            id: taskId,
             title,
             status: "TODO",
             dryRun: true,
             specPath: newSpecPath
           }, null, 2));
         } else {
-          console.log(`Would create task ${nextId}: ${title}`);
+          console.log(`Would create task ${taskId}: ${title}`);
           console.log("Would update spec file:");
           
           if (!hasTaskId) {
-            console.log(`  - Would change title from "${titleLine}" to "# Task ${nextId}: ${title}"`);
+            console.log(`  - Would change title from "${titleLine}" to "# Task ${taskId}: ${title}"`);
           }
           
           console.log(`  - Would rename file from "${specPath}" to "${newSpecPath}"`);

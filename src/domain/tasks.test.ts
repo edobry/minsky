@@ -293,6 +293,9 @@ describe('createTask', () => {
   beforeEach(() => {
     taskBackend = new MarkdownTaskBackend(workspacePath);
     taskService = new TaskService({ workspacePath });
+    // Reset mock filesystem
+    mockFileSystem.clear();
+    mockDirs.clear();
   });
 
   it('should parse spec file and create a new task', async () => {
@@ -303,9 +306,22 @@ describe('createTask', () => {
       { id: '#001', title: 'First Task', description: '', status: TASK_STATUS.TODO, specPath: 'process/tasks/001-first.md' }
     ]);
 
-    // Temporarily access private method for testing
-    // @ts-ignore - accessing private method for testing
-    spyOn(taskBackend, 'createTask').mockRestore();
+    // Mock fs.promises.unlink to do nothing
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => `# Task #002: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n`,
+        access: async () => {},
+        writeFile: async (path: string, content: string) => {
+          mockFileSystem.set(path, content);
+        },
+        mkdir: async () => {},
+        unlink: async () => {},
+        readdir: async () => []
+      }
+    }));
+    
+    // Mock getTask to return null (no existing task with this ID)
+    spyOn(taskBackend, 'getTask').mockImplementation(async () => null);
     
     const task = await taskBackend.createTask(specPath);
     
@@ -342,5 +358,140 @@ describe('createTask', () => {
     }));
     
     await expect(taskBackend.createTask(specPath)).rejects.toThrow('Invalid spec file');
+  });
+  
+  it('should support spec file with "# Task: Title" format', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/no-id-spec.md');
+    const newSpecPath = path.join(workspacePath, 'process/tasks/003-new-feature.md');
+    
+    // Mock fs.readFile to return content without task ID
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => '# Task: New Feature\n\n## Context\n\nThis is a new feature without ID.\n',
+        access: async () => {},
+        writeFile: async (path: string, content: string) => {
+          mockFileSystem.set(path, content);
+        },
+        mkdir: async () => {},
+        unlink: async () => {},
+        readdir: async () => []
+      }
+    }));
+    
+    // Mock parseTasks to return tasks with ID 001 and 002
+    spyOn(taskBackend, 'parseTasks').mockImplementation(async () => [
+      { id: '#001', title: 'First Task', description: '', status: TASK_STATUS.TODO },
+      { id: '#002', title: 'Second Task', description: '', status: TASK_STATUS.TODO }
+    ]);
+    
+    const task = await taskBackend.createTask(specPath);
+    
+    expect(task).toBeDefined();
+    expect(task.id).toBe('#003'); // Should get next available ID
+    expect(task.title).toBe('New Feature');
+    expect(task.status).toBe(TASK_STATUS.TODO);
+    
+    // Check that the title was updated in the file
+    const updatedContent = mockFileSystem.get(newSpecPath);
+    expect(updatedContent).toBeDefined();
+    expect(typeof updatedContent === 'string').toBe(true);
+    if (updatedContent && typeof updatedContent === 'string') {
+      expect(updatedContent.includes('# Task #003: New Feature')).toBe(true);
+    }
+  });
+  
+  it('should support spec file with "# Task #XXX: Title" format', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/with-id-spec.md');
+    const newSpecPath = path.join(workspacePath, 'process/tasks/042-existing-id-feature.md');
+    
+    // Mock fs.readFile to return content with task ID
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => '# Task #042: Existing ID Feature\n\n## Context\n\nThis is a feature with existing ID.\n',
+        access: async () => {},
+        writeFile: async (path: string, content: string) => {
+          mockFileSystem.set(path, content);
+        },
+        mkdir: async () => {},
+        unlink: async () => {},
+        readdir: async () => []
+      }
+    }));
+    
+    // Mock parseTasks to return tasks with other IDs
+    spyOn(taskBackend, 'parseTasks').mockImplementation(async () => [
+      { id: '#001', title: 'First Task', description: '', status: TASK_STATUS.TODO },
+      { id: '#002', title: 'Second Task', description: '', status: TASK_STATUS.TODO }
+    ]);
+    
+    // Mock getTask to return null (no existing task with this ID)
+    spyOn(taskBackend, 'getTask').mockImplementation(async () => null);
+    
+    const task = await taskBackend.createTask(specPath);
+    
+    expect(task).toBeDefined();
+    expect(task.id).toBe('#042'); // Should keep the specified ID
+    expect(task.title).toBe('Existing ID Feature');
+    expect(task.status).toBe(TASK_STATUS.TODO);
+    
+    // Check that the title was not modified in the file
+    const updatedContent = mockFileSystem.get(newSpecPath);
+    expect(updatedContent).toBeDefined();
+    expect(typeof updatedContent === 'string').toBe(true);
+    if (updatedContent && typeof updatedContent === 'string') {
+      expect(updatedContent.includes('# Task #042: Existing ID Feature')).toBe(true);
+    }
+  });
+  
+  it('should throw error if task ID already exists', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/duplicate-id-spec.md');
+    
+    // Mock fs.readFile to return content with task ID
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => '# Task #001: Duplicate ID\n\n## Context\n\nThis has a duplicate ID.\n',
+        access: async () => {}
+      }
+    }));
+    
+    // Mock getTask to return an existing task with this ID
+    spyOn(taskBackend, 'getTask').mockImplementation(async () => ({
+      id: '#001',
+      title: 'Existing Task',
+      description: '',
+      status: TASK_STATUS.TODO
+    }));
+    
+    await expect(taskBackend.createTask(specPath)).rejects.toThrow('Task #001 already exists');
+  });
+  
+  it('should allow force creation even if task ID already exists', async () => {
+    const specPath = path.join(workspacePath, 'process/tasks/force-duplicate-spec.md');
+    
+    // Mock fs.readFile to return content with task ID
+    mock.module('fs', () => ({
+      promises: {
+        readFile: async () => '# Task #001: Force Duplicate\n\n## Context\n\nThis has a duplicate ID but force is used.\n',
+        access: async () => {},
+        writeFile: async () => {},
+        mkdir: async () => {},
+        unlink: async () => {},
+        readdir: async () => []
+      }
+    }));
+    
+    // Mock getTask to return an existing task with this ID
+    spyOn(taskBackend, 'getTask').mockImplementation(async () => ({
+      id: '#001',
+      title: 'Existing Task',
+      description: '',
+      status: TASK_STATUS.TODO
+    }));
+    
+    const task = await taskBackend.createTask(specPath, { force: true });
+    
+    expect(task).toBeDefined();
+    expect(task.id).toBe('#001'); // Should keep the specified ID despite conflict
+    expect(task.title).toBe('Force Duplicate');
   });
 }); 
