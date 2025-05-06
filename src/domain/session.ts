@@ -2,7 +2,7 @@ import { join } from "path";
 import { promises as fs } from "fs";
 import { normalizeRepoName } from "./repo-utils";
 
-export interface SessionRecord {
+interface SessionRecord {
   session: string;
   repoUrl: string;
   repoName: string;
@@ -12,7 +12,7 @@ export interface SessionRecord {
   repoPath?: string;
 }
 
-export class SessionDB {
+class SessionDB {
   private readonly dbPath: string;
   readonly baseDir: string;
 
@@ -183,4 +183,7 @@ export class SessionDB {
   async migrateSessionsToSubdirectory(): Promise<void> {
     // No-op for now, implement as needed for test compatibility
   }
-} 
+}
+
+export { SessionDB as ActualSessionDB, SessionDB };
+export type { SessionRecord }; 
