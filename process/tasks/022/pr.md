@@ -1,6 +1,60 @@
-# Pull Request for branch `task#022`
+# feat(#022): Fix Session Test Failures and Linting Issues
+
+## Summary
+This PR fixes session test failures and linting issues that were introduced after implementing task #002 for per-repo session storage. The changes ensure all tests pass and TypeScript type checking succeeds.
+
+## Motivation & Context
+After implementing task #002 for per-repo session storage, several tests began failing due to:
+- Type errors related to the SessionRecord interface changes
+- Linting issues with import paths
+- Incompatibilities with Bun's test API
+- Missing type declarations for test utilities
+
+These issues need to be fixed to maintain code quality and ensure the test suite accurately validates the codebase functionality.
+
+## Design/Approach
+We've taken a systematic approach to fix the issues:
+1. Added TypeScript declarations for Bun's test API
+2. Updated test files to use the correct API methods
+3. Fixed import paths and type safety issues
+4. Removed references to properties that no longer exist in interfaces
+
+## Key Changes
+- Fixed type errors in `startSession.ts` by:
+  - Using proper import syntax for fs and path modules
+  - Removing the non-existent 'branch' property from SessionRecord interface
+
+- Updated test files to use Bun's test API correctly:
+  - Replaced `it()` with `test()` in all test files
+  - Added proper type declarations for Bun's test API
+  - Fixed mock implementations to work with Bun's API
+
+- Fixed type safety issues:
+  - Added null checks before using array elements
+  - Updated SessionRecord interface usage to match implementation
+  - Fixed list.ts to remove reference to branch property
+
+## Testing
+- All tests now pass with `bun test`
+- TypeScript type checking passes with no errors
+- Linting issues have been resolved
+
+## Ancillary Changes
+- Improved error handling in tests with proper null checks
+- Enhanced type declarations to support future test development
+- Simplified complex mock implementations for better maintainability
 
 ## Commits
+e170084 task#022: Fix remaining type errors and test issues
+ba3c788 task#022: Simplify complex tests with more maintainable patterns
+ab46f0b task#022: Further fix test failures, simplify update test, update documentation
+71f5bbe task#022: Fix import paths in cli.ts and add missing command imports
+6e69e22 docs: add task completion documentation
+dd26795 restore cli.ts to original state
+4a86299 fix(tests): Fix syntax error in startSession.test.ts trackCalls usage
+61644ff test: update workspace.test.ts expectations for mock cwd and session detection (session workspace)
+7351990 fix: update workspace.test.ts expectations and mocks to match implementation and resolve linter errors (session workspace)
+9881242 Merge origin/main into task#022
 767f3eb task#022: Fix session test failures and linting issues
 74d8819 fix: Fixed session dir command to handle legacy paths and new path structure with sessions subdirectory
 15ef00c docs: update CHANGELOG with tasks list CLI test fixes (worklog: document workspace structure validation)
@@ -405,5 +459,3 @@ test-workspace-detection.ts
  119 files changed, 95650 insertions(+), 2263 deletions(-)
 ## Uncommitted changes in working directory
 M	process/tasks/022/pr.md
-
-
