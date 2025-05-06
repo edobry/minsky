@@ -135,6 +135,11 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Updated session dir command error messages to be more informative and aligned with test expectations
   - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
   - Fixed placeholder tests for git PR to prevent linting errors
+- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
+- Added missing command imports in src/cli.ts (tasks, git, and init commands)
+- Fixed test failures in session command tests by correcting import paths
+- Simplified update.test.ts test file to focus on fundamental functionality without complex mock dependencies
+- Fixed test failures in startSession.test.ts by properly monitoring function calls
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
