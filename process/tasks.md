@@ -28,7 +28,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
 - [x] Add `--task` option to `session dir` command to query session directories by task ID [#018](tasks/018-add-task-option-to-session-dir.md)
 - [ ] Implement test suite improvements for better reliability and maintainability [#019](tasks/019-implement-test-suite-improvements.md)
-- [-] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
+- [x] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
 - [ ] Refactor Large Methods in GitService [#021](tasks/021-refactor-large-methods-in-git-service.md)
 - [x] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
