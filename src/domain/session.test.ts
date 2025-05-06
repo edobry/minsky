@@ -6,7 +6,7 @@ import { join } from "path";
 import { mkdirSync, writeFileSync, existsSync, rmSync, unlinkSync } from "fs";
 
 // Mock the normalizeRepoName function
-mock.module('./repo-utils', () => ({
+mock.module("./repo-utils", () => ({
   normalizeRepoName: (repoUrl: string) => {
     // For tests, we want to preserve the exact repo name passed in
     // This ensures our test paths match exactly what we expect
@@ -14,11 +14,11 @@ mock.module('./repo-utils', () => ({
   }
 }));
 
-describe('SessionDB', () => {
-  const TEST_DIR = '/tmp/minsky-test';
-  const TEST_STATE_DIR = join(TEST_DIR, 'minsky');
-  const TEST_SESSION_DB = join(TEST_STATE_DIR, 'session-db.json');
-  const TEST_GIT_DIR = join(TEST_STATE_DIR, 'git');
+describe("SessionDB", () => {
+  const TEST_DIR = "/tmp/minsky-test";
+  const TEST_STATE_DIR = join(TEST_DIR, "minsky");
+  const TEST_SESSION_DB = join(TEST_STATE_DIR, "session-db.json");
+  const TEST_GIT_DIR = join(TEST_STATE_DIR, "git");
   
   // Mock the SessionDB class to use our test directories
   let originalXdgStateHome: string | undefined;
