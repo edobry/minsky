@@ -185,5 +185,6 @@ class SessionDB {
   }
 }
 
-export { SessionDB as ActualSessionDB, SessionDB };
+export const ActualSessionDB = SessionDB;
+export { SessionDB };
 export type { SessionRecord }; 
