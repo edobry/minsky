@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { MarkdownTaskBackend, TaskService } from './tasks';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { resolveRepoPath } from './repo-utils';
 import type { RepoResolutionOptions } from './repo-utils';
@@ -31,7 +31,7 @@ describe('MarkdownTaskBackend', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
     const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
+    mkdirSync(processDir);
     tasksPath = join(processDir, 'tasks.md');
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
     backend = new MarkdownTaskBackend(tmpDir);
@@ -163,7 +163,7 @@ describe('TaskService', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync('/tmp/minsky-tasks-test-');
     const processDir = join(tmpDir, 'process');
-    require('fs').mkdirSync(processDir);
+    mkdirSync(processDir);
     tasksPath = join(processDir, 'tasks.md');
     writeFileSync(tasksPath, SAMPLE_TASKS_MD);
     service = new TaskService({ workspacePath: tmpDir });
@@ -187,4 +187,17 @@ describe('TaskService', () => {
   it('throws if backend is not found', () => {
     expect(() => new TaskService({ workspacePath: tmpDir, backend: 'notreal' })).toThrow();
   });
+
+  // it('creates a task and returns its specPath', async () => {
+  //   const task = await service.createTask({
+  //     title: 'Test Task',
+  //     description: 'This is a test task',
+  //     status: 'TODO',
+  //     specPath: 'process/tasks/002-test-task.md'
+  //   });
+  //   expect(task.title).toBe('Test Task');
+  //   expect(task.description).toBe('This is a test task');
+  //   expect(task.status).toBe('TODO');
+  //   expect(task.specPath).toBe("process/tasks/002-test-task.md");
+  // });
 }); 
