@@ -434,13 +434,14 @@ describe("SessionDB", () => {
       // Mock writeDb to write to the test file
       (db as any).writeDb = async (updatedSessions: SessionRecord[]) => {
         await fs.writeFile(TEST_SESSION_DB, JSON.stringify(updatedSessions));
-        sessions.length = 0;
-        sessions.push(...updatedSessions);
+        // No need to clear and push, as we're directly modifying the sessions array
       };
       
-      // Mock repoExists to return true for the legacy paths
+      // Mock repoExists to return true for legacy paths and false for new paths
       (db as any).repoExists = async (path: string) => {
-        return path === legacyPath1 || path === legacyPath2;
+        // Return true for legacy paths, false for new paths
+        return (path === legacyPath1 || path === legacyPath2) && 
+               !(path === newPath1 || path === newPath2);
       };
       
       // Mock fs.rename to not actually move files (to avoid file system issues in tests)
