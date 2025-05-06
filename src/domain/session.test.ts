@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { SessionDB } from "./session";
+import { ActualSessionDB } from "./session";
 import type { SessionRecord } from "./session";
 import { promises as fs } from "fs";
 import { join } from "path";
@@ -13,9 +13,6 @@ mock.module('./repo-utils', () => ({
     return repoUrl;
   }
 }));
-
-// Import the SessionDB class after mocking dependencies
-import { SessionDB as ActualSessionDB } from './session';
 
 describe('SessionDB', () => {
   const TEST_DIR = '/tmp/minsky-test';
