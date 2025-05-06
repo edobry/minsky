@@ -16,10 +16,16 @@ export class SessionDB {
   private readonly dbPath: string;
   readonly baseDir: string;
 
-  constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+  constructor(dbPath?: string) {
+    if (dbPath) {
+      this.dbPath = dbPath;
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
+    } else {
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
+    }
   }
 
   private async readDb(): Promise<SessionRecord[]> {
