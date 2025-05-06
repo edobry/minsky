@@ -312,9 +312,8 @@ When integrating minsky into automated workflows or scripts:
      
      if [ $? -eq 0 ]; then
        minsky git pr --path . > process/tasks/001/pr.md
-       git add process/tasks/001/pr.md
-       git commit -m "task#001: Add PR description"
-       git push origin "$(git branch --show-current)"
+       minsky git commit -m "task#001: Add PR description"
+       minsky git push
        minsky tasks status set '#001' IN-REVIEW
      fi
      ```
@@ -334,7 +333,7 @@ When integrating minsky into automated workflows or scripts:
    - **ALWAYS push immediately after committing:**
      ```bash
      # After every commit, immediately push to the session branch
-     git push origin $(git branch --show-current)
+     minsky git push
      ```
    - Never leave commits unpushed at the end of an implementation session
 
@@ -380,7 +379,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
 4. ✓ All changes are committed with task ID in commit message
 5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
 6. ✓ PR description is committed
-7. ✓ Changes are pushed to remote with `git push origin <branch>`
+7. ✓ Changes are pushed to remote with `minsky git push`
 8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
 
 ## PR Preparation
@@ -400,7 +399,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
    - Push your branch:
      ```bash
      # Current approach (standard git command)
-     git push origin $(git branch --show-current)
+     minsky git push
      
      # Future: Will be simplified with dedicated command (Task #005)
      # minsky git push

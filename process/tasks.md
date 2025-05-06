@@ -14,7 +14,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Store session repos under per-repo directories and add repoName to session DB [#002](tasks/002-per-repo-session-storage.md)
 - [x] Add `init` command to set up a project for Minsky [#003](tasks/003-add-init-command.md)
 - [x] Add `--task` option to `session get` command to query sessions by task ID [#004](tasks/004-add-task-option-to-session-get.md)
-- [ ] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-add-git-push-command.md)
+- [x] Add `git push` command to simplify pushing branches to remote repositories [#005](tasks/005-add-git-push-command.md)
 - [x] Add `--quiet` option to `session start` for programmatic output [#006](tasks/006-add-quiet-option-to-session-start.md)
 - [-] Add `minsky tasks create` command to create tasks from spec documents [#007](tasks/007-add-tasks-create-command.md)
 - [x] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](tasks/008-update-tasks-list-hide-done.md)
