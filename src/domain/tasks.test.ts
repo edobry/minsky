@@ -314,7 +314,7 @@ describe('createTask', () => {
     expect(task.title).toBe('Test Task');
     expect(task.status).toBe(TASK_STATUS.TODO);
     expect(task.description).toBeTruthy();
-    expect(task.specPath).toBe(specPath);
+    expect(task.specPath).toBe("process/tasks/002-test-task.md");
   });
 
   it('should throw error if spec file does not exist', async () => {
