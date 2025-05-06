@@ -1,8 +1,8 @@
 import { GitService } from "../../domain/git";
 import { SessionDB, type SessionRecord } from "../../domain/session";
 import { TaskService } from "../../domain/tasks";
-import fs from "fs";
-import path from "path";
+import * as fs from "fs";
+import * as path from "path";
 import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils";
 import { normalizeTaskId } from "../../utils/task-utils";
 
@@ -115,7 +115,7 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
   });
 
   return {
-    sessionRecord: { session, repoUrl, repoName, branch: session, createdAt: new Date().toISOString(), taskId },
+    sessionRecord: { session, repoUrl, repoName, createdAt: new Date().toISOString(), taskId },
     cloneResult,
     branchResult
   };

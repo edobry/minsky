@@ -6,16 +6,16 @@ describe("session command workspace auto-detection", () => {
   test("session dir command should use detected session when no arguments are provided", async () => {
     // Create a simple function that simulates getCurrentSession
     const mockGetCurrentSession = async () => "auto-detected-session";
-    
+
     // Create the session command with the mock function
-    const sessionCommand = createSessionCommand({ 
+const sessionCommand = createSessionCommand({ 
       getCurrentSession: mockGetCurrentSession 
     });
     
     // Setup a test program to parse arguments
-    const program = new Command();
-    program.addCommand(sessionCommand);
-    
+const program = new Command();
+program.addCommand(sessionCommand);
+
     // Verify the session command exists
     expect(sessionCommand.name()).toBe("session");
   });
@@ -23,9 +23,9 @@ describe("session command workspace auto-detection", () => {
   test("session get command should accept getCurrentSession dependency", async () => {
     // Create a simple function that simulates getCurrentSession
     const mockGetCurrentSession = async () => "auto-detected-session";
-    
+
     // Create the session command with mock dependencies
-    const sessionCommand = createSessionCommand({ 
+const sessionCommand = createSessionCommand({ 
       getCurrentSession: mockGetCurrentSession
     });
     

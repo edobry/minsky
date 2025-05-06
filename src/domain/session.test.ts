@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { SessionDB } from "./session";
 import type { SessionRecord } from "./session";
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
@@ -37,8 +37,8 @@ describe("SessionDB", () => {
 
       // Add sessions to the database using the API
       const db = new SessionDB(join(tmpDir, "session-db.json"));
-      await db.addSession(sessions[0]);
-      await db.addSession(sessions[1]);
+      if (sessions[0]) await db.addSession(sessions[0]);
+      if (sessions[1]) await db.addSession(sessions[1]);
 
       // Delete the first session
       const result = await db.deleteSession("test-session-1");
@@ -62,7 +62,7 @@ describe("SessionDB", () => {
       };
 
       const db = new SessionDB(join(tmpDir, "session-db.json"));
-      await db.addSession(session);
+      if (session) await db.addSession(session);
 
       // Try to delete a non-existent session
       const result = await db.deleteSession("non-existent-session");
@@ -136,8 +136,8 @@ describe("SessionDB", () => {
 
       // Add sessions to the database
       const db = new SessionDB(join(tmpDir, "session-db.json"));
-      await db.addSession(sessions[0]);
-      await db.addSession(sessions[1]);
+      if (sessions[0]) await db.addSession(sessions[0]);
+      if (sessions[1]) await db.addSession(sessions[1]);
 
       // Find a session by task ID
       const result = await db.getSessionByTaskId("#002");
@@ -164,7 +164,7 @@ describe("SessionDB", () => {
 
       // Add sessions to the database
       const db = new SessionDB(join(tmpDir, "session-db.json"));
-      await db.addSession(sessions[0]);
+      if (sessions[0]) await db.addSession(sessions[0]);
 
       // Try to find a session with a non-existent task ID
       const result = await db.getSessionByTaskId("#999");

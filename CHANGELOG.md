@@ -135,13 +135,10 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Updated session dir command error messages to be more informative and aligned with test expectations
   - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
   - Fixed placeholder tests for git PR to prevent linting errors
-- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
-- Added missing command imports in src/cli.ts (tasks, git, and init commands)
-- Fixed test failures in session command tests by correcting import paths
-- Simplified update.test.ts test file to focus on fundamental functionality without complex mock dependencies
-- Fixed test failures in startSession.test.ts by properly monitoring function calls
-- Simplified autodetect.test.ts to avoid file system operations and direct CLI execution
-- Converted complex tests with problematic mocking patterns to simpler functional verification tests
+  - Fixed type errors in startSession.ts by using proper import syntax for fs and path modules
+  - Updated SessionRecord interface usage to remove the non-existent 'branch' property
+  - Fixed repo-utils.test.ts to use proper mocking techniques compatible with Bun's test API
+  - Updated test files to use 'test' instead of 'it' for compatibility with Bun's test API
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 

@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import type { Task } from "../../domain/tasks";
+import { createTasksCommand } from "./index";
+import { Command } from "commander";
 
 // Path to the CLI entry point - use absolute path
 const CLI = join(process.cwd(), "src/cli.ts");
@@ -65,7 +67,7 @@ describe("minsky tasks list CLI", () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
   
-  it("hides DONE tasks by default", () => {
+  test("hides DONE tasks by default", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR], { 
       encoding: "utf-8",
     });
@@ -90,7 +92,7 @@ describe("minsky tasks list CLI", () => {
     expect(stderr).toBe("");
   });
   
-  it("includes DONE tasks when --all is specified", () => {
+  test("includes DONE tasks when --all is specified", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--all"], { 
       encoding: "utf-8",
     });
@@ -113,7 +115,7 @@ describe("minsky tasks list CLI", () => {
     expect(stderr).toBe("");
   });
   
-  it("respects --all flag in JSON output", () => {
+  test("respects --all flag in JSON output", () => {
     // First without --all
     const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json"], { 
       encoding: "utf-8",
@@ -170,7 +172,7 @@ describe("minsky tasks list CLI", () => {
     expect(tasksAll.length > tasksDefault.length).toBe(true);
   });
   
-  it("filters by specific status when provided", () => {
+  test("filters by specific status when provided", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS"], { 
       encoding: "utf-8",
     });
@@ -188,5 +190,46 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).not.toContain("#001");
     expect(stdout).not.toContain("#002");
     expect(stdout).not.toContain("#004");
+  });
+});
+
+describe("minsky tasks list integration", () => {
+  test("hides DONE tasks by default and shows active tasks message", async () => {
+    // In-memory mock tasks backend
+    const mockTasks = [
+      { id: "#001", title: "First Task", status: "TODO", description: "First task description" },
+      { id: "#002", title: "Second Task", status: "DONE", description: "Second task description" },
+      { id: "#003", title: "Third Task", status: "IN-PROGRESS", description: "Third task description" },
+      { id: "#004", title: "Fourth Task", status: "IN-REVIEW", description: "Fourth task description" }
+    ];
+    const mockTaskService = {
+      listTasks: async (opts: any) => mockTasks.filter(t => t.status !== "DONE"),
+      getTask: async (id: string) => mockTasks.find(t => t.id === id),
+    };
+    // Create the tasks command with dependency injection
+    const tasksCommand = createTasksCommand({ taskService: mockTaskService });
+    const program = new Command();
+    program.addCommand(tasksCommand);
+    // Simulate running: minsky tasks list
+    let output = "";
+    const originalLog = console.log;
+    console.log = (msg: string) => { output += msg + "\n"; };
+    try {
+      await program.parseAsync(["node", "minsky", "tasks", "list"]);
+    } finally {
+      console.log = originalLog;
+    }
+    // Should include active tasks message
+    expect(output).toContain("Showing active tasks");
+    // Should include non-DONE tasks
+    expect(output).toContain("#001");
+    expect(output).toContain("First Task");
+    expect(output).toContain("#003");
+    expect(output).toContain("Third Task");
+    expect(output).toContain("#004");
+    expect(output).toContain("Fourth Task");
+    // Should NOT include DONE tasks
+    expect(output).not.toContain("#002");
+    expect(output).not.toContain("Second Task");
   });
 }); 

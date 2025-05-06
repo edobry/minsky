@@ -20,13 +20,25 @@ declare module "bun:test" {
     }
   };
   
-  export const mock: {
-    fn: <T extends (...args: any[]) => any>(implementation?: T) => {
-      mockImplementation: (impl: T) => void;
+  export interface Mock<T extends (...args: any[]) => any> {
+    mock: {
+      calls: any[][];
+      results: any[];
+      instances: any[];
+      invocationCallOrder: number[];
+      lastCall: any[];
     };
-    module: (path: string, factory: () => any) => void;
-    restoreAll: () => void;
-    restore: () => void;
+    mockImplementation(fn: T): Mock<T>;
+    mockReturnValue(value: any): Mock<T>;
+    mockReset(): void;
+  }
+  
+  export const mock: {
+    (implementation?: Function): Mock<any>;
+    fn<T extends (...args: any[]) => any>(implementation?: T): Mock<T>;
+    module(path: string, factory: () => any): void;
+    restoreAll(): void;
+    restore(): void;
   };
   
   export function spyOn(object: any, method: string): {

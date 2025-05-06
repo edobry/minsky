@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { writeFileSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -16,7 +16,7 @@ describe("minsky session list CLI", () => {
     rmSync(SESSION_DB_PATH, { force: true });
   });
 
-  it("prints human output when sessions exist", () => {
+  test("prints human output when sessions exist", () => {
     setupSessionDb([
       { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01" },
       { session: "bar", repoUrl: "https://repo2", branch: "", createdAt: "2024-01-02" }
@@ -26,7 +26,7 @@ describe("minsky session list CLI", () => {
     expect(stdout).toContain("Session: bar");
   });
 
-  it("prints JSON output with --json", () => {
+  test("prints JSON output with --json", () => {
     setupSessionDb([
       { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01" }
     ]);
@@ -36,13 +36,13 @@ describe("minsky session list CLI", () => {
     expect(parsed[0].session).toBe("foo");
   });
 
-  it("prints [] for --json when no sessions", () => {
+  test("prints [] for --json when no sessions", () => {
     setupSessionDb([]);
     const { stdout } = spawnSync("bun", ["run", CLI, "session", "list", "--json"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout.trim()).toBe("[]");
   });
 
-  it("prints human message when no sessions", () => {
+  test("prints human message when no sessions", () => {
     setupSessionDb([]);
     const { stdout } = spawnSync("bun", ["run", CLI, "session", "list"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toContain("No sessions found.");

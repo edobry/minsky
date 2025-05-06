@@ -79,28 +79,28 @@ Additionally, there are failing tests in git.pr.test.ts and multiple failing tes
 ## Remaining Work Items
 
 1. **Fix startSession.test.ts Type Errors**
-   - The current implementation still contains type errors related to the StartSessionOptions interface
-   - The existing mock functions need proper type definitions
-   - Properties 'gitService', 'sessionDB', 'resolveRepoPath', and 'taskService' don't exist in type 'StartSessionOptions'
-   - Type errors in object access: 'Property 'cloneResult' does not exist on type 'string''
+   - [x] The current implementation still contains type errors related to the StartSessionOptions interface
+   - [x] The existing mock functions need proper type definitions
+   - [x] Properties 'gitService', 'sessionDB', 'resolveRepoPath', and 'taskService' don't exist in type 'StartSessionOptions'
+   - [x] Type errors in object access: 'Property 'cloneResult' does not exist on type 'string''
 
 2. **Recreate git.test.ts Implementation**
-   - The current git.test.ts file was deleted due to test failures
-   - Need to create a proper implementation with:
-     - Correct mocking of execAsync, SessionDB, and fs modules
-     - Proper type definitions for all mocks
-     - Tests for clone, branch, and pr methods
+   - [x] The current git.test.ts file was deleted due to test failures
+   - [x] Need to create a proper implementation with:
+     - [x] Correct mocking of execAsync, SessionDB, and fs modules
+     - [x] Proper type definitions for all mocks
+     - [x] Tests for clone, branch, and pr methods
 
 3. **Fix git.pr.test.ts**
-   - Address the remaining issues with git PR generation tests
-   - Fix mock implementations to correctly handle git commands
+   - [x] Address the remaining issues with git PR generation tests
+   - [x] Fix mock implementations to correctly handle git commands
 
 ## Verification
 
 - [x] Session domain tests pass successfully when running `bun test src/domain/session.test.ts`
 - [x] startSession URL conversion test passes when running `bun test src/commands/session/startSession.test.ts`
 - [x] All git-related tests pass when running `bun test src/domain/git*`
-- [ ] No linting errors remain in the test files
+- [x] No linting errors remain in the test files
 - [x] Type checking passes with no errors
 - [x] CHANGELOG.md is updated to reflect the fixes
 
@@ -112,3 +112,7 @@ Additionally, there are failing tests in git.pr.test.ts and multiple failing tes
 - 2025-05-01: Fixed the most critical issues in git.pr.test.ts, now all tests are passing for this file
 - 2025-05-01: Made progress on other session-related tests: getSessionByTaskId, getRepoPath, startSession URL conversion
 - 2025-05-01: Verified that all session.test.ts, git.pr.test.ts, and session get CLI tests are passing
+- 2025-05-02: Fixed type errors in startSession.test.ts by updating imports and removing the branch property from SessionRecord
+- 2025-05-02: Fixed mock implementations in repo-utils.test.ts and other test files
+- 2025-05-02: Added type declarations for bun:test to fix type checking errors
+- 2025-05-02: Updated test files to use 'test' instead of 'it' for compatibility with Bun's test API
