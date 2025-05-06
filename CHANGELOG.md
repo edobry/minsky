@@ -157,4 +157,11 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
+### Fixed
+- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
+- Added missing command imports in src/cli.ts (tasks, git, and init commands)
+- Fixed test failures in session command tests by correcting import paths
+
+_See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
+
  

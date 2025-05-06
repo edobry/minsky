@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./src/commands/session";
+import { createSessionCommand } from "./commands/session";
+import { createTasksCommand } from "./commands/tasks";
+import { createGitCommand } from "./commands/git";
+import { createInitCommand } from "./commands/init";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./src/domain/workspace";
-import * as workspaceModule from "./src/domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
+import * as workspaceModule from "./domain/workspace";
 
 // Use environment variable directly rather than trying to mock the function
 // This avoids the "Attempted to assign to readonly property" error
@@ -24,5 +27,8 @@ const sessionCommand = createSessionCommand({
 });
 
 program.addCommand(sessionCommand);
+program.addCommand(createTasksCommand());
+program.addCommand(createGitCommand());
+program.addCommand(createInitCommand());
 
 program.parse();
