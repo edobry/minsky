@@ -59,7 +59,8 @@ describe("startSession", () => {
   test("should reject when session already exists", async () => {
     // Create mock dependencies that simulate an existing session
     const mockSessionDB = {
-      getSession: () => ({ session: "test-session", repoUrl: "https://github.com/example/repo.git" }),
+      getSession: (name: string) => name === "test-session" ? 
+        { session: "test-session", repoUrl: "https://github.com/example/repo.git" } : null,
       addSession: () => {},
       getSessionByTaskId: () => null,
       listSessions: () => []
@@ -67,9 +68,9 @@ describe("startSession", () => {
     
     // Create options with mock dependencies
     const options = {
-      sessionName: "test-session",
-      repoPath: "https://github.com/example/repo.git",
-      sessionDb: mockSessionDB,
+      session: "test-session", // Use the session property as in the actual implementation
+      repo: "https://github.com/example/repo.git",
+      sessionDB: mockSessionDB, // Match the actual implementation property name
       gitService: {},
       taskService: { getTask: () => null },
       resolveRepoPath: () => Promise.resolve("https://github.com/example/repo.git")
