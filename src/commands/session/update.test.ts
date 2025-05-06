@@ -13,7 +13,7 @@ describe("session update command", () => {
     const command = createUpdateCommand(mockGitService, mockSessionDb);
     
     // Verify the command was created successfully
-    expect(command).toBeDefined();
+    expect(!!command).toBe(true);
     expect(command.name()).toBe("update");
     expect(command.description()).toContain("session");
   });
