@@ -30,11 +30,11 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Implement test suite improvements for better reliability and maintainability [#019](tasks/019-implement-test-suite-improvements.md)
 - [-] Add `--task` option to `git pr` command [#020](tasks/020-add-task-option-to-git-pr.md)
 - [ ] Refactor Large Methods in GitService [#021](tasks/021-refactor-large-methods-in-git-service.md)
-- [x] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
+- [+] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
-- [-] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
+- [+] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
@@ -46,4 +46,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
-- [ ] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
+- [+] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
