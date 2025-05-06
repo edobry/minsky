@@ -166,8 +166,17 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Updated SessionRecord interface usage to remove the non-existent 'branch' property
   - Fixed repo-utils.test.ts to use proper mocking techniques compatible with Bun's test API
   - Updated test files to use 'test' instead of 'it' for compatibility with Bun's test API
+- Fixed test expectations in `session/get.test.ts` to match actual error message format with double quotes
+- Fixed test expectations in `tasks/list.test.ts` to use regex patterns instead of specific task IDs
+- Fixed linter errors in test files by replacing `.not.toBe()` with `!== 0` checks
+- Fixed linter errors in test files by replacing `.not.toContain()` with `.includes().toBe(false)`
+- Fixed import paths in test files by adding `.js` extensions
+- Fixed `startSession.test.ts` by updating test expectations to match the actual implementation
+- Updated `minsky-workflow.mdc` rule to clarify session creation options
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
+
+_See: SpecStory history [2024-05-14_00-00-fix-test-errors](.specstory/history/2024-05-14_00-00-fix-test-errors.md) for additional test fixes._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
