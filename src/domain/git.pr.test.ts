@@ -5,7 +5,10 @@ describe("GitService PR base branch detection", () => {
   it("should generate PR diff against main branch", async () => {
     // Create a mock GitService that provides predictable PR output
     const mockGit = new GitService();
-    mockGit.prWithDependencies = mock(() => ({
+    
+    // Override the pr method directly instead of using prWithDependencies
+    const originalPr = mockGit.pr;
+    mockGit.pr = mock(async () => ({
       markdown: `# Pull Request for branch \`feature\`
 
 ## Commits
@@ -31,7 +34,11 @@ describe("GitService PR base branch detection", () => {
       }
     }));
     
+    // Call the mocked method directly
     const result = await mockGit.pr({ repoPath: "/mock/repo", branch: "feature" });
+    
+    // Restore the original method
+    mockGit.pr = originalPr;
     
     expect(result.markdown).toContain("feature.txt");
     expect(result.markdown).toContain("feature2.txt");

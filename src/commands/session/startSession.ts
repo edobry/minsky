@@ -29,11 +29,12 @@ export interface StartSessionResult {
 }
 
 export async function startSession({ session, repo, taskId, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
-  gitService = gitService || new GitService();
-  sessionDB = sessionDB || new SessionDB();
-  fs = fs || fsDefault;
-  path = path || pathDefault;
-  resolveRepoPath = resolveRepoPath || resolveRepoPathDefault;
+  // Only use default if the value is undefined (not null or a falsy mock)
+  gitService = typeof gitService !== "undefined" ? gitService : new GitService();
+  sessionDB = typeof sessionDB !== "undefined" ? sessionDB : new SessionDB();
+  fs = typeof fs !== "undefined" ? fs : fsDefault;
+  path = typeof path !== "undefined" ? path : pathDefault;
+  resolveRepoPath = typeof resolveRepoPath !== "undefined" ? resolveRepoPath : resolveRepoPathDefault;
 
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {

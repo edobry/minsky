@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { createStartCommand } from './start';
-import * as startSessionModule from './startSession';
-import * as repoUtils from '../../domain/repo-utils';
+import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { createStartCommand } from "./start";
+import * as startSessionModule from "./startSession";
+import * as repoUtils from "../../domain/repo-utils";
 
 // Create mock module exports
 const mockStartSession = mock(() => ({
@@ -115,7 +115,7 @@ describe('createStartCommand', () => {
       await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo', '--quiet']);
       // Should not reach here
       expect(false).toBe(true);
-    } catch (error) {
+    } catch (error: any) {
       // Should log the error
       expect(errorCalls.length).toBe(1);
       expect(errorCalls[0]).toContain('Error starting session:');

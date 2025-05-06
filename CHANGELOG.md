@@ -48,6 +48,7 @@
 - Created task specification for task #025 to add a `git approve` command that complements the existing `git pr` command, implementing a prepared-merge workflow for PR review and merging. This workflow allows reviewers to easily merge prepared PRs via fast-forward, ensuring history linearity and cleaner integration.
 - Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
 - Created task specification for task #026 to fix task spec paths to use the standardized format.
+- Added comprehensive tests for task spec path resolution in `tasks.specpath.test.ts`
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -108,24 +109,16 @@ _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.spe
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
 - Fixed test failures in backend/TaskService tests caused by spec file path inconsistencies, by aligning file naming in test fixtures and improving mock file system behavior to maintain state across test operations.
-- Fixed task spec path generation to use standardized format (`process/tasks/<id>-<kebab-case-title>.md`) and updated SessionDB implementation to properly update session paths during migration
-- Fixed test failures in domain modules and session implementation tests:
-  - Corrected mock expectations in tasks.specpath.test.ts to align with actual implementation behavior
-  - Updated repo-utils.test.ts to test the correct fallback behavior when git commands fail
-  - Fixed SessionDB.deleteSession tests to properly match the implementation's behavior
-  - Corrected startSession.test.ts to use the correct local path handling expectations
-  - Fixed minsky tasks list CLI tests by creating proper task spec file structures and directories
-  - Updated CLI argument from `--repo` to `--workspace` in task list tests to match implementation
-  - Simplified tasks.specpath.test.ts to avoid brittle mocking of internal methods
-  - Fixed SessionDB.deleteSession test for empty database to align with implementation
-  - Fixed session start command tests by replacing direct module property assignment with proper mock.module approach
-  - Fixed tasks list CLI tests by ensuring correct workspace structure for path validation
+- Fixed task spec path generation to use standardized format (`process/tasks/<id>-<kebab-case-title>.md`)
+- Fixed session mocking in tests to properly handle session record retrieval
+- Fixed repository path resolution in tests to properly handle session contexts
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
 _See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
+_See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
