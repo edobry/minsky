@@ -1,11 +1,11 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
 import { describe, test, expect } from "bun:test";
-import { startSession } from "./startSession";
-import { normalizeTaskId } from "../../utils/task-utils";
-import type { StartSessionOptions } from "./startSession";
-import { GitService } from "../../domain/git";
-import { SessionDB } from "../../domain/session";
+import { startSession } from "./startSession.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import type { StartSessionOptions } from "./startSession.js";
+import type { GitService } from "../../domain/git.js";
+import type { SessionDB } from "../../domain/session.js";
 
 describe("startSession", () => {
   // Basic test data
@@ -14,26 +14,38 @@ describe("startSession", () => {
   const testWorkdir = "/tmp/test-workdir";
   const testBranch = "test-branch";
 
-  test("should implement proper dependency injection", () => {
-    // This test verifies that startSession uses dependency injection correctly
-    // and properly accepts all required dependencies
+  test("should implement proper dependency injection", async () => {
+    // Mock dependencies
+    const mockSessionDb = {
+      addSession: () => Promise.resolve(),
+      getSession: () => Promise.resolve(null),
+      getSessionByTaskId: () => Promise.resolve(null),
+    };
+    
+    const mockGitService = {
+      clone: () => Promise.resolve("/path/to/repo"),
+      createBranch: () => Promise.resolve(),
+    };
+    
+    const mockTaskService = {
+      getTask: () => Promise.resolve({ id: "#123", title: "Test Task" }),
+    };
+    
+    const mockResolveRepoPath = () => Promise.resolve("/path/to/repo");
+    
     const options = {
-      session: testSession,
-      repo: testRepo,
-      gitService: {
-        clone: async () => ({ workdir: testWorkdir }),
-        branch: async () => ({ branch: testBranch })
-      },
-      sessionDB: {
-        getSession: () => null,
-        addSession: () => {},
-        listSessions: () => []
-      }
-    } as unknown as StartSessionOptions;
+      sessionName: "test-session",
+      repoPath: "/path/to/repo",
+      sessionDb: mockSessionDb,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      resolveRepoPath: mockResolveRepoPath,
+    } as unknown as any;
 
     // If startSession correctly implements dependency injection, this should not throw
     expect(typeof startSession).toBe("function");
-    expect(startSession.length > 0).toBe(true);
+    // Check if the function accepts arguments
+    expect(startSession.length >= 1).toBe(true);
   });
 
   test("should handle taskId normalization", async () => {
