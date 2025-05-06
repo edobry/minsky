@@ -383,7 +383,7 @@ describe("SessionDB", () => {
   describe('migrateSessionsToSubdirectory', () => {
     test('should move repos from legacy path to sessions subdirectory', async () => {
       // Set up sessions for testing
-      const sessions = [
+      const sessions: SessionRecord[] = [
         {
           session: 'test-session-1',
           repoUrl: 'https://github.com/test/repo',
