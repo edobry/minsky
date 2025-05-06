@@ -196,14 +196,15 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
+    const fullSpecPath = specPath.startsWith('/') ? specPath : join(this.workspacePath, specPath);
     try {
-      await fs.access(specPath);
+      await fs.access(fullSpecPath);
     } catch (error) {
       throw new Error(`Spec file not found: ${specPath}`);
     }
 
     // Read and parse the spec file
-    const specContent = await fs.readFile(specPath, 'utf-8');
+    const specContent = await fs.readFile(fullSpecPath, 'utf-8');
     const lines = specContent.split('\n');
 
     // Extract title from the first heading
@@ -213,16 +214,19 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Support both "# Task: Title" and "# Task #XXX: Title" formats
-    const titleWithIdMatch = titleLine.match(/^# Task #\d+: (.+)$/);
+    // Improved regex patterns for more robust matching
+    const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
     
     let title: string;
     let hasTaskId = false;
+    let existingId: string | null = null;
     
-    if (titleWithIdMatch?.[1]) {
-      title = titleWithIdMatch[1];
+    if (titleWithIdMatch && titleWithIdMatch[2]) {
+      title = titleWithIdMatch[2];
+      existingId = `#${titleWithIdMatch[1]}`;
       hasTaskId = true;
-    } else if (titleWithoutIdMatch?.[1]) {
+    } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
       title = titleWithoutIdMatch[1];
     } else {
       throw new Error('Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"');
@@ -243,24 +247,36 @@ export class MarkdownTaskBackend implements TaskBackend {
       throw new Error('Invalid spec file: Empty Context section');
     }
 
-    // Find the next available task ID
-    const tasks = await this.parseTasks();
-    const maxId = tasks.reduce((max, task) => {
-      const id = parseInt(task.id.slice(1));
-      return id > max ? id : max;
-    }, 0);
-    const nextId = `#${String(maxId + 1).padStart(3, '0')}`;
-    const nextIdNum = nextId.slice(1); // Remove the # prefix for file naming
+    // If we have an existing task ID, validate it doesn't conflict with existing tasks
+    let taskId: string;
+    if (hasTaskId && existingId) {
+      // Verify the task ID doesn't already exist
+      const existingTask = await this.getTask(existingId);
+      if (existingTask && !options.force) {
+        throw new Error(`Task ${existingId} already exists. Use --force to overwrite.`);
+      }
+      taskId = existingId;
+    } else {
+      // Find the next available task ID
+      const tasks = await this.parseTasks();
+      const maxId = tasks.reduce((max, task) => {
+        const id = parseInt(task.id.slice(1));
+        return id > max ? id : max;
+      }, 0);
+      taskId = `#${String(maxId + 1).padStart(3, '0')}`;
+    }
+    
+    const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
 
     // Generate the standardized filename
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const newSpecPath = join('process', 'tasks', `${nextIdNum}-${normalizedTitle}.md`);
+    const newSpecPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
     const fullNewPath = join(this.workspacePath, newSpecPath);
     
-    // Update the title in the spec file to include the task number
+    // Update the title in the spec file to include the task number if needed
     let updatedContent = specContent;
     if (!hasTaskId) {
-      const updatedTitleLine = `# Task ${nextId}: ${title}`;
+      const updatedTitleLine = `# Task ${taskId}: ${title}`;
       updatedContent = updatedContent.replace(titleLine, updatedTitleLine);
     }
     
@@ -288,15 +304,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(fullNewPath, updatedContent, 'utf-8');
       
       // Delete the original file if it's different from the new one
-      const fullOrigPath = join(
-        specPath.startsWith('/') ? '' : this.workspacePath, 
-        specPath
-      );
-      
-      if (fullOrigPath !== fullNewPath) {
+      if (fullSpecPath !== fullNewPath) {
         try {
-          await fs.access(fullOrigPath);
-          await fs.unlink(fullOrigPath);
+          await fs.access(fullSpecPath);
+          await fs.unlink(fullSpecPath);
         } catch (error) {
           // If file doesn't exist or can't be deleted, just log it
           console.warn(`Warning: Could not delete original spec file: ${error instanceof Error ? error.message : String(error)}`);
@@ -308,7 +319,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Create the task entry
     const task: Task = {
-      id: nextId,
+      id: taskId,
       title,
       description: description.trim(),
       status: TASK_STATUS.TODO,
@@ -317,7 +328,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Add the task to tasks.md
     const content = await fs.readFile(this.filePath, 'utf-8');
-    const taskEntry = `- [ ] ${title} [${nextId}](${newSpecPath})\n`;
+    const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
     const tasksFileContent = content + '\n' + taskEntry;
     await fs.writeFile(this.filePath, tasksFileContent, 'utf-8');
 

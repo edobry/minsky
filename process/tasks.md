@@ -46,4 +46,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
-- [+] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
+- [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)

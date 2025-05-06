@@ -99,6 +99,7 @@ _See: SpecStory history [task-id-format-support-specification](.specstory/histor
 - Standardized code style to use double quotes instead of single quotes
 - Normalize task IDs consistently by ensuring the '#' prefix is added if missing
 - Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
+- Enhanced task creation workflow to support both title formats: `# Task: Title` (without a task number) and `# Task #XXX: Title` (with a task number). The CLI now automatically assigns the next available task number when no number is provided, updates the title in the file, and renames the file to match the assigned number and title.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -160,6 +161,7 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
   - Updated session dir command error messages to be more informative and aligned with test expectations
   - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
   - Fixed placeholder tests for git PR to prevent linting errors
+- Fixed task creation workflow to not require a task number in the spec title. The CLI now supports both formats: `# Task: Title` (without a number) and `# Task #XXX: Title` (with a number). When creating a task from a spec without a number, the CLI automatically assigns the next available task number, updates the title in the file, and renames the file to match the assigned number and title.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
