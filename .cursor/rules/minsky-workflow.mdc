@@ -318,6 +318,47 @@ When integrating minsky into automated workflows or scripts:
      fi
      ```
 
+## Session Cleanup Procedures
+
+When a task is completed and merged into the main branch:
+
+1. **Update Task Status**
+   - Always mark the task as completed:
+     ```bash
+     minsky tasks status set '#001' DONE
+     ```
+   - Verify the status update was successful:
+     ```bash
+     minsky tasks status get '#001'
+     ```
+
+2. **Delete the Session**
+   - Always use the Minsky CLI to delete the session:
+     ```bash
+     minsky session delete task#001
+     ```
+   - If confirmation is required and you're in a script, use the `--force` flag:
+     ```bash
+     minsky session delete task#001 --force
+     ```
+   - Verify the session was deleted:
+     ```bash
+     minsky session get task#001
+     # Should return an error if deletion was successful
+     ```
+
+3. **NEVER Manually Delete Session Data**
+   - NEVER manually delete session directories
+   - NEVER directly manipulate files in `~/.local/state/minsky/`
+   - NEVER use `rm -rf` or similar commands to delete session data
+   - Always rely on the Minsky CLI for session management
+
+4. **Cleanup Verification**
+   - After session deletion, verify:
+     - The session no longer appears in `minsky session list`
+     - The task is marked as DONE in `minsky tasks status get '#001'`
+     - Any associated branches have been deleted or merged
+
 ## Implementation Process
 
 1. **Planning**
