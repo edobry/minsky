@@ -47,3 +47,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
 - [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
+
+- [ ] Prevent Session Creation Within Existing Sessions [#039](process/tasks/039-prevent-session-creation-within-existing-sessions.md)
