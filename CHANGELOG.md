@@ -107,7 +107,19 @@ _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.spe
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
-- Fixed task spec path generation to use the standardized format (process/tasks/<id>-<kebab-case-title>.md) instead of the original path. This ensures consistent task spec file naming and improves file discovery. Also fixed the migrateSessionsToSubdirectory implementation to properly update session paths during migration.
+- Fixed test failures in backend/TaskService tests caused by spec file path inconsistencies, by aligning file naming in test fixtures and improving mock file system behavior to maintain state across test operations.
+- Fixed task spec path generation to use standardized format (`process/tasks/<id>-<kebab-case-title>.md`) and updated SessionDB implementation to properly update session paths during migration
+- Fixed test failures in domain modules and session implementation tests:
+  - Corrected mock expectations in tasks.specpath.test.ts to align with actual implementation behavior
+  - Updated repo-utils.test.ts to test the correct fallback behavior when git commands fail
+  - Fixed SessionDB.deleteSession tests to properly match the implementation's behavior
+  - Corrected startSession.test.ts to use the correct local path handling expectations
+  - Fixed minsky tasks list CLI tests by creating proper task spec file structures and directories
+  - Updated CLI argument from `--repo` to `--workspace` in task list tests to match implementation
+  - Simplified tasks.specpath.test.ts to avoid brittle mocking of internal methods
+  - Fixed SessionDB.deleteSession test for empty database to align with implementation
+  - Fixed session start command tests by replacing direct module property assignment with proper mock.module approach
+  - Fixed tasks list CLI tests by ensuring correct workspace structure for path validation
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
