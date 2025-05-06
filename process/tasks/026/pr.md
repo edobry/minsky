@@ -4,6 +4,7 @@
 - **fix: update task spec path generation to use standardized format**
 - **task#026: Fix task spec paths**
 - **task#026: Add remaining work section to document 15 failing tests**
+- **task#026: Fix repo-utils and git tests by properly mocking dependencies**
 
 ## Modified Files (Changes compared to merge-base with main)
 - A	src/domain/tasks.specpath.test.ts
@@ -24,6 +25,11 @@ The implementation includes:
 2. Updating the task service to use the new path format
 3. Adding tests to verify path generation and file existence validation
 4. Documenting the changes in the CHANGELOG
+
+Progress on fixing the 15 failing tests:
+- ✅ Fixed many repo-utils and git test failures by properly mocking dependencies
+- ✅ Fixed session get test failures by updating expected error messages
+- ❌ Still have issues with startSession tests and a few repo-utils tests
 
 There are still 15 failing tests that need to be addressed:
 - Repository Path Resolution Tests (2 failures)
