@@ -3,7 +3,7 @@ description:
 globs: 
 alwaysApply: true
 ---
-Always use `bun` instead of `node` when running JavaScript/TypeScript in the Synthase project. Bun is the preferred runtime for Synthase.
+Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 
 Examples:
 - Use `bun install` instead of `npm install`
@@ -28,4 +28,4 @@ When creating new files, use the bun shebang:
 #!/usr/bin/env bun
 ```
 
-This rule applies to all code, documentation, and configuration files in the Synthase project.
+This rule applies to all code, documentation, and configuration files in the project.

@@ -43,34 +43,45 @@ This is inconvenient for users who are already working on a specific task and wa
 
 ## Implementation Steps
 
-1. [ ] Update the command options in `src/commands/git/pr.ts`:
-   - [ ] Add the `--task` option with appropriate description
-   - [ ] Update the command usage documentation
+1. [x] Update the command options in `src/commands/git/pr.ts`:
+   - [x] Add the `--task` option with appropriate description
+   - [x] Update the command usage documentation
 
-2. [ ] Enhance the PR generation logic:
-   - [ ] Modify the command to accept and validate the task option
-   - [ ] Implement task-to-session resolution logic
-   - [ ] Integrate with existing session path resolution
+2. [x] Enhance the PR generation logic:
+   - [x] Modify the command to accept and validate the task option
+   - [x] Implement task-to-session resolution logic
+   - [x] Integrate with existing session path resolution
 
-3. [ ] Add error handling for task-specific cases:
-   - [ ] Task not found
-   - [ ] No session for task
-   - [ ] Multiple sessions for task (if relevant)
+3. [x] Add error handling for task-specific cases:
+   - [x] Task not found
+   - [x] No session for task
+   - [x] Multiple sessions for task (if relevant)
 
-4. [ ] Update tests:
-   - [ ] Add unit tests for task option validation
-   - [ ] Add integration tests for PR generation with task option
-   - [ ] Test error cases and option precedence
+4. [x] Update tests:
+   - [x] Add unit tests for task option validation
+   - [x] Add integration tests for PR generation with task option
+   - [x] Test error cases and option precedence
 
-5. [ ] Update documentation:
-   - [ ] Update command help text
-   - [ ] Update README or other documentation
+5. [x] Update documentation:
+   - [x] Update command help text
+   - [x] Update README or other documentation
 
 ## Verification
 
-- [ ] Running `minsky git pr --task <taskId>` successfully generates a PR description
-- [ ] The command correctly finds the session associated with the task
-- [ ] Appropriate error messages are shown for invalid task IDs or missing sessions
-- [ ] Option precedence works correctly when multiple options are provided
-- [ ] All tests pass
-- [ ] Documentation is updated 
+- [x] Running `minsky git pr --task <taskId>` successfully generates a PR description
+- [x] The command correctly finds the session associated with the task
+- [x] Appropriate error messages are shown for invalid task IDs or missing sessions
+- [x] Option precedence works correctly when multiple options are provided
+- [x] All tests pass
+- [x] Documentation is updated 
+
+## Work Log
+
+- 2023-05-04: Implemented `--task` option in the `git pr` command
+  - Added the `--task` option to the `git pr` command in `src/commands/git/pr.ts`
+  - Updated the `PrOptions` interface in `src/domain/git.ts` to include `taskId`
+  - Modified the `prWithDependencies` method to look up sessions by task ID
+  - Added error handling for cases where no session is found for a task
+  - Implemented option precedence hierarchy (session > path > task)
+  - Added comprehensive tests for the new functionality
+  - Fixed test code to properly work with Bun's testing framework 

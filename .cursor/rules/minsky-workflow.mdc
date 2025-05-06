@@ -7,6 +7,19 @@ alwaysApply: false
 
 ⛔️ **STOP - READ THIS FIRST**
 
+## CLI Usage Enforcement (Critical)
+
+**For all user-facing Minsky operations (task/session management, status, etc.), you MUST use the globally installed `minsky` CLI (available on your PATH, typically via `bun link`).**
+
+- Example:
+  ```bash
+  minsky tasks list --json
+  minsky session start --task 001
+  minsky tasks status get '#001'
+  ```
+- **Do NOT use `bun run ...` or direct script execution for these operations.**
+- Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself (i.e., when working on the implementation of Minsky, not when using it as a tool).
+
 ## Mandatory Session Creation
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
@@ -62,6 +75,8 @@ This rule defines the comprehensive process for working with tasks and sessions 
      minsky session get <name>         # Get session details by name
      minsky session get --task XXX     # Get session details by task ID
      ```
+   - **Do NOT use `bun run ...` for these operations.**
+   - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself.
 
 2. **Data Integrity is Critical**
    - Minsky maintains critical state in `~/.local/state/minsky/`
@@ -297,9 +312,8 @@ When integrating minsky into automated workflows or scripts:
      
      if [ $? -eq 0 ]; then
        minsky git pr --path . > process/tasks/001/pr.md
-       git add process/tasks/001/pr.md
-       git commit -m "task#001: Add PR description"
-       git push origin "$(git branch --show-current)"
+       minsky git commit -m "task#001: Add PR description"
+       minsky git push
        minsky tasks status set '#001' IN-REVIEW
      fi
      ```
@@ -319,7 +333,7 @@ When integrating minsky into automated workflows or scripts:
    - **ALWAYS push immediately after committing:**
      ```bash
      # After every commit, immediately push to the session branch
-     git push origin $(git branch --show-current)
+     minsky git push
      ```
    - Never leave commits unpushed at the end of an implementation session
 
@@ -365,7 +379,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
 4. ✓ All changes are committed with task ID in commit message
 5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
 6. ✓ PR description is committed
-7. ✓ Changes are pushed to remote with `git push origin <branch>`
+7. ✓ Changes are pushed to remote with `minsky git push`
 8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
 
 ## PR Preparation
@@ -385,7 +399,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
    - Push your branch:
      ```bash
      # Current approach (standard git command)
-     git push origin $(git branch --show-current)
+     minsky git push
      
      # Future: Will be simplified with dedicated command (Task #005)
      # minsky git push
@@ -423,3 +437,48 @@ Task implementation is not complete until ALL these steps are performed, in orde
 > - "Which tasks are in the backlog?"
 >
 > **Do NOT** answer these queries by listing files or reading static documentation. **Always** run the appropriate minsky CLI command (e.g., `minsky tasks list --json`) and present the output directly.
+
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them:**
+
+```bash
+# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern MUST be used:
+- In all scripts and automations
+- In all interactive usage where directory navigation follows
+- Any time you intend to navigate to the session directory after creation
+
+DO NOT use separate commands for starting a session and then navigating to it.
+
+---
+
+## Session-First File Edit Enforcement (Critical)
+
+1. **Absolute Path Enforcement**
+   - All file edit, read, and diff operations must use absolute paths that begin with the current session directory (e.g., `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/`).
+   - The AI and all automation must always prepend the session directory to any file path for edit operations.
+   - If the session directory is not known, it must be determined using `minsky session dir <session-name>` or equivalent before proceeding.
+   - Any attempt to edit a file using a relative path or a path outside the session directory is a violation and must be aborted.
+
+2. **Pre-Edit Session Directory Verification**
+   - Before any file edit, the current session directory must be verified and logged.
+   - The target file path must be checked to ensure it starts with the session directory path.
+   - If not, the operation must be aborted and an error raised.
+
+3. **Reject/Abort on Workspace Mismatch**
+   - If a file edit is attempted outside the session workspace, the operation must be aborted and an explicit error must be raised, indicating the violation.
+
+4. **Audit Trail for All Edits**
+   - Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+   - Example log message: `Editing file: /Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027/CHANGELOG.md (session: task#027)`
+
+5. **Rule Violation = Hard Error**
+   - Any violation of these rules is a hard error and must be reported immediately.
+   - The AI must not attempt to "fix up" after the fact, but must stop and require explicit user intervention or correction.
+
+---

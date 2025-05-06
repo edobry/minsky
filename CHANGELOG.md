@@ -49,6 +49,23 @@
 - Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
 - Created task specification for task #026 to fix task spec paths to use the standardized format.
 - Added comprehensive tests for task spec path resolution in `tasks.specpath.test.ts`
+- Added new task #027 to auto-detect session context in session commands
+- Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
+- Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
+- Added `git commit` command for staging and committing changes in a single step, with support for automatic staging (can be disabled with `--no-stage`), staging all changes (via `--all`), task ID prefixing for commit messages, and amending commits (via `--amend`). Supports specifying a session or repository path.
+- Added `init` command to set up a project for Minsky. This command creates the necessary directory structure for tasks, initializes a tasks.md file, and adds the minsky-workflow rule to either .cursor/rules or .ai/rules based on the selected rule format. It supports interactive prompts via @clack/prompts for missing parameters and resolves repo paths using the same patterns as other commands.
+- New `session update` command to sync a session with the main branch
+  - Stashes local changes before updating (can be disabled with `--no-stash`)
+  - Pulls latest changes from remote
+  - Merges specified branch (defaults to main)
+  - Pushes changes to remote (can be disabled with `--no-push`)
+  - Restores stashed changes after update
+  - Handles merge conflicts gracefully
+  - Supports custom branch and remote options
+- Added filter messages to `tasks list` command to clearly indicate when filters are being applied. Messages are displayed before the task list in non-JSON output mode and include:
+  - Status filter message when using `--status` option (e.g., "Showing tasks with status 'TODO'")
+  - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
+  - Messages are not shown in JSON output to maintain machine-readable format
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -56,8 +73,6 @@ _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-r
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md) for implementation details._
 _See: SpecStory history [task-id-format-support-specification](.specstory/history/task-id-format-support-specification.md) for task creation._
-_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
-_See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/history/2025-05-XX_XX-XX-task-006-quiet-option.md) for session start command --quiet option implementation._
 
 ### Changed
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
@@ -78,7 +93,15 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/hist
 - Completely reimplemented the SessionDB class to handle both legacy and new directory structures
 - Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
 - Improved error handling in SessionDB operations to ensure stability during transitions
-- Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
+- Support for HTTPS and SSH git URL normalization in `normalizeRepoName` to produce consistent paths
+- Enhanced URL handling to preserve domain names for github.com repositories
+- Improved session directory path handling with support for backward compatibility
+- Updated implementation to handle both legacy and new session path formats (with "sessions" subdirectory)
+- Fixed session lookup by task ID in `session get` and `session dir` commands
+- Standardized code style to use double quotes instead of single quotes
+- Normalize task IDs consistently by ensuring the '#' prefix is added if missing
+- Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
+- Enhanced task creation workflow to support both title formats: `# Task: Title` (without a task number) and `# Task #XXX: Title` (with a task number). The CLI now automatically assigns the next available task number when no number is provided, updates the title in the file, and renames the file to match the assigned number and title.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -88,6 +111,7 @@ _See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.sp
 _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -112,6 +136,37 @@ _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.spe
 - Fixed task spec path generation to use standardized format (`process/tasks/<id>-<kebab-case-title>.md`)
 - Fixed session mocking in tests to properly handle session record retrieval
 - Fixed repository path resolution in tests to properly handle session contexts
+- Fixed test failures in domain modules and session implementation tests:
+  - Corrected mock expectations in tasks.specpath.test.ts to align with actual implementation behavior
+  - Updated repo-utils.test.ts to test the correct fallback behavior when git commands fail
+  - Fixed SessionDB.deleteSession tests to properly match the implementation's behavior
+  - Corrected startSession.test.ts to use the correct local path handling expectations
+  - Fixed minsky tasks list CLI tests by creating proper task spec file structures and directories
+  - Updated CLI argument from `--repo` to `--workspace` in task list tests to match implementation
+  - Simplified tasks.specpath.test.ts to avoid brittle mocking of internal methods
+  - Fixed SessionDB.deleteSession test for empty database to align with implementation
+  - Fixed session start command tests by replacing direct module property assignment with proper mock.module approach
+  - Fixed tasks list CLI tests by ensuring correct workspace structure for path validation
+- Fixed session test and implementation issues from task #022:
+  - Fixed getRepoPath in SessionDB to correctly prioritize new paths with sessions/ subdirectory
+  - Fixed migrateSessionsToSubdirectory test to properly track the updated sessions
+  - Fixed startSession.test.ts to minimize mock dependencies and focus on core functionality
+  - Replaced single quotes with double quotes in test files for better linting compliance
+  - Improved test stability by avoiding direct manipulation of sessions array
+  - Fixed file URL conversion test to accurately reflect expected behavior
+  - Added TypeScript declarations for bun:test to fix module resolution errors
+  - Fixed type issues in mock implementations and test utility functions
+  - Fixed type safety for possibly undefined object properties in tests
+  - Fixed git PR test failures by properly mocking execAsync and handling git push commands
+  - Fixed lint errors in workspace.test.ts, repo-utils.test.ts, and session.test.ts by converting single quotes to double quotes
+  - Added appropriate type signatures to reduce any usage in test files
+  - Improved mock implementation of execAsync in git PR tests for better reliability
+  - Fixed session dir command implementation to correctly handle both legacy paths and new paths with sessions subdirectory
+  - Fixed session dir command tests to reflect correct legacy and new path expectations
+  - Updated session dir command error messages to be more informative and aligned with test expectations
+  - Implemented missing getSessionByTaskId tests to ensure sessions can be found by their associated task IDs
+  - Fixed placeholder tests for git PR to prevent linting errors
+- Fixed task creation workflow to not require a task number in the spec title. The CLI now supports both formats: `# Task: Title` (without a number) and `# Task #XXX: Title` (with a number). When creating a task from a spec without a number, the CLI automatically assigns the next available task number, updates the title in the file, and renames the file to match the assigned number and title.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
@@ -119,11 +174,21 @@ _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
 _See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
 _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
+_See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
+_See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
 
 ### Added
 - Task #022 to address remaining test failures and linting issues after task #002 implementation
+
+## [0.39.0] - 2025-04-29
+
+### Changed
+- Clarified that `minsky tasks list --json` should be used to query the backlog.
+
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
  

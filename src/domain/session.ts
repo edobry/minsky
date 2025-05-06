@@ -1,24 +1,27 @@
 import { join } from "path";
+<<<<<<< HEAD
 import { promises as fs } from "fs";
+=======
+import { readFile, writeFile, mkdir } from "fs/promises";
+import { existsSync } from "fs";
+>>>>>>> origin/main
 import { normalizeRepoName } from "./repo-utils";
 
 interface SessionRecord {
   session: string;
-  repoUrl: string;
   repoName: string;
-  branch?: string;
+  repoUrl: string;
   createdAt: string;
   taskId?: string;
-  repoPath?: string;
 }
 
 class SessionDB {
   private readonly dbPath: string;
-  readonly baseDir: string;
 
   constructor(dbPath?: string) {
     if (dbPath) {
       this.dbPath = dbPath;
+<<<<<<< HEAD
       const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
       this.baseDir = join(xdgStateHome, "minsky", "git");
     } else {
@@ -41,15 +44,36 @@ class SessionDB {
       });
     } catch (e) {
       return [];
+=======
+    } else {
+      const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+>>>>>>> origin/main
     }
   }
 
-  // Alias for readDb to maintain backward compatibility with tests
-  async getSessions(): Promise<SessionRecord[]> {
-    return this.readDb();
+  private async ensureDbDir(): Promise<void> {
+    const dbDir = join(this.dbPath, "..");
+    await mkdir(dbDir, { recursive: true });
+  }
+
+  private async readDb(): Promise<SessionRecord[]> {
+    if (!existsSync(this.dbPath)) {
+      return [];
+    }
+    const data = await readFile(this.dbPath, "utf8");
+    const sessions = JSON.parse(data);
+    // Migrate existing sessions to include repoName
+    return sessions.map((session: SessionRecord) => {
+      if (!session.repoName) {
+        session.repoName = normalizeRepoName(session.repoUrl);
+      }
+      return session;
+    });
   }
 
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
+<<<<<<< HEAD
     await fs.mkdir(join(this.dbPath, ".."), { recursive: true });
     await fs.writeFile(this.dbPath, JSON.stringify(sessions, null, 2), "utf-8");
   }
@@ -57,6 +81,10 @@ class SessionDB {
   // Alias for writeDb to maintain backward compatibility with tests
   async saveSessions(sessions: SessionRecord[]): Promise<void> {
     return this.writeDb(sessions);
+=======
+    await this.ensureDbDir();
+    await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
+>>>>>>> origin/main
   }
 
   async addSession(record: SessionRecord): Promise<void> {
@@ -65,12 +93,29 @@ class SessionDB {
     await this.writeDb(sessions);
   }
 
+  async getSession(session: string): Promise<SessionRecord | null> {
+    const sessions = await this.readDb();
+    return sessions.find(s => s.session === session) || null;
+  }
+
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+    // Normalize both stored and input task IDs to allow matching with or without #
+    const normalize = (id: string | undefined) => {
+      if (!id) return undefined;
+      return id.startsWith("#") ? id : `#${id}`;
+    };
+    const sessions = await this.readDb();
+    const normalizedInput = normalize(taskId);
+    return sessions.find(s => normalize(s.taskId) === normalizedInput) || null;
+  }
+
   async listSessions(): Promise<SessionRecord[]> {
     return this.readDb();
   }
 
-  async getSession(session: string): Promise<SessionRecord | undefined> {
+  async updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void> {
     const sessions = await this.readDb();
+<<<<<<< HEAD
     return sessions.find(s => s.session === session);
   }
 
@@ -94,20 +139,27 @@ class SessionDB {
     const normalizedInput = normalize(taskId);
     return sessions.find(s => normalize(s.taskId) === normalizedInput) || null;
   }
+=======
+    const index = sessions.findIndex(s => s.session === session);
+    if (index !== -1) {
+      const { session: _, ...safeUpdates } = updates as any;
+      sessions[index] = { ...sessions[index], ...safeUpdates };
+      await this.writeDb(sessions);
+    }
+  }
+>>>>>>> origin/main
 
   async deleteSession(session: string): Promise<boolean> {
     const sessions = await this.readDb();
-    const initialLength = sessions.length;
-    const filteredSessions = sessions.filter(s => s.session !== session);
-    
-    if (filteredSessions.length === initialLength) {
-      // No session was removed
+    const index = sessions.findIndex(s => s.session === session);
+    if (index === -1) {
       return false;
     }
-    
-    await this.writeDb(filteredSessions);
+    sessions.splice(index, 1);
+    await this.writeDb(sessions);
     return true;
   }
+<<<<<<< HEAD
 
   /**
    * Get the repository path for a session, checking both legacy and new paths
@@ -203,3 +255,6 @@ class SessionDB {
 export const ActualSessionDB = SessionDB;
 export { SessionDB };
 export type { SessionRecord }; 
+=======
+}
+>>>>>>> origin/main

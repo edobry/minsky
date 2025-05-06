@@ -46,53 +46,53 @@ Currently, there's no streamlined way to update a session with the latest change
 
 ## Implementation Steps
 
-1. [ ] Add new methods to GitService (if not existing):
-   - [ ] stashChanges: Stash working directory changes
-   - [ ] popStash: Apply stashed changes
-   - [ ] pullLatest: Pull latest changes from remote
-   - [ ] mergeBranch: Merge specified branch
-   - [ ] pushBranch: Push current branch to remote
+1. [x] Add new methods to GitService (if not existing):
+   - [x] stashChanges: Stash working directory changes
+   - [x] popStash: Apply stashed changes
+   - [x] pullLatest: Pull latest changes from remote
+   - [x] mergeBranch: Merge specified branch
+   - [x] pushBranch: Push current branch to remote
 
-2. [ ] Create new file src/commands/session/update.ts:
-   - [ ] Define command using Commander.js
-   - [ ] Add command options
-   - [ ] Implement command handler:
-     - [ ] Get current session if no name provided
-     - [ ] Enter session directory
-     - [ ] Execute update workflow using GitService
-     - [ ] Handle errors and provide clear messages
+2. [x] Create new file src/commands/session/update.ts:
+   - [x] Define command using Commander.js
+   - [x] Add command options
+   - [x] Implement command handler:
+     - [x] Get current session if no name provided
+     - [x] Enter session directory
+     - [x] Execute update workflow using GitService
+     - [x] Handle errors and provide clear messages
 
-3. [ ] Register command in src/commands/session/index.ts
+3. [x] Register command in src/commands/session/index.ts
 
-4. [ ] Add tests:
-   - [ ] Unit tests for new GitService methods
-   - [ ] Integration tests for update command
-   - [ ] Test error scenarios:
-     - [ ] Merge conflicts
-     - [ ] Network issues
-     - [ ] Dirty working directory
-     - [ ] Invalid session name
+4. [x] Add tests:
+   - [x] Unit tests for new GitService methods
+   - [x] Integration tests for update command
+   - [x] Test error scenarios:
+     - [x] Merge conflicts
+     - [x] Network issues
+     - [x] Dirty working directory
+     - [x] Invalid session name
 
-5. [ ] Update documentation:
-   - [ ] Add command to README
-   - [ ] Document error messages and resolution steps
-   - [ ] Add examples for common use cases
+5. [x] Update documentation:
+   - [x] Add command to README
+   - [x] Document error messages and resolution steps
+   - [x] Add examples for common use cases
 
 ## Verification
 
-- [ ] Command successfully updates a session with latest changes:
-  - [ ] Stashes and restores changes correctly
-  - [ ] Pulls latest changes from remote
-  - [ ] Merges main branch successfully
-  - [ ] Pushes updated branch to remote
-- [ ] All options work as expected:
-  - [ ] `--no-stash` skips stashing
-  - [ ] `--no-push` skips pushing
-  - [ ] `--branch` merges from specified branch
-  - [ ] `--remote` uses specified remote
-- [ ] Error handling works correctly:
-  - [ ] Merge conflicts are handled gracefully
-  - [ ] Network issues provide clear error messages
-  - [ ] Working directory state is preserved on failure
-- [ ] All tests pass
-- [ ] Documentation is complete and accurate 
+- [x] Command successfully updates a session with latest changes:
+  - [x] Stashes and restores changes correctly
+  - [x] Pulls latest changes from remote
+  - [x] Merges main branch successfully
+  - [x] Pushes updated branch to remote
+- [x] All options work as expected:
+  - [x] `--no-stash` skips stashing
+  - [x] `--no-push` skips pushing
+  - [x] `--branch` merges from specified branch
+  - [x] `--remote` uses specified remote
+- [x] Error handling works correctly:
+  - [x] Merge conflicts are handled gracefully
+  - [x] Network issues provide clear error messages
+  - [x] Working directory state is preserved on failure
+- [x] All tests pass
+- [x] Documentation is complete and accurate 

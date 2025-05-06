@@ -1,22 +1,23 @@
-import { Command } from 'commander';
-import { TaskService, TASK_STATUS } from '../../domain/tasks';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { resolveWorkspacePath } from '../../domain/workspace';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { Command } from "commander";
+import { TaskService, TASK_STATUS } from "../../domain/tasks";
+import { resolveRepoPath } from "../../domain/repo-utils";
+import { resolveWorkspacePath } from "../../domain/workspace";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { generateFilterMessages } from "../../utils/filter-messages";
 
 const execAsync = promisify(exec);
 
 export function createListCommand(): Command {
-  return new Command('list')
-    .description('List tasks')
-    .option('-s, --status <status>', 'Filter tasks by status')
-    .option('--session <session>', 'Session name to use for repo resolution')
-    .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
-    .option('--workspace <workspacePath>', 'Path to main workspace (overrides repo and session)')
-    .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
-    .option('--json', 'Output tasks as JSON')
-    .option('--all', 'Include DONE tasks in the output (by default, DONE tasks are hidden)')
+  return new Command("list")
+    .description("List tasks")
+    .option("-s, --status <status>", "Filter tasks by status")
+    .option("--session <session>", "Session name to use for repo resolution")
+    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
+    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
+    .option("--json", "Output tasks as JSON")
+    .option("--all", "Include DONE tasks in the output (by default, DONE tasks are hidden)")
     .action(async (options: { 
       status?: string, 
       backend?: string, 
@@ -62,7 +63,19 @@ export function createListCommand(): Command {
           if (options.json) {
             console.log(JSON.stringify([]));
           } else {
-            console.log('No tasks found.');
+            // Generate and display filter messages in non-JSON mode
+            const filterMessages = generateFilterMessages({
+              status: options.status,
+              all: options.all
+            });
+            
+            // Display filter messages if any exist
+            if (filterMessages.length > 0) {
+              filterMessages.forEach(message => console.log(message));
+              console.log("");
+            }
+            
+            console.log("No tasks found.");
           }
           return;
         }
@@ -70,13 +83,25 @@ export function createListCommand(): Command {
         if (options.json) {
           console.log(JSON.stringify(tasks, null, 2));
         } else {
-          console.log('Tasks:');
+          // Generate and display filter messages in non-JSON mode
+          const filterMessages = generateFilterMessages({
+            status: options.status,
+            all: options.all
+          });
+          
+          // Display filter messages if any exist
+          if (filterMessages.length > 0) {
+            filterMessages.forEach(message => console.log(message));
+            console.log("");
+          }
+          
+          console.log("Tasks:");
           tasks.forEach(task => {
             console.log(`- ${task.id}: ${task.title} [${task.status}]`);
           });
         }
       } catch (error) {
-        console.error('Error listing tasks:', error);
+        console.error("Error listing tasks:", error);
         process.exit(1);
       }
     });

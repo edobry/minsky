@@ -84,3 +84,22 @@ Before submitting a rule, verify it:
 - **Nested Complexity**: Keep rule structure flat and scannable
 - **Excessive Context**: Focus on directives, not background information
 - **Mixed Concerns**: Each rule should govern exactly one area of concern
+
+## Router Rules
+
+- Router rules are special rules whose sole purpose is to scan for triggers (e.g., user dissatisfaction, error signals) and invoke other rules (such as self-improvement), not to provide direct instructions themselves.
+- Router rules should:
+  - Be concise and focused only on detection and routing
+  - Use `alwaysApply: true` and broad globs (e.g., `**/*`)
+  - Never duplicate the full content of the rules they route to
+  - Clearly specify the trigger signals and the rule(s) to invoke
+- Example:
+  ```markdown
+  ---
+  description: Scan every user message for dissatisfaction, error, or correction signals and invoke self-improvement if found
+  globs: ["**/*"]
+  alwaysApply: true
+  ---
+  # Self-Improvement Router
+  ...
+  ```

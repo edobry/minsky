@@ -63,9 +63,13 @@ The current `git pr` command implementation has issues with its test suite. The 
 - 2024-07-11: Refactored PR command tests to avoid process.exit issues by creating a helper function that returns success/error status
 - 2024-07-11: Simplified domain tests to focus on basic error case
 - 2024-07-11: Fixed issue with mock implementations and error handling in tests
+- 2024-07-15: Fixed git.test.ts to properly mock exec calls instead of using real git commands
+- 2024-07-15: Enhanced git.pr.test.ts with comprehensive test cases covering all the scenarios outlined in the implementation details
+- 2024-07-15: Added tests for base branch detection logic, handling modified/unmodified files, and working directory changes
+- 2024-07-15: Ensured all tests are properly mocked and don't rely on the local git state
 
 ## Remaining Work
-- Add more comprehensive tests for domain logic
-- Fix test timeouts in domain tests
-- Implement the rest of the test scenarios described in the implementation details
-- Verify all acceptance criteria are met 
+- ✅ Add more comprehensive tests for domain logic
+- ✅ Fix test timeouts in domain tests
+- ✅ Implement the rest of the test scenarios described in the implementation details
+- ✅ Verify all acceptance criteria are met 

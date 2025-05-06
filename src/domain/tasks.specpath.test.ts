@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { MarkdownTaskBackend } from './tasks';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
@@ -118,3 +119,6 @@ describe('MarkdownTaskBackend Spec Path Handling', () => {
     expect(specPath).toBeUndefined();
   });
 }); 
+=======
+ 
+>>>>>>> origin/main

@@ -7,9 +7,10 @@ import type { Task } from "../../domain/tasks";
 // Path to the CLI entry point - use absolute path
 const CLI = join(process.cwd(), "src/cli.ts");
 
-// Test directory
+// Test directory - needs to be a properly structured workspace
 const TEST_DIR = "/tmp/minsky-tasks-list-test";
 const PROCESS_DIR = join(TEST_DIR, "process");
+const TASKS_DIR = join(PROCESS_DIR, "tasks");
 
 const SAMPLE_TASKS_MD = `
 # Tasks
@@ -33,15 +34,28 @@ const SAMPLE_TASKS_MD = `
 describe("minsky tasks list CLI", () => {
   beforeEach(() => {
     // Clean up any existing test directories
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
     
-    // Create test directories and files
+    // Create test directories and files - ensure the workspace is properly structured
+    // The resolveWorkspacePath function validates this structure
     mkdirSync(PROCESS_DIR, { recursive: true });
+    mkdirSync(TASKS_DIR, { recursive: true });
+    
+    // Write necessary files to make this a valid workspace structure
     writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
+    
+    // Create the individual task spec files in the tasks directory
+    writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
+    writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
+    writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
+    writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
     
     // Verify the test setup
     console.log("Test setup complete");
     console.log(`Tasks file exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
+    console.log(`Tasks dir exists: ${existsSync(TASKS_DIR)}`);
     console.log(`CLI exists: ${existsSync(CLI)}`);
     console.log(`Working directory: ${process.cwd()}`);
   });
@@ -51,7 +65,7 @@ describe("minsky tasks list CLI", () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
   
-  it("hides DONE tasks by default", () => {
+  it("hides DONE tasks by default and shows active tasks message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR], { 
       encoding: "utf-8",
     });
@@ -60,6 +74,9 @@ describe("minsky tasks list CLI", () => {
     console.log("Command stderr:", result.stderr);
     
     const { stdout, stderr } = result;
+    
+    // Should include active tasks message
+    expect(stdout).toContain("Showing active tasks (use --all to include completed tasks)");
     
     // Should include non-DONE tasks
     expect(stdout).toContain("#001");
@@ -76,7 +93,7 @@ describe("minsky tasks list CLI", () => {
     expect(stderr).toBe("");
   });
   
-  it("includes DONE tasks when --all is specified", () => {
+  it("includes DONE tasks when --all is specified and does not show filter message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--all"], { 
       encoding: "utf-8",
     });
@@ -85,6 +102,9 @@ describe("minsky tasks list CLI", () => {
     console.log("Command stderr (all):", result.stderr);
     
     const { stdout, stderr } = result;
+    
+    // Should NOT include active tasks message
+    expect(stdout).not.toContain("Showing active tasks (use --all to include completed tasks)");
     
     // Should include all tasks
     expect(stdout).toContain("#001");
@@ -101,14 +121,14 @@ describe("minsky tasks list CLI", () => {
   
   it("respects --all flag in JSON output", () => {
     // First without --all
-    const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--json"], { 
+    const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json"], { 
       encoding: "utf-8",
     });
     
     console.log("Command stdout (json):", resultDefault.stdout);
     console.log("Command stderr (json):", resultDefault.stderr);
     
-    const { stdout: stdoutDefault } = resultDefault;
+    const { stdout: stdoutDefault, stderr: stderrDefault } = resultDefault;
     
     // Skip if no output
     if (!stdoutDefault.trim()) {
@@ -119,6 +139,9 @@ describe("minsky tasks list CLI", () => {
     const tasksDefault = JSON.parse(stdoutDefault) as Task[];
     const taskIds = tasksDefault.map((t: Task) => t.id);
     
+    // Should NOT include filter message in JSON output
+    expect(stdoutDefault).not.toContain("Showing active tasks");
+    
     // Should include non-DONE tasks
     expect(taskIds).toContain("#001");
     expect(taskIds).toContain("#003");
@@ -128,7 +151,7 @@ describe("minsky tasks list CLI", () => {
     expect(taskIds).not.toContain("#002");
     
     // Now with --all
-    const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--json", "--all"], { 
+    const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json", "--all"], { 
       encoding: "utf-8",
     });
     
@@ -153,10 +176,10 @@ describe("minsky tasks list CLI", () => {
     expect(allTaskIds).toContain("#004");
     
     // Should have more tasks with --all than without
-    expect(tasksAll.length).toBeGreaterThan(tasksDefault.length);
+    expect(tasksAll.length > tasksDefault.length).toBe(true);
   });
   
-  it("filters by specific status when provided", () => {
+  it("filters by specific status when provided and shows status filter message", () => {
     const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "IN-PROGRESS"], { 
       encoding: "utf-8",
     });
@@ -166,6 +189,9 @@ describe("minsky tasks list CLI", () => {
     
     const { stdout } = result;
     
+    // Should include status filter message
+    expect(stdout).toContain("Showing tasks with status 'IN-PROGRESS'");
+    
     // Should only include IN-PROGRESS tasks
     expect(stdout).toContain("#003");
     expect(stdout).toContain("Third Task");
@@ -173,6 +199,46 @@ describe("minsky tasks list CLI", () => {
     // Should NOT include other tasks
     expect(stdout).not.toContain("#001");
     expect(stdout).not.toContain("#002");
+    expect(stdout).not.toContain("#004");
+  });
+  
+  it("does not show filter messages in JSON output with status filter", () => {
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "IN-PROGRESS", "--json"], { 
+      encoding: "utf-8",
+    });
+    
+    console.log("Command stdout (status json):", result.stdout);
+    console.log("Command stderr (status json):", result.stderr);
+    
+    const { stdout } = result;
+    
+    // Should NOT include filter message in JSON output
+    expect(stdout).not.toContain("Showing tasks with status");
+    
+    // Should be valid JSON
+    expect(() => JSON.parse(stdout)).not.toThrow();
+  });
+  
+  it("shows no tasks found message with filter message when no tasks match filter", () => {
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--repo", TEST_DIR, "--status", "NONEXISTENT-STATUS"], { 
+      encoding: "utf-8",
+    });
+    
+    console.log("Command stdout (no tasks):", result.stdout);
+    console.log("Command stderr (no tasks):", result.stderr);
+    
+    const { stdout } = result;
+    
+    // Should include status filter message
+    expect(stdout).toContain("Showing tasks with status 'NONEXISTENT-STATUS'");
+    
+    // Should include no tasks message
+    expect(stdout).toContain("No tasks found.");
+    
+    // Should NOT include any task IDs
+    expect(stdout).not.toContain("#001");
+    expect(stdout).not.toContain("#002");
+    expect(stdout).not.toContain("#003");
     expect(stdout).not.toContain("#004");
   });
 }); 

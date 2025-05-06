@@ -1,9 +1,9 @@
-import { TaskService } from './src/domain/tasks';
-import { resolveWorkspacePath } from './src/domain/workspace';
+import { TaskService } from "./src/domain/tasks";
+import { resolveWorkspacePath } from "./src/domain/workspace";
 
 async function testTasksInSessionRepo() {
   try {
-    console.log('Testing workspace detection from session repository...');
+    console.log("Testing workspace detection from session repository...");
     
     // Get the workspace path using our new utility
     const workspacePath = await resolveWorkspacePath();
@@ -15,12 +15,12 @@ async function testTasksInSessionRepo() {
     });
     
     // Get the current task status
-    const taskId = '#016';
+    const taskId = "#016";
     const beforeStatus = await taskService.getTaskStatus(taskId);
     console.log(`Current status of task ${taskId}: ${beforeStatus}`);
     
     // Update the status
-    const newStatus = 'IN-REVIEW';
+    const newStatus = "IN-REVIEW";
     await taskService.setTaskStatus(taskId, newStatus);
     console.log(`Updated status of task ${taskId} to: ${newStatus}`);
     
@@ -31,7 +31,7 @@ async function testTasksInSessionRepo() {
     // Print where the operation was actually performed
     console.log(`Task operations were performed in workspace: ${taskService.getWorkspacePath()}`);
   } catch (error) {
-    console.error('Error:', error);
+    console.error("Error:", error);
   }
 }
 

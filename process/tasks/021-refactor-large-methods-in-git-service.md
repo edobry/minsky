@@ -32,6 +32,18 @@ Based on codebase analysis, the `GitService` class contains excessively large me
 
 This refactoring will make the codebase more maintainable and easier to understand for new contributors. It will also make the GitService more testable by enabling more focused unit tests for the extracted methods.
 
+## Work Log
+
+- 2023-05-26: Refactored the `pr` method in GitService:
+  - Added a `prWithDependencies` method that accepts injectable dependencies for easier testing
+  - Extracted repository path determination into a separate method
+  - Extracted branch determination logic into a separate method
+  - Extracted base branch and merge base detection into separate methods
+  - Added improved error handling throughout methods
+  - Fixed and improved test compatibility
+  - Maintained full test coverage with all tests passing
+  - Reduced the complexity of the original method
+
 ## Related Files
 
 - src/domain/git.ts

@@ -1,36 +1,93 @@
 ---
-description: Use this when working with minsky sessions
+description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
 globs: 
 alwaysApply: false
 ---
 # Session-First Workflow
 
-## Core Rules for Session Development
+**Purpose:**  
+To ensure all code, test, and configuration changes for a task are made exclusively within the session workspace, maintaining strict isolation and traceability as required by the Minsky workflow.
 
-1. **NEVER use `bun link` in session directories**
-   - ⚠️ **CRITICAL: NEVER run `bun link` in a session directory**
-   - This interferes with the globally linked main version
-   - Session directories are for testing changes in isolation, not for global installation
-   - Use `bun run` to test code changes within the session directory
+---
 
-2. **Proper Testing in Sessions**
-   - To test changes in a session, use:
-     ```bash
-     cd $(minsky session dir <session-name>)
-     bun run ./src/cli.ts <command> <args>
-     ```
-   - Never use a globally linked command for testing session-specific changes
-   - This ensures proper isolation between your session and the main codebase
+## 1. Scope and Applicability
 
-3. **Session Isolation**
-   - Changes in a session must remain isolated until merged into main
-   - The session directory contains a separate clone of the repository
-   - All tests should be run within the session directory using `bun test`
+- **All changes** (code, tests, configs, fixtures, docs, etc.) related to a task MUST be made **directly within the session workspace** for that task.
+- This applies to any file that could affect the outcome of tests, builds, or reviews, including test files, fixtures, helper scripts, and configuration files.
+- **No edits to the main workspace are allowed** during an active session, except for the final merge after review.
 
-4. **After Implementation**
-   - After completing and verifying the implementation in the session:
-     1. Generate a PR description with `minsky git pr`
-     2. Commit all changes
-     3. Push changes to the remote branch
-     4. Mark the task as IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
-   - Do not attempt to make the session version globally available
+## 2. Workflow Enforcement
+
+- **Session workspace** is a full, isolated clone of the repository, created and managed by the Minsky CLI.
+- All edits, commits, and pushes must be performed from within the session workspace.
+- **Never copy files from the main workspace into the session workspace.**  
+  The session workspace already contains all project files as of the session's creation or last update.
+- **Never copy files from the session workspace back to the main workspace manually.**  
+  All changes must be merged via the session branch after review.
+
+## 3. Edit Location Verification
+
+- Before any file edit, verify that the file path is within the session workspace directory.
+- Any attempt to edit a file outside the session workspace is a hard error and must be aborted immediately.
+
+## 4. No Temporary or Test-Only Main Workspace Changes
+
+- **No "temporary" or "test-only" changes in the main workspace are permitted.**
+- All test expectation, fixture, and helper file changes must be made in the session workspace.
+
+## 5. Audit and Logging
+
+- Every file edit must log the absolute path being edited and the current session directory, both in the AI's output and (optionally) in a `.session-edit-log` file in the session directory.
+
+## 6. Automated Enforcement
+
+- Automated tools and contributors must check that all changes for a task are present only in the session workspace until the session is merged.
+
+## 7. Rationale
+
+- This ensures all work is traceable, reviewable, and isolated to the session, preventing accidental pollution or loss of context in the main workspace.
+- It guarantees that the main workspace remains stable and unaffected by in-progress work.
+
+## 8. AI Tool Usage Guidelines
+
+### File Editing Tools
+
+- When using the `edit_file` tool, **ALWAYS use absolute paths** that begin with the session workspace directory.
+- Correct format: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>/path/to/file`
+- Incorrect format: `path/to/file` (relative paths will modify files in the main workspace)
+- Before each edit, output a verification message confirming the absolute path being edited:
+  ```
+  Editing file in session workspace:
+  - Session directory: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN
+  - Target file: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN/src/path/to/file
+  ```
+- The `edit_file` tool resolves relative paths against the main workspace root, NOT the current terminal directory.
+- CRITICAL: Even if your terminal is in the session workspace, the `edit_file` tool will still use the main workspace as its root for relative paths.
+
+### Automated Verification Process
+
+1. **Before any edit_file call**:
+   - Get current session directory: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>`
+   - Construct absolute path: `<session_dir>/path/to/file`
+   - Verify the file exists: `ls -la <absolute_path>`
+   - Only then proceed with `edit_file` using the absolute path
+
+### Example Edit Pattern
+
+```
+// CORRECT - Uses absolute path with session directory prefix
+edit_file("/Users/username/.local/state/minsky/git/repo/sessions/task#123/src/file.ts", ...)
+
+// INCORRECT - Uses relative path which modifies main workspace
+edit_file("src/file.ts", ...)
+```
+
+---
+
+### Rule Description (for discoverability and relevance)
+
+**Description:**  
+This rule applies to all code, test, configuration, fixture, and documentation changes for a task.  
+It requires that all such changes be made exclusively within the session workspace created by the Minsky CLI, which is a full, isolated clone of the repository.  
+No changes may be made to the main workspace during an active session, except for the final merge after review.  
+This rule is relevant to any operation that could affect the outcome of tests, builds, or code reviews for a task, including but not limited to source code, test files, fixtures, and configuration files.
