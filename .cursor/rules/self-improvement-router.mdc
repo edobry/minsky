@@ -1,6 +1,9 @@
 ---
 description:
 globs:
+<<<<<<< HEAD
+alwaysApply: false
+=======
 alwaysApply: true
 ---
 # Self-Improvement Router
@@ -16,3 +19,4 @@ Proceeding with normal workflow after user signals error or dissatisfaction.
 
 // PREFER
 Pause, invoke self-improvement rule, communicate analysis, then proceed.
+>>>>>>> origin/main

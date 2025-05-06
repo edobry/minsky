@@ -35,6 +35,9 @@ The above is not optional guidance - it is a mandatory filter that must be appli
 - **When a workflow or troubleshooting step is implied, proceed with it directly.**
 - **Balance proactiveness with task interpretation:** When the user asks to "create a task", always create a task specification document first. Only proceed to implementation if explicitly directed to do so.
 - **Default to specification over implementation:** When in doubt about whether the user wants a task specified or implemented, default to creating a specification document unless they've explicitly asked for implementation.
+- **NEVER end a response with questions or requests for clarification:** Even when acknowledging a user's reference to a rule or document, do not end with phrases like "If you intended something specific..." or "Please clarify..." Instead, proceed with the most logical next action based on context.
+- **Treat ambiguity as a signal to act, not ask:** When faced with ambiguous instructions, choose the most reasonable interpretation and proceed with action rather than requesting clarification.
+- **Interpret references to rules as reminders to follow them:** When the user references a rule, treat it as a reminder to follow that rule strictly, not as an invitation for discussion about the rule.
 - **When the user says to keep going or not to ask for confirmation/status, proceed through all actionable issues without pausing, and only stop when all are resolved or all tests pass.**
 
 ## VERIFICATION CHECKPOINT

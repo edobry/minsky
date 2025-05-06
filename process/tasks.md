@@ -34,7 +34,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
-- [+] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
+- [x] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
