@@ -61,3 +61,53 @@ Write comprehensive, maintainable tests following these principles:
 - Focus on testing behaviors rather than implementation details
 - Include tests for both API and CLI/UI interfaces
 - Test different output formats (text, JSON, etc.) for data-producing functions
+
+## Guidelines for Writing Effective, Maintainable Tests
+
+### 1. Focus on Core Functionality
+- Write tests that verify the essential behavior and outcomes of a module or function, not its internal implementation details.
+- Prefer black-box testing: test the public API and observable effects, not private state or internal calls.
+
+### 2. Avoid Complex Mocking
+- Do not use complex or brittle mocking patterns, especially those that require deep knowledge of module internals or rely on patching module properties.
+- If mocking is necessary, use simple, explicit stubs or dependency injection.
+- Avoid mocking file system operations, process environment, or global state unless absolutely required.
+
+### 3. Use Dependency Injection
+- Structure code so that dependencies (e.g., services, database, file system) can be injected for testing.
+- In tests, provide minimal mock implementations for dependencies that return predictable results.
+- This enables tests to be simple, reliable, and decoupled from implementation details.
+
+### 4. Avoid File System Operations in Tests
+- Do not create, modify, or delete files or directories in tests unless the test is specifically for file I/O.
+- Prefer in-memory or stubbed data for testing logic.
+- If file system operations are unavoidable, use temporary directories and ensure cleanup is robust.
+
+### 5. Prefer Simplicity and Maintainability
+- Write tests that are easy to read, understand, and maintain.
+- Avoid over-specifying behavior that is likely to change as implementation evolves.
+- Use clear, descriptive test names that specify the intended behavior.
+
+### 6. Test Only What Matters
+- Do not test implementation details that are not part of the module's contract.
+- Avoid asserting on the number of function calls, internal state, or specific log output unless it is part of the public API.
+
+### 7. Use Proper Test Structure
+- Group related tests using `describe` blocks.
+- Use `test` or `it` for individual test cases.
+- Use setup/teardown hooks (`beforeEach`, `afterEach`) only when necessary.
+
+### 8. Document Test Rationale
+- When a test uses a non-obvious pattern (e.g., a stub, a workaround for a test runner limitation), document why.
+
+### 9. Prefer Integration Over End-to-End for CLI
+- For CLI commands, prefer integration tests that invoke the command handler directly with injected dependencies, rather than spawning processes or writing/reading files.
+- Only use end-to-end CLI tests for critical user flows that cannot be covered by integration tests.
+
+### 10. Update Tests When Refactoring
+- When refactoring code, update tests to match the new structure, but do not overfit tests to the implementation.
+- Remove or rewrite tests that are no longer relevant or that test implementation details.
+
+---
+
+_This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
