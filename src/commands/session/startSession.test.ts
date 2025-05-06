@@ -59,23 +59,26 @@ describe("startSession", () => {
   test("should reject when session already exists", async () => {
     // Create mock dependencies that simulate an existing session
     const mockSessionDB = {
-      getSession: () => ({ session: testSession, repoUrl: testRepo }),
+      getSession: () => ({ session: "test-session", repoUrl: "https://github.com/example/repo.git" }),
       addSession: () => {},
+      getSessionByTaskId: () => null,
       listSessions: () => []
     };
     
     // Create options with mock dependencies
     const options = {
-      session: testSession,
-      repo: testRepo,
+      sessionName: "test-session",
+      repoPath: "https://github.com/example/repo.git",
+      sessionDb: mockSessionDB,
       gitService: {},
-      sessionDB: mockSessionDB
-    } as unknown as StartSessionOptions;
+      taskService: { getTask: () => null },
+      resolveRepoPath: () => Promise.resolve("https://github.com/example/repo.git")
+    };
     
     // Run startSession and verify it rejects with the expected error
     let error: unknown;
     try {
-      await startSession(options);
+      await startSession(options as any);
     } catch (e) {
       error = e;
     }
