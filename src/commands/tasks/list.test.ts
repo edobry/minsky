@@ -265,7 +265,7 @@ describe("minsky tasks list integration", () => {
       getTask: async (id: string) => mockTasks.find(t => t.id === id),
     };
     // Create the tasks command with dependency injection
-    const tasksCommand = createTasksCommand({ taskService: mockTaskService });
+    const tasksCommand = createTasksCommand();
     const program = new Command();
     program.addCommand(tasksCommand);
     // Simulate running: minsky tasks list
