@@ -253,7 +253,7 @@ describe('SessionDB', () => {
   });
   
   describe('getRepoPath', () => {
-    it('should return the legacy path if no sessions directory exists', async () => {
+    test('should return the legacy path if no sessions directory exists', async () => {
       // Set up session record
       const sessionRecord: SessionRecord = {
         session: 'test-session',
@@ -289,7 +289,7 @@ describe('SessionDB', () => {
       expect(result).toBe(legacyPath);
     });
     
-    it('should return the new path if sessions directory exists', async () => {
+    test('should return the new path if sessions directory exists', async () => {
       // Set up session record
       const sessionRecord: SessionRecord = {
         session: 'test-session',
@@ -325,7 +325,7 @@ describe('SessionDB', () => {
       expect(result).toBe(newPath);
     });
     
-    it('should prefer new path over legacy path if both exist', async () => {
+    test('should prefer new path over legacy path if both exist', async () => {
       // Set up session record
       const sessionRecord: SessionRecord = {
         session: 'test-session',
@@ -366,7 +366,7 @@ describe('SessionDB', () => {
   });
   
   describe('getNewSessionRepoPath', () => {
-    it('should return a path with sessions subdirectory', () => {
+    test('should return a path with sessions subdirectory', () => {
       const db = new ActualSessionDB();
       const repoName = 'test/repo';
       const sessionId = 'test-session';
@@ -384,7 +384,7 @@ describe('SessionDB', () => {
   });
   
   describe('migrateSessionsToSubdirectory', () => {
-    it('should move repos from legacy path to sessions subdirectory', async () => {
+    test('should move repos from legacy path to sessions subdirectory', async () => {
       // Set up sessions for testing
       const sessions = [
         {
