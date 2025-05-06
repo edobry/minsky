@@ -190,6 +190,7 @@ class SessionDB {
       const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
       if (await this.repoExists(legacyPath) && !(await this.repoExists(newPath))) {
         Object.assign(session, { repoPath: newPath });
+        session.repoPath = newPath;
         modified = true;
       }
     }
