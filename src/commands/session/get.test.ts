@@ -116,7 +116,7 @@ describe("minsky session get CLI", () => {
       }
     });
     
-    expect(status).not.toBe(0);
+    expect(status !== 0).toBe(true);
     expect(stderr).toContain("Not in a session workspace");
   });
   
@@ -130,7 +130,7 @@ describe("minsky session get CLI", () => {
       }
     });
     
-    expect(status).not.toBe(0);
+    expect(status !== 0).toBe(true);
     expect(stderr).toContain("You must provide either a session name or --task");
   });
 

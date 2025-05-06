@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
-import type { Task } from "../../domain/tasks";
-import { createTasksCommand } from "./index";
+import type { Task } from "../../domain/tasks.js";
+import { createTasksCommand } from "./index.js";
 import { Command } from "commander";
 
 // Path to the CLI entry point - use absolute path
@@ -89,8 +89,8 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("Fourth Task");
     
     // Should NOT include DONE tasks
-    expect(stdout).not.toContain("#002");
-    expect(stdout).not.toContain("Second Task");
+    expect(stdout.includes("#002")).toBe(false);
+    expect(stdout.includes("Second Task")).toBe(false);
     
     expect(stderr).toBe("");
   });
@@ -106,7 +106,7 @@ describe("minsky tasks list CLI", () => {
     const { stdout, stderr } = result;
     
     // Should NOT include active tasks message
-    expect(stdout).not.toContain("Showing active tasks (use --all to include completed tasks)");
+    expect(stdout.includes("Showing active tasks (use --all to include completed tasks)")).toBe(false);
     
     // Should include all tasks
     expect(stdout).toContain("#001");
@@ -142,7 +142,7 @@ describe("minsky tasks list CLI", () => {
     const taskIds = tasksDefault.map((t: Task) => t.id);
     
     // Should NOT include filter message in JSON output
-    expect(stdoutDefault).not.toContain("Showing active tasks");
+    expect(stdoutDefault.includes("Showing active tasks")).toBe(false);
     
     // Should include non-DONE tasks
     expect(taskIds).toContain("#001");
@@ -150,7 +150,7 @@ describe("minsky tasks list CLI", () => {
     expect(taskIds).toContain("#004");
     
     // Should NOT include DONE tasks
-    expect(taskIds).not.toContain("#002");
+    expect(taskIds.includes("#002")).toBe(false);
     
     // Now with --all
     const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json", "--all"], { 
@@ -199,9 +199,9 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("Third Task");
     
     // Should NOT include other tasks
-    expect(stdout).not.toContain("#001");
-    expect(stdout).not.toContain("#002");
-    expect(stdout).not.toContain("#004");
+    expect(stdout.includes("#001")).toBe(false);
+    expect(stdout.includes("#002")).toBe(false);
+    expect(stdout.includes("#004")).toBe(false);
   });
   
   test("does not show filter messages in JSON output with status filter", () => {
@@ -215,10 +215,16 @@ describe("minsky tasks list CLI", () => {
     const { stdout } = result;
     
     // Should NOT include filter message in JSON output
-    expect(stdout).not.toContain("Showing tasks with status");
+    expect(stdout.includes("Showing tasks with status")).toBe(false);
     
     // Should be valid JSON
-    expect(() => JSON.parse(stdout)).not.toThrow();
+    let thrown = false;
+    try {
+      JSON.parse(stdout);
+    } catch (e) {
+      thrown = true;
+    }
+    expect(thrown).toBe(false);
   });
   
   test("shows no tasks found message with filter message when no tasks match filter", () => {
@@ -238,10 +244,10 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("No tasks found.");
     
     // Should NOT include any task IDs
-    expect(stdout).not.toContain("#001");
-    expect(stdout).not.toContain("#002");
-    expect(stdout).not.toContain("#003");
-    expect(stdout).not.toContain("#004");
+    expect(stdout.includes("#001")).toBe(false);
+    expect(stdout.includes("#002")).toBe(false);
+    expect(stdout.includes("#003")).toBe(false);
+    expect(stdout.includes("#004")).toBe(false);
   });
 });
 
@@ -274,9 +280,14 @@ describe("minsky tasks list integration", () => {
     // Should include active tasks message
     expect(output).toContain("Showing active tasks");
     // Should include non-DONE tasks
-    expect(output).toMatch(/#\d+:/); // Check for any task ID pattern
-    expect(output).toMatch(/\[TODO\]/); // Check for TODO status
-    expect(output).toMatch(/\[IN-PROGRESS\]/); // Check for IN-PROGRESS status
+    expect(output.includes("Showing active tasks")).toBe(true);
+    // Use regex tests without toMatch
+    const hasTaskId = /#\d+:/.test(output);
+    const hasTodoStatus = /\[TODO\]/.test(output);
+    const hasInProgressStatus = /\[IN-PROGRESS\]/.test(output);
+    expect(hasTaskId).toBe(true);
+    expect(hasTodoStatus).toBe(true);
+    expect(hasInProgressStatus).toBe(true);
     // Remove specific task checks that might be failing
   });
 }); 
