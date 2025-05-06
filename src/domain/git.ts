@@ -75,6 +75,13 @@ export interface PushResult extends GitResult {
   pushed: boolean;
 }
 
+export interface PushOptions {
+  session?: string;
+  repoPath?: string;
+  remote?: string;
+  force?: boolean;
+}
+
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
@@ -203,7 +210,7 @@ export class GitService {
       return options.repoPath;
     } else if (options.taskId && deps.getSessionByTaskId) {
       // First, normalize the task ID by removing the hash prefix if it exists
-      const normalizedTaskId = options.taskId.startsWith('#') ? options.taskId : `#${options.taskId}`;
+      const normalizedTaskId = options.taskId.startsWith("#") ? options.taskId : `#${options.taskId}`;
       
       // Use the sessionDb to find a session associated with this task
       const sessionRecord = await deps.getSessionByTaskId(normalizedTaskId);
@@ -301,7 +308,7 @@ export class GitService {
       );
       if (hasMain.trim() && hasMain.trim() !== branch) {
         if (options.debug) {
-          console.error(`[DEBUG] Using 'main' as base branch`);
+          console.error("[DEBUG] Using main as base branch");
         }
         return "main";
       }
@@ -318,7 +325,7 @@ export class GitService {
       );
       if (hasMaster.trim() && hasMaster.trim() !== branch) {
         if (options.debug) {
-          console.error(`[DEBUG] Using 'master' as base branch`);
+          console.error("[DEBUG] Using master as base branch");
         }
         return "master";
       }
@@ -406,20 +413,21 @@ export class GitService {
     if (commits && commits.trim()) {
       try {
         // Check if the commits are in the expected format with delimiters
-        if (commits.includes('\x1f')) {
+        if (commits.includes("\x1f")) {
           // Parse the commits data with delimiters
           // Split by record separator
-          const commitRecords = commits.split('\x1e').filter(Boolean);
+          const commitRecords = commits.split("\x1e").filter(Boolean);
           const formattedEntries: string[] = [];
           
           for (const record of commitRecords) {
             // Split by field separator
-            const fields = record.split('\x1f');
+            const fields = record.split("\x1f");
             if (fields.length > 1) {
-              // Format as "hash message"
-              const hash = fields[0].substring(0, 7);
-              const message = fields[1];
-              formattedEntries.push(`${hash} ${message}`);
+              if (fields[0] !== undefined && fields[1] !== undefined) {
+                const hash = fields[0].substring(0, 7);
+                const message = fields[1];
+                formattedEntries.push(`${hash} ${message}`);
+              }
             } else {
               // Use the record as-is if it doesn't have the expected format
               formattedEntries.push(record.trim());
@@ -427,7 +435,7 @@ export class GitService {
           }
           
           if (formattedEntries.length > 0) {
-            formattedCommits = formattedEntries.join('\n');
+            formattedCommits = formattedEntries.join("\n");
           }
         } else {
           // Use as-is if not in the expected format
@@ -443,7 +451,7 @@ export class GitService {
     const hasWorkingDirChanges = untrackedFiles.trim().length > 0 || uncommittedChanges.trim().length > 0;
     
     // Generate the PR markdown
-    let sections = [
+    const sections = [
       `# Pull Request for branch \`${branch}\`\n`,
       `## Commits\n${formattedCommits}\n`
     ];
@@ -548,7 +556,7 @@ export class GitService {
       } 
       // Otherwise, try to infer stats from the diff status
       else if (diffNameStatus && diffNameStatus.trim()) {
-        const lines = diffNameStatus.trim().split('\n');
+        const lines = diffNameStatus.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} files changed`;
         }
@@ -556,7 +564,7 @@ export class GitService {
       // If we have uncommitted changes but no stats for the branch,
       // we should make sure those are reflected in the output
       else if (uncommittedChanges.trim()) {
-        const lines = uncommittedChanges.trim().split('\n');
+        const lines = uncommittedChanges.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} uncommitted files changed`;
         }
@@ -695,18 +703,63 @@ export class GitService {
     }
   }
 
-  async pushBranch(workdir: string, remote: string = "origin"): Promise<PushResult> {
+  /**
+   * Push the current or session branch to a remote, supporting --session, --repo, --remote, and --force.
+   */
+  async push(options: PushOptions): Promise<PushResult> {
+    await this.ensureBaseDir();
+    let workdir: string;
+    let branch: string;
+    const remote = options.remote || "origin";
+
+    // 1. Resolve workdir
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
+      if (!record) {
+        throw new Error(`Session '${options.session}' not found.`);
+      }
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(repoName, options.session);
+      branch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      branch = branchOut.trim();
+    } else {
+      // Try to infer from current directory
+      workdir = process.cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      branch = branchOut.trim();
+    }
+
+    // 2. Validate remote exists
+    const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
+    const remotes = remotesOut.split("\n").map(r => r.trim()).filter(Boolean);
+    if (!remotes.includes(remote)) {
+      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
+    }
+
+    // 3. Build push command
+    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
+    if (options.force) {
+      pushCmd += " --force";
+    }
+
+    // 4. Execute push
     try {
-      // Get current branch
-      const { stdout: branch } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-      const currentBranch = branch.trim();
-
-      // Push changes
-      await execAsync(`git -C ${workdir} push ${remote} ${currentBranch}`);
-
+      await execAsync(pushCmd);
       return { workdir, pushed: true };
-    } catch (err) {
-      throw new Error(`Failed to push branch: ${err instanceof Error ? err.message : String(err)}`);
+    } catch (err: any) {
+      // Provide helpful error messages for common issues
+      if (err.stderr && err.stderr.includes("[rejected]")) {
+        throw new Error("Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history.");
+      }
+      if (err.stderr && err.stderr.includes("no upstream")) {
+        throw new Error("No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first.");
+      }
+      throw new Error(err.stderr || err.message || String(err));
     }
   }
 }
