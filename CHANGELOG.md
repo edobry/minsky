@@ -107,11 +107,13 @@ _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.spe
   - Updated getNewSessionRepoPath test to match implementation
   - Fixed Session DB tests to align with new directory structure
 - Fixed `session dir` command to correctly handle both legacy and new session repository paths using SessionDB.getRepoPath method instead of a local function that had an incorrect path structure. The command now returns the correct path for both legacy directories and new directories with the sessions subdirectory.
+- Fixed task spec path generation to use the standardized format (process/tasks/<id>-<kebab-case-title>.md) instead of the original path. This ensures consistent task spec file naming and improves file discovery. Also fixed the migrateSessionsToSubdirectory implementation to properly update session paths during migration.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
 _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
+_See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
