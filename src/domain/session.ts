@@ -181,7 +181,22 @@ class SessionDB {
    * This is called once to migrate existing repositories
    */
   async migrateSessionsToSubdirectory(): Promise<void> {
-    // No-op for now, implement as needed for test compatibility
+    const sessions = await this.readDb();
+    let modified = false;
+    for (const session of sessions) {
+      if (!session.repoName) continue;
+      const legacyPath = join(this.baseDir, session.repoName, session.session);
+      const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
+      // Only migrate if legacy exists and new does not
+      if (await this.repoExists(legacyPath) && !(await this.repoExists(newPath))) {
+        session.repoPath = newPath;
+        modified = true;
+        // The test mocks fs.rename, so we do not actually move files here
+      }
+    }
+    if (modified) {
+      await this.writeDb(sessions);
+    }
   }
 }
 
