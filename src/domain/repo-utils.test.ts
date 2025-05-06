@@ -4,16 +4,8 @@ import { SessionDB } from './session';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-// Mock the dependencies
-mock.module('child_process', () => ({
-  exec: (cmd: string, options: any, callback: any) => {
-    if (cmd.includes('git rev-parse')) {
-      callback(null, { stdout: '/path/to/repo\n', stderr: '' });
-    } else {
-      callback(null, { stdout: '', stderr: '' });
-    }
-  }
-}));
+// Store original execAsync for restoration later
+const originalExecAsync = promisify(exec);
 
 describe('resolveRepoPath', () => {
   it('returns explicit repo path if given', async () => {
@@ -43,20 +35,24 @@ describe('resolveRepoPath', () => {
   });
 
   it('falls back to git rev-parse if neither is given', async () => {
-    // Mock execAsync for this test
-    const execAsync = promisify(exec);
-    const originalExecAsync = execAsync;
+    // Save current process.cwd
+    const originalCwd = process.cwd;
     
-    // Replace with a mock that returns a predictable value
+    // Mock process.cwd to return a predictable value
+    process.cwd = mock(() => '/some/test/path');
+    
+    // Mock the execAsync function for this test
     const mockExecAsync = mock(() => Promise.resolve({ stdout: '/git/repo/path\n', stderr: '' }));
-    (global as any).execAsync = mockExecAsync;
+    global.execAsync = mockExecAsync;
     
     try {
       const result = await resolveRepoPath({});
       expect(result).toBe('/git/repo/path');
+      expect(mockExecAsync).toHaveBeenCalledWith('git rev-parse --show-toplevel');
     } finally {
       // Clean up
-      (global as any).execAsync = originalExecAsync;
+      global.execAsync = originalExecAsync;
+      process.cwd = originalCwd;
     }
   });
 });

@@ -1,13 +1,30 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { createStartCommand } from './start';
 import * as startSessionModule from './startSession';
 import * as repoUtils from '../../domain/repo-utils';
 
+// Create mock module exports
+const mockStartSession = mock(() => ({
+  sessionRecord: { session: 'test-session' },
+  cloneResult: { workdir: '/path/to/test-workdir' },
+  branchResult: { branch: 'test-branch' }
+}));
+
+const mockResolveRepoPath = mock(() => Promise.resolve('/path/to/repo'));
+
+// Mock modules
+mock.module('./startSession', () => ({
+  startSession: mockStartSession
+}));
+
+mock.module('../../domain/repo-utils', () => ({
+  resolveRepoPath: mockResolveRepoPath,
+  normalizeRepoName: (name: string) => name
+}));
+
 describe('createStartCommand', () => {
   let originalConsoleLog: typeof console.log;
   let originalConsoleError: typeof console.error;
-  let originalStartSession: typeof startSessionModule.startSession;
-  let originalResolveRepoPath: typeof repoUtils.resolveRepoPath;
   let originalExit: typeof process.exit;
   
   const logCalls: string[] = [];
@@ -17,8 +34,6 @@ describe('createStartCommand', () => {
     // Save original functions
     originalConsoleLog = console.log;
     originalConsoleError = console.error;
-    originalStartSession = startSessionModule.startSession;
-    originalResolveRepoPath = repoUtils.resolveRepoPath;
     originalExit = process.exit;
     
     // Mock console.log and console.error
@@ -30,30 +45,24 @@ describe('createStartCommand', () => {
       errorCalls.push(args.join(' '));
     };
     
-    // Mock startSession
-    startSessionModule.startSession = async () => ({
-      sessionRecord: { session: 'test-session' },
-      cloneResult: { workdir: '/path/to/test-workdir' },
-      branchResult: { branch: 'test-branch' }
-    });
-    
-    // Mock resolveRepoPath
-    repoUtils.resolveRepoPath = async () => '/path/to/repo';
-    
     // Mock process.exit
-    process.exit = () => undefined as never;
+    process.exit = mock((code = 0) => {
+      throw new Error(`Exit with code: ${code}`);
+    });
     
     // Clear log and error calls
     logCalls.length = 0;
     errorCalls.length = 0;
+    
+    // Reset mock calls
+    mockStartSession.mockClear();
+    mockResolveRepoPath.mockClear();
   });
   
   afterEach(() => {
     // Restore original functions
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
-    startSessionModule.startSession = originalStartSession;
-    repoUtils.resolveRepoPath = originalResolveRepoPath;
     process.exit = originalExit;
   });
   
@@ -97,27 +106,23 @@ describe('createStartCommand', () => {
     const command = createStartCommand();
     
     // Mock startSession to throw an error
-    startSessionModule.startSession = async () => {
+    mockStartSession.mockImplementationOnce(() => {
       throw new Error('Test error message');
-    };
+    });
     
-    // Track process.exit calls
-    let exitCode = 0;
-    process.exit = (code = 0) => {
-      exitCode = code;
-      return undefined as never;
-    };
-    
-    // Act - execute the command with --quiet
-    await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo', '--quiet']);
-    
-    // Assert
-    // Should log the error
-    expect(errorCalls.length).toBe(1);
-    expect(errorCalls[0]).toContain('Error starting session:');
-    expect(errorCalls[0]).toContain('Test error message');
-    
-    // Should exit with a non-zero status code
-    expect(exitCode).toBe(1);
+    // Act & Assert
+    try {
+      await command.parseAsync(['node', 'test', 'test-session', '--repo', '/path/to/repo', '--quiet']);
+      // Should not reach here
+      expect(false).toBe(true);
+    } catch (error) {
+      // Should log the error
+      expect(errorCalls.length).toBe(1);
+      expect(errorCalls[0]).toContain('Error starting session:');
+      expect(errorCalls[0]).toContain('Test error message');
+      
+      // Should attempt to exit with a non-zero status code
+      expect(error.message).toBe('Exit with code: 1');
+    }
   });
 }); 

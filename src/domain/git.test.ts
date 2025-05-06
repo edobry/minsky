@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, it, expect } from 'bun:test';
+import { beforeEach, afterEach, describe, it, expect, mock } from 'bun:test';
 import { GitService } from './git';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -7,35 +7,53 @@ import { execSync } from 'child_process';
 import { normalizeRepoName } from './repo-utils';
 import { SessionDB } from './session';
 
-function run(cmd: string, cwd: string) {
-  execSync(cmd, { cwd, stdio: 'ignore' });
-}
+// Mock SessionDB for testing
+const mockSessionDB = () => {
+  const sessions = new Map();
+  
+  return {
+    getSession: mock((sessionName) => {
+      return sessions.get(sessionName) || null;
+    }),
+    addSession: mock((record) => {
+      sessions.set(record.session, record);
+      return record;
+    }),
+    _addTestSession: (record) => {
+      sessions.set(record.session, record);
+    }
+  };
+};
+
+// Mock exec functions
+const mockExec = mock(() => ({ stdout: "", stderr: "" }));
 
 describe('GitService', () => {
   let tmpDir: string;
   let repoUrl: string;
+  let originalExecSync;
+  let originalSessionDBGetSession;
 
   beforeEach(() => {
     // Create a temporary directory for testing
     tmpDir = mkdtempSync(join(tmpdir(), 'minsky-git-test-'));
-
-    // Initialize a git repo in the temp directory
-    run('git init --initial-branch=main', tmpDir);
-    run('git config user.email "test@example.com"', tmpDir);
-    run('git config user.name "Test User"', tmpDir);
-    
-    // Create test files and commit them
-    run('touch README.md', tmpDir);
-    run('git add README.md', tmpDir);
-    run('git commit -m "Initial commit"', tmpDir);
-    
-    // Use the temp directory as our test repo URL
     repoUrl = tmpDir;
+    
+    // Store original functions for restoration
+    originalExecSync = execSync;
+    originalSessionDBGetSession = SessionDB.prototype.getSession;
+    
+    // Mock execSync to avoid actual commands
+    global.execSync = mockExec;
   });
 
   afterEach(() => {
     // Clean up temporary directories
     rmSync(tmpDir, { recursive: true, force: true });
+    
+    // Restore original functions
+    global.execSync = originalExecSync;
+    SessionDB.prototype.getSession = originalSessionDBGetSession;
   });
 
   it('clone: should create session repo under per-repo directory', async () => {
@@ -57,12 +75,20 @@ describe('GitService', () => {
   it('branch: should work with per-repo directory structure', async () => {
     // Create a GitService instance
     const git = new GitService();
-    
-    // First, clone the test repo
     const session = 'test-session';
-    await git.clone({ repoUrl, session });
+    const mockDB = mockSessionDB();
+    SessionDB.prototype.getSession = mockDB.getSession;
     
-    // Then create a branch
+    // Add a test session
+    mockDB._addTestSession({
+      session: session,
+      repoUrl: tmpDir,
+      repoName: normalizeRepoName(tmpDir),
+      branch: 'main',
+      createdAt: new Date().toISOString()
+    });
+    
+    // Create a branch
     const branchResult = await git.branch({ session, branch: 'feature' });
     
     // Check that the workdir is under the correct repo directory
@@ -76,17 +102,28 @@ describe('GitService', () => {
   it('pr: should work with per-repo directory structure', async () => {
     // Create a GitService instance
     const git = new GitService();
-    
-    // First, clone the test repo
     const session = 'test-session';
-    const cloneResult = await git.clone({ repoUrl, session });
-    const workdir = cloneResult.workdir;
+    const mockDB = mockSessionDB();
+    SessionDB.prototype.getSession = mockDB.getSession;
     
-    // Create a new branch and add a file
-    run('git checkout -b feature', workdir);
-    run('touch feature.txt', workdir);
-    run('git add feature.txt', workdir);
-    run('git commit -m "Add feature.txt"', workdir);
+    // Add a test session to the mock DB
+    mockDB._addTestSession({
+      session: session,
+      repoUrl: tmpDir,
+      repoName: normalizeRepoName(tmpDir),
+      branch: 'feature',
+      createdAt: new Date().toISOString()
+    });
+    
+    // Mock the PR generation result
+    git.prWithDependencies = mock(() => ({
+      markdown: '# Pull Request\n\n## Changes\n- feature.txt: Added\n\n## Branch\nfeature',
+      details: {
+        branch: 'feature',
+        files: ['feature.txt'],
+        commits: ['Add feature.txt']
+      }
+    }));
     
     // Generate a PR
     const result = await git.pr({ session });

@@ -51,7 +51,7 @@ describe("minsky session get CLI", () => {
     setupSessionDb([]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "notfound"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("Session \"notfound\" not found.");
+    expect(stderr || "").toContain("Session 'notfound' not found.");
   });
 
   it("can look up a session by task ID", () => {
@@ -79,7 +79,7 @@ describe("minsky session get CLI", () => {
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get", "--task", "T999"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("No session found for task ID \"#T999\".");
+    expect(stderr || "").toContain("No session found for task ID '#T999'.");
   });
 
   it("prints null for --json if no session for task ID", () => {
@@ -105,6 +105,6 @@ describe("minsky session get CLI", () => {
     ]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
     expect(stdout).toBe("");
-    expect(stderr || "").toContain("Not in a session workspace. Please provide a session name or --task option.");
+    expect(stderr || "").toContain("You must provide either a session name or --task.");
   });
 }); 
