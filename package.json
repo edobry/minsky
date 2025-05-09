@@ -25,6 +25,7 @@
   "dependencies": {
     "@clack/prompts": "^0.10.1",
     "commander": "^13.1.0",
+    "fastmcp": "^1.27.4",
     "fs-extra": "^11.3.0"
   }
 }
