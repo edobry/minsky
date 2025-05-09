@@ -51,3 +51,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Prevent Session Creation Within Existing Sessions [#039](process/tasks/039-prevent-session-creation-within-existing-sessions.md)
 
 - [ ] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
+
+- [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
