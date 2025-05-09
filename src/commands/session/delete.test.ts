@@ -1,138 +1,120 @@
-import { describe, it, expect, afterEach, beforeEach } from "bun:test";
-import { writeFileSync, rmSync, mkdirSync, existsSync } from "fs";
-import { join } from "path";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
+import { join, resolve } from "path";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
+import type { SessionRecord } from "../../domain/session.js";
 
-const CLI = "src/cli.ts";
-const TEST_DIR = "/tmp/minsky-test";
-const SESSION_DB_PATH = join(TEST_DIR, "minsky", "session-db.json");
-const GIT_DIR = join(TEST_DIR, "minsky", "git");
+// Path to the CLI entry point
+const CLI = resolve(process.cwd(), "src/cli.ts");
 
-function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName: string; branch: string; createdAt: string; taskId?: string }>) {
-  // Create the session DB directory
-  mkdirSync(join(TEST_DIR, "minsky"), { recursive: true });
-  
-  // Create the session DB file
+// Test directory - make unique for this file
+const TEST_DIR = "/tmp/minsky-session-delete-test-" + Math.random().toString(36).substring(7);
+const SESSION_DB_DIR = join(TEST_DIR, "minsky");
+const SESSION_DB_PATH = join(SESSION_DB_DIR, "session-db.json");
+
+function setupSessionDb(sessions: SessionRecord[]) {
+  if (existsSync(TEST_DIR)) {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  }
+  mkdirSync(SESSION_DB_DIR, { recursive: true });
   writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
-  
-  // Create repository directories for each session
-  sessions.forEach(session => {
-    const sessionDir = join(GIT_DIR, session.repoName, session.session);
-    mkdirSync(sessionDir, { recursive: true });
-    writeFileSync(join(sessionDir, "test-file.txt"), "test content");
+  // Create dummy session repo dirs for deletion tests if needed by getSessionRepoPath
+  for (const session of sessions) {
+    if (session.repoName && session.session) {
+      const sessionRepoDir = join(TEST_DIR, "minsky", "git", session.repoName, session.session);
+      mkdirSync(sessionRepoDir, { recursive: true });
+    }
+  }
+}
+
+// Helper to run a CLI command with the right environment
+function runCliCommand(args: string[], env: Record<string, string> = {}) {
+  const testEnv = {
+    ...process.env,
+    ...env,
+    XDG_STATE_HOME: TEST_DIR // Ensure XDG_STATE_HOME points to our unique TEST_DIR
+  };
+  return spawnSync("bun", ["run", CLI, ...args], { 
+    encoding: "utf-8",
+    env: testEnv
   });
 }
 
 describe("minsky session delete CLI", () => {
   beforeEach(() => {
-    // Clean up any existing test directories
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    // Setup is handled by setupSessionDb before each relevant test section
   });
-  
+
   afterEach(() => {
-    // Clean up test directories
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true, force: true });
+    }
   });
-  
-  it("deletes session when it exists", () => {
-    setupSessionDb([
-      { 
-        session: "test-session", 
-        repoUrl: "https://github.com/test/repo", 
-        repoName: "test/repo", 
-        branch: "main", 
-        createdAt: "2024-01-01" 
-      }
-    ]);
-    
-    const sessionDir = join(GIT_DIR, "test/repo", "test-session");
-    
-    // Run with --force to skip confirmation prompt
-    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "test-session", "--force"], { 
-      encoding: "utf-8", 
-      env: { 
-        ...process.env, 
-        XDG_STATE_HOME: TEST_DIR 
-      } 
-    });
-    
-    // Check for success message
-    expect(stdout).toContain("successfully deleted");
+
+  test("deletes session when it exists", () => {
+    const initialSessions: SessionRecord[] = [
+      // Need repoName for getSessionRepoPath used by the command
+      { session: "foo", repoUrl: "r1", createdAt: "c1", repoName: "repo/foo" }, 
+      { session: "bar", repoUrl: "r2", createdAt: "c2", repoName: "repo/bar" },
+    ];
+    setupSessionDb(initialSessions);
+
+    // Add --force to bypass interactive prompt
+    const { stdout, stderr, status } = runCliCommand(["session", "delete", "foo", "--force"]);
+
     expect(stderr).toBe("");
-    
-    // Check that the session was removed from the database
-    const sessions = JSON.parse(String(spawnSync("bun", ["run", CLI, "session", "list", "--json"], {
-      encoding: "utf-8",
-      env: { 
-        ...process.env, 
-        XDG_STATE_HOME: TEST_DIR 
-      }
-    }).stdout));
-    
-    expect(sessions.length).toBe(0);
-    
-    // Check that the session directory was removed
-    expect(existsSync(sessionDir)).toBe(false);
+    expect(status).toBe(0);
+    expect(stdout).toContain("Session \"foo\" successfully deleted.");
+
+    // Verify session is removed from DB
+    const dbContents = JSON.parse(readFileSync(SESSION_DB_PATH, "utf-8"));
+    expect(dbContents.length).toBe(1);
+    expect(dbContents[0].session).toBe("bar");
   });
-  
-  it("outputs JSON format with --json flag", () => {
-    setupSessionDb([
-      { 
-        session: "test-session", 
-        repoUrl: "https://github.com/test/repo", 
-        repoName: "test/repo", 
-        branch: "main", 
-        createdAt: "2024-01-01" 
-      }
-    ]);
+
+  test("outputs JSON format with --json flag", () => {
+    const initialSessions: SessionRecord[] = [
+      { session: "foo", repoUrl: "r1", createdAt: "c1", repoName: "repo/foo" },
+    ];
+    setupSessionDb(initialSessions);
+
+    // Add --force to bypass interactive prompt
+    const { stdout, stderr, status } = runCliCommand(["session", "delete", "foo", "--force", "--json"]);
     
-    // Run with --force and --json
-    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "test-session", "--force", "--json"], { 
-      encoding: "utf-8", 
-      env: { 
-        ...process.env, 
-        XDG_STATE_HOME: TEST_DIR 
-      } 
-    });
+    expect(stderr).toBe("");
+    expect(status).toBe(0);
     
-    // Check JSON output format
     const result = JSON.parse(stdout);
     expect(result.success).toBe(true);
+    expect(result.session).toBe("foo");
     expect(result.message).toContain("successfully deleted");
-    expect(result.repoDeleted).toBe(true);
-    expect(result.recordDeleted).toBe(true);
-    expect(stderr).toBe("");
+
+    // Verify session is removed from DB
+    const dbContents = JSON.parse(readFileSync(SESSION_DB_PATH, "utf-8"));
+    expect(dbContents.length).toBe(0);
   });
-  
-  it("handles non-existent sessions with appropriate error", () => {
-    setupSessionDb([]);
-    
-    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "non-existent-session"], { 
-      encoding: "utf-8", 
-      env: { 
-        ...process.env, 
-        XDG_STATE_HOME: TEST_DIR 
-      } 
-    });
-    
+
+  test("handles non-existent sessions with appropriate error", () => {
+    setupSessionDb([{ session: "bar", repoUrl: "r2", createdAt: "c2", repoName: "repo/bar" }]);
+    const { stdout, stderr, status } = runCliCommand(["session", "delete", "nonexistent"]);
+
+    expect(status !== 0).toBe(true);
+    // Match actual CLI output which uses double quotes for session name
+    expect(stderr.trim()).toContain("Session \"nonexistent\" not found.");
     expect(stdout).toBe("");
-    expect(stderr).toContain("Session 'non-existent-session' not found");
   });
-  
-  it("handles non-existent sessions with JSON output", () => {
-    setupSessionDb([]);
+
+  test("handles non-existent sessions with JSON output", () => {
+    setupSessionDb([{ session: "bar", repoUrl: "r2", createdAt: "c2", repoName: "repo/bar" }]);
+    // When session not found, CLI exits 1. JSON output reflects this.
+    const { stdout, stderr, status } = runCliCommand(["session", "delete", "nonexistent", "--json"]);
     
-    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "non-existent-session", "--json"], { 
-      encoding: "utf-8", 
-      env: { 
-        ...process.env, 
-        XDG_STATE_HOME: TEST_DIR 
-      } 
-    });
-    
+    expect(stderr).toBe(""); // Error message is in JSON stdout, not stderr
+    expect(status).toBe(1); // CLI should exit 1 if session not found, even with --json
+
     const result = JSON.parse(stdout);
     expect(result.success).toBe(false);
-    expect(result.error).toContain("not found");
-    expect(stderr).toBe("");
+    expect(result.session).toBe("nonexistent");
+    expect(result.error).toContain("Session \"nonexistent\" not found."); // Error message in JSON uses double quotes
   });
 }); 

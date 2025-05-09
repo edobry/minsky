@@ -1,10 +1,10 @@
 import { Command } from "commander";
-import { SessionDB } from "../../domain/session";
-import { normalizeTaskId } from "../../utils/task-utils";
-import { getCurrentSession as importedGetCurrentSession } from "../../domain/workspace";
+import { SessionDB } from "../../domain/session.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import { getCurrentSession as importedGetCurrentSession } from "../../domain/workspace.js";
 import { join } from "path";
 import { existsSync } from "fs";
-import type { SessionCommandDependencies } from "./index";
+import type { SessionCommandDependencies } from "./index.js";
 
 export function createDirCommand(dependencies: SessionCommandDependencies = {}): Command {
   // Use provided dependency or fall back to default
@@ -35,7 +35,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           
           session = await db.getSessionByTaskId(normalizedTaskId);
           if (!session) {
-            console.error(`No session found for task ID '${normalizedTaskId}'.`);
+            console.error(`No session found for task ID "${normalizedTaskId}".`);
             process.exit(1);
             return;
           }
@@ -43,7 +43,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           // Otherwise look up by session name
           session = await db.getSession(sessionName);
           if (!session) {
-            console.error(`Session '${sessionName}' not found.`);
+            console.error(`Session "${sessionName}" not found.`);
             process.exit(1);
             return;
           }
@@ -58,7 +58,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           }
           session = await db.getSession(currentSessionName);
           if (!session) {
-            console.error(`Session '${currentSessionName}' not found in session database.`);
+            console.error(`Session "${currentSessionName}" not found in session database.`);
             process.exit(1);
             return;
           }
