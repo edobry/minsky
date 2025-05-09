@@ -5,6 +5,14 @@
 ## [Unreleased]
 
 ### Added
+- MCP (Machine Context Protocol) server support for enabling AI agent interaction with Minsky commands
+  - Added `fastmcp` dependency for implementing the MCP server
+  - Created core MCP server module (`src/mcp/server.ts`) for handling protocol communication
+  - Implemented command mapper (`src/mcp/command-mapper.ts`) to bridge between CLI commands and MCP tools
+  - Added support for tasks and session commands via MCP tools
+  - Added `minsky mcp start` command for launching the MCP server with customizable transport options
+  - Structured output formatting to consistently return data in machine-readable formats
+  - Support for multiple transport types: stdio (default), SSE, and HTTP streaming
 - Initial Bun+TypeScript project setup for the minsky CLI tool
 - Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
 - `git clone` command: clone a repo into an isolated workspace, with session support
