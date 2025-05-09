@@ -79,6 +79,15 @@ Options:
 - `--json`: Output in JSON format
 - `--task <task-id>`: Get session by task ID
 
+#### `minsky session delete [options] [session-name]`
+
+Delete a session and its repository.
+
+Options:
+- `--force`: Skip confirmation prompt
+- `--json`: Output in JSON format
+- `--task <task-id>`: Delete session by task ID
+
 #### `minsky session dir <session-name>`
 
 Print the directory path for a session.
@@ -175,6 +184,27 @@ minsky tasks status set '#001' DONE --workspace /path/to/main/workspace
 ```
 
 This option overrides any automatic workspace detection. The previous `--repo` and `--session` options still work, but the workspace path takes precedence when provided.
+
+## MCP (Model Context Protocol) Support
+
+Minsky now supports the Model Context Protocol (MCP), which enables AI assistants and other tools to interact with Minsky programmatically. This allows for seamless integration with AI agents like Claude, GitHub Copilot, and others that support MCP.
+
+```bash
+# Start the MCP server with default settings (stdio transport)
+minsky mcp start
+
+# Start with SSE transport on a specific port
+minsky mcp start --sse --port 8080
+```
+
+MCP allows AI agents to:
+- Manage tasks and track their status
+- Create and manage development sessions
+- Perform git operations
+- Initialize new projects with Minsky
+- Access structured responses in a consistent format
+
+For detailed documentation on using MCP with Minsky, see [README-MCP.md](./README-MCP.md).
 
 ## Example Workflows
 

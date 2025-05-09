@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session";
-import { createTasksCommand } from "./commands/tasks";
-import { createGitCommand } from "./commands/git";
-import { createInitCommand } from "./commands/init";
+import { createSessionCommand } from "./commands/session/index.js";
+import { createTasksCommand } from "./commands/tasks/index.js";
+import { createGitCommand } from "./commands/git/index.js";
+import { createInitCommand } from "./commands/init/index.js";
+import { createMCPCommand } from "./commands/mcp/index.js";
 
 // Override getCurrentSession for testing
-import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace";
-import * as workspaceModule from "./domain/workspace";
+import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
+import * as workspaceModule from "./domain/workspace.js";
 
 // Use environment variable directly rather than trying to mock the function
 // This avoids the "Attempted to assign to readonly property" error
@@ -30,5 +31,6 @@ program.addCommand(sessionCommand);
 program.addCommand(createTasksCommand());
 program.addCommand(createGitCommand());
 program.addCommand(createInitCommand());
+program.addCommand(createMCPCommand());
 
 program.parse();
