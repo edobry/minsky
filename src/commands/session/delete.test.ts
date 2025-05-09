@@ -134,7 +134,7 @@ describe("minsky session delete CLI", () => {
     expect(result.error).toContain("Session \"nonexistent\" not found."); // Error message in JSON uses double quotes
   });
 
-  it("deletes session by task ID when it exists", () => {
+  test("deletes session by task ID when it exists", () => {
     setupSessionDb([
       {
         session: "task-session",
@@ -164,7 +164,7 @@ describe("minsky session delete CLI", () => {
     expect(existsSync(sessionDir)).toBe(false);
   });
 
-  it("deletes session by task ID with JSON output", () => {
+  test("deletes session by task ID with JSON output", () => {
     setupSessionDb([
       {
         session: "task-session-json",
@@ -189,7 +189,7 @@ describe("minsky session delete CLI", () => {
     expect(stderr).toBe("");
   });
 
-  it("handles non-existent session for task ID with appropriate error", () => {
+  test("handles non-existent session for task ID with appropriate error", () => {
     setupSessionDb([]); // No sessions, so no session for any task ID
 
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "789"], {
@@ -201,7 +201,7 @@ describe("minsky session delete CLI", () => {
     expect(stderr).toContain("No session found for task ID '789'.");
   });
 
-  it("handles non-existent session for task ID with JSON output", () => {
+  test("handles non-existent session for task ID with JSON output", () => {
     setupSessionDb([]);
 
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "012", "--json"], {
@@ -215,7 +215,7 @@ describe("minsky session delete CLI", () => {
     expect(stderr).toBe("");
   });
   
-  it("handles invalid task ID format", () => {
+  test("handles invalid task ID format", () => {
     setupSessionDb([]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "invalid-id"], {
       encoding: "utf-8",
@@ -225,7 +225,7 @@ describe("minsky session delete CLI", () => {
     expect(stderr).toContain("Invalid task ID format: 'invalid-id'. Task ID should be a number.");
   });
 
-  it("handles invalid task ID format with JSON output", () => {
+  test("handles invalid task ID format with JSON output", () => {
     setupSessionDb([]);
     const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "invalid-id-json", "--json"], {
       encoding: "utf-8",
@@ -237,7 +237,7 @@ describe("minsky session delete CLI", () => {
     expect(stderr).toBe("");
   });
 
-  it("prioritizes task ID when both session name and task ID are provided", () => {
+  test("prioritizes task ID when both session name and task ID are provided", () => {
     setupSessionDb([
       {
         session: "session-for-task",
