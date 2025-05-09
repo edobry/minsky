@@ -18,6 +18,8 @@ We have successfully fixed several failing tests in the Minsky CLI project by im
    - **list.test.ts**: Fixed by using unique test directories with random suffixes, proper environment variables, and improved error handling
    - **startSession.test.ts**: Fixed by refactoring for better dependency injection and more focused test cases
    - **delete.test.ts**: Fixed by using the test-helpers module for better isolation and error handling
+   - **get.test.ts**: Fixed import paths, compatibility with Bun test API, and updated to use test-helpers for better isolation
+   - **dir.test.ts** (formerly cd.test.ts): Renamed and updated to use the test-helpers module with proper path handling
 
 3. **Tasks Tests**:
    - **list.test.ts**: Fixed linter errors and improved subprocess error handling
@@ -33,19 +35,11 @@ We have successfully fixed several failing tests in the Minsky CLI project by im
 
 ## Remaining Issues
 
-1. **session/cd.test.ts** (now renamed to dir.test.ts):
-   - Needs updates to match implementation changes
-   - May need path resolution fixes
-
-2. **session/get.test.ts**:
-   - Module import errors suggesting API changes
-   - May need updates to match the test-helpers pattern
-
-3. **tasks/create.test.ts**:
+1. **tasks/create.test.ts**:
    - Commander library and readonly properties issues
    - Needs a more comprehensive mock of the Commander library
 
-4. **Lingering Timing Issues**:
+2. **Lingering Timing Issues**:
    - Some tests may still fail intermittently due to timing issues
    - Consider using the `--timeout` flag consistently for all test runs
 
