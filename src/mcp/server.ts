@@ -1,4 +1,13 @@
-import { FastMCP } from "fastmcp";
+import { FastMCP, UserError } from "fastmcp";
+import { IncomingMessage } from "http";
+
+/**
+ * Authentication context for MCP sessions
+ */
+export interface MCPAuthContext {
+  authenticated: boolean;
+  userId: string;
+}
 
 /**
  * Configuration options for the Minsky MCP server
@@ -55,6 +64,23 @@ export interface MinskyMCPServerOptions {
      */
     port?: number;
   };
+
+  /**
+   * Authentication options
+   */
+  auth?: {
+    /**
+     * Enable authentication
+     * @default false
+     */
+    enabled?: boolean;
+
+    /**
+     * API key for simple authentication
+     * If not provided, authentication is disabled regardless of enabled setting
+     */
+    apiKey?: string;
+  };
 }
 
 /**
@@ -82,33 +108,36 @@ export class MinskyMCPServer {
         endpoint: options.httpStream?.endpoint || "/stream",
         port: options.httpStream?.port || 8080,
       },
+      auth: {
+        enabled: options.auth?.enabled || false,
+        apiKey: options.auth?.apiKey
+      }
     };
 
     // Ensure name and version are not undefined for FastMCP
     const serverName = this.options.name || "Minsky MCP Server";
-    const serverVersion = this.options.version || "1.0.0";
 
-    this.server = new FastMCP({
+    const serverOptions = {
       name: serverName,
-      version: serverVersion,
+      // FastMCP requires version in x.y.z format
+      version: "1.0.0" as const,
       ping: {
         // Enable pings for network transports, disable for stdio
         enabled: this.options.transportType !== "stdio",
         intervalMs: 5000,
       },
       // Instructions for LLMs on how to use the Minsky MCP server
-      instructions: `
-        This server provides access to Minsky, a tool for managing AI-assisted development workflows.
-        You can use these tools to:
-        - Manage tasks and track their status
-        - Create and manage development sessions
-        - Perform git operations like commit, push, and PR creation
-        - Initialize new projects with Minsky
-        - Access and apply project rules
-        
-        All tools return structured JSON responses for easy processing.
-      `.trim(),
-    });
+      instructions: "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\nYou can use these tools to:\n- Manage tasks and track their status\n- Create and manage development sessions\n- Perform git operations like commit, push, and PR creation\n- Initialize new projects with Minsky\n- Access and apply project rules\n\nAll tools return structured JSON responses for easy processing."
+    };
+
+    // For simplicity in this implementation, we'll skip authentication for now
+    // and revisit it in a future task when we have a better understanding of 
+    // FastMCP's authentication requirements
+    this.server = new FastMCP(serverOptions);
+    
+    if (this.options.auth?.enabled && this.options.auth?.apiKey) {
+      console.log("Note: Authentication support is disabled in this version");
+    }
 
     // Listen for client connections
     this.server.on("connect", (event) => {
@@ -136,7 +165,7 @@ export class MinskyMCPServer {
         await this.server.start({
           transportType: "sse",
           sse: {
-            endpoint: `/sse`, // Endpoint must start with a / character
+            endpoint: "/sse", // Endpoint must start with a / character
             port: this.options.sse.port || 8080
           }
         });
@@ -144,7 +173,7 @@ export class MinskyMCPServer {
         await this.server.start({
           transportType: "httpStream",
           httpStream: {
-            endpoint: `/stream`, // Endpoint must start with a / character
+            endpoint: "/stream", // Endpoint must start with a / character
             port: this.options.httpStream.port || 8080
           }
         });
