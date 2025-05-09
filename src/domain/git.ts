@@ -4,6 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { normalizeRepoName } from "./repo-utils";
 import { SessionDB } from "./session";
+import { TaskService, TASK_STATUS } from "./tasks";
 
 const execAsync = promisify(exec);
 
@@ -33,6 +34,7 @@ export interface PrOptions {
   taskId?: string;
   branch?: string;
   debug?: boolean;
+  noStatusUpdate?: boolean;
 }
 
 // Added new interface for dependency injection to make testing easier
@@ -45,6 +47,11 @@ export interface PrDependencies {
 
 export interface PrResult {
   markdown: string;
+  statusUpdateResult?: {
+    taskId: string;
+    previousStatus: string | null;
+    newStatus: string;
+  };
 }
 
 export interface GitStatus {
@@ -86,9 +93,8 @@ export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
 
-  constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+  constructor(baseDir?: string) {
+    this.baseDir = baseDir || join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky", "git");
     this.sessionDb = new SessionDB();
   }
 
@@ -156,7 +162,55 @@ export class GitService {
       getSessionByTaskId: async (taskId) => this.sessionDb.getSessionByTaskId?.(taskId)
     };
     
-    return this.prWithDependencies(options, deps);
+    const result = await this.prWithDependencies(options, deps);
+    
+    try {
+      // Get repo path and branch for task resolution
+      const workdir = await this.determineWorkingDirectory(options, deps);
+      const branch = await this.determineCurrentBranch(workdir, options, deps);
+      
+      // Determine the task ID (from options, session, or branch name)
+      const taskId = await this.determineTaskId(options, workdir, branch, deps);
+      
+      // If task ID is found and status update is not disabled, update the task status
+      if (taskId && !options.noStatusUpdate) {
+        try {
+          // Create task service
+          const taskService = new TaskService({
+            workspacePath: workdir,
+            backend: "markdown"
+          });
+          
+          // Get current status for reporting
+          const previousStatus = await taskService.getTaskStatus(taskId);
+          
+          // Update to IN-REVIEW
+          await taskService.setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
+          
+          // Add status update info to result
+          result.statusUpdateResult = {
+            taskId,
+            previousStatus,
+            newStatus: TASK_STATUS.IN_REVIEW
+          };
+          
+          if (options.debug) {
+            console.error(`[DEBUG] Updated task ${taskId} status: ${previousStatus || 'unknown'} → ${TASK_STATUS.IN_REVIEW}`);
+          }
+        } catch (error) {
+          if (options.debug) {
+            console.error(`[DEBUG] Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          // Don't fail the PR generation if status update fails
+        }
+      }
+    } catch (error) {
+      if (options.debug) {
+        console.error(`[DEBUG] Task status update skipped: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    
+    return result;
   }
 
   /**
@@ -195,40 +249,30 @@ export class GitService {
   }
 
   /**
-   * Determine the working directory based on session, repoPath, or taskId
+   * Determine the working directory based on options
    */
   private async determineWorkingDirectory(options: PrOptions, deps: PrDependencies): Promise<string> {
-    if (options.session) {
-      const record = await deps.getSession(options.session);
-      if (!record) {
-        throw new Error(`Session '${options.session}' not found.`);
-      }
-      // Handle cases where repoName is missing in older records
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      return deps.getSessionWorkdir(repoName, options.session);
-    } else if (options.repoPath) {
+    if (options.repoPath) {
       return options.repoPath;
-    } else if (options.taskId && deps.getSessionByTaskId) {
-      // First, normalize the task ID by removing the hash prefix if it exists
-      const normalizedTaskId = options.taskId.startsWith("#") ? options.taskId : `#${options.taskId}`;
-      
-      // Use the sessionDb to find a session associated with this task
-      const sessionRecord = await deps.getSessionByTaskId(normalizedTaskId);
-      if (!sessionRecord) {
-        throw new Error(`No session found for task '${normalizedTaskId}'.`);
-      }
-      
-      const repoName = sessionRecord.repoName || normalizeRepoName(sessionRecord.repoUrl);
-      const workdir = deps.getSessionWorkdir(repoName, sessionRecord.session);
-      
-      if (options.debug) {
-        console.error(`[DEBUG] Using session '${sessionRecord.session}' for task '${normalizedTaskId}'`);
-      }
-      
-      return workdir;
-    } else {
-      throw new Error("Either session, repoPath, or taskId must be provided");
     }
+    
+    if (options.session) {
+      const session = await deps.getSession(options.session);
+      if (!session) {
+        throw new Error(`Session '${options.session}' not found`);
+      }
+      return deps.getSessionWorkdir(session.repoName, session.session);
+    }
+    
+    if (options.taskId) {
+      const session = await deps.getSessionByTaskId?.(options.taskId);
+      if (!session) {
+        throw new Error(`No session found for task '${options.taskId}'`);
+      }
+      return deps.getSessionWorkdir(session.repoName, session.session);
+    }
+    
+    throw new Error("Either session, repoPath, or taskId must be provided");
   }
 
   /**
@@ -761,5 +805,45 @@ export class GitService {
       }
       throw new Error(err.stderr || err.message || String(err));
     }
+  }
+
+  /**
+   * Determine the task ID associated with the current operation
+   */
+  private async determineTaskId(options: PrOptions, workdir: string, branch: string, deps: PrDependencies): Promise<string | undefined> {
+    // 1. Use the explicitly provided task ID if available
+    if (options.taskId) {
+      if (options.debug) {
+        console.error(`[DEBUG] Using provided task ID: ${options.taskId}`);
+      }
+      return options.taskId;
+    }
+    
+    // 2. Try to get task ID from session metadata
+    if (options.session) {
+      const session = await deps.getSession(options.session);
+      if (session && session.taskId) {
+        if (options.debug) {
+          console.error(`[DEBUG] Found task ID in session metadata: ${session.taskId}`);
+        }
+        return session.taskId;
+      }
+    }
+    
+    // 3. Try to parse task ID from branch name (format: task#XXX)
+    const taskIdMatch = branch.match(/task#(\d+)/);
+    if (taskIdMatch && taskIdMatch[1]) {
+      const taskId = `#${taskIdMatch[1]}`;
+      if (options.debug) {
+        console.error(`[DEBUG] Parsed task ID from branch name: ${taskId}`);
+      }
+      return taskId;
+    }
+    
+    // No task ID could be determined
+    if (options.debug) {
+      console.error(`[DEBUG] No task ID could be determined`);
+    }
+    return undefined;
   }
 }

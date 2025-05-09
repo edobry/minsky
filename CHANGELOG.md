@@ -67,6 +67,12 @@
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
+- Automated task status updates at key workflow points:
+  - The `session start` command now automatically sets task status to IN-PROGRESS when started with `--task`
+  - The `git pr` command now automatically sets task status to IN-REVIEW when generating a PR
+  - Both commands support a `--no-status-update` flag to skip the automatic update
+  - Both commands show feedback about the status update operation
+  - Task ID is intelligently resolved from options, session metadata, or branch name
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
