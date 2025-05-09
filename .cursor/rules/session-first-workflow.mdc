@@ -25,10 +25,44 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 - **Never copy files from the session workspace back to the main workspace manually.**  
   All changes must be merged via the session branch after review.
 
-## 3. Edit Location Verification
+## 3. Core Practices for Session File Integrity
 
-- Before any file edit, verify that the file path is within the session workspace directory.
-- Any attempt to edit a file outside the session workspace is a hard error and must be aborted immediately.
+This section outlines the non-negotiable rules for file handling and editing within an active Minsky session workspace. Adherence is critical for maintaining session integrity, preventing unintended changes to the main workspace, and ensuring traceability.
+
+### 3.1. Absolute Path Mandate for All Operations
+
+- **Universal Requirement:** When working within a session directory, you **MUST ALWAYS use absolute paths** for any file operation (e.g., edit, read, diff, list). This applies to all tools and manual actions.
+- **Correct Example:** `/Users/username/.local/state/minsky/git/your-repo/sessions/task#123/src/file.ts`
+- **Incorrect Example (RISK OF MAIN WORKSPACE MODIFICATION):** `src/file.ts`
+
+- **Rationale:** Many tools (including the `edit_file` tool) and system commands may resolve relative paths against the main workspace root by default, *not* the current shell directory, even if your terminal is currently located within the session directory. Using relative paths can lead to silent, unintended modifications to the main workspace, corrupting its state.
+
+### 3.2. Pre-Operation Verification (Mandatory)
+
+Before any file operation (especially edits), the following verifications **MUST** be performed:
+
+1.  **Confirm Session Directory:** Ensure the active Minsky session directory path is known and correct.
+2.  **Validate Target Path:** The absolute path of the target file **MUST** be constructed and validated to ensure it unequivocally resides *within* the confirmed session directory. (This incorporates the previous "3. Edit Location Verification" rule).
+3.  **Existence Check (Highly Recommended):** Before editing, verify the file exists at the constructed absolute session path (e.g., using `ls -la <absolute_path_within_session>`).
+
+### 3.3. Strict Enforcement and Error Handling
+
+1.  **Reject/Abort on Workspace Mismatch:** Any attempt to operate on a file using a relative path, or an absolute path that falls outside the current session directory, **MUST** be immediately aborted. This constitutes a hard error.
+2.  **Rule Violation = Immediate Stop:** Any violation of these file handling rules is a critical error. Do not attempt to "fix" or proceed after such a violation. The operation **MUST** stop, and the error must be clearly reported to allow for explicit user intervention or correction of the intended file path.
+
+### 3.4. Audit Trail for Edits
+
+- For traceability, every file edit performed by an AI or automated tool **MUST** log:
+    - The confirmed absolute session directory path.
+    - The absolute path of the file being edited.
+- **Example Log Message (to be outputted before an edit operation):**
+  ```
+  Minsky Session Edit Pre-Check:
+  - Session Directory: /Users/username/.local/state/minsky/git/your-repo/sessions/task#123
+  - Target File (Absolute): /Users/username/.local/state/minsky/git/your-repo/sessions/task#123/src/file.ts
+  Proceeding with edit...
+  ```
+- This logging should primarily be in the AI/tool's direct output to the user. Optional logging to a `.session-edit-log` file can also be considered.
 
 ## 4. No Temporary or Test-Only Main Workspace Changes
 
@@ -48,46 +82,28 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 - This ensures all work is traceable, reviewable, and isolated to the session, preventing accidental pollution or loss of context in the main workspace.
 - It guarantees that the main workspace remains stable and unaffected by in-progress work.
 
-## 8. AI Tool Usage Guidelines
+## 8. Guidelines for AI `edit_file` Tool Usage
 
-### File Editing Tools
+When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for Session File Integrity (Section 3)**, with special attention to the following:
 
-- When using the `edit_file` tool, **ALWAYS use absolute paths** that begin with the session workspace directory.
-- Correct format: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>/path/to/file`
-- Incorrect format: `path/to/file` (relative paths will modify files in the main workspace)
-- Before each edit, output a verification message confirming the absolute path being edited:
+- **Absolute Path Construction:** The `target_file` argument for `edit_file` **MUST** be an absolute path, constructed as per Section 3.2 (e.g., by prepending the known session directory to the relative path of the file within the project).
+
+- **`edit_file` Tool Behavior Reminder:** Be acutely aware that the `edit_file` tool (like many others) resolves relative paths against the **main workspace root**, not the current shell's working directory. This makes using absolute paths derived from the session directory non-negotiable.
+
+- **Mandatory Pre-Edit Verification Message:** Before every call to `edit_file`, the AI **MUST** output the verification message detailed in Section 3.4 (Audit Trail for Edits).
+
+- **Example `edit_file` Invocation:**
+  ```typescript
+  // Assume:
+  // const sessionDirectory = "/Users/username/.local/state/minsky/git/your-repo/sessions/task#123";
+  // const filePathRelativeToProject = "src/app/components/my-component.ts";
+  const absolutePathInSession = `${sessionDirectory}/${filePathRelativeToProject}`;
+
+  // Log verification message (as per Section 3.4)
+  console.log(`Minsky Session Edit Pre-Check:\n- Session Directory: ${sessionDirectory}\n- Target File (Absolute): ${absolutePathInSession}\nProceeding with edit...`);
+
+  // Call edit_file with the absolute path
+  // edit_file(target_file = absolutePathInSession, code_edit = "...your code edit...", instructions = "...");
   ```
-  Editing file in session workspace:
-  - Session directory: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN
-  - Target file: /Users/username/.local/state/minsky/git/repo/sessions/task#NNN/src/path/to/file
-  ```
-- The `edit_file` tool resolves relative paths against the main workspace root, NOT the current terminal directory.
-- CRITICAL: Even if your terminal is in the session workspace, the `edit_file` tool will still use the main workspace as its root for relative paths.
-
-### Automated Verification Process
-
-1. **Before any edit_file call**:
-   - Get current session directory: `/Users/<username>/.local/state/minsky/git/<repo>/sessions/<session>`
-   - Construct absolute path: `<session_dir>/path/to/file`
-   - Verify the file exists: `ls -la <absolute_path>`
-   - Only then proceed with `edit_file` using the absolute path
-
-### Example Edit Pattern
-
-```
-// CORRECT - Uses absolute path with session directory prefix
-edit_file("/Users/username/.local/state/minsky/git/repo/sessions/task#123/src/file.ts", ...)
-
-// INCORRECT - Uses relative path which modifies main workspace
-edit_file("src/file.ts", ...)
-```
 
 ---
-
-### Rule Description (for discoverability and relevance)
-
-**Description:**  
-This rule applies to all code, test, configuration, fixture, and documentation changes for a task.  
-It requires that all such changes be made exclusively within the session workspace created by the Minsky CLI, which is a full, isolated clone of the repository.  
-No changes may be made to the main workspace during an active session, except for the final merge after review.  
-This rule is relevant to any operation that could affect the outcome of tests, builds, or code reviews for a task, including but not limited to source code, test files, fixtures, and configuration files.

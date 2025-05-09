@@ -124,8 +124,11 @@ minsky tasks get --repo /path/to/repo #001
 # Get the status of a task
 minsky tasks status get --repo /path/to/repo #001
 
-# Set the status of a task
+# Set the status of a task (with explicit status)
 minsky tasks status set --repo /path/to/repo #001 DONE
+
+# Set the status of a task (interactive prompt)
+minsky tasks status set --repo /path/to/repo #001
 ```
 
 **Options:**
@@ -141,6 +144,7 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 - Aggregates indented lines as task descriptions
 - Extensible: future support for GitHub Issues and other backends
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
+- Interactive status selection when no status is provided to `tasks status set`
 
 ## Task Workspace Detection
 

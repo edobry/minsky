@@ -48,11 +48,17 @@ describe("createStartCommand", () => {
     };
     
     // Mock process.exit
-    process.exit = () => undefined as never;
+    process.exit = mock((code = 0) => {
+      throw new Error(`Exit with code: ${code}`);
+    });
     
     // Clear log and error calls
     logCalls.length = 0;
     errorCalls.length = 0;
+    
+    // Reset mock calls
+    mockStartSession.mockClear();
+    mockResolveRepoPath.mockClear();
   });
   
   afterEach(() => {
