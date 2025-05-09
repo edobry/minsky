@@ -183,12 +183,13 @@ _See: SpecStory history [2025-05-08_test-fixes](.specstory/history/2025-05-08_te
 - Updated `minsky-workflow.mdc` rule to clarify session creation options
 - Fixed session tests that were failing when run as part of the full test suite
 - Fixed test environment variable handling to prevent test interference
-- Added proper timeout management using Bun's `--timeout` flag instead of Jest-style timeouts
 - Improved subprocess error handling in tests
 - Added unique test directories with timestamps and random suffixes to prevent collisions
 - Fixed Bun test compatibility issues by replacing Jest-specific patterns
 - Fixed type errors in test files related to Bun's test environment
 - Updated test assertions to be compatible with Bun's test API
+- Identified and documented remaining test issues with session database management and path resolution
+- Created comprehensive documentation on resolving test isolation issues for future work
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 
