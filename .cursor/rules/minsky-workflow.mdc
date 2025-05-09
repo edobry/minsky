@@ -134,10 +134,9 @@ After every file edit in a session directory, verify the changes are actually pr
 
 ## Request Interpretation and Workflow Priority
 
-1. **Always interpret requests based on their literal meaning in the project context**
-   - "Create a task" means creating a task specification document, not implementing code
-   - "Implement" or "code" refers to writing the actual implementation
-   - When in doubt, default to task specification over implementation
+1. **Always interpret requests based on their literal meaning in the project context.**
+   - For detailed guidance on interpreting requests related to task creation, including the distinction between task specification and implementation, refer to the `@creating-tasks.mdc` rule.
+   - "Implement" or "code" generally refers to writing the actual implementation for an existing, specified task.
 
 2. **Request Type Recognition**
    - Categorize requests as either "specifying work" or "implementing work"
@@ -182,10 +181,8 @@ When asked to work on a task (by name, description, or ID):
      > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
 
 2. **Check Task Status**
-   - Before starting any work, check the current status of the task:
-     ```bash
-     minsky tasks status get '#001'
-     ```
+   - Before starting any work, check the current status of the task using `minsky tasks status get '#<task-id>'`.
+   - For a more thorough verification of the task's actual implementation state versus its tracked status, especially if discrepancies are suspected, refer to the `@task-status-verification.mdc` protocol.
    - Task status meanings:
      - `TODO`: Not started, available to work on
      - `IN-PROGRESS`: Work has begun but is not complete
@@ -382,6 +379,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```
      process/tasks/<task-id>/pr.md
      ```
+   - **For guidelines on the content and formatting of the PR description itself, refer to the `@pr-description-guidelines.mdc` rule.**
    - Commit this PR description file
 
 2. **Finalization**

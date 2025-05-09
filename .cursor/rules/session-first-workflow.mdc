@@ -107,11 +107,3 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
   ```
 
 ---
-
-### Rule Description (for discoverability and relevance)
-
-**Description:**  
-This rule applies to all code, test, configuration, fixture, and documentation changes for a task.  
-It requires that all such changes be made exclusively within the session workspace created by the Minsky CLI, which is a full, isolated clone of the repository.  
-No changes may be made to the main workspace during an active session, except for the final merge after review.  
-This rule is relevant to any operation that could affect the outcome of tests, builds, or code reviews for a task, including but not limited to source code, test files, fixtures, and configuration files.
