@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { SessionDB } from "../../domain/session";
+import { SessionDB } from "../../domain/session.js";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { createInterface } from "readline";
@@ -17,9 +17,13 @@ export function createDeleteCommand(): Command {
         const session = await db.getSession(sessionName);
         
         if (!session) {
-          const errorMessage = `Session '${sessionName}' not found.`;
+          const errorMessage = `Session "${sessionName}" not found.`;
           if (options.json) {
-            console.log(JSON.stringify({ success: false, error: errorMessage }));
+            console.log(JSON.stringify({ 
+              success: false, 
+              error: errorMessage,
+              session: sessionName 
+            }));
           } else {
             console.error(errorMessage);
           }
@@ -29,13 +33,17 @@ export function createDeleteCommand(): Command {
         // Confirm before deletion unless --force is used
         if (!options.force) {
           const answer = await promptConfirmation(
-            `Are you sure you want to delete session '${sessionName}' and its repository? This action cannot be undone. (y/n): `
+            `Are you sure you want to delete session "${sessionName}" and its repository? This action cannot be undone. (y/n): `
           );
           
           if (!answer) {
             const message = "Deletion cancelled.";
             if (options.json) {
-              console.log(JSON.stringify({ success: false, message }));
+              console.log(JSON.stringify({ 
+                success: false, 
+                message,
+                session: sessionName
+              }));
             } else {
               console.log(message);
             }
@@ -58,6 +66,7 @@ export function createDeleteCommand(): Command {
             console.log(JSON.stringify({ 
               success: false, 
               error: errorMessage,
+              session: sessionName,
               repoDeleted: false,
               recordDeleted: false
             }));
@@ -84,6 +93,7 @@ export function createDeleteCommand(): Command {
               console.log(JSON.stringify({ 
                 success: false, 
                 error: errorMessage,
+                session: sessionName,
                 repoDeleted: true,
                 recordDeleted: false,
                 warning: "Repository was deleted but session record remains. Database might be in an inconsistent state."
@@ -97,11 +107,12 @@ export function createDeleteCommand(): Command {
         }
         
         // Success case
-        const successMessage = `Session '${sessionName}' successfully deleted.`;
+        const successMessage = `Session "${sessionName}" successfully deleted.`;
         if (options.json) {
           console.log(JSON.stringify({ 
             success: true, 
             message: successMessage,
+            session: sessionName,
             repoDeleted,
             recordDeleted
           }));
@@ -112,7 +123,11 @@ export function createDeleteCommand(): Command {
         const errorMessage = `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
         
         if (options.json) {
-          console.log(JSON.stringify({ success: false, error: errorMessage }));
+          console.log(JSON.stringify({ 
+            success: false, 
+            error: errorMessage,
+            session: sessionName
+          }));
         } else {
           console.error(errorMessage);
         }

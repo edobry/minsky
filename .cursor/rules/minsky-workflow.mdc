@@ -268,6 +268,27 @@ When asked to create a new task:
 
 ## Session Management
 
+### Session Creation Options
+
+- **Session creation is flexible**
+  - Sessions can be created with just a name: `minsky session start <name>`
+  - Sessions can be created with a task association: `minsky session start --task <id>`
+  - Task association is optional and depends on the work context
+  
+- **When to use each option**
+  - Use named sessions (without tasks) for:
+    - General testing/fixes
+    - Exploratory work
+    - Temporary changes
+    - Work not associated with a specific task
+  - Use task-associated sessions for:
+    - Implementing a specific task
+    - Work that will be tracked in the task system
+    
+- **Verification step**
+  - Always verify the appropriate session creation approach based on the work context
+  - Never assume a task ID is required when a simple named session would suffice
+
 ### Starting a New Session
 
 1. **Create a Task Session (Using --quiet is MANDATORY)**

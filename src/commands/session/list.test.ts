@@ -1,36 +1,100 @@
-import { describe, test, expect, afterEach } from "bun:test";
-import { writeFileSync, rmSync, mkdirSync } from "fs";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { writeFileSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
+import { 
+  createUniqueTestDir, 
+  cleanupTestDir, 
+  setupMinskyTestEnv, 
+  createTestEnv, 
+  standardSpawnOptions
+} from "../../utils/test-helpers.ts";
+import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 
-const CLI = "src/cli.ts";
-const SESSION_DB_PATH = join(process.env.XDG_STATE_HOME || "/tmp", "minsky", "session-db.json");
+// Create a unique test directory
+const TEST_DIR = createUniqueTestDir("minsky-session-list-test");
+let testEnv: MinskyTestEnv;
+let sessionDbPath: string;
 
-function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; branch: string; createdAt: string }>) {
-  mkdirSync(join(process.env.XDG_STATE_HOME || "/tmp", "minsky"), { recursive: true });
-  writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
+// Path to the CLI entry point
+const CLI = join(process.cwd(), "src/cli.ts");
+
+// Helper to setup session DB with consistent structure
+function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName?: string; branch?: string; createdAt: string }>) {
+  // Setup the test environment
+  testEnv = setupMinskyTestEnv(TEST_DIR);
+  sessionDbPath = testEnv.sessionDbPath;
+  
+  // Create sessions with consistent data
+  const normalizedSessions = sessions.map(session => ({
+    ...session,
+    // Ensure repoName is always set for consistency
+    repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
+    // Ensure branch is defined
+    branch: session.branch || ""
+  }));
+  
+  // Write to the database file
+  writeFileSync(sessionDbPath, JSON.stringify(normalizedSessions, null, 2));
+  
+  // Log for debugging
+  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+}
+
+// Helper to run CLI command with proper environment
+function runCliCommand(args: string[], additionalEnv: Record<string, string> = {}) {
+  const env = createTestEnv(TEST_DIR, additionalEnv);
+  const options = {
+    ...standardSpawnOptions(),
+    env
+  };
+  
+  // Run the command
+  const result = spawnSync("bun", ["run", CLI, ...args], options);
+  
+  // Log output for debugging
+  console.log(`Command stdout: ${result.stdout}`);
+  console.log(`Command stderr: ${result.stderr}`);
+  
+  return {
+    stdout: result.stdout as string,
+    stderr: result.stderr as string,
+    status: result.status
+  };
 }
 
 describe("minsky session list CLI", () => {
+  beforeEach(() => {
+    // Clean up any existing test directories
+    cleanupTestDir(TEST_DIR);
+  });
+  
   afterEach(() => {
-    rmSync(SESSION_DB_PATH, { force: true });
+    // Clean up test directories
+    cleanupTestDir(TEST_DIR);
   });
 
   test("prints human output when sessions exist", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01" },
-      { session: "bar", repoUrl: "https://repo2", branch: "", createdAt: "2024-01-02" }
+      { session: "foo", repoUrl: "https://repo", repoName: "repo", branch: "main", createdAt: "2024-01-01" },
+      { session: "bar", repoUrl: "https://repo2", repoName: "repo2", createdAt: "2024-01-02" }
     ]);
-    const { stdout } = spawnSync("bun", ["run", CLI, "session", "list"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
+    
+    const { stdout, stderr } = runCliCommand(["session", "list"]);
+    expect(stderr).toBe("");
     expect(stdout).toContain("Session: foo");
     expect(stdout).toContain("Session: bar");
   });
 
   test("prints JSON output with --json", () => {
     setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01" }
+      { session: "foo", repoUrl: "https://repo", repoName: "repo", branch: "main", createdAt: "2024-01-01" }
     ]);
-    const { stdout } = spawnSync("bun", ["run", CLI, "session", "list", "--json"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
+    
+    const { stdout, stderr } = runCliCommand(["session", "list", "--json"]);
+    expect(stderr).toBe("");
+    
     const parsed = JSON.parse(stdout);
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed[0].session).toBe("foo");
@@ -38,13 +102,17 @@ describe("minsky session list CLI", () => {
 
   test("prints [] for --json when no sessions", () => {
     setupSessionDb([]);
-    const { stdout } = spawnSync("bun", ["run", CLI, "session", "list", "--json"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
+    
+    const { stdout, stderr } = runCliCommand(["session", "list", "--json"]);
+    expect(stderr).toBe("");
     expect(stdout.trim()).toBe("[]");
   });
 
   test("prints human message when no sessions", () => {
     setupSessionDb([]);
-    const { stdout } = spawnSync("bun", ["run", CLI, "session", "list"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
+    
+    const { stdout, stderr } = runCliCommand(["session", "list"]);
+    expect(stderr).toBe("");
     expect(stdout).toContain("No sessions found.");
   });
 }); 

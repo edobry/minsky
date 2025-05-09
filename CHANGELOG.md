@@ -79,6 +79,11 @@
   - Status filter message when using `--status` option (e.g., "Showing tasks with status 'TODO'")
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
+<<<<<<< HEAD
+- New `test-helpers.ts` utility module with reusable functions for test isolation, environment setup, and error handling
+- Standardized test environment management with consistent resource cleanup
+- Type-safe test helper functions for subprocess execution and error handling
+=======
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
 - Automated task status updates at key workflow points:
   - The `session start` command now automatically sets task status to IN-PROGRESS when started with `--task`
@@ -89,6 +94,7 @@
 - Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
 - Task: Add Session Information to Task Details [#043](process/tasks/043-add-session-information-to-task-details.md)
 - New `test-infrastructure-patterns` cursor rule capturing best practices for test isolation, environment setup, and CLI testing from our test fixes work. The rule includes patterns for creating unique test directories, standardizing environment setup, properly mocking dependencies, and debugging test failures.
+>>>>>>> origin/main
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
@@ -123,7 +129,23 @@ _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/hi
 - Normalize task IDs consistently by ensuring the '#' prefix is added if missing
 - Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
 - Enhanced task creation workflow to support both title formats: `# Task: Title` (without a task number) and `# Task #XXX: Title` (with a task number). The CLI now automatically assigns the next available task number when no number is provided, updates the title in the file, and renames the file to match the assigned number and title.
+- Improved session test files (list.test.ts, startSession.test.ts) with better isolation and error handling
+- Updated tasks list test with better subprocess error checking
+- Removed Jest-specific code that doesn't work in Bun's test environment
+- Added proper error checking for subprocess execution in tests
 
+<<<<<<< HEAD
+_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
+_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
+_See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
+_See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.specstory/history/2025-04-29_18-50-task-002-per-repo-session-storage.md) for task #002 implementation._
+_See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
+_See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
+_See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
+_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
+_See: SpecStory history [2025-05-08_test-fixes](.specstory/history/2025-05-08_test-fixes.md) for test fixes implementation._
+=======
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
@@ -134,6 +156,7 @@ _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specsto
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
 _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
 _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
+>>>>>>> origin/main
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -193,6 +216,24 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Updated SessionRecord interface usage to remove the non-existent 'branch' property
   - Fixed repo-utils.test.ts to use proper mocking techniques compatible with Bun's test API
   - Updated test files to use 'test' instead of 'it' for compatibility with Bun's test API
+<<<<<<< HEAD
+- Fixed test expectations in `session/get.test.ts` to match actual error message format with double quotes
+- Fixed test expectations in `tasks/list.test.ts` to use regex patterns instead of specific task IDs
+- Fixed linter errors in test files by replacing `.not.toBe()` with `!== 0` checks
+- Fixed linter errors in test files by replacing `.not.toContain()` with `.includes().toBe(false)`
+- Fixed import paths in test files by adding `.js` extensions
+- Fixed `startSession.test.ts` by updating test expectations to match the actual implementation
+- Updated `minsky-workflow.mdc` rule to clarify session creation options
+- Fixed session tests that were failing when run as part of the full test suite
+- Fixed test environment variable handling to prevent test interference
+- Improved subprocess error handling in tests
+- Added unique test directories with timestamps and random suffixes to prevent collisions
+- Fixed Bun test compatibility issues by replacing Jest-specific patterns
+- Fixed type errors in test files related to Bun's test environment
+- Updated test assertions to be compatible with Bun's test API
+- Identified and documented remaining test issues with session database management and path resolution
+- Created comprehensive documentation on resolving test isolation issues for future work
+=======
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
@@ -207,6 +248,7 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Updated test assertions to be more resilient to minor output differences
   - Fixed several tests to use individual test directories to prevent interference
   - Added proper cleanup between tests to ensure test isolation
+>>>>>>> origin/main
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
@@ -218,6 +260,8 @@ _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specsto
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
 _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation progress._
 _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
+
+_See: SpecStory history [2024-05-14_00-00-fix-test-errors](.specstory/history/2024-05-14_00-00-fix-test-errors.md) for additional test fixes._
 
 ### Security
 - Sanitized external command execution to prevent shell injection
