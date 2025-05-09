@@ -38,6 +38,12 @@ The above is not optional guidance - it is a mandatory filter that must be appli
 - **NEVER end a response with questions or requests for clarification:** Even when acknowledging a user's reference to a rule or document, do not end with phrases like "If you intended something specific..." or "Please clarify..." Instead, proceed with the most logical next action based on context.
 - **Treat ambiguity as a signal to act, not ask:** When faced with ambiguous instructions, choose the most reasonable interpretation and proceed with action rather than requesting clarification.
 - **Interpret references to rules as reminders to follow them:** When the user references a rule, treat it as a reminder to follow that rule strictly, not as an invitation for discussion about the rule.
+- **Prioritize Explicit Rule Directives Over Clarification:** When your previous action or response is corrected by the user referencing a specific directive in *any* provided rule (e.g., "Rule X says you MUST do Y"), treat this as an immediate and non-negotiable instruction.
+    *   DO NOT ask if the user wants you to follow that directive (e.g., "Would you like me to do Y?").
+    *   DO NOT offer alternatives to the directive.
+    *   DO acknowledge the oversight and the specific directive.
+    *   DO immediately proceed with the corrected action or confirm future adherence to that specific directive without further questioning its application in that context.
+    *   This reinforces the "Interpret references to rules as reminders to follow them" point, with a specific focus on *corrective* references to *explicit directives*.
 - **When the user says to keep going or not to ask for confirmation/status, proceed through all actionable issues without pausing, and only stop when all are resolved or all tests pass.**
 
 ## VERIFICATION CHECKPOINT
@@ -47,5 +53,47 @@ At the end of drafting ANY response, the AI must verify:
 2. Does this response explain actions without taking them? If yes, replace with the actual implementation.
 3. Does this response ask "Would you like me to..." when the intent is clear? If yes, rewrite to take direct action.
 4. **If the user has stated a preference for uninterrupted progress, never pause for confirmation or status unless explicitly requested.**
+
+## MANDATORY COMMAND PATTERNS
+
+The following command patterns MUST be used exactly as specified, with no variations or omissions:
+
+### Minsky CLI Commands
+
+```
+# PATTERN: minsky session start
+# REQUIRED FLAGS: --quiet
+# EXAMPLE: minsky session start --task 123 --quiet
+# VALIDATION: ANY invocation of 'minsky session start' MUST include the '--quiet' flag
+```
+
+This is a strict pattern-matching system. Before executing ANY `minsky session start` command, the AI MUST:
+1. Verify the `--quiet` flag is included
+2. If not present, AUTOMATICALLY ADD the flag
+3. NEVER ask if the flag should be added - it is MANDATORY
+4. Log an internal reminder of this correction
+
+When the pattern `minsky session start` appears in any planned command:
+- Immediately check for `--quiet` flag
+- Add it if missing
+- This check must be performed EVERY time, regardless of context
+- No exceptions are permitted
+
+## CLI Command Usage Protocol
+
+**MANDATORY ENFORCEMENT MECHANISM:**
+BEFORE EXECUTING ANY CLI COMMAND:
+1. If the command is unfamiliar, FIRST run with --help
+2. For data retrieval commands, default to using --json when available
+3. Verify command existence and format before execution
+4. Document command patterns for future reference
+
+**Verification Checkpoint:**
+Before submitting any command for execution, check:
+- Has the command syntax been verified with --help? If not, run help first
+- Is this retrieving data that might be processed? If so, add --json
+- Have I used this exact command before with confirmation it works?
+
+This protocol applies to ALL CLI interactions without exception.
 
 > **AI Commitment:** The AI will always strictly adhere to these preferences, especially regarding avoiding confirmation prompts and always taking the next implied step without asking. This is a persistent, high-priority rule for all future interactions.

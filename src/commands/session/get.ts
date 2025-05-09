@@ -1,8 +1,8 @@
 import { Command } from "commander";
-import { SessionDB } from "../../domain/session";
-import { normalizeTaskId } from "../../utils/task-utils";
-import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace";
-import type { SessionCommandDependencies } from "./index";
+import { SessionDB } from "../../domain/session.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
+import type { SessionCommandDependencies } from "./index.js";
 
 export function createGetCommand(dependencies: SessionCommandDependencies = {}): Command {
   // Use provided dependency or fall back to default

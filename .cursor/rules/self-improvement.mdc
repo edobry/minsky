@@ -76,6 +76,25 @@ Based on your analysis:
    - If no user-preferences rule exists, propose creating one
    - Update the most relevant rule based on the preference
 
+## Immediate Implementation Requirement
+
+**CRITICAL:** After identifying required rule changes, they MUST be implemented immediately:
+
+1. **No "talking about changes" without making them**:
+   - NEVER merely describe what changes should be made
+   - IMMEDIATELY perform the file edit operation after analysis
+   - Verify the edit was successfully applied
+
+2. **Implementation verification**:
+   - After making a rule change, verify it was actually committed
+   - If the user points out the change was not made, skip re-analysis and immediately implement
+   - Use concrete actions, not plans or intentions
+
+3. **Meta-error prevention**:
+   - If caught describing changes without implementing them, treat this as a critical protocol failure
+   - Immediately make the change without further discussion
+   - This is considered a serious violation of the self-improvement framework
+
 ## Rule Update Protocol
 
 When updating rules based on user feedback:
