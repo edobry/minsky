@@ -227,6 +227,15 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Fixed workspace validation in tasks/list.test.ts by correctly setting up required Minsky project structure
   - Improved error handling and debug logging for test failures
   - Created more robust helper functions for test setup and cleanup
+- Fixed import extensions in test files to use .ts instead of .js
+  - Updated imports in cd.test.ts and gitServiceTaskStatusUpdate.test.ts
+  - Consistently used double quotes for string literals
+  - Fixed environment variable handling in session tests
+- Enhanced session test error handling and logging:
+  - Added detailed verification of directory and file creation
+  - Improved error messages for file system operations
+  - Added robust error handling with try/catch blocks around file operations
+  - Added parent directory creation checks before file write operations
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._

@@ -30,11 +30,9 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
   testEnv = setupMinskyTestEnv(TEST_DIR);
   sessionDbPath = testEnv.sessionDbPath;
   
-  // Create the minsky directory structure
-  const minskyDir = join(TEST_DIR, "minsky");
-  
   try {
-    // Ensure minsky directory exists
+    // Create the minsky directory structure
+    const minskyDir = join(TEST_DIR, "minsky");
     if (!existsSync(minskyDir)) {
       mkdirSync(minskyDir, { recursive: true });
     }
@@ -45,11 +43,11 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       mkdirSync(sessionDbDir, { recursive: true });
     }
     
-    // Write the session database with explicit file path
+    // Write the session database
     writeFileSync(
       sessionDbPath,
       JSON.stringify(sessions, null, 2),
-      { encoding: 'utf8' }
+      { encoding: "utf8" }
     );
     
     // Verify the file was written and exists
@@ -57,12 +55,15 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       throw new Error(`Session DB file not created at ${sessionDbPath}`);
     }
     
-    // Log success for debugging
+    // Log for debugging
     console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
     console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
     console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+    console.log(`Test directory exists: ${existsSync(TEST_DIR)}`);
+    console.log(`Minsky directory exists: ${existsSync(minskyDir)}`);
+    console.log(`SessionDB directory exists: ${existsSync(sessionDbDir)}`);
   } catch (error) {
-    console.error(`Error setting up session DB: ${error}`);
+    console.error(`Error in setupSessionDb: ${error}`);
     throw error;
   }
 }
@@ -192,7 +193,6 @@ describe("minsky session get CLI", () => {
     setupSessionDb([]);
     const { stdout, stderr, status } = runCliCommand(["session", "get"], { MINSKY_IGNORE_WORKSPACE: "true" }); // Mock not being in a workspace
     expect(status !== 0).toBe(true);
-    // Check if stderr contains the expected message
     expect(stderr).toContain("Not in a session workspace");
     expect(stdout).toBe("");
   });
@@ -204,4 +204,9 @@ describe("minsky session get CLI", () => {
     expect(stderr).toContain("You must provide either a session name or --task");
     expect(stdout).toBe("");
   });
+
+  // The following test would require complex mocking of the getCurrentSession function
+  // This is a placeholder test description for what should be tested
+  // A more complete integration test would simulate a real session workspace environment
+  // TODO: auto-detects the current session when in a session workspace
 }); 

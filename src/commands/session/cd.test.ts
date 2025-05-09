@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
-import { SessionDB } from "../../domain/session.js";
-import type { SessionRecord } from "../../domain/session.js";
+import { SessionDB } from "../../domain/session.ts";
+import type { SessionRecord } from "../../domain/session.ts";
 
 // Path to the CLI entry point - use absolute path to avoid path resolution issues
 // Make sure the CLI path is correct by resolving it from the current working directory

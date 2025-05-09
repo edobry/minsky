@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { GitService } from "../git.js";
+import { GitService } from "../git.ts";
 
 describe("GitService task status update", () => {
   test("mock test to bypass failures", () => {
