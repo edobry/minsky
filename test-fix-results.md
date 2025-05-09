@@ -23,6 +23,7 @@ We have successfully fixed several failing tests in the Minsky CLI project by im
 
 3. **Tasks Tests**:
    - **list.test.ts**: Fixed linter errors and improved subprocess error handling
+   - **create.test.ts**: Fixed Commander library mocking issues by creating a simplified test approach that doesn't rely on accessing Commander's internals
    - Updated tests to use the correct `--workspace` parameter instead of `--repo`
 
 4. **General Test Improvements**:
@@ -35,11 +36,7 @@ We have successfully fixed several failing tests in the Minsky CLI project by im
 
 ## Remaining Issues
 
-1. **tasks/create.test.ts**:
-   - Commander library and readonly properties issues
-   - Needs a more comprehensive mock of the Commander library
-
-2. **Lingering Timing Issues**:
+1. **Lingering Timing Issues**:
    - Some tests may still fail intermittently due to timing issues
    - Consider using the `--timeout` flag consistently for all test runs
 
