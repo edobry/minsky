@@ -55,3 +55,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
 
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
+
+- [ ] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
