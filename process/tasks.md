@@ -42,7 +42,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
 - [-] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
 - [ ] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](tasks/037-session-commit-command.md)
-- [ ] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
+- [x] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
 
 - [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
