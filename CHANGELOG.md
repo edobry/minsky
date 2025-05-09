@@ -67,6 +67,7 @@
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
+- Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -74,6 +75,7 @@ _See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-r
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
 _See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md) for implementation details._
 _See: SpecStory history [task-id-format-support-specification](.specstory/history/task-id-format-support-specification.md) for task creation._
+_See: SpecStory history [2025-05-09_14-32-task-038-prompter](.specstory/history/2025-05-09_14-32-task-038-prompter.md) for task #038 implementation._
 
 ### Changed
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)

@@ -30,17 +30,30 @@ Currently, the `tasks status set` command requires the user to provide the desir
 
 ## Implementation Steps
 
-- [ ] Update the tasks status set command to prompt for status if not provided
-- [ ] Add interactive prompt logic
-- [ ] Handle non-interactive mode gracefully
-- [ ] Add or update tests
-- [ ] Update documentation and help text
-- [ ] Update the changelog
+- [x] Update the tasks status set command to prompt for status if not provided
+- [x] Add interactive prompt logic
+- [x] Handle non-interactive mode gracefully
+- [x] Add or update tests
+- [x] Update documentation and help text
+- [x] Update the changelog
 
 ## Verification
 
-- [ ] Command prompts for status if not provided
-- [ ] User can select a status and the change is applied
-- [ ] Command fails gracefully in non-interactive mode without a status
-- [ ] Output and error handling are clear
-- [ ] Documentation is updated 
+- [x] Command prompts for status if not provided
+- [x] User can select a status and the change is applied
+- [x] Command fails gracefully in non-interactive mode without a status
+- [x] Output and error handling are clear
+- [x] Documentation is updated 
+
+## Work Log
+
+The implementation was completed on May 9, 2025. The following changes were made:
+
+1. Updated the `tasks status set` command to make the status argument optional using Commander.js's `[status]` syntax instead of `<status>`.
+2. Implemented interactive prompt using @clack/prompts when no status is provided.
+3. Added detection for non-interactive environments using `process.stdout.isTTY`.
+4. Added comprehensive tests for the interactive prompt functionality.
+5. Updated README.md to document the new feature, including examples.
+6. Updated CHANGELOG.md to record the change.
+
+Testing showed that the interactive prompt works as expected in terminal environments. The command also handles non-interactive environments appropriately, showing a clear error message when trying to run without a status. 
