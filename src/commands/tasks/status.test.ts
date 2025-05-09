@@ -110,7 +110,7 @@ describe('Status Set Command', () => {
     console.error = (...args: any[]) => {
       errorOutput.push(args.join(' '));
     };
-    process.exit = jest.fn() as any;
+    process.exit = mock(() => {}) as any;
   });
   
   afterEach(() => {
@@ -149,7 +149,7 @@ describe('Status Set Command', () => {
     
     // Mock p.select to return a specific status
     const originalSelect = p.select;
-    p.select = jest.fn().mockResolvedValue('DONE') as any;
+    p.select = mock(() => Promise.resolve('DONE')) as any;
     
     await mockAction('001', undefined, {});
     
@@ -182,8 +182,8 @@ describe('Status Set Command', () => {
     // Mock p.select and isCancel to simulate cancellation
     const originalSelect = p.select;
     const originalIsCancel = p.isCancel;
-    p.select = jest.fn().mockResolvedValue(Symbol.for('clack.cancel')) as any;
-    p.isCancel = jest.fn().mockReturnValue(true) as any;
+    p.select = mock(() => Promise.resolve(Symbol.for('clack.cancel'))) as any;
+    p.isCancel = mock(() => true) as any;
     
     try {
       await mockAction('001', undefined, {});
@@ -205,8 +205,8 @@ describe('Status Set Command', () => {
     
     // Mock p.select to verify the initialValue
     const originalSelect = p.select;
-    const selectMock = jest.fn().mockResolvedValue('TODO') as any;
-    p.select = selectMock;
+    const selectMock = mock(() => Promise.resolve('TODO'));
+    p.select = selectMock as any;
     
     await mockAction('003', undefined, {});
     
