@@ -2,71 +2,74 @@
 
 ## Overview
 
-We have successfully fixed several failing tests in the Minsky CLI project by implementing better test isolation, error handling, and timeout management. The goal was to make all tests pass consistently, both when run individually and as part of the full test suite.
+We have successfully fixed several failing tests in the Minsky CLI project by implementing better test isolation, error handling, and timeout management. The goal was to make tests pass consistently, both when run individually and as part of the full test suite.
 
 ## Fixed Issues
 
-1. **Session Tests**:
-   - **list.test.ts**: Fixed by using unique test directories with random suffixes, proper environment variables, and improved subprocess error handling
-   - **startSession.test.ts**: Fixed by refactoring the test to use simplified mocks and proper error handling
-
-2. **Test Helper Module**:
-   - Created a new `test-helpers.ts` utility module with reusable functions for:
-     - Creating unique test directories
+1. **Test Helper Utilities**:
+   - Created a new `src/utils/test-helpers.ts` utility module with reusable functions for:
+     - Creating unique test directories with timestamps and random suffixes
      - Setting up standard Minsky test environments with proper directory structure
-     - Creating standardized testing environments
+     - Creating standardized testing environments with consistent env variables
      - Handling subprocess output and errors consistently
+     - Proper cleanup of test resources
 
-3. **General Test Improvements**:
-   - Removed Jest-specific code like `jest.setTimeout()` and `jest.resetModules()`
+2. **Session Tests**:
+   - **list.test.ts**: Fixed by using unique test directories with random suffixes, proper environment variables, and improved error handling
+   - **startSession.test.ts**: Fixed by refactoring for better dependency injection and more focused test cases
+   - **delete.test.ts**: Fixed by using the test-helpers module for better isolation and error handling
+
+3. **Tasks Tests**:
+   - **list.test.ts**: Fixed linter errors and improved subprocess error handling
+   - Updated tests to use the correct `--workspace` parameter instead of `--repo`
+
+4. **General Test Improvements**:
+   - Removed Jest-specific code not compatible with Bun's test environment
    - Added better error checking for subprocess execution
    - Standardized environment variables across tests
-   - Increased timeouts using Bun's `--timeout` flag
+   - Fixed bun:test compatibility issues with assertions
+   - Replaced `.not.toContain()` with `.indexOf().toBe(-1)` for compatibility
+   - Improved type safety across test files
 
 ## Remaining Issues
 
-1. **tasks/list.test.ts**:
-   - Still fails in the full test suite but passes when run individually
-   - Issues appear to be with process execution and workspace paths
+1. **session/cd.test.ts** (now renamed to dir.test.ts):
+   - Needs updates to match implementation changes
+   - May need path resolution fixes
 
-2. **tasks/create.test.ts**:
-   - Fails with errors related to Commander library and readonly properties
+2. **session/get.test.ts**:
+   - Module import errors suggesting API changes
+   - May need updates to match the test-helpers pattern
+
+3. **tasks/create.test.ts**:
+   - Commander library and readonly properties issues
    - Needs a more comprehensive mock of the Commander library
 
-3. **session/cd.test.ts** (now dir.test.ts):
-   - Fails with path resolution errors
-   - May need updates to match implementation changes
-
-4. **session/delete.test.ts**:
-   - Has lint errors related to ensureValidCommandResult typing
-   - Needs to be fully updated to match the test helper pattern
-
-5. **session/get.test.ts**:
-   - Module import errors suggesting API changes
+4. **Lingering Timing Issues**:
+   - Some tests may still fail intermittently due to timing issues
+   - Consider using the `--timeout` flag consistently for all test runs
 
 ## Recommendations for Remaining Work
 
 1. **Complete Migration to Test Helpers**:
-   - Update all test files to use the new `test-helpers.ts` module for consistency
-   - Fix type issues in the helper module
+   - Update remaining test files to use the new `test-helpers.ts` module
+   - Make tests independent and avoid sharing resources
 
-2. **Fix Commander Mocking**:
-   - For tasks/create.test.ts, create proper mocks for the Commander library
-   - Consider using a different approach to test command implementations
+2. **Consistent Test Environment**:
+   - Use a standardized approach to environment variables
+   - Consider a test setup file for common initialization
 
-3. **Path Resolution**:
-   - Ensure all tests use consistent path handling and environment variables
-   - Fix the session/cd.test.ts file to handle the directory path changes
+3. **Test Isolation**:
+   - Always create unique test directories even within the same test file
+   - Clean up resources properly after tests
 
-4. **Module Updates**:
-   - Fix the session/get.test.ts import errors by updating the API references
+4. **Bun Test Compatibility**:
+   - Continue fixing Bun-specific issues in test assertions
+   - Use `bun test --timeout 10000` for tests with longer operations
 
-5. **Test Suite Organization**:
-   - Consider adding test tags to separate slow or filesystem-intensive tests
-   - Implement a test suite setup file that sets common environment variables
-
-6. **Run Tests with Verbose Output**:
-   - When debugging specific test failures, use the `--verbose` flag to see more details
+5. **Consistent Error Handling**:
+   - Use the standardized error handling functions from test-helpers
+   - Add proper error checks for spawned processes
 
 ## Sample Commands
 
@@ -87,6 +90,6 @@ bun test --timeout 10000
 
 ## Conclusion
 
-The test fixes implemented have significantly improved test reliability, especially for the session-related tests. The test framework now has better isolation between tests and more consistent error handling. The remaining issues are more specific to individual test files and command implementations rather than the test framework itself.
+The test fixes implemented have significantly improved test reliability, especially for the session-related tests. The test framework now has better isolation between tests and more consistent error handling. The remaining issues are more specific to individual test files and can be fixed by following the patterns established in the fixed tests.
 
-By addressing the remaining issues using the patterns established in the fixed files, all tests should eventually pass consistently in the full test suite. 
+By continuing to apply these patterns to the remaining problematic tests, all tests should eventually pass consistently in the full test suite. 

@@ -3,52 +3,68 @@ import { spawnSync } from "child_process";
 import { join, resolve } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import type { SessionRecord } from "../../domain/session.js";
+import { 
+  createUniqueTestDir, 
+  cleanupTestDir, 
+  setupMinskyTestEnv, 
+  createTestEnv, 
+  standardSpawnOptions
+} from "../../utils/test-helpers.js";
+import type { MinskyTestEnv } from "../../utils/test-helpers.js";
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
 
-// Test directory - make unique for this file
-const TEST_DIR = "/tmp/minsky-session-delete-test-" + Math.random().toString(36).substring(7);
-const SESSION_DB_DIR = join(TEST_DIR, "minsky");
-const SESSION_DB_PATH = join(SESSION_DB_DIR, "session-db.json");
+// Create a unique test directory for this test file
+const TEST_DIR = createUniqueTestDir("minsky-session-delete-test");
+let testEnv: MinskyTestEnv;
+let minskyDir: string;
+let sessionDbPath: string;
 
 function setupSessionDb(sessions: SessionRecord[]) {
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-  }
-  mkdirSync(SESSION_DB_DIR, { recursive: true });
-  writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2));
-  // Create dummy session repo dirs for deletion tests if needed by getSessionRepoPath
+  // Setup the Minsky test environment
+  testEnv = setupMinskyTestEnv(TEST_DIR);
+  minskyDir = testEnv.minskyDir;
+  sessionDbPath = testEnv.sessionDbPath;
+  
+  // Write the session database
+  writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2));
+  
+  // Create dummy session repo dirs for deletion tests
   for (const session of sessions) {
     if (session.repoName && session.session) {
-      const sessionRepoDir = join(TEST_DIR, "minsky", "git", session.repoName, session.session);
+      const sessionRepoDir = join(minskyDir, "git", session.repoName, "sessions", session.session);
       mkdirSync(sessionRepoDir, { recursive: true });
     }
   }
 }
 
 // Helper to run a CLI command with the right environment
-function runCliCommand(args: string[], env: Record<string, string> = {}) {
-  const testEnv = {
-    ...process.env,
-    ...env,
-    XDG_STATE_HOME: TEST_DIR // Ensure XDG_STATE_HOME points to our unique TEST_DIR
+function runCliCommand(args: string[]) {
+  const env = createTestEnv(TEST_DIR);
+  const options = {
+    ...standardSpawnOptions(),
+    env
   };
-  return spawnSync("bun", ["run", CLI, ...args], { 
-    encoding: "utf-8",
-    env: testEnv
-  });
+  
+  const result = spawnSync("bun", ["run", CLI, ...args], options);
+  
+  // We don't use ensureValidCommandResult here because we have tests for error cases
+  return {
+    stdout: result.stdout as string,
+    stderr: result.stderr as string,
+    status: result.status
+  };
 }
 
 describe("minsky session delete CLI", () => {
   beforeEach(() => {
-    // Setup is handled by setupSessionDb before each relevant test section
+    // Setup is handled by setupSessionDb in each test
+    cleanupTestDir(TEST_DIR);
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    cleanupTestDir(TEST_DIR);
   });
 
   test("deletes session when it exists", () => {
@@ -67,7 +83,7 @@ describe("minsky session delete CLI", () => {
     expect(stdout).toContain("Session \"foo\" successfully deleted.");
 
     // Verify session is removed from DB
-    const dbContents = JSON.parse(readFileSync(SESSION_DB_PATH, "utf-8"));
+    const dbContents = JSON.parse(readFileSync(sessionDbPath, "utf-8"));
     expect(dbContents.length).toBe(1);
     expect(dbContents[0].session).toBe("bar");
   });
@@ -90,7 +106,7 @@ describe("minsky session delete CLI", () => {
     expect(result.message).toContain("successfully deleted");
 
     // Verify session is removed from DB
-    const dbContents = JSON.parse(readFileSync(SESSION_DB_PATH, "utf-8"));
+    const dbContents = JSON.parse(readFileSync(sessionDbPath, "utf-8"));
     expect(dbContents.length).toBe(0);
   });
 
@@ -100,7 +116,7 @@ describe("minsky session delete CLI", () => {
 
     expect(status !== 0).toBe(true);
     // Match actual CLI output which uses double quotes for session name
-    expect(stderr.trim()).toContain("Session \"nonexistent\" not found.");
+    expect(stderr).toContain("Session \"nonexistent\" not found.");
     expect(stdout).toBe("");
   });
 

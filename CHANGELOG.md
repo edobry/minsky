@@ -65,7 +65,8 @@
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
 - New `test-helpers.ts` utility module with reusable functions for test isolation, environment setup, and error handling
-- Unique test directory creation with timestamps and random suffixes to prevent test interference
+- Standardized test environment management with consistent resource cleanup
+- Type-safe test helper functions for subprocess execution and error handling
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -183,6 +184,11 @@ _See: SpecStory history [2025-05-08_test-fixes](.specstory/history/2025-05-08_te
 - Fixed session tests that were failing when run as part of the full test suite
 - Fixed test environment variable handling to prevent test interference
 - Added proper timeout management using Bun's `--timeout` flag instead of Jest-style timeouts
+- Improved subprocess error handling in tests
+- Added unique test directories with timestamps and random suffixes to prevent collisions
+- Fixed Bun test compatibility issues by replacing Jest-specific patterns
+- Fixed type errors in test files related to Bun's test environment
+- Updated test assertions to be compatible with Bun's test API
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 

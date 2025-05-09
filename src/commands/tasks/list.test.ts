@@ -103,7 +103,7 @@ describe("minsky tasks list CLI", () => {
     const { stdout, stderr } = result;
     
     // Should NOT include active tasks message
-    expect(stdout.indexOf("Showing active tasks (use --all to include completed tasks)")).toBe(-1);
+    expect(stdout.indexOf("Showing active tasks")).toBe(-1);
     
     // Should include all tasks
     expect(stdout).toContain("#001");
@@ -205,6 +205,8 @@ describe("minsky tasks list CLI", () => {
     expect(stdout.indexOf("#001")).toBe(-1);
     expect(stdout.indexOf("#002")).toBe(-1);
     expect(stdout.indexOf("#004")).toBe(-1);
+    
+    expect(stderr).toBe("");
   });
   
   test("does not show filter messages in JSON output with status filter", () => {
