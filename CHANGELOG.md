@@ -93,6 +93,9 @@
 - Type-safe test helper functions for subprocess execution and error handling
 =======
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
+<<<<<<< HEAD
+- Added `--task <taskId>` option to `minsky session delete` command, allowing sessions to be deleted by their associated task ID. The command now supports both session name and task ID (but not both simultaneously), and offers clear error messages for invalid task IDs or non-existent sessions.
+=======
 - Automated task status updates at key workflow points:
   - The `session start` command now automatically sets task status to IN-PROGRESS when started with `--task`
   - The `git pr` command now automatically sets task status to IN-REVIEW when generating a PR
@@ -102,6 +105,7 @@
 - Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
 - Task: Add Session Information to Task Details [#043](process/tasks/043-add-session-information-to-task-details.md)
 - New `test-infrastructure-patterns` cursor rule capturing best practices for test isolation, environment setup, and CLI testing from our test fixes work. The rule includes patterns for creating unique test directories, standardizing environment setup, properly mocking dependencies, and debugging test failures.
+>>>>>>> origin/main
 >>>>>>> origin/main
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
