@@ -21,8 +21,6 @@ export function createMCPCommand(): Command {
     .option("--http-stream", "Use HTTP Stream transport")
     .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
     .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
-    .option("--auth", "Enable authentication")
-    .option("--api-key <key>", "API key for authentication")
     .action(async (options) => {
       try {
         // Determine transport type based on options
@@ -48,10 +46,6 @@ export function createMCPCommand(): Command {
           httpStream: {
             endpoint: "/stream",
             port
-          },
-          auth: {
-            enabled: options.auth || false,
-            apiKey: options.apiKey
           }
         });
 
@@ -69,9 +63,6 @@ export function createMCPCommand(): Command {
         console.log(`Minsky MCP Server started with ${transportType} transport`);
         if (transportType !== "stdio") {
           console.log(`Listening on ${options.host}:${port}`);
-        }
-        if (options.auth && options.apiKey) {
-          console.log("Authentication is enabled");
         }
         console.log("Press Ctrl+C to stop");
         
