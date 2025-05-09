@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/* eslint-disable no-restricted-imports */
 import { Command } from "commander";
 import { createSessionCommand } from "./commands/session/index.js";
 import { createTasksCommand } from "./commands/tasks/index.js";
@@ -13,7 +14,7 @@ import * as workspaceModule from "./domain/workspace.js";
 // Use environment variable directly rather than trying to mock the function
 // This avoids the "Attempted to assign to readonly property" error
 const getCurrentSession = async () => {
-  return process.env.MINSKY_TEST_CURRENT_SESSION || null;
+  return Bun.env.MINSKY_TEST_CURRENT_SESSION || null;
 };
 
 const program = new Command();
