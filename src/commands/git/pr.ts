@@ -13,7 +13,15 @@ export function createPrCommand(): Command {
     .option('-t, --task <taskId>', 'Task ID to use (will look up the associated session)')
     .option('-b, --branch <branch>', 'Branch to use (defaults to current branch)')
     .option('--debug', 'Enable debug logging to stderr')
-    .action(async (options: { session?: string; path?: string; task?: string; branch?: string; debug?: boolean }) => {
+    .option('--no-status-update', 'Skip automatic task status update to IN-REVIEW')
+    .action(async (options: { 
+      session?: string; 
+      path?: string; 
+      task?: string; 
+      branch?: string; 
+      debug?: boolean;
+      statusUpdate?: boolean;
+    }) => {
       // We need either a session, path, or task
       if (!options.session && !options.path && !options.task) {
         console.error('Error: Either --session, --path, or --task must be provided');
@@ -50,9 +58,22 @@ export function createPrCommand(): Command {
           repoPath,
           branch: options.branch,
           taskId: options.task,
-          debug: options.debug
+          debug: options.debug,
+          noStatusUpdate: options.statusUpdate === false
         });
+        
+        // Output the PR markdown
         console.log(result.markdown);
+        
+        // Show status update information if applicable
+        if (result.statusUpdateResult) {
+          console.log('\n---');
+          const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+          console.log(`Task ${taskId} status updated: ${previousStatus || 'none'} → ${newStatus}`);
+        } else if (options.task && options.statusUpdate === false) {
+          console.log('\n---');
+          console.log(`Task ${options.task} status update skipped (--no-status-update)`);
+        }
       } catch (error) {
         console.error('Error generating PR markdown:', error);
         process.exit(1);
