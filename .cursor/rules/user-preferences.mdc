@@ -79,4 +79,21 @@ When the pattern `minsky session start` appears in any planned command:
 - This check must be performed EVERY time, regardless of context
 - No exceptions are permitted
 
+## CLI Command Usage Protocol
+
+**MANDATORY ENFORCEMENT MECHANISM:**
+BEFORE EXECUTING ANY CLI COMMAND:
+1. If the command is unfamiliar, FIRST run with --help
+2. For data retrieval commands, default to using --json when available
+3. Verify command existence and format before execution
+4. Document command patterns for future reference
+
+**Verification Checkpoint:**
+Before submitting any command for execution, check:
+- Has the command syntax been verified with --help? If not, run help first
+- Is this retrieving data that might be processed? If so, add --json
+- Have I used this exact command before with confirmation it works?
+
+This protocol applies to ALL CLI interactions without exception.
+
 > **AI Commitment:** The AI will always strictly adhere to these preferences, especially regarding avoiding confirmation prompts and always taking the next implied step without asking. This is a persistent, high-priority rule for all future interactions.
