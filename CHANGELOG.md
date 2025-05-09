@@ -67,6 +67,7 @@
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
+- Added `--task <taskId>` option to `minsky session delete` command, allowing sessions to be deleted by their associated task ID. The command now supports both session name and task ID (but not both simultaneously), and offers clear error messages for invalid task IDs or non-existent sessions.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

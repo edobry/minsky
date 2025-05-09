@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { SessionDB } from "../../domain/session";
+import { SessionDB } from "../../domain/session.js";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { createInterface } from "readline";
@@ -8,7 +8,7 @@ export function createDeleteCommand(): Command {
   return new Command("delete")
     .description("Delete a session and its repository")
     .argument("[session-name]", "Name of the session to delete")
-    .option("--task <taskId>", "Task ID associated with the session")
+    .option("--task <taskId>", "Task ID associated with the session to delete")
     .option("--force", "Skip confirmation prompt")
     .option("--json", "Output result as JSON")
     .action(async (sessionNameInput: string | undefined, options: { task?: string, force?: boolean, json?: boolean }) => {
@@ -60,12 +60,12 @@ export function createDeleteCommand(): Command {
         if (!sessionToDeleteName || !sessionToQuery) {
           // Should not happen if logic above is correct, but as a safeguard.
           const errorMessage = "Could not determine session to delete.";
-            if (options.json) {
-              console.log(JSON.stringify({ success: false, error: errorMessage }));
-            } else {
-              console.error(errorMessage);
-            }
-            process.exit(1);
+          if (options.json) {
+            console.log(JSON.stringify({ success: false, error: errorMessage }));
+          } else {
+            console.error(errorMessage);
+          }
+          process.exit(1);
         }
 
         // First, check if the session exists using the determined sessionToQuery
@@ -85,7 +85,7 @@ export function createDeleteCommand(): Command {
         // Confirm before deletion unless --force is used
         if (!options.force) {
           const answer = await promptConfirmation(
-            `Are you sure you want to delete session \'${sessionToDeleteName}\' and its repository? This action cannot be undone. (y/n): `
+            `Are you sure you want to delete session '${sessionToDeleteName}' and its repository? This action cannot be undone. (y/n): `
           );
           
           if (!answer) {
@@ -153,7 +153,7 @@ export function createDeleteCommand(): Command {
         }
         
         // Success case
-        const successMessage = `Session \'${sessionToDeleteName}\' successfully deleted.`;
+        const successMessage = `Session '${sessionToDeleteName}' successfully deleted.`;
         if (options.json) {
           console.log(JSON.stringify({ 
             success: true, 

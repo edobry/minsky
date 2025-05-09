@@ -75,6 +75,15 @@ Options:
 - `--json`: Output in JSON format
 - `--task <task-id>`: Get session by task ID
 
+#### `minsky session delete [options] [session-name]`
+
+Delete a session and its repository.
+
+Options:
+- `--force`: Skip confirmation prompt
+- `--json`: Output in JSON format
+- `--task <task-id>`: Delete session by task ID
+
 #### `minsky session dir <session-name>`
 
 Print the directory path for a session.
