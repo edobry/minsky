@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### Added
-- MCP (Machine Context Protocol) server support for enabling AI agent interaction with Minsky commands
+- MCP (Model Context Protocol) server support for enabling AI agent interaction with Minsky commands
   - Added `fastmcp` dependency for implementing the MCP server
   - Created core MCP server module (`src/mcp/server.ts`) for handling protocol communication
   - Implemented command mapper (`src/mcp/command-mapper.ts`) to bridge between CLI commands and MCP tools

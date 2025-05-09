@@ -10,7 +10,7 @@ import { registerSessionTools } from "../../mcp/tools/session.js";
  */
 export function createMCPCommand(): Command {
   const mcpCommand = new Command("mcp");
-  mcpCommand.description("Machine Context Protocol (MCP) server commands");
+  mcpCommand.description("Model Context Protocol (MCP) server commands");
 
   // Start command
   const startCommand = new Command("start");
