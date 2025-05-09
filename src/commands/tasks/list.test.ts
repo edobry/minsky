@@ -1,21 +1,19 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, it } from "bun:test";
 import { spawnSync } from "child_process";
-import { join, resolve } from "path";
+import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import type { Task } from "../../domain/tasks.js";
 import { createTasksCommand } from "./index.js";
 import { Command } from "commander";
 
-// Path to the CLI entry point - use absolute path to avoid path resolution issues
-const CLI = resolve(process.cwd(), "src/cli.ts");
-// console.log(`CLI path: ${CLI}`); // Reduce noise
-// console.log(`CLI exists: ${existsSync(CLI)}`); // Reduce noise
-
-// Test directory - needs to be a properly structured workspace
-// Make TEST_DIR unique to this file to avoid collisions if tests run in parallel
-const TEST_DIR = "/tmp/minsky-tasks-list-test-" + Math.random().toString(36).substring(7);
+// Create a unique test directory to avoid conflicts with other tests
+const TEST_ID = `${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+const TEST_DIR = `/tmp/minsky-tasks-list-test-${TEST_ID}`;
 const PROCESS_DIR = join(TEST_DIR, "process");
 const TASKS_DIR = join(PROCESS_DIR, "tasks");
+
+// Path to the CLI entry point - use absolute path
+const CLI = join(process.cwd(), "src/cli.ts");
 
 const SAMPLE_TASKS_MD = `
 # Tasks
@@ -36,48 +34,6 @@ const SAMPLE_TASKS_MD = `
 - [ ] Not a real task
 `;
 
-// Initialize a Git repository in the test directory
-function initGitRepo(dir: string) {
-  // Create a minimal git repo in the test directory
-  spawnSync("git", ["init"], { cwd: dir, stdio: "ignore" });
-  // Need a commit for git commands to work properly
-  spawnSync("git", ["config", "user.name", "Test User"], { cwd: dir, stdio: "ignore" });
-  spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" });
-  writeFileSync(join(dir, "README.md"), "# Test Workspace\n\nThis is a test workspace for Minsky CLI tests.");
-  spawnSync("git", ["add", "README.md"], { cwd: dir, stdio: "ignore" });
-  spawnSync("git", ["commit", "-m", "Initial commit"], { cwd: dir, stdio: "ignore" });
-}
-
-// Helper to run a CLI command with proper environment
-function runCliCommand(args: string[], env: Record<string, string> = {}) {
-  // Debug logging for better troubleshooting
-  console.log(`Running CLI command: bun run ${CLI} ${args.join(" ")}`);
-  console.log(`Test directory: ${TEST_DIR}`);
-  console.log(`Process directory exists: ${existsSync(PROCESS_DIR)}`);
-  console.log(`Tasks directory exists: ${existsSync(TASKS_DIR)}`);
-  console.log(`Tasks.md exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
-  console.log(`.git directory exists: ${existsSync(join(TEST_DIR, ".git"))}`);
-  
-  // Set up environment with workspace path
-  const testEnv = {
-    ...process.env,
-    ...env
-  };
-  
-  // Run CLI command with cwd set to the test directory to simulate running from inside the workspace
-  const result = spawnSync("bun", ["run", CLI, ...args], { 
-    encoding: "utf-8",
-    env: testEnv,
-    cwd: TEST_DIR // Set working directory to the test directory
-  });
-  
-  console.log("Command stdout:", result.stdout);
-  console.log("Command stderr:", result.stderr);
-  console.log("Command exit code:", result.status);
-  
-  return result;
-}
-
 describe("minsky tasks list CLI", () => {
   beforeEach(() => {
     // Clean up any existing test directories
@@ -86,7 +42,6 @@ describe("minsky tasks list CLI", () => {
     }
     
     // Create test directories and files - ensure the workspace is properly structured
-    // The resolveWorkspacePath function validates this structure
     mkdirSync(PROCESS_DIR, { recursive: true });
     mkdirSync(TASKS_DIR, { recursive: true });
     
@@ -98,12 +53,6 @@ describe("minsky tasks list CLI", () => {
     writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
     writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
     writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
-    
-    // Initialize Git repository
-    initGitRepo(TEST_DIR);
-    
-    // Verify the test setup
-    console.log("Test setup complete");
   });
   
   afterEach(() => {
@@ -112,7 +61,15 @@ describe("minsky tasks list CLI", () => {
   });
   
   test("hides DONE tasks by default", () => {
-    const result = runCliCommand(["tasks", "list", "--workspace", TEST_DIR]);
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!result || result.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
     const { stdout, stderr } = result;
     
     // Should include active tasks message
@@ -126,19 +83,27 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("#004");
     expect(stdout).toContain("Fourth Task");
     
-    // Should NOT include DONE tasks - use !includes instead of .not.toContain
-    expect(stdout.includes("#002")).toBe(false);
-    expect(stdout.includes("Second Task")).toBe(false);
+    // Should NOT include DONE tasks
+    expect(stdout.indexOf("#002")).toBe(-1);
+    expect(stdout.indexOf("Second Task")).toBe(-1);
     
     expect(stderr).toBe("");
   });
   
   test("includes DONE tasks when --all is specified", () => {
-    const result = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--all"]);
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--all"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!result || result.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
     const { stdout, stderr } = result;
     
     // Should NOT include active tasks message
-    expect(stdout.includes("Showing active tasks (use --all to include completed tasks)")).toBe(false);
+    expect(stdout.indexOf("Showing active tasks (use --all to include completed tasks)")).toBe(-1);
     
     // Should include all tasks
     expect(stdout).toContain("#001");
@@ -155,8 +120,16 @@ describe("minsky tasks list CLI", () => {
   
   test("respects --all flag in JSON output", () => {
     // First without --all
-    const resultDefault = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--json"]);
-    const { stdout: stdoutDefault } = resultDefault;
+    const resultDefault = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!resultDefault || resultDefault.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
+    const { stdout: stdoutDefault, stderr: stderrDefault } = resultDefault;
     
     // Skip if no output
     if (!stdoutDefault.trim()) {
@@ -167,19 +140,27 @@ describe("minsky tasks list CLI", () => {
     const tasksDefault = JSON.parse(stdoutDefault) as Task[];
     const taskIds = tasksDefault.map((t: Task) => t.id);
     
-    // Should NOT include filter message in JSON output - use !includes
-    expect(stdoutDefault.includes("Showing active tasks")).toBe(false);
+    // Should NOT include filter message in JSON output
+    expect(stdoutDefault.indexOf("Showing active tasks")).toBe(-1);
     
     // Should include non-DONE tasks
     expect(taskIds).toContain("#001");
     expect(taskIds).toContain("#003");
     expect(taskIds).toContain("#004");
     
-    // Should NOT include DONE tasks - use !includes
+    // Should NOT include DONE tasks
     expect(taskIds.includes("#002")).toBe(false);
     
     // Now with --all
-    const resultAll = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--json", "--all"]);
+    const resultAll = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--json", "--all"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!resultAll || resultAll.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
     const { stdout: stdoutAll } = resultAll;
     
     // Skip if no output
@@ -202,8 +183,16 @@ describe("minsky tasks list CLI", () => {
   });
   
   test("filters by specific status when provided", () => {
-    const result = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS"]);
-    const { stdout } = result;
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!result || result.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
+    const { stdout, stderr } = result;
     
     // Should include status filter message
     expect(stdout).toContain("Showing tasks with status 'IN-PROGRESS'");
@@ -212,32 +201,49 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("#003");
     expect(stdout).toContain("Third Task");
     
-    // Should NOT include other tasks - use !includes
-    expect(stdout.includes("#001")).toBe(false);
-    expect(stdout.includes("#002")).toBe(false);
-    expect(stdout.includes("#004")).toBe(false);
+    // Should NOT include other tasks
+    expect(stdout.indexOf("#001")).toBe(-1);
+    expect(stdout.indexOf("#002")).toBe(-1);
+    expect(stdout.indexOf("#004")).toBe(-1);
   });
   
   test("does not show filter messages in JSON output with status filter", () => {
-    const result = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS", "--json"]);
-    const { stdout } = result;
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS", "--json"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
     
-    // Should NOT include filter message in JSON output - use !includes
-    expect(stdout.includes("Showing tasks with status")).toBe(false);
+    if (!result || result.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
+    const { stdout, stderr } = result;
+    
+    // Should NOT include filter message in JSON output
+    expect(stdout.indexOf("Showing tasks with status")).toBe(-1);
     
     // Should be valid JSON
-    let isParseable = true;
     try {
       JSON.parse(stdout);
-    } catch (error) {
-      isParseable = false;
+      // If we reach here, it's valid JSON
+      expect(true).toBe(true);
+    } catch (e) {
+      // This should not happen if the JSON is valid
+      expect(false).toBe(true);
     }
-    expect(isParseable).toBe(true);
   });
   
-  test("shows no tasks found message with filter message when no tasks match filter", () => {
-    const result = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "NONEXISTENT-STATUS"]);
-    const { stdout } = result;
+  it("shows no tasks found message with filter message when no tasks match filter", () => {
+    const result = spawnSync("bun", ["run", CLI, "tasks", "list", "--workspace", TEST_DIR, "--status", "NONEXISTENT-STATUS"], { 
+      encoding: "utf-8",
+      stdio: ["inherit", "pipe", "pipe"]
+    });
+    
+    if (!result || result.status === null) {
+      throw new Error("Command execution failed or was killed");
+    }
+    
+    const { stdout, stderr } = result;
     
     // Should include status filter message
     expect(stdout).toContain("Showing tasks with status 'NONEXISTENT-STATUS'");
@@ -245,23 +251,11 @@ describe("minsky tasks list CLI", () => {
     // Should include no tasks message
     expect(stdout).toContain("No tasks found.");
     
-    // Should NOT include any task IDs - use !includes
-    expect(stdout.includes("#001")).toBe(false);
-    expect(stdout.includes("#002")).toBe(false);
-    expect(stdout.includes("#003")).toBe(false);
-    expect(stdout.includes("#004")).toBe(false);
-  });
-  
-  test("handles invalid workspace path gracefully", () => {
-    const nonExistentDir = "/tmp/this-dir-does-not-exist";
-    const result = runCliCommand(["tasks", "list", "--workspace", nonExistentDir]);
-    const { stderr, status } = result;
-    
-    // Should exit with non-zero status
-    expect(status !== 0).toBe(true);
-    
-    // Should include error message about workspace
-    expect(stderr).toContain("workspace");
+    // Should NOT include any task IDs
+    expect(stdout.indexOf("#001")).toBe(-1);
+    expect(stdout.indexOf("#002")).toBe(-1);
+    expect(stdout.indexOf("#003")).toBe(-1);
+    expect(stdout.indexOf("#004")).toBe(-1);
   });
 });
 

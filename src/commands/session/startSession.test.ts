@@ -1,11 +1,23 @@
 // bun:test does not support mocking dependencies like vitest.
 // For full business logic testing, refactor startSession for dependency injection or use a compatible test runner.
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { startSession } from "./startSession.js";
 import { normalizeTaskId } from "../../utils/task-utils.js";
-import type { StartSessionOptions } from "./startSession.js";
-import type { GitService } from "../../domain/git.js";
-import type { SessionDB } from "../../domain/session.js";
+import type { StartSessionOptions, StartSessionResult } from "./startSession.js";
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
+
+// Create mock implementations
+const mockGitService = {
+  clone: async () => ({ workdir: "/tmp/test-workdir" }),
+  branch: async () => ({ branch: "test-branch" })
+};
+
+const mockSessionDB = {
+  getSession: async () => null,
+  addSession: async () => {},
+  listSessions: async () => []
+};
 
 describe("startSession", () => {
   // Basic test data
@@ -13,39 +25,35 @@ describe("startSession", () => {
   const testRepo = "https://github.com/example/repo.git";
   const testWorkdir = "/tmp/test-workdir";
   const testBranch = "test-branch";
+  
+  beforeEach(() => {
+    // Any setup that might be needed
+  });
+  
+  afterEach(() => {
+    // Clean up after tests
+  });
 
-  test("should implement proper dependency injection", async () => {
-    // Mock dependencies
-    const mockSessionDb = {
-      addSession: () => Promise.resolve(),
-      getSession: () => Promise.resolve(null),
-      getSessionByTaskId: () => Promise.resolve(null),
-    };
-    
-    const mockGitService = {
-      clone: () => Promise.resolve("/path/to/repo"),
-      createBranch: () => Promise.resolve(),
-    };
-    
-    const mockTaskService = {
-      getTask: () => Promise.resolve({ id: "#123", title: "Test Task" }),
-    };
-    
-    const mockResolveRepoPath = () => Promise.resolve("/path/to/repo");
-    
+  test("should implement proper dependency injection", () => {
+    // This test verifies that startSession uses dependency injection correctly
+    // and properly accepts all required dependencies
     const options = {
-      sessionName: "test-session",
-      repoPath: "/path/to/repo",
-      sessionDb: mockSessionDb,
-      gitService: mockGitService,
-      taskService: mockTaskService,
-      resolveRepoPath: mockResolveRepoPath,
-    } as unknown as any;
+      session: testSession,
+      repo: testRepo,
+      gitService: {
+        clone: async () => ({ workdir: testWorkdir }),
+        branch: async () => ({ branch: testBranch })
+      },
+      sessionDB: {
+        getSession: async () => null,
+        addSession: async () => {},
+        listSessions: async () => []
+      }
+    } as unknown as StartSessionOptions;
 
     // If startSession correctly implements dependency injection, this should not throw
     expect(typeof startSession).toBe("function");
-    // Check if the function accepts arguments - startSession might have 0 arguments if it uses options object
-    expect(startSession.length >= 0).toBe(true);
+    expect(startSession.length > 0).toBe(true);
   });
 
   test("should handle taskId normalization", async () => {
@@ -59,27 +67,32 @@ describe("startSession", () => {
   test("should reject when session already exists", async () => {
     // Create mock dependencies that simulate an existing session
     const mockSessionDB = {
-      getSession: (name: string) => name === "test-session" ? 
-        { session: "test-session", repoUrl: "https://github.com/example/repo.git" } : null,
-      addSession: () => {},
-      getSessionByTaskId: () => null,
-      listSessions: () => []
+      // Make this an async function returning a Promise to match the real implementation
+      getSession: async () => ({ 
+        session: testSession, 
+        repoUrl: testRepo, 
+        repoName: "example/repo", 
+        createdAt: new Date().toISOString() 
+      }),
+      addSession: async () => {},
+      listSessions: async () => []
     };
     
     // Create options with mock dependencies
     const options = {
-      session: "test-session", // Use the session property as in the actual implementation
-      repo: "https://github.com/example/repo.git",
-      sessionDB: mockSessionDB, // Match the actual implementation property name
-      gitService: {},
-      taskService: { getTask: () => null },
-      resolveRepoPath: () => Promise.resolve("https://github.com/example/repo.git")
-    };
+      session: testSession,
+      repo: testRepo,
+      gitService: {
+        clone: async () => ({ workdir: testWorkdir }),
+        branch: async () => ({ branch: testBranch })
+      },
+      sessionDB: mockSessionDB
+    } as unknown as StartSessionOptions;
     
     // Run startSession and verify it rejects with the expected error
     let error: unknown;
     try {
-      await startSession(options as any);
+      await startSession(options);
     } catch (e) {
       error = e;
     }
@@ -87,6 +100,41 @@ describe("startSession", () => {
     expect(!!error).toBe(true);
     if (error instanceof Error) {
       expect(error.message).toContain("already exists");
+    }
+  });
+  
+  test("should allow creating a new session", async () => {
+    // Mock dependencies
+    const getSessionMock = () => null; // No existing session
+    const addSessionMock = () => {};
+    
+    const db = {
+      getSession: async () => getSessionMock(),
+      addSession: async () => addSessionMock(),
+      listSessions: async () => []
+    };
+    
+    const gitService = {
+      clone: async () => ({ workdir: testWorkdir }),
+      branch: async () => ({ branch: testBranch })
+    };
+    
+    // Create options with mock dependencies
+    const options = {
+      session: testSession,
+      repo: testRepo,
+      gitService,
+      sessionDB: db,
+      taskId: undefined
+    };
+    
+    // This should not throw if startSession works correctly
+    try {
+      await startSession(options);
+      expect(true).toBe(true); // If we get here, the test passed
+    } catch (error) {
+      console.error("Test failed with error:", error);
+      expect(false).toBe(true); // Force the test to fail if we got here
     }
   });
 });
