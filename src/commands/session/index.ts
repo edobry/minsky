@@ -1,37 +1,48 @@
 import { Command } from "commander";
-import { createListCommand } from "./list";
-import { createGetCommand } from "./get";
-import { createDirCommand } from "./cd";
-import { createStartCommand } from "./start";
-import { createDeleteCommand } from "./delete";
-import { createUpdateCommand } from "./update";
-import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace";
-import { GitService } from "../../domain/git";
-import { SessionDB } from "../../domain/session";
+import { createListCommand } from "./list.js";
+import { createGetCommand } from "./get.js";
+import { createDirCommand } from "./cd.js";
+import { createStartCommand } from "./start.js";
+import { createDeleteCommand } from "./delete.js";
+import { createUpdateCommand } from "./update.js";
+import { createCommitCommand, type CommitCommandDependencies } from "./commit.js";
+import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
 
 // Add a dependencies parameter to allow dependency injection for testing
 export interface SessionCommandDependencies {
   getCurrentSession?: typeof defaultGetCurrentSession;
+  gitService?: GitService;
+  sessionDb?: SessionDB;
 }
 
 export function createSessionCommand(dependencies: SessionCommandDependencies = {}): Command {
-  const gitService = new GitService();
-  const sessionDb = new SessionDB();
-
   // Use provided dependencies or fall back to defaults
-  const deps = {
-    getCurrentSession: dependencies.getCurrentSession || defaultGetCurrentSession
+  const gitService = dependencies?.gitService || new GitService();
+  const sessionDb = dependencies?.sessionDb || new SessionDB();
+  const getCurrentSession = dependencies?.getCurrentSession || defaultGetCurrentSession;
+
+  const commandDeps = {
+    getCurrentSession
+  };
+
+  const commitCommandDeps: CommitCommandDependencies = {
+    gitService,
+    sessionDb,
+    getCurrentSession
   };
 
   const session = new Command("session")
     .description("Session management commands");
 
   session.addCommand(createListCommand());
-  session.addCommand(createGetCommand(deps));
-  session.addCommand(createDirCommand(deps));
+  session.addCommand(createGetCommand(commandDeps));
+  session.addCommand(createDirCommand(commandDeps));
   session.addCommand(createStartCommand());
   session.addCommand(createDeleteCommand());
   session.addCommand(createUpdateCommand(gitService, sessionDb));
+  session.addCommand(createCommitCommand(commitCommandDeps));
 
   return session;
 } 

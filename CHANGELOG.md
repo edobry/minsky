@@ -67,6 +67,13 @@
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
+- Added `session commit` command to stage, commit, and push all changes for a session in one step. The command supports:
+  - Automatic session detection when run from a session directory
+  - Optional commit message prompt if not provided
+  - Task ID prefix in commit messages when available
+  - Optional `--no-push` flag to skip pushing changes
+  - Compatible with other session commands using consistent dependency injection
+  - Comprehensive test coverage to ensure reliability
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
