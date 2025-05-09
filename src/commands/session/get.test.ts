@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve } from "path";
