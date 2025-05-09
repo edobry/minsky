@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import type { SessionRecord } from "../../domain/session.ts";
 import { 
@@ -41,28 +41,82 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
   gitDir = testEnv.gitDir;
   sessionDbPath = testEnv.sessionDbPath;
   
-  // Write the session database
-  writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2));
-  
-  // Create session repo directories
-  for (const session of sessions) {
-    const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
-    // Create both legacy path and new path with sessions subdirectory
-    const legacyPath = join(gitDir, repoName, session.session);
-    const newPath = join(gitDir, repoName, "sessions", session.session);
-    
-    // For test variety, use the new path for some sessions and legacy for others
-    if (session.session.includes("new")) {
-      mkdirSync(newPath, { recursive: true });
-      console.log(`Created session directory at: ${newPath}`);
-    } else {
-      mkdirSync(legacyPath, { recursive: true });
-      console.log(`Created session directory at: ${legacyPath}`);
+  try {
+    // Ensure minsky directory exists
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
     }
+    
+    // Ensure git directory exists
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Ensure parent directory of sessionDbPath exists
+    const sessionDbDir = dirname(sessionDbPath);
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
+    }
+    
+    // Write the session database
+    writeFileSync(
+      sessionDbPath,
+      JSON.stringify(sessions, null, 2),
+      { encoding: "utf8" }
+    );
+    
+    // Verify session DB was created
+    if (!existsSync(sessionDbPath)) {
+      throw new Error(`Failed to create session DB at ${sessionDbPath}`);
+    }
+    
+    // Create session repo directories
+    for (const session of sessions) {
+      const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
+      // Create both legacy path and new path with sessions subdirectory
+      const legacyPath = join(gitDir, repoName, session.session);
+      const newPath = join(gitDir, repoName, "sessions", session.session);
+      
+      // For test variety, use the new path for some sessions and legacy for others
+      if (session.session.includes("new")) {
+        // Ensure parent directory exists
+        const parentDir = join(gitDir, repoName, "sessions");
+        if (!existsSync(parentDir)) {
+          mkdirSync(parentDir, { recursive: true });
+        }
+        
+        mkdirSync(newPath, { recursive: true });
+        console.log(`Created session directory at: ${newPath}`);
+        
+        // Verify directory was created
+        if (!existsSync(newPath)) {
+          throw new Error(`Failed to create directory at ${newPath}`);
+        }
+      } else {
+        // Ensure parent directory exists
+        const parentDir = join(gitDir, repoName);
+        if (!existsSync(parentDir)) {
+          mkdirSync(parentDir, { recursive: true });
+        }
+        
+        mkdirSync(legacyPath, { recursive: true });
+        console.log(`Created session directory at: ${legacyPath}`);
+        
+        // Verify directory was created
+        if (!existsSync(legacyPath)) {
+          throw new Error(`Failed to create directory at ${legacyPath}`);
+        }
+      }
+    }
+    
+    // Log for debugging
+    console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+  } catch (error) {
+    console.error(`Error in setupSessionDb: ${error}`);
+    throw error;
   }
-  
-  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
-  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
 }
 
 // Helper to run a CLI command with the right environment

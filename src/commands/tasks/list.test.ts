@@ -47,24 +47,61 @@ function setupMinskyWorkspace() {
   // Setup the Minsky test environment with proper directory structure
   testEnv = setupMinskyTestEnv(TEST_DIR);
   
-  // Create additional directories for workspace validation
-  const PROCESS_DIR = join(TEST_DIR, "process");
-  const TASKS_DIR = join(PROCESS_DIR, "tasks");
-  
-  // Create fake .git directory to make the workspace appear valid
-  const GIT_DIR = join(TEST_DIR, ".git");
-  mkdirSync(GIT_DIR, { recursive: true });
-  
-  // Write necessary files to make this a valid workspace structure
-  writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
-  
-  // Create the individual task spec files in the tasks directory
-  writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
-  writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
-  writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
-  writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
-  
-  console.log(`Test setup: Created workspace at ${TEST_DIR} with task files`);
+  try {
+    // Create additional directories for workspace validation
+    const PROCESS_DIR = join(TEST_DIR, "process");
+    const TASKS_DIR = join(PROCESS_DIR, "tasks");
+    
+    // Create .minsky directory and CONFIG.json to make the workspace valid
+    const MINSKY_DIR = join(TEST_DIR, ".minsky");
+    if (!existsSync(MINSKY_DIR)) {
+      mkdirSync(MINSKY_DIR, { recursive: true });
+    }
+    
+    // Write a complete CONFIG.json with all required fields
+    writeFileSync(
+      join(MINSKY_DIR, "CONFIG.json"),
+      JSON.stringify({
+        version: "1.0.0",
+        initialized: true,
+        taskBackend: "tasks.md",
+        createdAt: new Date().toISOString()
+      }, null, 2)
+    );
+    
+    // Create fake .git directory to make the workspace appear valid
+    const GIT_DIR = join(TEST_DIR, ".git");
+    if (!existsSync(GIT_DIR)) {
+      mkdirSync(GIT_DIR, { recursive: true });
+    }
+    
+    // Create the process directory if it doesn't exist
+    if (!existsSync(PROCESS_DIR)) {
+      mkdirSync(PROCESS_DIR, { recursive: true });
+    }
+    
+    // Create the tasks directory if it doesn't exist
+    if (!existsSync(TASKS_DIR)) {
+      mkdirSync(TASKS_DIR, { recursive: true });
+    }
+    
+    // Write necessary files to make this a valid workspace structure
+    writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
+    
+    // Create the individual task spec files in the tasks directory
+    writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
+    writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
+    writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
+    writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
+    
+    console.log(`Test setup: Created workspace at ${TEST_DIR} with task files`);
+    console.log(`Process dir exists: ${existsSync(PROCESS_DIR)}`);
+    console.log(`Tasks.md exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
+    console.log(`.minsky/CONFIG.json exists: ${existsSync(join(MINSKY_DIR, "CONFIG.json"))}`);
+  } catch (error) {
+    console.error(`Error setting up Minsky workspace: ${error}`);
+    throw error;
+  }
 }
 
 // Helper to run a CLI command with the right environment

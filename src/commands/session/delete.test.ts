@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import type { SessionRecord } from "../../domain/session.ts";
 import { 
@@ -27,34 +27,95 @@ function setupSessionDb(sessions: SessionRecord[]) {
   minskyDir = testEnv.minskyDir;
   sessionDbPath = testEnv.sessionDbPath;
   
-  // Write the session database
-  writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2));
-  
-  // Create dummy session repo dirs for deletion tests
-  for (const session of sessions) {
-    if (session.repoName && session.session) {
-      const sessionRepoDir = join(minskyDir, "git", session.repoName, "sessions", session.session);
-      mkdirSync(sessionRepoDir, { recursive: true });
+  try {
+    // Ensure minsky directory exists
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
     }
+    
+    // Ensure parent directory of sessionDbPath exists
+    const sessionDbDir = dirname(sessionDbPath);
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
+    }
+    
+    // Write the session database
+    writeFileSync(
+      sessionDbPath,
+      JSON.stringify(sessions, null, 2),
+      { encoding: "utf8" }
+    );
+    
+    // Verify file was written
+    if (!existsSync(sessionDbPath)) {
+      throw new Error(`Failed to create session DB at ${sessionDbPath}`);
+    }
+    
+    // Create dummy session repo dirs for deletion tests
+    for (const session of sessions) {
+      if (session.repoName && session.session) {
+        // Create the repo/sessions subdirectory
+        const repoDir = join(minskyDir, "git", session.repoName);
+        const sessionsDir = join(repoDir, "sessions");
+        
+        // Ensure parent directories exist
+        if (!existsSync(repoDir)) {
+          mkdirSync(repoDir, { recursive: true });
+        }
+        
+        if (!existsSync(sessionsDir)) {
+          mkdirSync(sessionsDir, { recursive: true });
+        }
+        
+        // Create the session directory
+        const sessionRepoDir = join(sessionsDir, session.session);
+        if (!existsSync(sessionRepoDir)) {
+          mkdirSync(sessionRepoDir, { recursive: true });
+        }
+        
+        // Verify directory was created
+        if (!existsSync(sessionRepoDir)) {
+          throw new Error(`Failed to create session repo directory at ${sessionRepoDir}`);
+        }
+      }
+    }
+    
+    // Log for debugging
+    console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+  } catch (error) {
+    console.error(`Error in setupSessionDb: ${error}`);
+    throw error;
   }
 }
 
 // Helper to run a CLI command with the right environment
 function runCliCommand(args: string[]) {
-  const env = createTestEnv(TEST_DIR);
-  const options = {
-    ...standardSpawnOptions(),
-    env
-  };
-  
-  const result = spawnSync("bun", ["run", CLI, ...args], options);
-  
-  // We don't use ensureValidCommandResult here because we have tests for error cases
-  return {
-    stdout: result.stdout as string,
-    stderr: result.stderr as string,
-    status: result.status
-  };
+  try {
+    const env = createTestEnv(TEST_DIR);
+    const options = {
+      ...standardSpawnOptions(),
+      env
+    };
+    
+    const result = spawnSync("bun", ["run", CLI, ...args], options);
+    
+    // Log output for debugging
+    console.log(`Command stdout: ${result.stdout}`);
+    console.log(`Command stderr: ${result.stderr}`);
+    console.log(`Command exit status: ${result.status}`);
+    
+    // We don't use ensureValidCommandResult here because we have tests for error cases
+    return {
+      stdout: result.stdout as string,
+      stderr: result.stderr as string,
+      status: result.status
+    };
+  } catch (error) {
+    console.error(`Error running CLI command: ${error}`);
+    throw error;
+  }
 }
 
 describe("minsky session delete CLI", () => {

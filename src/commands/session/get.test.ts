@@ -1,7 +1,6 @@
-
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 import type { SessionRecord } from "../../domain/session.ts";
 import { 
@@ -12,14 +11,6 @@ import {
   standardSpawnOptions 
 } from "../../utils/test-helpers.ts";
 import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
-=======
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import { writeFileSync, rmSync, mkdirSync } from "fs";
-import { join } from "path";
-import { spawnSync } from "child_process";
-import { SessionDB } from "../../domain/session";
-import { get } from "./get";
->>>>>>> origin/main
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
@@ -39,12 +30,41 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
   testEnv = setupMinskyTestEnv(TEST_DIR);
   sessionDbPath = testEnv.sessionDbPath;
   
-  // Write the session database
-  writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2));
+  // Create the minsky directory structure
+  const minskyDir = join(TEST_DIR, "minsky");
   
-  // Log for debugging
-  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
-  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+  try {
+    // Ensure minsky directory exists
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
+    }
+    
+    // Ensure parent directory of sessionDbPath exists
+    const sessionDbDir = dirname(sessionDbPath);
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
+    }
+    
+    // Write the session database with explicit file path
+    writeFileSync(
+      sessionDbPath,
+      JSON.stringify(sessions, null, 2),
+      { encoding: 'utf8' }
+    );
+    
+    // Verify the file was written and exists
+    if (!existsSync(sessionDbPath)) {
+      throw new Error(`Session DB file not created at ${sessionDbPath}`);
+    }
+    
+    // Log success for debugging
+    console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+  } catch (error) {
+    console.error(`Error setting up session DB: ${error}`);
+    throw error;
+  }
 }
 
 // Helper to run a CLI command with the right environment
@@ -73,7 +93,6 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
 }
 
 describe("minsky session get CLI", () => {
-<<<<<<< HEAD
   beforeEach(() => {
     // Clean up any existing test directories
     cleanupTestDir(TEST_DIR);
@@ -81,47 +100,6 @@ describe("minsky session get CLI", () => {
 
   afterEach(() => {
     cleanupTestDir(TEST_DIR);
-=======
-  let mockSessionDB: any;
-  let originalSessionDB: any;
-  let mockConsoleLog: any;
-  let originalConsoleLog: any;
-
-  beforeEach(() => {
-    // Save original console.log
-    originalConsoleLog = console.log;
-    mockConsoleLog = mock(() => {});
-    console.log = mockConsoleLog;
-
-    // Save original SessionDB
-    originalSessionDB = global.SessionDB;
-
-    // Create mock SessionDB
-    mockSessionDB = {
-      getSession: mock(() => Promise.resolve({
-        session: "test-session",
-        repoUrl: "https://github.com/test/repo",
-        repoName: "test/repo",
-        createdAt: "2023-01-01T00:00:00.000Z"
-      })),
-      getSessionByTaskId: mock(() => Promise.resolve({
-        session: "task-session",
-        repoUrl: "https://github.com/test/repo",
-        repoName: "test/repo",
-        createdAt: "2023-01-01T00:00:00.000Z",
-        taskId: "#123"
-      }))
-    };
-    global.SessionDB = mock(() => mockSessionDB);
-  });
-
-  afterEach(() => {
-    // Restore console.log
-    console.log = originalConsoleLog;
-    // Restore SessionDB
-    global.SessionDB = originalSessionDB;
-    rmSync(SESSION_DB_PATH, { force: true });
->>>>>>> origin/main
   });
 
   test("prints session details for existing session", () => {
@@ -162,10 +140,6 @@ describe("minsky session get CLI", () => {
     expect(status !== 0).toBe(true); 
     expect(stderr).toContain("Session \"nonexistent\" not found."); 
     expect(stdout).toBe("");
-<<<<<<< HEAD
-=======
-    expect(stderr || "").toContain("Session 'notfound' not found.");
->>>>>>> origin/main
   });
 
   test("can look up a session by task ID", () => {
@@ -195,10 +169,6 @@ describe("minsky session get CLI", () => {
     expect(status !== 0).toBe(true); 
     expect(stderr).toContain("No session found for task ID \"#nonexistent-task\".");
     expect(stdout).toBe("");
-<<<<<<< HEAD
-=======
-    expect(stderr || "").toContain("No session found for task ID '#T999'.");
->>>>>>> origin/main
   });
 
   test("prints null for --json if no session for task ID", () => {
@@ -218,94 +188,20 @@ describe("minsky session get CLI", () => {
     expect(stdout).toBe("");
   });
 
-<<<<<<< HEAD
   test("errors if neither session nor --task is provided and not in workspace", () => {
     setupSessionDb([]);
     const { stdout, stderr, status } = runCliCommand(["session", "get"], { MINSKY_IGNORE_WORKSPACE: "true" }); // Mock not being in a workspace
     expect(status !== 0).toBe(true);
     // Check if stderr contains the expected message
-=======
-  test("errors if neither session nor --task is provided", () => {
-    setupSessionDb([
-      { session: "foo", repoUrl: "https://repo", branch: "main", createdAt: "2024-01-01", taskId: "#T123" }
-    ]);
-    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "get"], { encoding: "utf-8", env: { ...process.env, XDG_STATE_HOME: "/tmp" } });
-    expect(stdout).toBe("");
-    expect(stderr || "").toContain("You must provide either a session name or --task.");
-  });
-
-  test("returns an error when neither session nor --task are provided", () => {
-    // Run the command with neither a session name nor --task
-    const { stdout, stderr, status } = spawnSync("bun", ["run", CLI, "session", "get"], {
-      encoding: "utf-8",
-      env: {
-        ...process.env,
-        XDG_STATE_HOME: "/tmp"
-      }
-    });
-    
-    expect(status).not.toBe(0);
->>>>>>> origin/main
     expect(stderr).toContain("Not in a session workspace");
     expect(stdout).toBe("");
   });
 
-<<<<<<< HEAD
   test("returns an error when not in a session workspace and using --ignore-workspace and no args", () => {
     setupSessionDb([]);
     const { stdout, stderr, status } = runCliCommand(["session", "get", "--ignore-workspace"]);
     expect(status !== 0).toBe(true);
     expect(stderr).toContain("You must provide either a session name or --task");
     expect(stdout).toBe("");
-=======
-  // The following test would require complex mocking of the getCurrentSession function
-  // This is a placeholder test description for what should be tested
-  // A more complete integration test would simulate a real session workspace environment
-  // it.todo("auto-detects the current session when in a session workspace");
-  
-  // The following test would check the JSON output format for the auto-detected session
-  // it.todo("correctly formats JSON output for auto-detected session");
-
-  it("should get session by name", async () => {
-    await get({ session: "test-session" });
-    expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-    expect(mockConsoleLog).toHaveBeenCalled();
-  });
-
-  it("should get session by task ID", async () => {
-    await get({ task: "123" });
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("123");
-    expect(mockConsoleLog).toHaveBeenCalled();
-  });
-
-  it("should handle task ID with # prefix", async () => {
-    await get({ task: "#123" });
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
-    expect(mockConsoleLog).toHaveBeenCalled();
-  });
-
-  it("should return error if both session and task are provided", async () => {
-    await expect(get({ session: "test-session", task: "123" })).rejects.toThrow();
-  });
-
-  it("should return error if session is not found", async () => {
-    mockSessionDB.getSession = mock(() => Promise.resolve(null));
-    await expect(get({ session: "non-existent" })).rejects.toThrow();
-  });
-
-  it("should return error if task session is not found", async () => {
-    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(null));
-    await expect(get({ task: "999" })).rejects.toThrow();
-  });
-
-  it("should output JSON if requested", async () => {
-    await get({ session: "test-session", json: true });
-    expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringMatching(/^\{.*\}$/));
-  });
-
-  it("should output JSON for task session if requested", async () => {
-    await get({ task: "123", json: true });
-    expect(mockConsoleLog).toHaveBeenCalledWith(expect.stringMatching(/^\{.*\}$/));
->>>>>>> origin/main
   });
 }); 

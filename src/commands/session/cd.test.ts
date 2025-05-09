@@ -1,9 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
-import { SessionDB } from "../../domain/session";
-import type { SessionRecord } from "../../domain/session";
+import { SessionDB } from "../../domain/session.js";
+import type { SessionRecord } from "../../domain/session.js";
 
 // Path to the CLI entry point - use absolute path to avoid path resolution issues
 // Make sure the CLI path is correct by resolving it from the current working directory
@@ -14,7 +14,9 @@ const CLI = resolve(process.cwd(), "src/cli.ts");
 // Test directory
 // Make TEST_DIR unique to this file to avoid collisions if tests run in parallel
 const TEST_DIR = "/tmp/minsky-session-cd-test-" + Math.random().toString(36).substring(7);
-const GIT_DIR = join(TEST_DIR, "minsky", "git");
+const MINSKY_DIR = join(TEST_DIR, "minsky");
+const GIT_DIR = join(MINSKY_DIR, "git");
+const SESSION_DB_PATH = join(MINSKY_DIR, "session-db.json");
 
 // Helper to setup session DB
 // Define the interface with all the properties we need
@@ -29,64 +31,104 @@ interface TestSessionRecord {
 }
 
 function setupSessionDb(sessions: TestSessionRecord[]) {
-  // Create directories
-  mkdirSync(join(TEST_DIR, "minsky"), { recursive: true });
-  
-  // Write session DB
-  writeFileSync(
-    join(TEST_DIR, "minsky", "session-db.json"),
-    JSON.stringify(sessions, null, 2)
-  );
-  
-  // Create session repo directories
-  for (const session of sessions) {
-    const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
-    // Create both legacy path and new path with sessions subdirectory
-    const legacyPath = join(GIT_DIR, repoName, session.session);
-    const newPath = join(GIT_DIR, repoName, "sessions", session.session);
+  try {
+    // Create directories
+    mkdirSync(MINSKY_DIR, { recursive: true });
+    mkdirSync(GIT_DIR, { recursive: true });
     
-    // Verify the path we're creating
-    // console.log(`Setting up test session directory: ${session.session.includes("new") ? newPath : legacyPath}`); // Reduce noise
-    
-    // For test variety, use the new path for some sessions and legacy for others
-    if (session.session.includes("new")) {
-      mkdirSync(newPath, { recursive: true });
-    } else {
-      mkdirSync(legacyPath, { recursive: true });
+    // Ensure parent directory of SESSION_DB_PATH exists
+    const sessionDbDir = dirname(SESSION_DB_PATH);
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
     }
+    
+    // Write session DB
+    writeFileSync(
+      SESSION_DB_PATH,
+      JSON.stringify(sessions, null, 2),
+      { encoding: "utf8" }
+    );
+    
+    // Verify the session DB was written correctly
+    if (!existsSync(SESSION_DB_PATH)) {
+      throw new Error(`Failed to create session DB at ${SESSION_DB_PATH}`);
+    }
+    
+    // Create session repo directories
+    for (const session of sessions) {
+      const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
+      // Create both legacy path and new path with sessions subdirectory
+      const legacyPath = join(GIT_DIR, repoName, session.session);
+      const newPath = join(GIT_DIR, repoName, "sessions", session.session);
+      
+      // Ensure parent directories exist
+      if (session.session.includes("new")) {
+        const parentDir = join(GIT_DIR, repoName, "sessions");
+        if (!existsSync(parentDir)) {
+          mkdirSync(parentDir, { recursive: true });
+        }
+        
+        if (!existsSync(newPath)) {
+          mkdirSync(newPath, { recursive: true });
+        }
+        
+        // Verify directory was created
+        if (!existsSync(newPath)) {
+          throw new Error(`Failed to create session directory at ${newPath}`);
+        }
+      } else {
+        const parentDir = join(GIT_DIR, repoName);
+        if (!existsSync(parentDir)) {
+          mkdirSync(parentDir, { recursive: true });
+        }
+        
+        if (!existsSync(legacyPath)) {
+          mkdirSync(legacyPath, { recursive: true });
+        }
+        
+        // Verify directory was created
+        if (!existsSync(legacyPath)) {
+          throw new Error(`Failed to create session directory at ${legacyPath}`);
+        }
+      }
+    }
+    
+    // Log for debugging
+    console.log(`Test setup: Created session DB at ${SESSION_DB_PATH} with ${sessions.length} sessions`);
+    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+    console.log(`SessionDB file exists: ${existsSync(SESSION_DB_PATH)}`);
+  } catch (error) {
+    console.error(`Error in setupSessionDb: ${error}`);
+    throw error;
   }
-  
-  // Verify setup
-  // console.log(`Test directory exists: ${existsSync(TEST_DIR)}`); // Reduce noise
-  // console.log(`Minsky directory exists: ${existsSync(join(TEST_DIR, "minsky"))}`); // Reduce noise
-  // console.log(`Session DB exists: ${existsSync(join(TEST_DIR, "minsky", "session-db.json"))}`); // Reduce noise
 }
 
 // Helper to run a CLI command with the right environment
 function runCliCommand(args: string[], env: Record<string, string> = {}) {
-  // Debug logging for better troubleshooting
-  // console.log(`Running CLI command: bun run ${CLI} ${args.join(" ")}`); // Reduce noise
-  // console.log(`Using XDG_STATE_HOME: ${env.XDG_STATE_HOME || TEST_DIR}`); // Reduce noise
-  
-  // Set up environment with explicit XDG_STATE_HOME
-  const testEnv = {
-    ...process.env,
-    ...env,
-    XDG_STATE_HOME: env.XDG_STATE_HOME || TEST_DIR // Ensure XDG_STATE_HOME points to our unique TEST_DIR for this test file
-  };
-  
-  // Run CLI command
-  const result = spawnSync("bun", ["run", CLI, ...args], { 
-    encoding: "utf-8",
-    env: testEnv
-  });
-
-  // Only log if there's an error to reduce noise
-  // if (result.status !== 0 || result.stderr) {
-  //   console.log("Command stdout:", result.stdout);
-  //   console.log("Command stderr:", result.stderr);
-  // }
-  return result;
+  try {
+    // Set up environment with explicit XDG_STATE_HOME
+    const testEnv = {
+      ...process.env,
+      ...env,
+      XDG_STATE_HOME: env.XDG_STATE_HOME || TEST_DIR // Ensure XDG_STATE_HOME points to our unique TEST_DIR for this test file
+    };
+    
+    // Run CLI command
+    const result = spawnSync("bun", ["run", CLI, ...args], { 
+      encoding: "utf-8",
+      env: testEnv,
+      stdio: ["inherit", "pipe", "pipe"] // Configure stdio to pipe stdout and stderr
+    });
+    
+    // Log output for debugging
+    console.log("Command stdout:", result.stdout);
+    console.log("Command stderr:", result.stderr);
+    
+    return result;
+  } catch (error) {
+    console.error(`Error running CLI command: ${error}`);
+    throw error;
+  }
 }
 
 describe("minsky session dir CLI", () => {

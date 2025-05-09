@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
-import { writeFileSync } from "fs";
-import { join } from "path";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
 import { spawnSync } from "child_process";
 import { 
   createUniqueTestDir, 
@@ -25,21 +25,48 @@ function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repo
   testEnv = setupMinskyTestEnv(TEST_DIR);
   sessionDbPath = testEnv.sessionDbPath;
   
-  // Create sessions with consistent data
-  const normalizedSessions = sessions.map(session => ({
-    ...session,
-    // Ensure repoName is always set for consistency
-    repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
-    // Ensure branch is defined
-    branch: session.branch || ""
-  }));
-  
-  // Write to the database file
-  writeFileSync(sessionDbPath, JSON.stringify(normalizedSessions, null, 2));
-  
-  // Log for debugging
-  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
-  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+  try {
+    // Create the minsky directory structure
+    const minskyDir = join(TEST_DIR, "minsky");
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
+    }
+    
+    // Ensure parent directory of sessionDbPath exists
+    const sessionDbDir = dirname(sessionDbPath);
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
+    }
+    
+    // Create sessions with consistent data
+    const normalizedSessions = sessions.map(session => ({
+      ...session,
+      // Ensure repoName is always set for consistency
+      repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
+      // Ensure branch is defined
+      branch: session.branch || ""
+    }));
+    
+    // Write to the database file
+    writeFileSync(
+      sessionDbPath, 
+      JSON.stringify(normalizedSessions, null, 2),
+      { encoding: "utf8" }
+    );
+    
+    // Verify the file exists
+    if (!existsSync(sessionDbPath)) {
+      throw new Error(`Session DB file not created at ${sessionDbPath}`);
+    }
+    
+    // Log for debugging
+    console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
+    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+  } catch (error) {
+    console.error(`Error in setupSessionDb: ${error}`);
+    throw error;
+  }
 }
 
 // Helper to run CLI command with proper environment
