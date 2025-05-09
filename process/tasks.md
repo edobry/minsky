@@ -54,3 +54,7 @@ This file tracks work items for the project. Each task follows this format:
 - [+] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
 
 - [-] Fix Test Failures in Minsky [#044](process/tasks/044-fix-test-failures-in-minsky.md)
+
+- [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
+
+- [ ] Document Dependency Management Process [#046](process/tasks/046-document-dependency-management-process.md)
