@@ -64,6 +64,8 @@
   - Status filter message when using `--status` option (e.g., "Showing tasks with status 'TODO'")
   - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
   - Messages are not shown in JSON output to maintain machine-readable format
+- New `test-helpers.ts` utility module with reusable functions for test isolation, environment setup, and error handling
+- Unique test directory creation with timestamps and random suffixes to prevent test interference
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -100,6 +102,10 @@ _See: SpecStory history [task-id-format-support-specification](.specstory/histor
 - Normalize task IDs consistently by ensuring the '#' prefix is added if missing
 - Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
 - Enhanced task creation workflow to support both title formats: `# Task: Title` (without a task number) and `# Task #XXX: Title` (with a task number). The CLI now automatically assigns the next available task number when no number is provided, updates the title in the file, and renames the file to match the assigned number and title.
+- Improved session test files (list.test.ts, startSession.test.ts) with better isolation and error handling
+- Updated tasks list test with better subprocess error checking
+- Removed Jest-specific code that doesn't work in Bun's test environment
+- Added proper error checking for subprocess execution in tests
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -110,6 +116,7 @@ _See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specst
 _See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
 _See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
 _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
+_See: SpecStory history [2025-05-08_test-fixes](.specstory/history/2025-05-08_test-fixes.md) for test fixes implementation._
 
 ### Fixed
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
@@ -173,6 +180,9 @@ _See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/
 - Fixed import paths in test files by adding `.js` extensions
 - Fixed `startSession.test.ts` by updating test expectations to match the actual implementation
 - Updated `minsky-workflow.mdc` rule to clarify session creation options
+- Fixed session tests that were failing when run as part of the full test suite
+- Fixed test environment variable handling to prevent test interference
+- Added proper timeout management using Bun's `--timeout` flag instead of Jest-style timeouts
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 
