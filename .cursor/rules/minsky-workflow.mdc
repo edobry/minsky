@@ -224,27 +224,28 @@ When asked to create a new task:
 
 ### Starting a New Session
 
-1. **Create a Task Session**
-   - Begin a new session for the task (no session name needed when using `--task`):
+1. **Create a Task Session (Using --quiet is MANDATORY)**
+   - The `minsky session start` command **MUST ALWAYS** be used with the `--quiet` option. This is a universal requirement for all invocations of the command, whether interactive or scripted.
+   - The `--quiet` option ensures consistent, predictable behavior by outputting *only* the session directory path. This is critical for reliable scripting (e.g., when capturing the path with `SESSION_DIR=$(...)`) and provides a clean, focused output for interactive use.
      ```bash
-     minsky session start --task 001
+     # CORRECT & MANDATORY: Always use --quiet
+     minsky session start --task 001 --quiet
+
+     # Also applies when using other options (e.g., custom session name, specific repo)
+     # --quiet remains MANDATORY
+     minsky session start my-session --repo https://github.com/org/repo.git --quiet
      ```
-   - Use the `--quiet` option for programmatic usage that outputs only the session directory path:
+   - **Capturing the Session Path:** The standard and correct way to start a session and navigate into its directory is:
      ```bash
-     # For programmatic use in scripts
+     # STANDARD USAGE: Capture path and navigate
      SESSION_DIR=$(minsky session start --task 001 --quiet)
      cd "$SESSION_DIR"
+     echo "Working in session directory: $SESSION_DIR"
      ```
-   - The standard output will show:
-     - The auto-generated session name (e.g., `task#001`)
-     - The repository location where files were cloned
-     - The branch name that was created (same as session name)
-     - The task ID association
-     - Command to navigate to the session directory
-     - The session directory path (for programmatic use)
+   - **Getting Session Details:** Since `--quiet` suppresses verbose output, if you need detailed information about the session after creation (like its auto-generated name, repository location, branch name, or task association), you **MUST** use the `minsky session get <session_name_or_task_id>` command.
 
 2. **Enter the Session Directory**
-   - Navigate to the session directory using the provided command
+   - After creating a session using the mandatory `--quiet` option and capturing its path as shown above, navigate to the session directory (e.g., `cd "$SESSION_DIR"`).
 
 ### Re-entering an Existing Session
 
@@ -270,53 +271,6 @@ When asked to continue working on a task:
      cd $(minsky session dir task#001)
      ```
    - If no session exists, create one as described in "Starting a New Session"
-
-### Programmatic Usage
-
-When integrating minsky into automated workflows or scripts:
-
-1. **Use `--quiet` for Machine-Readable Output**
-   - The `--quiet` option provides clean, machine-readable output:
-     ```bash
-     # Create a session and capture its directory path
-     SESSION_DIR=$(minsky session start --task 001 --quiet)
-     
-     # Use the path in a script
-     cd "$SESSION_DIR"
-     echo "Working in session directory: $SESSION_DIR"
-     
-     # Use with other options
-     SESSION_DIR=$(minsky session start my-session --repo https://github.com/org/repo.git --quiet)
-     ```
-
-2. **Error Handling in Scripts**
-   - Even in quiet mode, errors are sent to stderr and exit codes are set appropriately:
-     ```bash
-     # Example bash script with error handling
-     if SESSION_DIR=$(minsky session start --task 001 --quiet); then
-       cd "$SESSION_DIR"
-       echo "Successfully started session in: $SESSION_DIR"
-     else
-       echo "Failed to start session, exiting" >&2
-       exit 1
-     fi
-     ```
-
-3. **Combining with Other Commands**
-   - Chain with other minsky commands for complex workflows:
-     ```bash
-     # Example: Create session, run tests, and generate PR description
-     SESSION_DIR=$(minsky session start --task 001 --quiet)
-     cd "$SESSION_DIR"
-     bun test
-     
-     if [ $? -eq 0 ]; then
-       minsky git pr --path . > process/tasks/001/pr.md
-       minsky git commit -m "task#001: Add PR description"
-       minsky git push
-       minsky tasks status set '#001' IN-REVIEW
-     fi
-     ```
 
 ## Session Cleanup Procedures
 
@@ -481,20 +435,20 @@ Task implementation is not complete until ALL these steps are performed, in orde
 
 ## Standard Session Navigation Pattern
 
-**ALWAYS use this exact pattern for starting sessions and navigating to them:**
+**ALWAYS use this exact pattern for starting sessions and navigating to them, adhering to the mandatory `--quiet` rule for `minsky session start`:**
 
 ```bash
-# REQUIRED pattern for ALL session navigation (both in scripts and interactive use)
+# REQUIRED pattern for ALL session navigation
+# This relies on `minsky session start --task <id> --quiet` outputting ONLY the path.
 SESSION_DIR=$(minsky session start --task <id> --quiet)
 cd "$SESSION_DIR"
 ```
 
-This pattern MUST be used:
-- In all scripts and automations
-- In all interactive usage where directory navigation follows
-- Any time you intend to navigate to the session directory after creation
+This pattern **MUST** be used for reliable session creation and navigation because:
+- It correctly applies the **mandatory `--quiet` flag** for `minsky session start`.
+- It ensures `SESSION_DIR` accurately captures only the directory path.
 
-DO NOT use separate commands for starting a session and then navigating to it.
+Using any other approach for capturing the session path after creation is prone to errors if the `--quiet` flag is inadvertently omitted.
 
 ---
 
