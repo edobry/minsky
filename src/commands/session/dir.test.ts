@@ -2,15 +2,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
-import type { SessionRecord } from "../../domain/session.js";
+import type { SessionRecord } from "../../domain/session.ts";
 import { 
   createUniqueTestDir, 
   cleanupTestDir, 
   setupMinskyTestEnv, 
   createTestEnv, 
   standardSpawnOptions 
-} from "../../utils/test-helpers.js";
-import type { MinskyTestEnv } from "../../utils/test-helpers.js";
+} from "../../utils/test-helpers.ts";
+import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
@@ -54,10 +54,15 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
     // For test variety, use the new path for some sessions and legacy for others
     if (session.session.includes("new")) {
       mkdirSync(newPath, { recursive: true });
+      console.log(`Created session directory at: ${newPath}`);
     } else {
       mkdirSync(legacyPath, { recursive: true });
+      console.log(`Created session directory at: ${legacyPath}`);
     }
   }
+  
+  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
 }
 
 // Helper to run a CLI command with the right environment
@@ -73,6 +78,10 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
   };
   
   const result = spawnSync("bun", ["run", CLI, ...args], options);
+  
+  // Log output for debugging
+  console.log(`Command stdout: ${result.stdout}`);
+  console.log(`Command stderr: ${result.stderr}`);
   
   return {
     stdout: result.stdout as string,
@@ -107,6 +116,9 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "test/repo", "test-session");
     
+    console.log(`Expected path: ${expectedPath}`);
+    console.log(`Directory exists: ${existsSync(expectedPath)}`);
+    
     // Run the command with explicit XDG_STATE_HOME
     const { stdout, stderr } = runCliCommand(["session", "dir", "test-session"]);
     
@@ -132,6 +144,9 @@ describe("minsky session dir CLI", () => {
     
     // The expected correct path should include the sessions subdirectory
     const expectedPath = join(gitDir, "test/repo", "sessions", "test-session-new");
+    
+    console.log(`Expected path: ${expectedPath}`);
+    console.log(`Directory exists: ${existsSync(expectedPath)}`);
     
     // Run the command
     const { stdout, stderr } = runCliCommand(["session", "dir", "test-session-new"]);
@@ -160,6 +175,9 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "repo", "task#008");
     
+    console.log(`Expected path: ${expectedPath}`);
+    console.log(`Directory exists: ${existsSync(expectedPath)}`);
+    
     // Run the command
     const { stdout, stderr } = runCliCommand(["session", "dir", "task#008"]);
     
@@ -186,6 +204,9 @@ describe("minsky session dir CLI", () => {
     
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "repo", "task#009");
+    
+    console.log(`Expected path: ${expectedPath}`);
+    console.log(`Directory exists: ${existsSync(expectedPath)}`);
     
     // Run the command with --task option
     const { stdout, stderr } = runCliCommand(["session", "dir", "--task", "009"]);

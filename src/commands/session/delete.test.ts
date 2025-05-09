@@ -2,15 +2,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
-import type { SessionRecord } from "../../domain/session.js";
+import type { SessionRecord } from "../../domain/session.ts";
 import { 
   createUniqueTestDir, 
   cleanupTestDir, 
   setupMinskyTestEnv, 
   createTestEnv, 
   standardSpawnOptions
-} from "../../utils/test-helpers.js";
-import type { MinskyTestEnv } from "../../utils/test-helpers.js";
+} from "../../utils/test-helpers.ts";
+import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");

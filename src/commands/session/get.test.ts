@@ -2,15 +2,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
-import type { SessionRecord } from "../../domain/session.js";
+import type { SessionRecord } from "../../domain/session.ts";
 import { 
   createUniqueTestDir, 
   cleanupTestDir, 
   setupMinskyTestEnv, 
   createTestEnv, 
   standardSpawnOptions 
-} from "../../utils/test-helpers.js";
-import type { MinskyTestEnv } from "../../utils/test-helpers.js";
+} from "../../utils/test-helpers.ts";
+import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
@@ -32,6 +32,10 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
   
   // Write the session database
   writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2));
+  
+  // Log for debugging
+  console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
+  console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
 }
 
 // Helper to run a CLI command with the right environment
@@ -47,6 +51,10 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
   };
   
   const result = spawnSync("bun", ["run", CLI, ...args], options);
+  
+  // Log output for debugging
+  console.log(`Command stdout: ${result.stdout}`);
+  console.log(`Command stderr: ${result.stderr}`);
   
   return {
     stdout: result.stdout as string,
