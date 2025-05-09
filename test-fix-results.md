@@ -2,9 +2,9 @@
 
 ## Overview
 
-We have successfully fixed several failing tests in the Minsky CLI project by implementing better test isolation, error handling, and timeout management. The goal was to make tests pass consistently, both when run individually and as part of the full test suite.
+We've successfully fixed several failing tests in the Minsky CLI project by implementing better test isolation, error handling, and timeout management. The goal was to make tests pass consistently, both when run individually and as part of the full test suite.
 
-## Fixed Issues
+## What We've Fixed
 
 1. **Test Helper Utilities**:
    - Created a new `src/utils/test-helpers.ts` utility module with reusable functions for:
@@ -28,59 +28,66 @@ We have successfully fixed several failing tests in the Minsky CLI project by im
 
 4. **General Test Improvements**:
    - Removed Jest-specific code not compatible with Bun's test environment
-   - Added better error checking for subprocess execution
-   - Standardized environment variables across tests
-   - Fixed bun:test compatibility issues with assertions
-   - Replaced `.not.toContain()` with `.indexOf().toBe(-1)` for compatibility
-   - Improved type safety across test files
+   - Fixed linter errors related to type safety
+   - Improved error handling in subprocess execution
+   - Added proper test cleanup
+   - Fixed `.not.toContain()` assertions that don't work in Bun
 
 ## Remaining Issues
 
-1. **Lingering Timing Issues**:
-   - Some tests may still fail intermittently due to timing issues
-   - Consider using the `--timeout` flag consistently for all test runs
+When running the full test suite with `bun test --timeout 10000`, we still have the following categories of failing tests:
 
-## Recommendations for Remaining Work
+1. **Session Database Issues**:
+   - Tests failing with "Session not found" or "No session found for task ID" errors
+   - These failures are likely due to the test database being created but not properly read by the commands
+   
+2. **Path Resolution Issues**:
+   - Many session path-related tests fail because they can't find the correct session path
+   - This appears to be related to the session database and repository setup in the test environment
+   
+3. **Task Tests Issues**:
+   - Several tasks/list.test.ts tests fail with empty outputs
+   - The tasks list functionality might not be properly looking up the test task files
 
-1. **Complete Migration to Test Helpers**:
-   - Update remaining test files to use the new `test-helpers.ts` module
-   - Make tests independent and avoid sharing resources
+## Recommendations for Full Resolution
 
-2. **Consistent Test Environment**:
-   - Use a standardized approach to environment variables
-   - Consider a test setup file for common initialization
+1. **Session Database Initialization**:
+   - Ensure the SessionDB is properly initialized in all test environments
+   - Check for correct path permissions and database file creation
+   - Verify the mock data is consistently included in the database
 
-3. **Test Isolation**:
-   - Always create unique test directories even within the same test file
-   - Clean up resources properly after tests
+2. **Path Resolution Consistency**:
+   - Create a standardized approach to test session paths across all session tests
+   - Consider simplifying the environment variable management and path resolution
+   - Use the test-helpers module consistently in all session-related tests
 
-4. **Bun Test Compatibility**:
-   - Continue fixing Bun-specific issues in test assertions
-   - Use `bun test --timeout 10000` for tests with longer operations
+3. **Better Session Mocking**:
+   - Replace direct SessionDB testing with a more robust mock approach that simulates the DB
+   - Create a fully in-memory SessionDB implementation for testing
 
-5. **Consistent Error Handling**:
-   - Use the standardized error handling functions from test-helpers
-   - Add proper error checks for spawned processes
+4. **Run Tests Individually First**:
+   - Continue getting individual tests working before trying to fix them as part of the full test suite
+   - This helps isolate issues that might be related to test interference
 
 ## Sample Commands
 
-Test a specific file with increased timeout:
+Test an individual file with timeout:
 ```
 bun test src/commands/session/list.test.ts --timeout 10000
 ```
 
-Run multiple test files:
+Run tests in a specific directory:
 ```
-bun test src/commands/session/list.test.ts src/commands/session/startSession.test.ts --timeout 10000
+bun test src/commands/session --timeout 10000
 ```
 
-Run all tests with standard timeout:
+Run the full test suite with timeout:
 ```
 bun test --timeout 10000
 ```
 
 ## Conclusion
 
-The test fixes implemented have significantly improved test reliability, especially for the session-related tests. The test framework now has better isolation between tests and more consistent error handling. The remaining issues are more specific to individual test files and can be fixed by following the patterns established in the fixed tests.
+We've made significant progress in fixing the Minsky CLI tests by creating a standardized test-helpers module and fixing many of the individual test files. The patterns we've established can be applied to fix the remaining issues.
 
-By continuing to apply these patterns to the remaining problematic tests, all tests should eventually pass consistently in the full test suite. 
+The primary challenge for the remaining failing tests appears to be session database management across tests. A focused effort on standardizing database initialization, path resolution, and environment setup would likely resolve the remaining issues. 
