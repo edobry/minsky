@@ -20,7 +20,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](tasks/008-update-tasks-list-hide-done.md)
 - [x] Add `git commit` command to stage and commit changes [#009](tasks/009-add-git-commit-command.md)
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
-- [X] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [-] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
 - [ ] Add Repository Backend Support [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
@@ -36,24 +36,19 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
 - [x] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
-- [ ] Setup Project Tooling and Automation [#030](tasks/030-setup-project-tooling-and-automation.md)
+- [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
+- [ ] Implement Session-First Workflow Verification [#029](process/tasks/029-implement-session-first-workflow-verification.md)
+- [ ] Implement Changelog Management Automation [#030](process/tasks/030-implement-changelog-management-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [ ] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
+- [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
+- [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
 - [-] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
 - [ ] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](tasks/037-session-commit-command.md)
 - [x] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
-
-- [ ] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
-
-- [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
-
 - [ ] Prevent Session Creation Within Existing Sessions [#039](process/tasks/039-prevent-session-creation-within-existing-sessions.md)
-
 - [ ] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
-
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
-
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
-
-- [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
+- [ ] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
