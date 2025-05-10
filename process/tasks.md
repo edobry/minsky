@@ -51,6 +51,10 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
+      <<<<<<< HEAD
+- [ ] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
+
+- [x] # Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
 - [x] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
 
 - [x] Fix Test Failures in Minsky [#044](process/tasks/044-fix-test-failures-in-minsky.md)
@@ -66,3 +70,4 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
 - [ ] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
+  > > > > > > > origin/main

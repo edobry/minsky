@@ -5,14 +5,6 @@
 ## [Unreleased]
 
 ### Added
-- MCP (Model Context Protocol) server support for enabling AI agent interaction with Minsky commands
-  - Added `fastmcp` dependency for implementing the MCP server
-  - Created core MCP server module (`src/mcp/server.ts`) for handling protocol communication
-  - Implemented command mapper (`src/mcp/command-mapper.ts`) to bridge between CLI commands and MCP tools
-  - Added support for tasks and session commands via MCP tools
-  - Added `minsky mcp start` command for launching the MCP server with customizable transport options
-  - Structured output formatting to consistently return data in machine-readable formats
-  - Support for multiple transport types: stdio (default), SSE, and HTTP streaming
 - Initial Bun+TypeScript project setup for the minsky CLI tool
 - Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
 - `git clone` command: clone a repo into an isolated workspace, with session support
@@ -91,7 +83,6 @@
 - Standardized test environment management with consistent resource cleanup
 - Type-safe test helper functions for subprocess execution and error handling
 - Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
-- Added `--task <taskId>` option to `minsky session delete` command, allowing sessions to be deleted by their associated task ID. The command now supports both session name and task ID (but not both simultaneously), and offers clear error messages for invalid task IDs or non-existent sessions.
 - Automated task status updates at key workflow points:
   - The `session start` command now automatically sets task status to IN-PROGRESS when started with `--task`
   - The `git pr` command now automatically sets task status to IN-REVIEW when generating a PR
@@ -101,13 +92,6 @@
 - Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
 - Task: Add Session Information to Task Details [#043](process/tasks/043-add-session-information-to-task-details.md)
 - New `test-infrastructure-patterns` cursor rule capturing best practices for test isolation, environment setup, and CLI testing from our test fixes work. The rule includes patterns for creating unique test directories, standardizing environment setup, properly mocking dependencies, and debugging test failures.
-- Added `session commit` command to stage, commit, and push all changes for a session in one step. The command supports:
-  - Automatic session detection when run from a session directory
-  - Optional commit message prompt if not provided
-  - Task ID prefix in commit messages when available
-  - Optional `--no-push` flag to skip pushing changes
-  - Compatible with other session commands using consistent dependency injection
-  - Comprehensive test coverage to ensure reliability
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
@@ -162,7 +146,6 @@ _See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history
 _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
 _See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
 _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
-_See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test fixes._
 _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
 
 ### Fixed
@@ -223,22 +206,6 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Updated SessionRecord interface usage to remove the non-existent 'branch' property
   - Fixed repo-utils.test.ts to use proper mocking techniques compatible with Bun's test API
   - Updated test files to use 'test' instead of 'it' for compatibility with Bun's test API
-- Fixed test expectations in `session/get.test.ts` to match actual error message format with double quotes
-- Fixed test expectations in `tasks/list.test.ts` to use regex patterns instead of specific task IDs
-- Fixed linter errors in test files by replacing `.not.toBe()` with `!== 0` checks
-- Fixed linter errors in test files by replacing `.not.toContain()` with `.includes().toBe(false)`
-- Fixed import paths in test files by adding `.js` extensions
-- Fixed `startSession.test.ts` by updating test expectations to match the actual implementation
-- Updated `minsky-workflow.mdc` rule to clarify session creation options
-- Fixed session tests that were failing when run as part of the full test suite
-- Fixed test environment variable handling to prevent test interference
-- Improved subprocess error handling in tests
-- Added unique test directories with timestamps and random suffixes to prevent collisions
-- Fixed Bun test compatibility issues by replacing Jest-specific patterns
-- Fixed type errors in test files related to Bun's test environment
-- Updated test assertions to be compatible with Bun's test API
-- Identified and documented remaining test issues with session database management and path resolution
-- Created comprehensive documentation on resolving test isolation issues for future work
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
@@ -253,6 +220,27 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Updated test assertions to be more resilient to minor output differences
   - Fixed several tests to use individual test directories to prevent interference
   - Added proper cleanup between tests to ensure test isolation
+- Fixed merge conflicts in several test files for task #044 
+  - Resolved conflicts in get.test.ts, session commands tests, and gitServiceTaskStatusUpdate.test.ts
+  - Improved file system path handling in session directory tests
+  - Enhanced setupSessionDb functions across session command tests to handle file creation edge cases
+  - Fixed workspace validation in tasks/list.test.ts by correctly setting up required Minsky project structure
+  - Improved error handling and debug logging for test failures
+  - Created more robust helper functions for test setup and cleanup
+- Fixed import extensions in test files to use .ts instead of .js
+  - Updated imports in cd.test.ts and gitServiceTaskStatusUpdate.test.ts
+  - Consistently used double quotes for string literals
+  - Fixed environment variable handling in session tests
+- Enhanced session test error handling and logging:
+  - Added detailed verification of directory and file creation
+  - Improved error messages for file system operations
+  - Added robust error handling with try/catch blocks around file operations
+  - Added parent directory creation checks before file write operations
+- Fixed workspace validation in tasks/list.test.ts:
+  - Added proper package.json and git config files to pass validation
+  - Created filter-messages.ts utility for proper message handling
+  - Added verification steps to confirm directories and files are created
+  - Fixed assertions to match actual command output format
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
@@ -283,5 +271,17 @@ _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/histo
 - Fixed test failures in session command tests by correcting import paths
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
+
+## [Unreleased]
+
+### Fixed
+- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed issues with session-related tests by enhancing error handling and directory creation
+- Fixed task list tests by ensuring tasks.md is created in the proper process directory
+- Added more robust directory existence checking and file creation in test setup
+
+### Changed
+- Improved test environment setup to create more complete Minsky workspace structure
+- Enhanced error handling and debugging output in test environment setup
 
  

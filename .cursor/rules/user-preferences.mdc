@@ -45,6 +45,7 @@ The above is not optional guidance - it is a mandatory filter that must be appli
     *   DO immediately proceed with the corrected action or confirm future adherence to that specific directive without further questioning its application in that context.
     *   This reinforces the "Interpret references to rules as reminders to follow them" point, with a specific focus on *corrective* references to *explicit directives*.
 - **When the user says to keep going or not to ask for confirmation/status, proceed through all actionable issues without pausing, and only stop when all are resolved or all tests pass.**
+- **Always push after committing:** After making any commit to a branch, immediately push those changes to the remote repository without asking for confirmation.
 
 ## VERIFICATION CHECKPOINT
 

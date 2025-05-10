@@ -16,12 +16,12 @@ import {
 } from "../../utils/test-helpers.ts";
 import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 
+// Path to the CLI entry point - use absolute path
+const CLI = join(process.cwd(), "src/cli.ts");
+
 // Create a unique test directory to avoid conflicts with other tests
 const TEST_DIR = createUniqueTestDir("minsky-tasks-list-test");
 let testEnv: MinskyTestEnv;
-
-// Path to the CLI entry point - use absolute path
-const CLI = join(process.cwd(), "src/cli.ts");
 
 const SAMPLE_TASKS_MD = `
 # Tasks
@@ -46,24 +46,58 @@ const SAMPLE_TASKS_MD = `
 function setupMinskyWorkspace() {
   // Setup the Minsky test environment with proper directory structure
   testEnv = setupMinskyTestEnv(TEST_DIR);
-  
+
   // Create additional directories for workspace validation
   const PROCESS_DIR = join(TEST_DIR, "process");
   const TASKS_DIR = join(PROCESS_DIR, "tasks");
+  const CONFIG_DIR = join(TEST_DIR, ".minsky");
   
   // Create fake .git directory to make the workspace appear valid
   const GIT_DIR = join(TEST_DIR, ".git");
+
+  // Ensure all directories exist by creating them
   mkdirSync(GIT_DIR, { recursive: true });
-  
-  // Write necessary files to make this a valid workspace structure
+  mkdirSync(PROCESS_DIR, { recursive: true });
+  mkdirSync(TASKS_DIR, { recursive: true });
+  mkdirSync(CONFIG_DIR, { recursive: true });
+
+  // Create minimal package.json
+  writeFileSync(join(TEST_DIR, "package.json"), JSON.stringify({
+    name: "test-minsky-workspace",
+    version: "1.0.0"
+  }, null, 2));
+
+  // Create minimal .git/config
+  writeFileSync(join(GIT_DIR, "config"), `[core]
+  repositoryformatversion = 0
+  filemode = true
+  bare = false
+  logallrefupdates = true
+  ignorecase = true
+  precomposeunicode = true
+`);
+
+  // Create minimal .minsky/CONFIG.json
+  writeFileSync(join(CONFIG_DIR, "CONFIG.json"), JSON.stringify({
+    version: "1.0.0"
+  }, null, 2));
+
+  // Create tasks.md file with sample tasks - IMPORTANT: This needs to be in the process directory
   writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
   
-  // Create the individual task spec files in the tasks directory
-  writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
-  writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
-  writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
-  writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
-  
+  // Also create individual task files (optional but helpful for completeness)
+  writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\nThis is the first task description");
+  writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task");
+  writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task");
+  writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task");
+
+  // Verify everything was created properly
+  console.log(`Process dir exists: ${existsSync(PROCESS_DIR)}`);
+  console.log(`Tasks.md exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
+  console.log(`${CONFIG_DIR}/CONFIG.json exists: ${existsSync(join(CONFIG_DIR, "CONFIG.json"))}`);
+  console.log(`package.json exists: ${existsSync(join(TEST_DIR, "package.json"))}`);
+  console.log(`Git config exists: ${existsSync(join(GIT_DIR, "config"))}`);
+  console.log(`Filter messages file exists: ${existsSync(join(TEST_DIR, ".filter-messages"))}`);
   console.log(`Test setup: Created workspace at ${TEST_DIR} with task files`);
 }
 
