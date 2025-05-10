@@ -62,3 +62,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
 
 - [ ] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
+
+- [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
