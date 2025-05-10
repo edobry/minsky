@@ -1,12 +1,13 @@
 import { Command } from "commander";
-import { GitService } from "../../domain/git";
-import { SessionDB } from "../../domain/session";
-import { TaskService } from "../../domain/tasks";
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
+import { TaskService } from "../../domain/tasks.js";
 import fs from "fs";
 import path from "path";
-import { resolveRepoPath } from "../../domain/repo-utils";
-import { startSession } from "./startSession";
-import { normalizeTaskId } from "../../utils/task-utils";
+import { resolveRepoPath } from "../../domain/repo-utils.js";
+import { startSession } from "./startSession.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import { isSessionRepository } from "../../domain/workspace.js";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
@@ -26,7 +27,14 @@ export function createStartCommand(): Command {
       statusUpdate?: boolean;
     }) => {
       try {
-        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
+        // Check if current directory is already within a session workspace
+        const currentDir = Bun.env.PWD || process.cwd();
+        const isInSession = await isSessionRepository(currentDir);
+        if (isInSession) {
+          throw new Error("Cannot create a new session while inside a session workspace. Please return to the main workspace first.");
+        }
+
+        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch((err: Error) => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
         });
 
@@ -54,7 +62,7 @@ export function createStartCommand(): Command {
           
           // Check if a session already exists for this task
           const existingSessions = await sessionDB.listSessions();
-          const taskSession = existingSessions.find(s => s.taskId === taskId);
+          const taskSession = existingSessions.find((s: { taskId?: string }) => s.taskId === taskId);
           
           if (taskSession) {
             throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
@@ -83,9 +91,9 @@ export function createStartCommand(): Command {
             // Show status update information if applicable
             if (result.statusUpdateResult) {
               const { previousStatus, newStatus } = result.statusUpdateResult;
-              console.log(`Task status updated: ${previousStatus || 'none'} → ${newStatus}`);
+              console.log(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
             } else if (options.statusUpdate === false) {
-              console.log('Task status update skipped (--no-status-update)');
+              console.log("Task status update skipped (--no-status-update)");
             }
           }
           
