@@ -48,9 +48,10 @@ const SAMPLE_TASKS_MD = `
 - [ ] Not a real task
 `;
 
-// Create a flag to determine if we're running this test file specifically
-// or as part of the full test suite
-// Note: Hard-coding to true to skip CLI tests when running in the full test suite
+// Set SKIP_CLI_TESTS to true to temporarily skip CLI tests
+// REASON: These tests have dependency issues when running in the full test suite
+// Running these CLI tests directly with `bun test src/commands/tasks/list.test.ts` works fine
+// TODO: Implement proper mocking to allow these tests to run in both environments
 const SKIP_CLI_TESTS = true;
 
 // Helper to setup a valid Minsky workspace structure
