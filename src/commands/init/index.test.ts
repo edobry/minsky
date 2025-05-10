@@ -23,6 +23,7 @@ describe("createInitCommand", () => {
     const command = createInitCommand();
     expect(command).toBeDefined();
     expect(typeof command.parseAsync).toBe("function");
+    expect(true).toBe(false); // Deliberate failure for pre-push hook test
   });
 
   test("command should include MCP-related options", () => {
