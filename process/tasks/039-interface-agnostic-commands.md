@@ -227,3 +227,338 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 ## Work Log
 
 1. 2025-05-09: Initial task specification created
+2. 2025-05-10: Created detailed implementation plan and updated status to IN-PROGRESS
+
+## Detailed Implementation Plan
+
+After analyzing the codebase, here's a more specific plan to implement the interface-agnostic command architecture:
+
+### Phase 1: Directory Structure and Schema Setup (Foundation)
+
+1. **Create New Directory Structure**
+   - Create `src/adapters/cli` directory for CLI adapters
+   - Create `src/adapters/mcp` directory for MCP adapters
+   - Create `src/schemas` directory for shared validation schemas
+
+2. **Create Shared Schema Files**
+   - Create `src/schemas/tasks.ts` for task-related parameter schemas
+   - Create `src/schemas/session.ts` for session-related parameter schemas
+   - Create `src/schemas/git.ts` for git-related parameter schemas
+   - Create `src/schemas/common.ts` for commonly used schemas (e.g., paths)
+
+3. **Update Types**
+   - Create or update shared types in `src/types` to be used across all interfaces
+   - Define consistent response types for all commands
+
+### Phase 2: Refactor Tasks Domain and Commands
+
+1. **Refactor Task Domain Module**
+   - Review and update `src/domain/tasks.ts` to ensure all business logic is properly encapsulated
+   - Ensure all functions have proper TypeScript types
+   - Add validation using Zod schemas from the new schema files
+   - Ensure all error handling is consistent
+
+2. **Create Tasks CLI Adapter**
+   - Create `src/adapters/cli/tasks.ts` that imports from domain and schemas
+   - Move CLI-specific logic from `src/commands/tasks/*.ts` to this adapter
+   - Update existing CLI commands to use the adapter
+
+3. **Create Tasks MCP Adapter**
+   - Create `src/adapters/mcp/tasks.ts` that imports from domain and schemas
+   - Move MCP-specific logic from `src/mcp/tools/tasks.ts` to this adapter
+   - Update MCP command registrations to use the adapter
+
+4. **Update Tests**
+   - Update or create tests for the domain functions
+   - Create tests for CLI adapters
+   - Create tests for MCP adapters
+
+### Phase 3: Refactor Session Domain and Commands
+
+1. **Refactor Session Domain Module**
+   - Review and update `src/domain/session.ts` to ensure all business logic is properly encapsulated
+   - Ensure all functions have proper TypeScript types
+   - Add validation using Zod schemas
+   - Ensure all error handling is consistent
+
+2. **Create Session CLI Adapter**
+   - Create `src/adapters/cli/session.ts` that imports from domain and schemas
+   - Move CLI-specific logic from `src/commands/session/*.ts` to this adapter
+   - Update existing CLI commands to use the adapter
+
+3. **Create Session MCP Adapter**
+   - Create `src/adapters/mcp/session.ts` that imports from domain and schemas
+   - Move MCP-specific logic from `src/mcp/tools/session.ts` to this adapter
+   - Update MCP command registrations to use the adapter
+
+4. **Update Tests**
+   - Update or create tests for the domain functions
+   - Create tests for CLI adapters
+   - Create tests for MCP adapters
+
+### Phase 4: Refactor Git Domain and Commands
+
+1. **Refactor Git Domain Module**
+   - Review and update `src/domain/git.ts` to ensure all business logic is properly encapsulated
+   - Ensure all functions have proper TypeScript types
+   - Add validation using Zod schemas
+   - Ensure all error handling is consistent
+
+2. **Create Git CLI Adapter**
+   - Create `src/adapters/cli/git.ts` that imports from domain and schemas
+   - Move CLI-specific logic from `src/commands/git/*.ts` to this adapter
+   - Update existing CLI commands to use the adapter
+
+3. **Create Git MCP Adapter**
+   - Create `src/adapters/mcp/git.ts` that imports from domain and schemas
+   - Move MCP-specific logic from any existing git-related MCP tools to this adapter
+   - Update MCP command registrations to use the adapter
+
+4. **Update Tests**
+   - Update or create tests for the domain functions
+   - Create tests for CLI adapters
+   - Create tests for MCP adapters
+
+### Phase 5: MCP Server Refactoring
+
+1. **Update Command Mapper**
+   - Refactor `src/mcp/command-mapper.ts` to use the new adapter pattern
+   - Ensure it properly handles error responses from domain functions
+   - Update type definitions as needed
+
+2. **Update MCP Server**
+   - Update `src/mcp/server.ts` to use the new adapters
+   - Ensure proper error handling and response formatting
+   - Add tests for the updated MCP server
+
+### Phase 6: Final Integration and Testing
+
+1. **Integration Tests**
+   - Create integration tests that ensure CLI and MCP produce consistent results
+   - Test error handling scenarios
+   - Test backward compatibility
+
+2. **Documentation**
+   - Update architecture documentation with new patterns
+   - Document how to add new commands using the new pattern
+   - Provide examples for both CLI and MCP interfaces
+
+### Example Workflow for Tasks List Command
+
+As a concrete example, here's how the refactoring might look for the `tasks list` command:
+
+1. **Create Task List Schema**
+```typescript
+// src/schemas/tasks.ts
+import { z } from 'zod';
+
+export const taskListParamsSchema = z.object({
+  filter: z.string().optional().describe("Filter tasks by status"),
+  limit: z.number().optional().describe("Limit the number of tasks returned"),
+  all: z.boolean().optional().describe("Include completed tasks"),
+  session: z.string().optional().describe("Session name to use for repo resolution"),
+  repo: z.string().optional().describe("Path to a git repository"),
+  workspace: z.string().optional().describe("Path to main workspace"),
+  backend: z.string().optional().describe("Specify task backend")
+});
+
+export type TaskListParams = z.infer<typeof taskListParamsSchema>;
+
+// Add additional schemas for other task commands...
+```
+
+2. **Update Domain Function**
+```typescript
+// src/domain/tasks.ts (modifications)
+import { taskListParamsSchema, TaskListParams } from '../schemas/tasks';
+
+// Existing TaskService class will be kept, but with some modifications
+
+// New function to be called from adapters
+export async function listTasksFromParams(params: TaskListParams): Promise<Task[]> {
+  // Validate params
+  const validParams = taskListParamsSchema.parse(params);
+  
+  // First get the repo path (needed for workspace resolution)
+  const repoPath = await resolveRepoPath({ 
+    session: validParams.session, 
+    repo: validParams.repo 
+  });
+  
+  // Then get the workspace path (main repo or session's main workspace)
+  const workspacePath = await resolveWorkspacePath({ 
+    workspace: validParams.workspace,
+    sessionRepo: repoPath
+  });
+  
+  const taskService = new TaskService({
+    workspacePath: workspacePath,
+    backend: validParams.backend
+  });
+  
+  let tasks;
+  
+  // If status filter is explicitly provided, use it
+  if (validParams.filter) {
+    tasks = await taskService.listTasks({
+      status: validParams.filter
+    });
+  } else {
+    // Otherwise get all tasks first
+    tasks = await taskService.listTasks();
+    
+    // Unless "all" is provided, filter out DONE tasks
+    if (!validParams.all) {
+      tasks = tasks.filter(task => task.status !== TASK_STATUS.DONE);
+    }
+  }
+  
+  return tasks;
+}
+```
+
+3. **Create CLI Adapter**
+```typescript
+// src/adapters/cli/tasks.ts
+import { Command } from 'commander';
+import { listTasksFromParams } from '../../domain/tasks';
+import { generateFilterMessages } from '../../utils/filter-messages';
+
+export function createListCommand(): Command {
+  return new Command('list')
+    .description('List tasks')
+    .option('-s, --status <status>', 'Filter tasks by status')
+    .option('--session <session>', 'Session name to use for repo resolution')
+    .option('--repo <repoPath>', 'Path to a git repository (overrides session)')
+    .option('--workspace <workspacePath>', 'Path to main workspace (overrides repo and session)')
+    .option('-b, --backend <backend>', 'Specify task backend (markdown, github)')
+    .option('--json', 'Output tasks as JSON')
+    .option('--all', 'Include DONE tasks in the output (by default, DONE tasks are hidden)')
+    .action(async (options: { 
+      status?: string, 
+      backend?: string, 
+      session?: string, 
+      repo?: string, 
+      workspace?: string,
+      json?: boolean,
+      all?: boolean 
+    }) => {
+      try {
+        const tasks = await listTasksFromParams({
+          filter: options.status,
+          backend: options.backend,
+          session: options.session,
+          repo: options.repo,
+          workspace: options.workspace,
+          all: options.all
+        });
+        
+        if (tasks.length === 0) {
+          if (options.json) {
+            console.log(JSON.stringify([]));
+          } else {
+            // Generate and display filter messages in non-JSON mode
+            const filterMessages = generateFilterMessages({
+              status: options.status,
+              all: options.all
+            });
+            
+            // Display filter messages if any exist
+            if (filterMessages.length > 0) {
+              filterMessages.forEach(message => console.log(message));
+              console.log("");
+            }
+            
+            console.log("No tasks found.");
+          }
+          return;
+        }
+        
+        if (options.json) {
+          console.log(JSON.stringify(tasks, null, 2));
+        } else {
+          // Generate and display filter messages in non-JSON mode
+          const filterMessages = generateFilterMessages({
+            status: options.status,
+            all: options.all
+          });
+          
+          // Display filter messages if any exist
+          if (filterMessages.length > 0) {
+            filterMessages.forEach(message => console.log(message));
+            console.log("");
+          }
+          
+          console.log("Tasks:");
+          tasks.forEach(task => {
+            console.log(`- ${task.id}: ${task.title} [${task.status}]`);
+          });
+        }
+      } catch (error) {
+        console.error("Error listing tasks:", error);
+        process.exit(1);
+      }
+    });
+}
+```
+
+4. **Create MCP Adapter**
+```typescript
+// src/adapters/mcp/tasks.ts
+import { z } from 'zod';
+import { CommandMapper } from '../../mcp/command-mapper';
+import { listTasksFromParams } from '../../domain/tasks';
+import { taskListParamsSchema } from '../../schemas/tasks';
+
+export function registerTaskTools(commandMapper: CommandMapper): void {
+  // Task list tool
+  commandMapper.addTaskCommand(
+    "list",
+    "List all tasks",
+    taskListParamsSchema, // Use the shared schema
+    async (args) => {
+      try {
+        // Use the shared domain function
+        const tasks = await listTasksFromParams(args);
+        return tasks;
+      } catch (error) {
+        console.error("Error listing tasks:", error);
+        throw new Error(`Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  );
+  
+  // Other task tools...
+}
+```
+
+5. **Update Command Registration**
+```typescript
+// src/commands/tasks/index.ts
+import { Command } from 'commander';
+import { createListCommand } from '../../adapters/cli/tasks';
+// Import other command creators...
+
+export function createTasksCommand(): Command {
+  const tasksCommand = new Command('tasks')
+    .description('Task management operations');
+  
+  tasksCommand.addCommand(createListCommand());
+  // Add other commands...
+  
+  return tasksCommand;
+}
+```
+
+6. **Update MCP Registration**
+```typescript
+// src/mcp/server.ts
+import { registerTaskTools } from '../adapters/mcp/tasks';
+// Import other tool registrations...
+
+// In server setup:
+registerTaskTools(commandMapper);
+// Register other tools...
+```
+
+By following this pattern for each command, we'll achieve a consistent interface-agnostic architecture that promotes code reuse, type safety, and maintainability.
