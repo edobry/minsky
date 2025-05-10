@@ -247,8 +247,14 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Updated mock behavior in session tests to properly handle task lookup
   - Fixed delete test to handle paths correctly and properly store session task associations
   - Updated all test expectations to align with actual command behavior
+- Fixed remaining test failures in Minsky CLI:
+  - Implemented missing `dir.ts` command to replace deprecated `cd.ts`
+  - Fixed session directory path detection for both legacy and new path formats
+  - Ensured proper test coverage for both task ID lookup and session name lookup in the dir command
+  - Updated session command mocks to handle error cases consistently
+  - Fixed index.ts to use the new dir command instead of the deprecated cd command
 
-_See: SpecStory history [2024-05-10_00-00-task-050-fix-remaining-tests](.specstory/history/2024-05-10_00-00-task-050-fix-remaining-tests.md) for additional test fixes._
+_See: SpecStory history [2024-05-10_00-00-task-050-fix-remaining-tests](.specstory/history/2024-05-10_00-00-task-050-fix-remaining-tests.md) for additional test fixes.
 
 ### Security
 - Sanitized external command execution to prevent shell injection
