@@ -16,6 +16,7 @@ import { createInitCommand } from "./index.js";
  * 9. Combining --mcp-only and --overwrite
  *
  * A future update should restore these tests when Bun's mocking API stabilizes.
+ * The previous full test suite can be found around commit 7050f86cbfedb4841b85b25acbfe08e2f7fb7c83.
  */
 describe("createInitCommand", () => {
   test("should create a command object", () => {
