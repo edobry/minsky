@@ -1,0 +1,17 @@
+version: '3'
+
+services:
+  minsky:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: ["/bin/sh", "-c", "bun install && bun link && tail -f /dev/null"]
+    environment:
+      - NODE_ENV=development
+    tty: true
+
+volumes:
+  node_modules:

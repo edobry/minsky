@@ -1,6 +1,7 @@
 # minsky
 
-A tool for coordinating AI agent workflows using Git and other collaboration tools, inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics.
+[![CI](https://github.com/yourusername/minsky/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/minsky/actions/workflows/ci.yml)
+[![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://github.com/prettier/prettier)
 
 > **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
 
@@ -57,6 +58,7 @@ minsky git pr --session feature-x
 Start a new session with the given name. If no name is provided, a random one will be generated.
 
 Options:
+
 - `-r, --repo <repo-url>`: URL of the repository to clone (optional if in a git repository)
 - `-t, --task <task-id>`: Task ID to associate with this session
 
@@ -65,6 +67,7 @@ Options:
 List all sessions.
 
 Options:
+
 - `--json`: Output in JSON format
 
 #### `minsky session get [options] <session-name>`
@@ -72,6 +75,7 @@ Options:
 Get details about a specific session.
 
 Options:
+
 - `--json`: Output in JSON format
 - `--task <task-id>`: Get session by task ID
 
@@ -93,12 +97,14 @@ Print the directory path for a session.
 Update a session with the latest changes from the main branch. If no session name is provided, uses the current session.
 
 Options:
+
 - `--no-stash`: Skip stashing changes
 - `--no-push`: Skip pushing changes to remote
 - `--branch <branch>`: Branch to merge from (defaults to main)
 - `--remote <remote>`: Remote to use (defaults to origin)
 
 Example:
+
 ```bash
 # Update current session with latest changes from main
 minsky session update
@@ -141,6 +147,7 @@ minsky tasks status set --repo /path/to/repo #001
 ```
 
 **Options:**
+
 - `--repo <repoPath>`: Path to a git repository (overrides session)
 - `--session <session>`: Session name to use for repo resolution
 - `--backend <backend>`: Task backend to use (default: markdown, future: github)
@@ -149,6 +156,7 @@ minsky tasks status set --repo /path/to/repo #001
 - `--json`: Output tasks as JSON
 
 **Features:**
+
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
 - Extensible: future support for GitHub Issues and other backends
