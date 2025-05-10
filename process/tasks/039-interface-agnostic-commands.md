@@ -625,8 +625,43 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 
 ## Remaining Work
 
-1. Implement the remaining domain functions for session and git commands
-2. Complete the CLI and MCP adapters for all commands
-3. Update the MCP server to use the new adapter pattern
-4. Add more comprehensive test coverage
-5. Update documentation with the new architecture
+1. **Fix Linter Issues in Implemented Files**
+   - Replace single quotes with double quotes in domain files (particularly tasks.ts)
+   - Fix import path restrictions (domain modules should be imported directly, not via index)
+   - Address type errors in MCP adapter for task status parameters
+   - Fix process.exit and Bun.exit usage in CLI adapters
+
+2. **Implement Remaining Domain Functions**
+   - In `session.ts`:
+     - Complete `startSessionFromParams` implementation
+     - Complete `updateSessionFromParams` implementation
+     - Add proper validation with Zod schemas
+   - In `git.ts`:
+     - Implement `createPullRequestFromParams` using GitService
+     - Implement `commitChangesFromParams` using GitService
+     - Add proper validation with Zod schemas
+
+3. **Complete CLI and MCP Adapters**
+   - Update `src/adapters/cli/session.ts` to use the new domain functions
+   - Update `src/adapters/cli/git.ts` to use the new domain functions
+   - Create/update `src/adapters/mcp/session.ts` for MCP session commands
+   - Create/update `src/adapters/mcp/git.ts` for MCP git commands
+
+4. **Fix Test Implementation**
+   - Fix mock implementation in `tasks.test.ts` to work with Bun's test framework
+   - Use `mock.fn()` instead of just `mock()` for creating mock functions
+   - Create similar tests for session and git domain functions
+   - Add integration tests that ensure CLI and MCP interfaces produce consistent results
+
+5. **Update MCP Server**
+   - Update MCP server to use the new adapter pattern
+   - Ensure proper error handling in MCP command mapper
+
+6. **Update Documentation**
+   - Update architecture documentation with new patterns
+   - Document how to add new commands using the new pattern
+   - Provide examples for both CLI and MCP interfaces
+
+7. **Additional Integration**
+   - Ensure backward compatibility with existing scripts and tools
+   - Update any other commands that call the refactored functions
