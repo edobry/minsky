@@ -1,14 +1,12 @@
 import { Command } from "commander";
-import { RuleService } from "../../domain/index.js";
-import type { RuleMeta } from "../../domain/rules.js";
+import { RuleService, type RuleMeta } from "../../domain/index.js";
 import { promises as fs } from "fs";
 import * as prompts from "@clack/prompts";
-import path from "path";
 
 export const createCommand = new Command("create")
   .description("Create a new Minsky rule")
   .argument("[ruleId]", "ID for the new rule (without .mdc extension)")
-  .option("--name <name>", "Name for the rule")
+  .option("--name <n>", "Name for the rule")
   .option("--description <description>", "Description of what the rule does")
   .option("--globs <globs...>", "File patterns this rule applies to")
   .option("--always-apply", "Rule should always be applied")
@@ -24,24 +22,24 @@ export const createCommand = new Command("create")
       const { resolveRepoPath } = await import("../../domain/index.js");
       const repoPath = await resolveRepoPath({
         repo: options.repo,
-        session: options.session
+        session: options.session,
       });
-      
+
       // Initialize the rule service
       const ruleService = new RuleService(repoPath);
-      
+
       // If no ruleId or options are provided, run in interactive mode
       if (!ruleId && !options.content) {
-        await interactiveCreate(ruleService, repoPath);
+        await interactiveCreate(ruleService);
         return;
       }
-      
+
       // Make sure we have a rule ID
       if (!ruleId) {
-        console.error("Error: Rule ID is required for non-interactive mode");
+        prompts.log.error("Error: Rule ID is required for non-interactive mode");
         process.exit(1);
       }
-      
+
       // Get the rule content
       let content = "";
       if (options.content) {
@@ -70,32 +68,28 @@ Describe how and when to use this rule.
 \`\`\`
 `;
       }
-      
+
       // Prepare the metadata
       const meta: RuleMeta = {
         name: options.name,
         description: options.description,
         globs: options.globs,
         alwaysApply: options.alwaysApply || false,
-        tags: options.tags
+        tags: options.tags,
       };
-      
+
       // Create the rule
-      const rule = await ruleService.createRule(
-        ruleId, 
-        content, 
-        meta, 
-        { 
-          format: options.format as any, 
-          overwrite: options.overwrite 
-        }
-      );
-      
-      console.log(`Rule '${rule.id}' created successfully.`);
-      console.log(`Path: ${rule.path}`);
-      
+      const rule = await ruleService.createRule(ruleId, content, meta, {
+        format: options.format as "cursor" | "generic",
+        overwrite: options.overwrite,
+      });
+
+      prompts.log.success(`Rule '${rule.id}' created successfully.`);
+      prompts.log.info(`Path: ${rule.path}`);
     } catch (error) {
-      console.error(`Error creating rule: ${error instanceof Error ? error.message : String(error)}`);
+      prompts.log.error(
+        `Error creating rule: ${error instanceof Error ? error.message : String(error)}`
+      );
       process.exit(1);
     }
   });
@@ -105,67 +99,76 @@ export function createCreateCommand(): Command {
 }
 
 // Interactive mode with @clack/prompts
-async function interactiveCreate(ruleService: RuleService, repoPath: string): Promise<void> {
-  console.log("Creating a new Minsky rule");
-  console.log("==========================");
-  
+async function interactiveCreate(ruleService: RuleService): Promise<void> {
+  prompts.log.info("Creating a new Minsky rule");
+  prompts.log.info("==========================");
+
   const ruleId = await prompts.text({
     message: "Rule ID (without .mdc extension)",
     validate: (value: string) => {
       if (!value) return "Rule ID is required";
-      if (!/^[a-zA-Z0-9-_]+$/.test(value)) return "Rule ID can only contain letters, numbers, hyphens, and underscores";
+      if (!/^[a-zA-Z0-9-_]+$/.test(value))
+        return "Rule ID can only contain letters, numbers, hyphens, and underscores";
       return undefined;
-    }
+    },
   });
-  
+
   const format = await prompts.select({
     message: "Rule format",
     options: [
       { value: "cursor", label: "Cursor" },
-      { value: "generic", label: "Generic (for other AI systems)" }
+      { value: "generic", label: "Generic (for other AI systems)" },
     ],
-    initialValue: "cursor"
+    initialValue: "cursor",
   });
-  
+
   const name = await prompts.text({
     message: "Rule name",
-    placeholder: "Optional"
+    placeholder: "Optional",
   });
-  
+
   const description = await prompts.text({
     message: "Rule description",
-    placeholder: "What does this rule do?"
+    placeholder: "What does this rule do?",
   });
-  
+
   const globsInput = await prompts.text({
     message: "File globs (comma-separated patterns)",
-    placeholder: "e.g., **/*.ts,**/*.js"
+    placeholder: "e.g., **/*.ts,**/*.js",
   });
-  const globs = globsInput ? String(globsInput).split(",").map((g: string) => g.trim()) : [];
-  
+  const globs = globsInput
+    ? String(globsInput)
+        .split(",")
+        .map((g: string) => g.trim())
+    : [];
+
   const tagsInput = await prompts.text({
     message: "Tags (comma-separated)",
-    placeholder: "Optional"
+    placeholder: "Optional",
   });
-  const tags = tagsInput ? String(tagsInput).split(",").map((t: string) => t.trim()) : [];
-  
+  const tags = tagsInput
+    ? String(tagsInput)
+        .split(",")
+        .map((t: string) => t.trim())
+    : [];
+
   const alwaysApply = await prompts.confirm({
     message: "Should this rule always be applied?",
-    initialValue: false
+    initialValue: false,
   });
-  
+
   const useTemplate = await prompts.select({
     message: "Content source",
     options: [
       { value: "template", label: "Basic template" },
       { value: "stdin", label: "Enter content now" },
-      { value: "file", label: "Read from a file" }
+      { value: "file", label: "Read from a file" },
     ],
-    initialValue: "template"
+    initialValue: "template",
   });
-  
+
   let content = "";
-  
+
   if (useTemplate === "template") {
     content = `# ${name || ruleId}
 
@@ -182,7 +185,7 @@ Describe how and when to use this rule.
 \`\`\`
 `;
   } else if (useTemplate === "stdin") {
-    console.log("\nEnter rule content (press Ctrl+D when finished):");
+    prompts.log.info("\nEnter rule content (press Ctrl+D when finished):");
     const { readFromStdin } = await import("./stdin-helpers.js");
     content = await readFromStdin();
   } else if (useTemplate === "file") {
@@ -191,22 +194,24 @@ Describe how and when to use this rule.
       validate: (value: string) => {
         if (!value) return "File path is required";
         return undefined;
-      }
+      },
     });
-    
+
     try {
       content = await fs.readFile(String(filePath), "utf-8");
     } catch (error) {
-      console.error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`);
+      prompts.log.error(
+        `Failed to read file: ${error instanceof Error ? error.message : String(error)}`
+      );
       process.exit(1);
     }
   }
-  
+
   const overwrite = await prompts.confirm({
     message: "Overwrite existing rule if it exists?",
-    initialValue: false
+    initialValue: false,
   });
-  
+
   // Create the rule
   try {
     const rule = await ruleService.createRule(
@@ -217,18 +222,20 @@ Describe how and when to use this rule.
         description: description ? String(description) : undefined,
         globs: globs.length > 0 ? globs : undefined,
         alwaysApply: Boolean(alwaysApply),
-        tags: tags.length > 0 ? tags : undefined
+        tags: tags.length > 0 ? tags : undefined,
       },
       {
-        format: String(format) as any,
-        overwrite: Boolean(overwrite)
+        format: String(format) as "cursor" | "generic",
+        overwrite: Boolean(overwrite),
       }
     );
-    
-    console.log(`\nRule '${rule.id}' created successfully.`);
-    console.log(`Path: ${rule.path}`);
+
+    prompts.log.success(`\nRule '${rule.id}' created successfully.`);
+    prompts.log.info(`Path: ${rule.path}`);
   } catch (error) {
-    console.error(`\nError creating rule: ${error instanceof Error ? error.message : String(error)}`);
+    prompts.log.error(
+      `\nError creating rule: ${error instanceof Error ? error.message : String(error)}`
+    );
     process.exit(1);
   }
-} 
+}

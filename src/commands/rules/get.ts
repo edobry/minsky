@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
+import * as prompts from "@clack/prompts";
 
 export function createGetCommand(): Command {
   return new Command("get")
@@ -16,61 +17,63 @@ export function createGetCommand(): Command {
         const { resolveRepoPath } = await import("../../domain/index.js");
         const repoPath = await resolveRepoPath({
           repo: options.repo,
-          session: options.session
+          session: options.session,
         });
-        
+
         // Initialize the rule service
         const ruleService = new RuleService(repoPath);
-        
+
         // Get the rule
-        const rule = await ruleService.getRule(ruleId, { 
-          format: options.format 
+        const rule = await ruleService.getRule(ruleId, {
+          format: options.format,
         });
-        
+
         if (options.json) {
           // If meta-only, output only the metadata
           if (options.metaOnly) {
             const { content, ...meta } = rule;
-            console.log(JSON.stringify(meta, null, 2));
+            process.stdout.write(`${JSON.stringify(meta, null, 2)}\n`);
           } else {
-            console.log(JSON.stringify(rule, null, 2));
+            process.stdout.write(`${JSON.stringify(rule, null, 2)}\n`);
           }
         } else {
           // Human-readable output
           const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
           const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
-          
-          console.log(`Rule: ${rule.id} (${formatLabel})${tags}`);
-          
+
+          prompts.log.info(`Rule: ${rule.id} (${formatLabel})${tags}`);
+
           if (rule.name) {
-            console.log(`Name: ${rule.name}`);
+            prompts.log.info(`Name: ${rule.name}`);
           }
-          
+
           if (rule.description) {
-            console.log(`Description: ${rule.description}`);
+            prompts.log.info(`Description: ${rule.description}`);
           }
-          
-          console.log(`Path: ${rule.path}`);
-          
+
+          prompts.log.info(`Path: ${rule.path}`);
+
           if (rule.globs && rule.globs.length > 0) {
-            console.log(`Globs: ${rule.globs.join(", ")}`);
+            prompts.log.info(`Globs: ${rule.globs.join(", ")}`);
           }
-          
-          console.log(`Always Apply: ${rule.alwaysApply ? "Yes" : "No"}`);
-          
+
+          prompts.log.info(`Always Apply: ${rule.alwaysApply ? "Yes" : "No"}`);
+
           // If we don't want to see the content, stop here
           if (options.metaOnly) {
             return;
           }
-          
-          console.log("\nContent:");
-          console.log("---------------------------");
-          console.log(rule.content);
-          console.log("---------------------------");
+
+          prompts.log.info("\nContent:");
+          prompts.log.info("---------------------------");
+          process.stdout.write(`${rule.content}\n`);
+          prompts.log.info("---------------------------");
         }
       } catch (error) {
-        console.error(`Error getting rule: ${error instanceof Error ? error.message : String(error)}`);
+        prompts.log.error(
+          `Error getting rule: ${error instanceof Error ? error.message : String(error)}`
+        );
         process.exit(1);
       }
     });
-} 
+}
