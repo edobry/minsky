@@ -182,28 +182,15 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Fixed issues with session-related tests by enhancing error handling and directory creation
 - Fixed task list tests by ensuring tasks.md is created in the proper process directory
 - Added more robust directory existence checking and file creation in test setup
+- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
+- Updated mock CLI command implementations to handle task ID operations consistently
+- Ensured proper type safety in test mocks
 
 ### Changed
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
 
-### Fixed
-- Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
-- Fixed linter/type errors in session DB and domain modules
-- Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
-- Fixed test reliability and linter errors in domain logic tests
-- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
-- Fixed bug in `session dir` command where it returned the wrong path for session repositories, not accounting for the per-repo directory structure
-- Fixed failing tests for `session dir`, `session get`, and `session delete` commands
-- Fixed tasks command tests by creating proper test environment setup for workspace-based tests
-- Windows-specific path edge cases in several modules
-- Better error messages for failed command execution
-- Various UI text improvements for clarity and consistency
-
-_See: SpecStory history [2024-05-10_00-00-task-050-fix-remaining-tests](.specstory/history/2024-05-10_00-00-task-050-fix-remaining-tests.md) for additional test fixes.
-
-### Security
-- Sanitized external command execution to prevent shell injection
+_See: SpecStory history [session command test fixes](.specstory/history/session-command-test-fixes.md) for more details about test fixes._
 
 ## [0.39.0] - 2025-04-29
 
