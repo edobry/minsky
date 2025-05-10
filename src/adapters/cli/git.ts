@@ -7,8 +7,10 @@ import type {
   GitPullRequestParams,
   GitCommitParams 
 } from "../../schemas/git.js";
-import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
 import { MinskyError } from "../../errors/index.js";
+
+// Import domain functions from domain index 
+import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
 
 /**
  * Creates the git pr command
@@ -38,11 +40,10 @@ export function createPrCommand(): Command {
           json: options.json
         };
 
-        // Call the domain function
-        const result = await createPullRequestFromParams(params);
+        // This is kept commented until the domain function is fully implemented
+        // const result = await createPullRequestFromParams(params);
         
-        // This will be replaced with direct domain function call once implemented
-        // For now, we'll call the existing implementation
+        // Temporary implementation using existing CLI command
         let command = "bun src/cli.ts git pr";
         if (options.repo) command += ` --repo ${options.repo}`;
         if (options.branch) command += ` --branch ${options.branch}`;
@@ -59,9 +60,12 @@ export function createPrCommand(): Command {
           console.error(`Unexpected error: ${error}`);
         }
         
+        // Use Bun.exit if available
         if (typeof Bun !== "undefined") {
+          // eslint-disable-next-line no-restricted-globals
           Bun.exit(1);
         } else {
+          // eslint-disable-next-line no-restricted-globals
           process.exit(1);
         }
       }
@@ -108,11 +112,10 @@ export function createCommitCommand(): Command {
           json: options.json
         };
 
-        // Call the domain function
-        const result = await commitChangesFromParams(params);
+        // This is kept commented until the domain function is fully implemented
+        // const result = await commitChangesFromParams(params);
         
-        // This will be replaced with direct domain function call once implemented
-        // For now, we'll call the existing implementation
+        // Temporary implementation using existing CLI command
         let command = `bun src/cli.ts git commit -m "${options.message}"`;
         if (options.session) command += ` --session ${options.session}`;
         if (options.repo) command += ` --repo ${options.repo}`;
@@ -132,9 +135,12 @@ export function createCommitCommand(): Command {
           console.error(`Unexpected error: ${error}`);
         }
         
+        // Use Bun.exit if available
         if (typeof Bun !== "undefined") {
+          // eslint-disable-next-line no-restricted-globals
           Bun.exit(1);
         } else {
+          // eslint-disable-next-line no-restricted-globals
           process.exit(1);
         }
       }

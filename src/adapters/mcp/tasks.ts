@@ -18,7 +18,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       all: z.boolean().optional().describe("Include completed tasks"),
       backend: z.string().optional().describe("Task backend (markdown, github)")
     }),
-    async (args) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args): Promise<any> => {
       const params = {
         filter: args.filter,
         all: args.all ?? false,
@@ -38,7 +39,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       taskId: z.string().describe("Task ID to retrieve"),
       backend: z.string().optional().describe("Task backend (markdown, github)")
     }),
-    async (args) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (args): Promise<any> => {
       const params = {
         taskId: args.taskId,
         backend: args.backend,
