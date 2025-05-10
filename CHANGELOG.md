@@ -272,4 +272,11 @@ _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/histo
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 
+## [Unreleased]
+
+### Fixed
+- Test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed issues with session-related tests by enhancing error handling and directory creation
+- Improved test environment setup for tasks list tests to properly create valid workspace directories
+
  

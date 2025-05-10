@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import { SessionDB } from "../../domain/session.ts";
 import type { SessionRecord } from "../../domain/session.ts";
 
@@ -32,71 +32,52 @@ interface TestSessionRecord {
 
 function setupSessionDb(sessions: TestSessionRecord[]) {
   try {
-    // Create directories
-    mkdirSync(MINSKY_DIR, { recursive: true });
-    mkdirSync(GIT_DIR, { recursive: true });
+    // Create directories with careful error handling
+    const minskyDir = join(TEST_DIR, "minsky");
+    const gitDir = join(minskyDir, "git");
+    const SESSION_DB_PATH = join(minskyDir, "session-db.json");
+
+    // Create parent directories first
+    mkdirSync(TEST_DIR, { recursive: true });
+    mkdirSync(minskyDir, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
     
-    // Ensure parent directory of SESSION_DB_PATH exists
-    const sessionDbDir = dirname(SESSION_DB_PATH);
-    if (!existsSync(sessionDbDir)) {
-      mkdirSync(sessionDbDir, { recursive: true });
+    // Write session DB with careful error handling
+    try {
+      writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
+      if (!existsSync(SESSION_DB_PATH)) {
+        throw new Error(`Session DB file not created at ${SESSION_DB_PATH}`);
+      }
+      
+      // Verify file is valid by reading it back
+      const content = readFileSync(SESSION_DB_PATH, "utf8");
+      JSON.parse(content); // Should not throw
+    } catch (error) {
+      console.error(`Error writing session DB: ${error}`);
+      throw error;
     }
-    
-    // Write session DB
-    writeFileSync(
-      SESSION_DB_PATH,
-      JSON.stringify(sessions, null, 2),
-      { encoding: "utf8" }
-    );
-    
-    // Verify the session DB was written correctly
-    if (!existsSync(SESSION_DB_PATH)) {
-      throw new Error(`Failed to create session DB at ${SESSION_DB_PATH}`);
-    }
-    
+
     // Create session repo directories
     for (const session of sessions) {
       const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
       // Create both legacy path and new path with sessions subdirectory
-      const legacyPath = join(GIT_DIR, repoName, session.session);
-      const newPath = join(GIT_DIR, repoName, "sessions", session.session);
-      
-      // Ensure parent directories exist
+      const legacyPath = join(gitDir, repoName, session.session);
+      const newPath = join(gitDir, repoName, "sessions", session.session);
+
+      // For test variety, use the new path for some sessions and legacy for others
       if (session.session.includes("new")) {
-        const parentDir = join(GIT_DIR, repoName, "sessions");
-        if (!existsSync(parentDir)) {
-          mkdirSync(parentDir, { recursive: true });
-        }
-        
-        if (!existsSync(newPath)) {
-          mkdirSync(newPath, { recursive: true });
-        }
-        
-        // Verify directory was created
-        if (!existsSync(newPath)) {
-          throw new Error(`Failed to create session directory at ${newPath}`);
-        }
+        mkdirSync(dirname(newPath), { recursive: true });
+        mkdirSync(newPath, { recursive: true });
       } else {
-        const parentDir = join(GIT_DIR, repoName);
-        if (!existsSync(parentDir)) {
-          mkdirSync(parentDir, { recursive: true });
-        }
-        
-        if (!existsSync(legacyPath)) {
-          mkdirSync(legacyPath, { recursive: true });
-        }
-        
-        // Verify directory was created
-        if (!existsSync(legacyPath)) {
-          throw new Error(`Failed to create session directory at ${legacyPath}`);
-        }
+        mkdirSync(dirname(legacyPath), { recursive: true });
+        mkdirSync(legacyPath, { recursive: true });
       }
     }
-    
-    // Log for debugging
+
     console.log(`Test setup: Created session DB at ${SESSION_DB_PATH} with ${sessions.length} sessions`);
     console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
     console.log(`SessionDB file exists: ${existsSync(SESSION_DB_PATH)}`);
+    console.log(`SessionDB content: ${readFileSync(SESSION_DB_PATH, "utf8")}`);
   } catch (error) {
     console.error(`Error in setupSessionDb: ${error}`);
     throw error;

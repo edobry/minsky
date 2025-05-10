@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import type { SessionRecord } from "../../domain/session.ts";
 import { 
   createUniqueTestDir, 
@@ -18,50 +18,78 @@ const CLI = resolve(process.cwd(), "src/cli.ts");
 // Create a unique test directory for this test file
 const TEST_DIR = createUniqueTestDir("minsky-session-get-test");
 let testEnv: MinskyTestEnv;
+let minskyDir: string;
 let sessionDbPath: string;
+let gitDir: string;
 
 interface TestSessionRecord extends SessionRecord {
   branch?: string;
   taskId?: string;
 }
 
-function setupSessionDb(sessions: TestSessionRecord[]) {
-  // Setup the Minsky test environment
-  testEnv = setupMinskyTestEnv(TEST_DIR);
-  sessionDbPath = testEnv.sessionDbPath;
-  
+function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName?: string; branch?: string; createdAt: string; taskId?: string }>) {
   try {
-    // Create the minsky directory structure
-    const minskyDir = join(TEST_DIR, "minsky");
-    if (!existsSync(minskyDir)) {
-      mkdirSync(minskyDir, { recursive: true });
-    }
+    // Setup the test environment
+    testEnv = setupMinskyTestEnv(TEST_DIR);
+    sessionDbPath = testEnv.sessionDbPath;
+    minskyDir = testEnv.minskyDir;
+    gitDir = testEnv.gitDir;
     
-    // Ensure parent directory of sessionDbPath exists
+    // Ensure parent directories exist
     const sessionDbDir = dirname(sessionDbPath);
     if (!existsSync(sessionDbDir)) {
       mkdirSync(sessionDbDir, { recursive: true });
     }
     
-    // Write the session database
-    writeFileSync(
-      sessionDbPath,
-      JSON.stringify(sessions, null, 2),
-      { encoding: "utf8" }
-    );
-    
-    // Verify the file was written and exists
-    if (!existsSync(sessionDbPath)) {
-      throw new Error(`Session DB file not created at ${sessionDbPath}`);
+    // Create the minsky directory structure
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
     }
     
-    // Log for debugging
+    // Ensure git directory exists
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Write the session database with better error handling
+    try {
+      writeFileSync(
+        sessionDbPath,
+        JSON.stringify(sessions, null, 2),
+        { encoding: "utf8" }
+      );
+      
+      // Verify the file was created
+      if (!existsSync(sessionDbPath)) {
+        throw new Error(`Failed to create session DB at ${sessionDbPath}`);
+      }
+      
+      // Read it back to verify it's valid
+      const content = readFileSync(sessionDbPath, "utf8");
+      JSON.parse(content); // Verify valid JSON
+    } catch (error) {
+      console.error(`Error writing session DB: ${error}`);
+      throw error;
+    }
+    
+    // Create directory structure for session repositories
+    for (const session of sessions) {
+      const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
+      const sessionDir = join(gitDir, repoName, session.session);
+      mkdirSync(sessionDir, { recursive: true });
+      
+      // Verify directory was created
+      if (!existsSync(sessionDir)) {
+        throw new Error(`Failed to create session directory at ${sessionDir}`);
+      }
+    }
+    
     console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
-    console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
-    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
     console.log(`Test directory exists: ${existsSync(TEST_DIR)}`);
     console.log(`Minsky directory exists: ${existsSync(minskyDir)}`);
     console.log(`SessionDB directory exists: ${existsSync(sessionDbDir)}`);
+    console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+    console.log(`SessionDB content: ${readFileSync(sessionDbPath, "utf8")}`);
   } catch (error) {
     console.error(`Error in setupSessionDb: ${error}`);
     throw error;

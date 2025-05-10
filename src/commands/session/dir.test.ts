@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import type { SessionRecord } from "../../domain/session.ts";
 import { 
   createUniqueTestDir, 
@@ -15,61 +15,51 @@ import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
 
-// Create a unique test directory for this test file
+// Create a unique test directory
 const TEST_DIR = createUniqueTestDir("minsky-session-dir-test");
 let testEnv: MinskyTestEnv;
 let minskyDir: string;
 let gitDir: string;
 let sessionDbPath: string;
 
-// Helper to setup session DB
-// Define the interface with all the properties we need
+// Type for a test session record with branch and taskId properties
 interface TestSessionRecord {
   session: string;
   repoUrl: string;
-  repoName?: string;
-  branch?: string;
+  repoName: string;
   createdAt: string;
+  branch?: string;
   taskId?: string;
-  [key: string]: any; // Allow for any additional properties
 }
 
 function setupSessionDb(sessions: TestSessionRecord[]) {
-  // Setup the Minsky test environment
-  testEnv = setupMinskyTestEnv(TEST_DIR);
-  minskyDir = testEnv.minskyDir;
-  gitDir = testEnv.gitDir;
-  sessionDbPath = testEnv.sessionDbPath;
-  
   try {
-    // Ensure minsky directory exists
-    if (!existsSync(minskyDir)) {
-      mkdirSync(minskyDir, { recursive: true });
-    }
+    // Setup the Minsky test environment
+    testEnv = setupMinskyTestEnv(TEST_DIR);
+    minskyDir = testEnv.minskyDir;
+    gitDir = testEnv.gitDir;
+    sessionDbPath = testEnv.sessionDbPath;
     
-    // Ensure git directory exists
-    if (!existsSync(gitDir)) {
-      mkdirSync(gitDir, { recursive: true });
-    }
-    
-    // Ensure parent directory of sessionDbPath exists
+    // Ensure directories exist
     const sessionDbDir = dirname(sessionDbPath);
-    if (!existsSync(sessionDbDir)) {
-      mkdirSync(sessionDbDir, { recursive: true });
+    mkdirSync(sessionDbDir, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
+
+    // Write the session database with proper error handling
+    try {
+      writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
+      if (!existsSync(sessionDbPath)) {
+        throw new Error(`Session DB file not created at ${sessionDbPath}`);
+      }
+      
+      // Read it back to verify it's valid
+      const content = readFileSync(sessionDbPath, "utf8");
+      JSON.parse(content); // Verify valid JSON
+    } catch (error) {
+      console.error(`Error writing session DB: ${error}`);
+      throw error;
     }
-    
-    // Write the session database
-    writeFileSync(
-      sessionDbPath,
-      JSON.stringify(sessions, null, 2),
-      { encoding: "utf8" }
-    );
-    
-    // Verify session DB was created
-    if (!existsSync(sessionDbPath)) {
-      throw new Error(`Failed to create session DB at ${sessionDbPath}`);
-    }
-    
+
     // Create session repo directories
     for (const session of sessions) {
       const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
@@ -79,53 +69,29 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       
       // For test variety, use the new path for some sessions and legacy for others
       if (session.session.includes("new")) {
-        // Ensure parent directory exists
-        const parentDir = join(gitDir, repoName, "sessions");
-        if (!existsSync(parentDir)) {
-          mkdirSync(parentDir, { recursive: true });
-        }
-        
+        mkdirSync(dirname(newPath), { recursive: true });
         mkdirSync(newPath, { recursive: true });
         console.log(`Created session directory at: ${newPath}`);
-        
-        // Verify directory was created
-        if (!existsSync(newPath)) {
-          throw new Error(`Failed to create directory at ${newPath}`);
-        }
       } else {
-        // Ensure parent directory exists
-        const parentDir = join(gitDir, repoName);
-        if (!existsSync(parentDir)) {
-          mkdirSync(parentDir, { recursive: true });
-        }
-        
+        mkdirSync(dirname(legacyPath), { recursive: true });
         mkdirSync(legacyPath, { recursive: true });
         console.log(`Created session directory at: ${legacyPath}`);
-        
-        // Verify directory was created
-        if (!existsSync(legacyPath)) {
-          throw new Error(`Failed to create directory at ${legacyPath}`);
-        }
       }
     }
-    
-    // Log for debugging
+
     console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
     console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
     console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+    console.log(`SessionDB content: ${readFileSync(sessionDbPath, "utf8")}`);
   } catch (error) {
     console.error(`Error in setupSessionDb: ${error}`);
     throw error;
   }
 }
 
-// Helper to run a CLI command with the right environment
+// Helper to run CLI command
 function runCliCommand(args: string[], additionalEnv: Record<string, string> = {}) {
-  const env = {
-    ...createTestEnv(TEST_DIR),
-    ...additionalEnv
-  };
-  
+  const env = createTestEnv(TEST_DIR, additionalEnv);
   const options = {
     ...standardSpawnOptions(),
     env
@@ -170,11 +136,12 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "test/repo", "test-session");
     
-    console.log(`Expected path: ${expectedPath}`);
-    console.log(`Directory exists: ${existsSync(expectedPath)}`);
-    
     // Run the command with explicit XDG_STATE_HOME
-    const { stdout, stderr } = runCliCommand(["session", "dir", "test-session"]);
+    const result = runCliCommand(["session", "dir", "test-session"]);
+    const { stdout, stderr } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return the correct path
     expect(stdout.trim()).toBe(expectedPath);
@@ -199,11 +166,12 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the sessions subdirectory
     const expectedPath = join(gitDir, "test/repo", "sessions", "test-session-new");
     
-    console.log(`Expected path: ${expectedPath}`);
-    console.log(`Directory exists: ${existsSync(expectedPath)}`);
+    // Run the command with explicit XDG_STATE_HOME
+    const result = runCliCommand(["session", "dir", "test-session-new"]);
+    const { stdout, stderr } = result;
     
-    // Run the command
-    const { stdout, stderr } = runCliCommand(["session", "dir", "test-session-new"]);
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return the correct path
     expect(stdout.trim()).toBe(expectedPath);
@@ -229,11 +197,12 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "repo", "task#008");
     
-    console.log(`Expected path: ${expectedPath}`);
-    console.log(`Directory exists: ${existsSync(expectedPath)}`);
+    // Run the command with explicit XDG_STATE_HOME
+    const result = runCliCommand(["session", "dir", "task#008"]);
+    const { stdout, stderr } = result;
     
-    // Run the command
-    const { stdout, stderr } = runCliCommand(["session", "dir", "task#008"]);
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return the correct path
     expect(stdout.trim()).toBe(expectedPath);
@@ -259,11 +228,12 @@ describe("minsky session dir CLI", () => {
     // The expected correct path should include the repo name in the structure
     const expectedPath = join(gitDir, "repo", "task#009");
     
-    console.log(`Expected path: ${expectedPath}`);
-    console.log(`Directory exists: ${existsSync(expectedPath)}`);
+    // Run the command with --task option and explicit XDG_STATE_HOME
+    const result = runCliCommand(["session", "dir", "--task", "009"]);
+    const { stdout, stderr } = result;
     
-    // Run the command with --task option
-    const { stdout, stderr } = runCliCommand(["session", "dir", "--task", "009"]);
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return the correct path
     expect(stdout.trim()).toBe(expectedPath);
@@ -275,51 +245,71 @@ describe("minsky session dir CLI", () => {
   
   test("returns an error for non-existent sessions", () => {
     // Run the command with a non-existent session
-    const { stdout, stderr, status } = runCliCommand(["session", "dir", "non-existent-session"]);
+    const result = runCliCommand(["session", "dir", "non-existent-session"]);
+    const { stdout, stderr, status } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return an error
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain("not found");
+    expect(stderr.includes("not found")).toBe(true);
     expect(stdout).toBe("");
   });
   
   test("returns an error for non-existent task IDs with --task", () => {
     // Run the command with a non-existent task ID
-    const { stdout, stderr, status } = runCliCommand(["session", "dir", "--task", "999"]);
+    const result = runCliCommand(["session", "dir", "--task", "999"]);
+    const { stdout, stderr, status } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return an error
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain("No session found for task ID");
+    expect(stderr.includes("No session found for task ID")).toBe(true);
     expect(stdout).toBe("");
   });
   
   test("returns an error when both session and --task are provided", () => {
     // Run the command with both a session name and --task
-    const { stdout, stderr, status } = runCliCommand(["session", "dir", "test-session", "--task", "009"]);
+    const result = runCliCommand(["session", "dir", "test-session", "--task", "009"]);
+    const { stdout, stderr, status } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return an error
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain("Provide either a session name or --task, not both");
+    expect(stderr.includes("Provide either a session name or --task, not both")).toBe(true);
     expect(stdout).toBe("");
   });
   
   test("returns an error when neither session nor --task are provided", () => {
     // Run the command with neither a session name nor --task
-    const { stdout, stderr, status } = runCliCommand(["session", "dir"]);
+    const result = runCliCommand(["session", "dir"]);
+    const { stdout, stderr, status } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return an error
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain("Not in a session workspace");
+    expect(stderr.includes("Not in a session workspace")).toBe(true);
     expect(stdout).toBe("");
   });
   
   test("returns an error when not in a session workspace and using --ignore-workspace", () => {
     // Run the command with --ignore-workspace
-    const { stdout, stderr, status } = runCliCommand(["session", "dir", "--ignore-workspace"]);
+    const result = runCliCommand(["session", "dir", "--ignore-workspace"]);
+    const { stdout, stderr, status } = result;
+    
+    console.log("Command stdout:", stdout);
+    console.log("Command stderr:", stderr);
     
     // The command should return an error
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain("You must provide either a session name or --task");
+    expect(stderr.includes("You must provide either a session name or --task")).toBe(true);
     expect(stdout).toBe("");
   });
 }); 

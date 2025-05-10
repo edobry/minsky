@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
-import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
 import { 
@@ -10,59 +10,70 @@ import {
   standardSpawnOptions
 } from "../../utils/test-helpers.ts";
 import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
+import type { SessionRecord } from "../../domain/session.ts";
+
+// Define interface for test data that includes the branch property
+interface TestSessionRecord extends SessionRecord {
+  branch?: string;
+}
 
 // Create a unique test directory
 const TEST_DIR = createUniqueTestDir("minsky-session-list-test");
 let testEnv: MinskyTestEnv;
 let sessionDbPath: string;
+let minskyDir: string;
+let gitDir: string;
 
 // Path to the CLI entry point
 const CLI = join(process.cwd(), "src/cli.ts");
 
 // Helper to setup session DB with consistent structure
-function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName?: string; branch?: string; createdAt: string }>) {
-  // Setup the test environment
-  testEnv = setupMinskyTestEnv(TEST_DIR);
-  sessionDbPath = testEnv.sessionDbPath;
-  
+function setupSessionDb(sessions: TestSessionRecord[]) {
   try {
-    // Create the minsky directory structure
-    const minskyDir = join(TEST_DIR, "minsky");
-    if (!existsSync(minskyDir)) {
-      mkdirSync(minskyDir, { recursive: true });
-    }
+    // Setup the test environment
+    testEnv = setupMinskyTestEnv(TEST_DIR);
+    minskyDir = testEnv.minskyDir;
+    gitDir = testEnv.gitDir;
+    sessionDbPath = testEnv.sessionDbPath;
     
-    // Ensure parent directory of sessionDbPath exists
+    // Ensure parent directories exist
     const sessionDbDir = dirname(sessionDbPath);
     if (!existsSync(sessionDbDir)) {
       mkdirSync(sessionDbDir, { recursive: true });
     }
     
-    // Create sessions with consistent data
-    const normalizedSessions = sessions.map(session => ({
-      ...session,
-      // Ensure repoName is always set for consistency
-      repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
-      // Ensure branch is defined
-      branch: session.branch || ""
-    }));
-    
-    // Write to the database file
-    writeFileSync(
-      sessionDbPath, 
-      JSON.stringify(normalizedSessions, null, 2),
-      { encoding: "utf8" }
-    );
-    
-    // Verify the file exists
-    if (!existsSync(sessionDbPath)) {
-      throw new Error(`Session DB file not created at ${sessionDbPath}`);
+    // Write the session database with proper error handling
+    try {
+      writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: 'utf8' });
+      // Verify the file was created
+      if (!existsSync(sessionDbPath)) {
+        throw new Error(`Session DB file not created at ${sessionDbPath}`);
+      }
+      
+      // Read the file to make sure it's writable/readable
+      const content = readFileSync(sessionDbPath, 'utf8');
+      JSON.parse(content); // Verify valid JSON
+    } catch (error) {
+      console.error(`Error writing session DB: ${error}`);
+      throw error;
     }
     
-    // Log for debugging
+    // Create session repo directories
+    for (const session of sessions) {
+      const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
+      const sessionDir = join(gitDir, repoName, session.session);
+      mkdirSync(sessionDir, { recursive: true });
+      
+      // Verify the directory was created
+      if (!existsSync(sessionDir)) {
+        throw new Error(`Failed to create session directory at ${sessionDir}`);
+      }
+    }
+    
     console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
     console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
     console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
+    console.log(`SessionDB content: ${readFileSync(sessionDbPath, 'utf8')}`);
   } catch (error) {
     console.error(`Error in setupSessionDb: ${error}`);
     throw error;
