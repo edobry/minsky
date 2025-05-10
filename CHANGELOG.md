@@ -206,6 +206,14 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 - Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
 - Fixed issues with `mock` module references in test files
 - Enhanced test documentation with clear TODO markers for proper test mocking
+- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed issues with session-related tests by enhancing error handling and directory creation
+- Fixed task list tests by ensuring tasks.md is created in the proper process directory
+- Added more robust directory existence checking and file creation in test setup
+- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
+- Updated mock CLI command implementations to handle task ID operations consistently
+- Ensured proper type safety in test mocks
+- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
 
 ## [0.39.0] - 2025-04-29
 
@@ -277,11 +285,13 @@ _See: SpecStory history [session command test fixes](.specstory/history/session-
 ## [0.39.0] - 2025-04-29
 
 ### Changed
+
 - Clarified that `minsky tasks list --json` should be used to query the backlog.
 
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 ### Fixed
+
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
