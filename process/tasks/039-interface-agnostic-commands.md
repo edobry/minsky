@@ -607,6 +607,9 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 10. 2025-05-10: Implemented task status domain functions with proper parameter validation
 11. 2025-05-10: Updated CLI and MCP adapters to use the new task status domain functions
 12. 2025-05-10: Added tests for the interface-agnostic task functions
+13. 2025-05-11: Implemented startSessionFromParams with validation, error handling and dependency injection
+14. 2025-05-11: Implemented updateSessionFromParams with similar robust error handling pattern
+15. 2025-05-11: Added tests for interface-agnostic session functions
 
 ## Current Status
 
@@ -616,52 +619,33 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 - [x] Phase 2: Begin implementing interface adapters for CLI and MCP
 - [x] Phase 2: Implement task status domain functions with proper validation and error handling
 - [x] Phase 2: Update CLI and MCP adapters to use the new domain functions
+- [x] Phase 2: Implement session management domain functions with proper validation
 - [x] Phase 4: Add initial tests for the interface-agnostic architecture
-- [ ] Phase 2: Complete refactoring of all commands to use domain functions
-- [ ] Phase 3: Complete parameter validation for all commands
+- [ ] Phase 2: Complete refactoring of git commands to use domain functions
+- [ ] Phase 3: Complete parameter validation for git commands
 - [ ] Phase 5: Update MCP server to use the new adapters
 - [ ] Phase 6: Add comprehensive integration tests
 - [ ] Phase 7: Update architecture documentation
 
 ## Remaining Work
 
-1. **Fix Linter Issues in Implemented Files**
-   - Replace single quotes with double quotes in domain files (particularly tasks.ts)
-   - Fix import path restrictions (domain modules should be imported directly, not via index)
-   - Address type errors in MCP adapter for task status parameters
-   - Fix process.exit and Bun.exit usage in CLI adapters
+1. **Complete Git Domain Functions**
+   - Implement `createPullRequestFromParams` using GitService
+   - Implement `commitChangesFromParams` using GitService
+   - Add proper validation with Zod schemas
+   - Create tests for git domain functions
 
-2. **Implement Remaining Domain Functions**
-   - In `session.ts`:
-     - Complete `startSessionFromParams` implementation
-     - Complete `updateSessionFromParams` implementation
-     - Add proper validation with Zod schemas
-   - In `git.ts`:
-     - Implement `createPullRequestFromParams` using GitService
-     - Implement `commitChangesFromParams` using GitService
-     - Add proper validation with Zod schemas
+2. **Update MCP Adapters**
+   - Update MCP adapters to use domain functions directly
+   - Ensure consistent behavior between CLI and MCP
+   - Add tests for MCP adapters
 
-3. **Complete CLI and MCP Adapters**
-   - Update `src/adapters/cli/session.ts` to use the new domain functions
-   - Update `src/adapters/cli/git.ts` to use the new domain functions
-   - Create/update `src/adapters/mcp/session.ts` for MCP session commands
-   - Create/update `src/adapters/mcp/git.ts` for MCP git commands
+3. **Integration Tests**
+   - Add integration tests that verify consistent behavior across interfaces
+   - Test error handling and edge cases
+   - Test end-to-end flows involving multiple commands
 
-4. **Fix Test Implementation**
-   - Fix mock implementation in `tasks.test.ts` to work with Bun's test framework
-   - Use `mock.fn()` instead of just `mock()` for creating mock functions
-   - Create similar tests for session and git domain functions
-   - Add integration tests that ensure CLI and MCP interfaces produce consistent results
-
-5. **Update MCP Server**
-   - Update MCP server to use the new adapter pattern
-   - Ensure proper error handling in MCP command mapper
-
-6. **Update Documentation**
+4. **Documentation**
    - Update architecture documentation with new patterns
-   - Document how to add new commands using the new pattern
-   - Provide examples for both CLI and MCP interfaces
-
-7. **Additional Integration**
-   - Ensure backward compatibility with existing scripts and tools
-   - Update any other commands that call the refactored functions
+   - Document validation and error handling approach
+   - Provide examples of correct usage for future development
