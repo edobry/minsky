@@ -58,3 +58,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
 
 - [ ] Document Dependency Management Process [#046](process/tasks/046-document-dependency-management-process.md)
+
+- [ ] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
