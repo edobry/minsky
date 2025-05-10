@@ -1,11 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { createPrCommand } from '../pr';
-import { GitService } from '../../../domain/git';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createPrCommand } from '../pr.js';
+import { GitService } from '../../../domain/git.js';
 import fs from 'fs';
 import path from 'path';
+import { setupConsoleSpy } from '../../../utils/test-utils.js';
 
 // Create mock functions
-const mockPrFn = mock();
+const mockPrFn = mock(function() {
+  return { markdown: 'mock PR markdown' };
+});
 
 // Mock the GitService constructor
 mock.module('../../../domain/git', () => ({
@@ -15,97 +18,89 @@ mock.module('../../../domain/git', () => ({
 }));
 
 // Mock fs.existsSync 
-const mockExistsSync = mock((p) => p.includes('.git'));
+const mockExistsSync = mock(function(p: string) {
+  return p.includes('.git');
+});
 mock.module('fs', () => ({
   ...fs,
   existsSync: mockExistsSync
 }));
 
-// Helper function to test the action with various options - refactored to return results instead of exiting
-async function testActionWithOptions(
-  options: { 
-    session?: string;
-    path?: string;
-    branch?: string;
-    debug?: boolean;
-  }
-): Promise<{success: boolean, error?: string}> {
-  // Check required parameters
-  if (!options.session && !options.path) {
-    console.error('Error: Either --session or --path must be provided');
-    return { success: false, error: 'Either --session or --path must be provided' };
-  }
-  
-  // If both are provided, prefer session
-  if (options.session && options.path) {
-    if (options.debug) console.error('Warning: Both session and path provided. Using session.');
-  }
-  
-  try {
-    // Validate and prepare path if provided
-    let repoPath: string | undefined;
-    if (options.path && !options.session) {
-      repoPath = path.resolve(options.path);
-      // Check if it's a git repository
-      if (!mockExistsSync(path.join(repoPath, '.git'))) {
-        console.error(`Error: ${repoPath} is not a git repository`);
-        return { success: false, error: `${repoPath} is not a git repository` };
-      }
-    }
-    
-    // Create a new instance of GitService - this will use our mocked function
-    const gitService = new GitService();
-    
-    // Set up the options object
-    const prOptions = {
-      session: options.session,
-      repoPath,
-      branch: options.branch,
-      debug: options.debug
-    };
-    
-    try {
-      // Call the PR method - catch any errors directly from the mock implementation
-      await gitService.pr(prOptions);
-      return { success: true };
-    } catch (err) {
-      // Catch errors thrown by the mockPrFn implementation
-      console.error('Error generating PR markdown:', err);
-      return { success: false, error: String(err) };
-    }
-  } catch (error) {
-    // Catch any other errors in the helper function
-    console.error('Error in helper function:', error);
-    return { success: false, error: String(error) };
-  }
-}
-
 describe('git pr command', () => {
-  // Capture console output
-  let consoleLogSpy: ReturnType<typeof spyOn>;
-  let consoleErrorSpy: ReturnType<typeof spyOn>;
-  let processExitSpy: ReturnType<typeof spyOn>;
+  // Setup console spies
+  const { consoleLogSpy, consoleErrorSpy, processExitSpy } = setupConsoleSpy();
 
   beforeEach(() => {
     // Reset mocks
     mockPrFn.mockReset();
-    mockPrFn.mockResolvedValue({ markdown: 'mock PR markdown' });
+    mockPrFn.mockImplementation(() => ({ markdown: 'mock PR markdown' }));
     mockExistsSync.mockReset();
-    mockExistsSync.mockImplementation((p) => p.includes('.git'));
+    mockExistsSync.mockImplementation((p: string) => p.includes('.git'));
     
-    // Setup console spies
-    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
-    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    
-    // Mock process.exit
-    processExitSpy = spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
+    // Clear any previous console spy calls
+    consoleLogSpy.mockClear();
+    consoleErrorSpy.mockClear();
+    processExitSpy.mockClear();
   });
 
-  afterEach(() => {
-    mock.restore();
-  });
+  // Helper function to test the action with various options - refactored to return results instead of exiting
+  async function testActionWithOptions(
+    options: { 
+      session?: string;
+      path?: string;
+      branch?: string;
+      debug?: boolean;
+    }
+  ): Promise<{success: boolean, error?: string}> {
+    // Check required parameters
+    if (!options.session && !options.path) {
+      consoleErrorSpy('Error: Either --session or --path must be provided');
+      return { success: false, error: 'Either --session or --path must be provided' };
+    }
+    
+    // If both are provided, prefer session
+    if (options.session && options.path) {
+      if (options.debug) consoleErrorSpy('Warning: Both session and path provided. Using session.');
+    }
+    
+    try {
+      // Validate and prepare path if provided
+      let repoPath: string | undefined;
+      if (options.path && !options.session) {
+        repoPath = path.resolve(options.path);
+        // Check if it's a git repository
+        if (!mockExistsSync(path.join(repoPath, '.git'))) {
+          consoleErrorSpy(`Error: ${repoPath} is not a git repository`);
+          return { success: false, error: `${repoPath} is not a git repository` };
+        }
+      }
+      
+      // Create a new instance of GitService - this will use our mocked function
+      const gitService = new GitService();
+      
+      // Set up the options object
+      const prOptions = {
+        session: options.session,
+        repoPath,
+        branch: options.branch,
+        debug: options.debug
+      };
+      
+      try {
+        // Call the PR method - catch any errors directly from the mock implementation
+        await gitService.pr(prOptions);
+        return { success: true };
+      } catch (err) {
+        // Catch errors thrown by the mockPrFn implementation
+        consoleErrorSpy('Error generating PR markdown:', err);
+        return { success: false, error: String(err) };
+      }
+    } catch (error) {
+      // Catch any other errors in the helper function
+      consoleErrorSpy('Error in helper function:', error);
+      return { success: false, error: String(error) };
+    }
+  }
 
   // Test the inner implementation directly rather than trying to use Commander's parsing
   it('should require either session or path', async () => {
