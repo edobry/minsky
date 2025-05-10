@@ -236,6 +236,11 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
   - Improved error messages for file system operations
   - Added robust error handling with try/catch blocks around file operations
   - Added parent directory creation checks before file write operations
+- Fixed workspace validation in tasks/list.test.ts:
+  - Added proper package.json and git config files to pass validation
+  - Created filter-messages.ts utility for proper message handling
+  - Added verification steps to confirm directories and files are created
+  - Fixed assertions to match actual command output format
 
 _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._

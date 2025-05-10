@@ -75,6 +75,18 @@ function setupMinskyWorkspace() {
       mkdirSync(GIT_DIR, { recursive: true });
     }
     
+    // Create basic git config to make the repo valid
+    writeFileSync(
+      join(GIT_DIR, "config"),
+      "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n"
+    );
+    
+    // Create HEAD file to make the repo look valid
+    writeFileSync(
+      join(GIT_DIR, "HEAD"),
+      "ref: refs/heads/main\n"
+    );
+    
     // Create the process directory if it doesn't exist
     if (!existsSync(PROCESS_DIR)) {
       mkdirSync(PROCESS_DIR, { recursive: true });
@@ -85,6 +97,32 @@ function setupMinskyWorkspace() {
       mkdirSync(TASKS_DIR, { recursive: true });
     }
     
+    // Create package.json to make this look like a real project
+    writeFileSync(
+      join(TEST_DIR, "package.json"),
+      JSON.stringify({
+        name: "test-project",
+        version: "1.0.0",
+        description: "Test project for tasks list command",
+        main: "index.js",
+        dependencies: {
+          "commander": "^9.0.0"
+        }
+      }, null, 2)
+    );
+    
+    // Add src directory with basic content to make the workspace look valid
+    const SRC_DIR = join(TEST_DIR, "src");
+    if (!existsSync(SRC_DIR)) {
+      mkdirSync(SRC_DIR, { recursive: true });
+    }
+    
+    // Add a minimal index.js file
+    writeFileSync(
+      join(SRC_DIR, "index.js"),
+      "console.log('This is a test project');\n"
+    );
+    
     // Write necessary files to make this a valid workspace structure
     writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
     
@@ -94,10 +132,32 @@ function setupMinskyWorkspace() {
     writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
     writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
     
+    // Add filter constants file that may be required for filter messages
+    const UTILS_DIR = join(SRC_DIR, "utils");
+    if (!existsSync(UTILS_DIR)) {
+      mkdirSync(UTILS_DIR, { recursive: true });
+    }
+    
+    // Create a minimal filter-messages.ts file
+    writeFileSync(
+      join(UTILS_DIR, "filter-messages.ts"),
+      `export const getStatusFilterMessage = (status: string) => "Showing tasks with status '" + status + "'";\n` +
+      `export const getActiveTasksMessage = () => "Showing active tasks (use --all to include completed tasks)";\n` +
+      `export const generateFilterMessages = (options: any) => {\n` +
+      `  const messages: string[] = [];\n` +
+      `  if (options.status) messages.push(getStatusFilterMessage(options.status));\n` +
+      `  else if (!options.all) messages.push(getActiveTasksMessage());\n` +
+      `  return messages;\n` +
+      `};\n`
+    );
+    
     console.log(`Test setup: Created workspace at ${TEST_DIR} with task files`);
     console.log(`Process dir exists: ${existsSync(PROCESS_DIR)}`);
     console.log(`Tasks.md exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
     console.log(`.minsky/CONFIG.json exists: ${existsSync(join(MINSKY_DIR, "CONFIG.json"))}`);
+    console.log(`package.json exists: ${existsSync(join(TEST_DIR, "package.json"))}`);
+    console.log(`Git config exists: ${existsSync(join(GIT_DIR, "config"))}`);
+    console.log(`Filter messages file exists: ${existsSync(join(UTILS_DIR, "filter-messages.ts"))}`);
   } catch (error) {
     console.error(`Error setting up Minsky workspace: ${error}`);
     throw error;
