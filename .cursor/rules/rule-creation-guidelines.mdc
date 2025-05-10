@@ -1,0 +1,140 @@
+---
+description: Guidelines for creating or updating .mdc rule files. REQUIRED when writing, modifying, or reviewing any cursor rule.
+globs: ["**/*.mdc"]
+alwaysApply: false
+---
+# Cursor Rule Creation Guidelines
+
+Rules are read by AI assistants with limited attention spans and context windows. Every word must count.
+
+## Core Principles
+
+- **Rule Follower Perspective**: Write rules imagining you are the AI following them
+- **Concision**: Be direct and brief; limit each rule to exactly what's needed
+- **Modularity**: Create focused rules targeting specific situations
+- **Clarity**: Use simple language and clear examples
+- **Hierarchy**: Structure content from most to least important
+- **No Duplication**: Never repeat content across rules
+- **Update Existing Sections**: Prefer updating existing relevant sections over adding new sections when modifying rules, to avoid redundancy and keep rules concise.
+
+## Rule Structure
+
+1. **Metadata Header (Required)**
+   ```markdown
+   ---
+   description: Brief, actionable summary triggering rule application
+   globs: ["file/patterns/*.ts"] 
+   alwaysApply: false
+   ---
+   ```
+
+2. **Title**: Clear, concise name using `# Title` format
+
+3. **Introduction**: 1-2 sentences summarizing purpose
+
+4. **Core Principles/Requirements**: Bulleted list of key points
+
+5. **Examples**: Contrasting good/bad patterns with labels:
+   ```
+   // AVOID
+   badExample();
+   
+   // PREFER
+   goodExample();
+   ```
+
+6. **Rationale**: Only if not self-evident from principles
+
+## File Location
+
+**RULE FILES MUST BE STORED IN THE `.cursor/rules` DIRECTORY AT THE ROOT OF THE PROJECT.**
+
+- Correct path: `<project_root>/.cursor/rules/rule-name.mdc`
+- Never create rules in any other location
+
+## Writing the Description Field
+
+The description is **critically important** as it's the main trigger for rule application:
+
+- Focus ONLY on WHEN the rule applies, not WHAT the rule instructs
+- Begin with "Use when..." or "Guidelines for..." to clearly state when the rule applies
+- Include all relevant trigger keywords (e.g., "required for testing components")
+- Specify file types or contexts where the rule applies
+- Use "REQUIRED" or "MUST" for non-negotiable rules
+- Keep under 100 characters while remaining specific
+- Test by asking: "Would an AI correctly apply this rule based solely on this description?"
+
+## Using the Rules Command
+
+**ALWAYS USE THE `minsky rules` COMMAND TO CREATE AND MANAGE RULES.**
+
+The Minsky CLI provides dedicated commands for rule management:
+
+```bash
+# Create a new rule (interactive mode)
+minsky rules create
+
+# Create a new rule (command-line mode)
+minsky rules create my-rule --name "My Rule" --description "When to use this rule"
+
+# View an existing rule
+minsky rules get my-rule
+
+# Update a rule's metadata
+minsky rules update my-rule --description "New description"
+
+# Update a rule's content
+minsky rules update my-rule --content path/to/content.md
+
+# List all rules
+minsky rules list
+
+# Search rules
+minsky rules search "pattern"
+```
+
+Benefits of using the `rules` command:
+- Ensures proper YAML frontmatter formatting
+- Validates rule structure and metadata
+- Places rules in the correct directory
+- Provides consistent rule management across the project
+
+## Rule Assessment Checklist
+
+Before submitting a rule, verify it:
+
+- [ ] Has a precise description that clearly indicates when it applies
+- [ ] Contains no information duplicated in other rules
+- [ ] Uses clear, specific language without ambiguity
+- [ ] Provides concrete examples of correct and incorrect patterns
+- [ ] Is structured from most to least important information
+- [ ] Could be correctly applied by someone with limited attention
+- [ ] Would be triggered by the correct glob patterns
+
+## Anti-patterns
+
+- **Verbose Introductions**: Don't waste words explaining the rule exists
+- **Duplicate Content**: Never repeat information found in other rules
+- **Vague Descriptions**: Avoid general terms like "best practices" without specifics
+- **Nested Complexity**: Keep rule structure flat and scannable
+- **Excessive Context**: Focus on directives, not background information
+- **Mixed Concerns**: Each rule should govern exactly one area of concern
+
+## Router Rules
+
+- Router rules are special rules whose sole purpose is to scan for triggers (e.g., user dissatisfaction, error signals) and invoke other rules (such as self-improvement), not to provide direct instructions themselves.
+- Router rules should:
+  - Be concise and focused only on detection and routing
+  - Use `alwaysApply: true` and broad globs (e.g., `**/*`)
+  - Never duplicate the full content of the rules they route to
+  - Clearly specify the trigger signals and the rule(s) to invoke
+- Example:
+  ```markdown
+  ---
+  description: Scan every user message for dissatisfaction, error, or correction signals and invoke self-improvement if found
+  globs: ["**/*"]
+  alwaysApply: true
+  ---
+  # Self-Improvement Router
+  ...
+  ```

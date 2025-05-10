@@ -1,12 +1,13 @@
-import { Command } from 'commander';
-import { GitService } from '../../domain/git';
-import { SessionDB } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
-import fs from 'fs';
-import path from 'path';
-import { resolveRepoPath } from '../../domain/repo-utils';
-import { startSession } from './startSession';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { Command } from "commander";
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
+import { TaskService } from "../../domain/tasks.js";
+import fs from "fs";
+import path from "path";
+import { resolveRepoPath } from "../../domain/repo-utils.js";
+import { startSession } from "./startSession.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import { isSessionRepository } from "../../domain/workspace.js";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
@@ -23,18 +24,27 @@ export function createStartCommand(): Command {
     .option('--github-owner <owner>', 'GitHub repository owner (for github backend)')
     .option('--github-repo <repo>', 'GitHub repository name (for github backend)')
     .option('-c, --branch <branch>', 'Branch to checkout (for remote repositories)')
+    .option("--no-status-update", "Skip automatic task status update to IN-PROGRESS")
     .action(async (sessionArg: string | undefined, options: {
       repo?: string;
       task?: string;
       quiet?: boolean;
-      backend?: 'local' | 'github' | 'auto';
+      backend?: 'local' | 'remote' | 'github' | 'auto';
       githubToken?: string;
       githubOwner?: string;
       githubRepo?: string;
       branch?: string;
+      statusUpdate?: boolean;
     }) => {
       try {
-        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
+        // Check if current directory is already within a session workspace
+        const currentDir = Bun.env.PWD || process.cwd();
+        const isInSession = await isSessionRepository(currentDir);
+        if (isInSession) {
+          throw new Error("Cannot create a new session while inside a session workspace. Please return to the main workspace first.");
+        }
+
+        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch((err: Error) => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
         });
 
@@ -49,7 +59,7 @@ export function createStartCommand(): Command {
           // Verify the task exists
           const taskService = new TaskService({
             workspacePath: repoPath,
-            backend: 'markdown' // Default to markdown backend
+            backend: "markdown" // Default to markdown backend
           });
           
           const task = await taskService.getTask(taskId);
@@ -62,7 +72,7 @@ export function createStartCommand(): Command {
           
           // Check if a session already exists for this task
           const existingSessions = await sessionDB.listSessions();
-          const taskSession = existingSessions.find(s => s.taskId === taskId);
+          const taskSession = existingSessions.find((s: { taskId?: string }) => s.taskId === taskId);
           
           if (taskSession) {
             throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
@@ -80,9 +90,10 @@ export function createStartCommand(): Command {
           session, 
           repo: repoPath,
           taskId,
-          backend: options.backend as 'local' | 'github' | 'auto',
+          backend: options.backend as 'local' | 'remote' | 'github' | 'auto',
           github,
-          branch: options.branch
+          branch: options.branch,
+          noStatusUpdate: options.statusUpdate === false
         });
         
         if (options.quiet) {
@@ -94,17 +105,27 @@ export function createStartCommand(): Command {
           console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
           console.log(`Branch '${result.branchResult.branch}' created.`);
           console.log(`Backend: ${result.sessionRecord.backendType || 'local'}`);
+          
           if (taskId) {
             console.log(`Associated with task: ${taskId}`);
+            
+            // Show status update information if applicable
+            if (result.statusUpdateResult) {
+              const { previousStatus, newStatus } = result.statusUpdateResult;
+              console.log(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
+            } else if (options.statusUpdate === false) {
+              console.log("Task status update skipped (--no-status-update)");
+            }
           }
-          console.log(`\nTo navigate to this session's directory, run:`);
+          
+          console.log("\nTo navigate to this session's directory, run:");
           console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-          console.log('');
+          console.log("");
           console.log(result.cloneResult.workdir);
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
-        console.error('Error starting session:', err.message);
+        console.error("Error starting session:", err.message);
         process.exit(1);
       }
     });

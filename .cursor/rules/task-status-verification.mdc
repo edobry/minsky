@@ -1,0 +1,64 @@
+---
+description: REQUIRED when checking or reporting on task status to verify both tracking system status and actual implementation state
+globs: ["**/*"]
+alwaysApply: false
+---
+# Task Status Verification Protocol
+
+When investigating or reporting on a task's status, follow these verification steps to ensure accuracy.
+
+## Core Requirements
+
+- **Never rely solely on the tracking system status**
+- **Always check both tracking status and implementation status**
+- **Report any discrepancies between tracked status and actual implementation**
+- **Verify if code has been merged to main branch**
+- **Check session status if applicable**
+
+## Verification Steps
+
+1. **Basic Status Check**:
+   ```bash
+   minsky tasks get <taskId> --json
+   ```
+
+2. **Implementation Verification**:
+   ```bash
+   # Check main branch for relevant commits
+   git log --grep="feat(#<taskId>)" --oneline main
+   git log --grep="fix(#<taskId>)" --oneline main
+   ```
+
+3. **Session Status Check**:
+   ```bash
+   # Check if session exists
+   minsky session get --task <taskId>
+   
+   # If exists, check branch status
+   cd $(minsky session dir <session>)
+   git status
+   git log -n 5 --oneline
+   ```
+
+4. **Discrepancy Resolution**:
+
+   // AVOID
+   "Task #123 is in progress."
+
+   // PREFER
+   "Task #123 is marked as 'IN-PROGRESS' in the tracking system, but the implementation has been merged to main branch in commit a36f4e8."
+
+5. **Complete Status Report**:
+
+   // AVOID
+   "Task #020 is in progress."
+
+   // PREFER
+   "Task #020: Official status is 'IN-PROGRESS', but implementation has been merged to main branch (commit a36f4e8). The session still exists but is redundant. Recommend updating task status to 'DONE' and cleaning up the session."
+
+## When to Apply This Protocol
+
+- Responding to direct queries about task status
+- Before starting work on a task
+- When reporting on project progress
+- When determining if a task needs implementation

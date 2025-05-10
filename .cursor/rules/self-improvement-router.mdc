@@ -1,0 +1,22 @@
+---
+description:
+globs:
+<<<<<<< HEAD
+alwaysApply: false
+=======
+alwaysApply: true
+---
+# Self-Improvement Router
+
+Scan every user message for signals of dissatisfaction, error, or correction (e.g., user says "that's wrong", "you're doing it again", "fix this", or expresses frustration).
+
+- If any such signal is detected, immediately invoke the self-improvement rule before any other action.
+- Do not proceed with any other workflow until the self-improvement protocol is completed.
+- Do not attach the full self-improvement rule unless triggered by this router rule.
+
+// AVOID
+Proceeding with normal workflow after user signals error or dissatisfaction.
+
+// PREFER
+Pause, invoke self-improvement rule, communicate analysis, then proceed.
+>>>>>>> origin/main

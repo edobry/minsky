@@ -48,3 +48,44 @@ Test Coverage and Quality Requirements:
    - Document any skipped tests and why
    - Note any changes to test coverage
    - Flag any new test warnings or flaky tests
+
+7. **Test Integrity Requirements**
+   - **ABSOLUTELY FORBIDDEN:**
+     - Creating placeholder/mock tests to bypass failures
+     - Creating tests that always pass without testing actual functionality (e.g., `expect(true).toBe(true)`)
+     - Commenting out failing tests instead of fixing them
+     - Using `test.skip()` or similar to avoid test failures
+     - Any practice that hides or ignores test failures
+   - All test failures MUST be properly addressed by either:
+     - Fixing the underlying code issue
+     - Updating test expectations with proper justification
+     - Refactoring the test to properly test the intended behavior
+   - If a test is failing:
+     - Document the failure in detail
+     - Create a plan to fix it
+     - Get approval for the fix approach
+     - Implement the fix
+     - Verify the fix with proper test coverage
+   - Never merge code with:
+     - Failing tests
+     - Placeholder tests
+     - Skipped tests without documented justification
+     - Mock tests that don't actually test functionality
+
+8. **ZERO TOLERANCE FOR FAKE TESTS**
+   - There is NEVER an acceptable reason to create fake/mock tests that automatically pass
+   - Tests that use `expect(true).toBe(true)` or similar constructs that don't test actual behavior are strictly prohibited
+   - When encountering test failures:
+     1. First attempt to fix the test properly to test the actual behavior
+     2. If that's not immediately possible, leave the test failing and document why
+     3. If a temporary solution is needed while investigating, use `test.todo()` with detailed explanations
+   - Any PR or commit containing fake tests will be automatically rejected
+   - This is a critical part of maintaining code quality and is non-negotiable
+
+9. **Enforcement Mechanism**
+   - All test files must be periodically scanned for patterns indicating fake tests
+   - Code review must specifically check for fake/bypassed tests
+   - Automated linting should detect and flag suspicious test patterns
+   - Before submitting changes, verify all tests are properly testing functionality
+
+This is a zero-tolerance policy. Any violation will require immediate remediation.

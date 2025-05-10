@@ -1,0 +1,143 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Rules Management
+
+This rule provides guidelines for working with Minsky rules using the `rules` command.
+
+## Rule Lifecycle Commands
+
+### Listing Rules
+
+```bash
+# List all rules
+minsky rules list
+
+# Filter by format
+minsky rules list --format cursor
+minsky rules list --format generic
+
+# Filter by tag
+minsky rules list --tag workflow
+
+# Get machine-readable output
+minsky rules list --json
+```
+
+### Viewing Rules
+
+```bash
+# View a specific rule with content
+minsky rules get <rule-id>
+
+# View only metadata
+minsky rules get <rule-id> --meta-only
+
+# Get machine-readable output
+minsky rules get <rule-id> --json
+
+# Specify format if needed
+minsky rules get <rule-id> --format cursor
+```
+
+### Creating Rules
+
+```bash
+# Interactive creation (recommended for new users)
+minsky rules create
+
+# Non-interactive creation with basic metadata
+minsky rules create my-rule-id --name "My Rule" --description "What this rule does"
+
+# Set file patterns this rule applies to
+minsky rules create my-rule-id --globs "**/*.ts" "**/*.js"
+
+# Add categorization tags
+minsky rules create my-rule-id --tags "typescript" "formatting"
+
+# Create for a specific format
+minsky rules create my-rule-id --format generic
+
+# Add content from a file
+minsky rules create my-rule-id --content path/to/content.md
+
+# Add content from stdin
+cat content.md | minsky rules create my-rule-id --content -
+```
+
+### Updating Rules
+
+```bash
+# Update description
+minsky rules update my-rule-id --description "New description"
+
+# Update multiple metadata fields
+minsky rules update my-rule-id --name "New Name" --description "New description"
+
+# Update file patterns
+minsky rules update my-rule-id --globs "**/*.jsx" "**/*.tsx"
+
+# Set whether rule should always apply
+minsky rules update my-rule-id --always-apply true
+
+# Update tags
+minsky rules update my-rule-id --tags "react" "components"
+
+# Update content from a file
+minsky rules update my-rule-id --content path/to/new-content.md
+
+# Update content from stdin
+cat new-content.md | minsky rules update my-rule-id --content -
+
+# Update only metadata, not content
+minsky rules update my-rule-id --name "New Name" --meta-only
+```
+
+### Searching Rules
+
+```bash
+# Search by content or metadata
+minsky rules search "pattern"
+
+# Filter search by format
+minsky rules search "pattern" --format cursor
+
+# Filter search by tag
+minsky rules search "pattern" --tag workflow
+
+# Get machine-readable output
+minsky rules search "pattern" --json
+```
+
+## Best Practices
+
+1. **Descriptive IDs**: Use kebab-case for rule IDs that clearly indicate the rule's purpose.
+
+2. **Comprehensive Descriptions**: Provide clear descriptions that explain what the rule does and when it should be applied.
+
+3. **Appropriate Tagging**: Use consistent tags for organizing rules by domain, technology, or purpose.
+
+4. **Targeted Globs**: Set specific file patterns to ensure rules are only applied to relevant files.
+
+5. **Version Control**: Treat rules as code and include them in version control.
+
+6. **Rule Types**:
+   - Set `alwaysApply: true` for critical rules that must be followed for all code.
+   - Set `alwaysApply: false` for rules that are only relevant to specific contexts.
+
+7. **Rule Content Structure**:
+   - Start with a clear title (# Title)
+   - Include a concise description
+   - Document usage instructions
+   - Provide code examples
+   - Add anti-pattern examples with corrections
+
+## Common Rule Categories
+
+- **Code Quality**: Rules for code formatting, naming conventions, etc.
+- **Architecture**: Rules for module organization, dependency management, etc.
+- **Workflow**: Rules for development processes, PR processes, etc.
+- **Testing**: Rules for test structure, coverage requirements, etc.
+- **Documentation**: Rules for code comments, documentation structure, etc.

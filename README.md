@@ -1,6 +1,7 @@
 # minsky
 
-A tool for coordinating AI agent workflows using Git and other collaboration tools, inspired by Marvin Minsky's "Society of Mind" theory and organizational cybernetics.
+[![CI](https://github.com/yourusername/minsky/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/minsky/actions/workflows/ci.yml)
+[![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://github.com/prettier/prettier)
 
 > **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
 
@@ -50,26 +51,75 @@ minsky git pr --session feature-x
 
 > **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
 
-### Session Management
+### Session Commands
+
+#### `minsky session start [options] [session-name]`
+
+Start a new session with the given name. If no name is provided, a random one will be generated.
+
+Options:
+
+- `-r, --repo <repo-url>`: URL of the repository to clone (optional if in a git repository)
+- `-t, --task <task-id>`: Task ID to associate with this session
+
+#### `minsky session list [options]`
+
+List all sessions.
+
+Options:
+
+- `--json`: Output in JSON format
+
+#### `minsky session get [options] <session-name>`
+
+Get details about a specific session.
+
+Options:
+
+- `--json`: Output in JSON format
+- `--task <task-id>`: Get session by task ID
+
+#### `minsky session delete [options] [session-name]`
+
+Delete a session and its repository.
+
+Options:
+- `--force`: Skip confirmation prompt
+- `--json`: Output in JSON format
+- `--task <task-id>`: Delete session by task ID
+
+#### `minsky session dir <session-name>`
+
+Print the directory path for a session.
+
+#### `minsky session update [options] [session-name]`
+
+Update a session with the latest changes from the main branch. If no session name is provided, uses the current session.
+
+Options:
+
+- `--no-stash`: Skip stashing changes
+- `--no-push`: Skip pushing changes to remote
+- `--branch <branch>`: Branch to merge from (defaults to main)
+- `--remote <remote>`: Remote to use (defaults to origin)
+
+Example:
 
 ```bash
-# Start a new session
-minsky session start my-session --repo https://github.com/user/repo.git
+# Update current session with latest changes from main
+minsky session update
 
-# Start a session associated with a task
-minsky session start --repo https://github.com/user/repo.git --task 001
+# Update specific session with latest changes from develop branch
+minsky session update my-session --branch develop
 
-# List all sessions
-minsky session list
+# Update session without stashing changes
+minsky session update --no-stash
 
-# View session details
-minsky session get my-session
+# Update session without pushing changes
+minsky session update --no-push
 
-# View session details by task ID
-minsky session get --task 001
-
-# Get session directory
-minsky session dir my-session
+# Update session using a different remote
+minsky session update --remote upstream
 ```
 
 ### Tasks Management
@@ -89,11 +139,15 @@ minsky tasks get --repo /path/to/repo #001
 # Get the status of a task
 minsky tasks status get --repo /path/to/repo #001
 
-# Set the status of a task
+# Set the status of a task (with explicit status)
 minsky tasks status set --repo /path/to/repo #001 DONE
+
+# Set the status of a task (interactive prompt)
+minsky tasks status set --repo /path/to/repo #001
 ```
 
 **Options:**
+
 - `--repo <repoPath>`: Path to a git repository (overrides session)
 - `--session <session>`: Session name to use for repo resolution
 - `--backend <backend>`: Task backend to use (default: markdown, future: github)
@@ -102,10 +156,12 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 - `--json`: Output tasks as JSON
 
 **Features:**
+
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
 - Extensible: future support for GitHub Issues and other backends
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
+- Interactive status selection when no status is provided to `tasks status set`
 
 ## Task Workspace Detection
 
@@ -128,6 +184,27 @@ minsky tasks status set '#001' DONE --workspace /path/to/main/workspace
 ```
 
 This option overrides any automatic workspace detection. The previous `--repo` and `--session` options still work, but the workspace path takes precedence when provided.
+
+## MCP (Model Context Protocol) Support
+
+Minsky now supports the Model Context Protocol (MCP), which enables AI assistants and other tools to interact with Minsky programmatically. This allows for seamless integration with AI agents like Claude, GitHub Copilot, and others that support MCP.
+
+```bash
+# Start the MCP server with default settings (stdio transport)
+minsky mcp start
+
+# Start with SSE transport on a specific port
+minsky mcp start --sse --port 8080
+```
+
+MCP allows AI agents to:
+- Manage tasks and track their status
+- Create and manage development sessions
+- Perform git operations
+- Initialize new projects with Minsky
+- Access structured responses in a consistent format
+
+For detailed documentation on using MCP with Minsky, see [README-MCP.md](./README-MCP.md).
 
 ## Example Workflows
 
