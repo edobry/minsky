@@ -52,16 +52,21 @@
 - Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
 - Added repository backend support with abstract interface for different repository implementations
 - Created LocalGitBackend for existing git repository operations
+- Added RemoteGitBackend for any remote Git repository URL
 - Added GitHubBackend for GitHub repository integration
 - Enhanced session commands to support repository backend selection
+- Added repository caching system for improved performance
+- Added type-safe repository error handling
+- Added automatic repository backend detection based on URL format
 - Added backend-specific options to session start command:
-  - `--backend <type>` to specify repository backend (local or github)
+  - `--backend <type>` to specify repository backend (local, remote, github)
+  - `--branch <branch>` for specifying branch to checkout
   - `--github-token <token>` for GitHub authentication
   - `--github-owner <owner>` for GitHub repository owner
   - `--github-repo <repo>` for GitHub repository name
-- Improved session records to store backend type and GitHub-specific information
-- Enhanced error handling for GitHub-specific operations
-- Added tests for both local and GitHub repository backends
+- Improved session records to store backend type and backend-specific information
+- Enhanced error handling for repository operations with detailed error messages
+- Added tests for repository backends
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
