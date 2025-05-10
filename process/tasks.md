@@ -61,4 +61,4 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 - [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
 - [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
-- [ ] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
+- [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
