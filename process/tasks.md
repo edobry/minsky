@@ -22,7 +22,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
 - [X] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [ ] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
-- [ ] Add Repository Backend Support [#014](tasks/014-add-repository-backend-support.md)
+- [+] Add Repository Backend Support [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
