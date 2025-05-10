@@ -6,6 +6,12 @@ export interface InitializeProjectOptions {
   repoPath: string;
   backend: "tasks.md" | "tasks.csv";
   ruleFormat: "cursor" | "generic";
+  mcp?: {
+    enabled: boolean;
+    transport: "stdio" | "sse" | "httpStream";
+    port?: number;
+    host?: string;
+  };
 }
 
 /**
@@ -15,6 +21,7 @@ export async function initializeProject({
   repoPath,
   backend,
   ruleFormat,
+  mcp,
 }: InitializeProjectOptions): Promise<void> {
   // Check if backend is implemented
   if (backend === "tasks.csv") {
@@ -56,6 +63,18 @@ export async function initializeProject({
   // Create index.mdc rule file for categorizing rules
   const indexFilePath = path.join(rulesDirPath, "index.mdc");
   await createFileIfNotExists(indexFilePath, getRulesIndexContent());
+
+  // Setup MCP if enabled
+  if (mcp?.enabled !== false) { // Default to enabled if not explicitly disabled
+    // Create the MCP config file
+    const mcpConfig = getMCPConfigContent(mcp);
+    const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
+    await createFileIfNotExists(mcpConfigPath, mcpConfig);
+
+    // Create MCP usage rule
+    const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
+    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent());
+  }
 }
 
 /**
@@ -299,6 +318,152 @@ Some rules are closely related and often used together:
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
+}
+
+/**
+ * Returns the content for the MCP config file
+ */
+function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): string {
+  const transport = mcpOptions?.transport || "stdio";
+  const port = mcpOptions?.port || 8080;
+  const host = mcpOptions?.host || "localhost";
+
+  // Base configuration for stdio transport
+  if (transport === "stdio") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--stdio"]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Configuration for SSE transport
+  else if (transport === "sse") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--sse", "--port", String(port), "--host", host]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Configuration for HTTP Stream transport
+  else if (transport === "httpStream") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Default fallback (shouldn't be reached with proper type checking)
+  return JSON.stringify({
+    mcpServers: {
+      "minsky-server": {
+        command: "minsky",
+        args: ["mcp", "start", "--stdio"]
+      }
+    }
+  }, null, 2);
+}
+
+/**
+ * Returns the content for the MCP usage rule
+ */
+function getMCPRuleContent(): string {
+  return `# MCP Usage
+
+## Overview
+
+The Model Context Protocol (MCP) provides a standardized way for AI agents to interact with the Minsky CLI, enabling automation and intelligent assistance. This rule explains how to use MCP effectively with Minsky.
+
+## MCP Configuration
+
+Minsky uses MCP to expose its functionality to AI agents. The configuration is stored in \`.cursor/mcp.json\`:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "minsky-server": {
+      "command": "minsky",
+      "args": ["mcp", "start", "--stdio"]
+    }
+  }
+}
+\`\`\`
+
+## Available Tools
+
+Minsky exposes the following tools via MCP:
+
+### Task Management
+
+- \`tasks.list\`: List all tasks
+- \`tasks.get\`: Get details of a specific task
+- \`tasks.status.get\`: Get the status of a task
+- \`tasks.status.set\`: Set the status of a task
+- \`tasks.create\`: Create a new task from a specification document
+
+### Session Management
+
+- \`session.list\`: List all sessions
+- \`session.get\`: Get details of a specific session
+- \`session.start\`: Start a new session
+- \`session.commit\`: Commit changes in a session
+- \`session.push\`: Push changes in a session
+
+## Usage Examples
+
+### Example: List Tasks via MCP
+
+\`\`\`typescript
+// AI can retrieve task information using:
+const tasks = await tools.tasks.list({})
+console.log(tasks) // Returns JSON array of tasks
+\`\`\`
+
+### Example: Start a Session via MCP
+
+\`\`\`typescript
+// AI can start a session for task #123:
+const result = await tools.session.start({ task: "123", quiet: true })
+console.log(result.message) // Session directory path
+\`\`\`
+
+## Security Considerations
+
+- MCP servers have access to execute commands on your system
+- Review and approve tool calls before allowing execution
+- Use environment variables for sensitive configuration values
+- For production use, consider network transport security when using SSE or HTTP Stream
+
+## Transport Types
+
+Minsky supports three MCP transport types:
+
+1. **stdio**: Default, runs on local machine only (most secure)
+2. **SSE**: Enables network access, supports remote connections
+3. **HTTP Stream**: Similar to SSE, with different protocol
+
+For team environments, SSE or HTTP Stream can allow shared access to Minsky tools.
+
+## Best Practices
+
+- Always verify that your MCP configuration file exists before running AI agents
+- Use task IDs consistently when referring to tasks through MCP
+- Review AI-proposed tool calls before execution
+- For web interfaces, prefer SSE transport
+- For security-sensitive environments, stick with stdio transport
+
+This rule helps Minsky users configure and leverage the Model Context Protocol effectively.`;
 }
 
 /**

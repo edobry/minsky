@@ -9,14 +9,22 @@ export function createInitCommand(): Command {
   return new Command("init")
     .description("Initialize a project for Minsky")
     .option("-r, --repo <path>", "Repository path (defaults to current directory)")
-    .option("-s, --session <name>", "Session name to get repo path from")
+    .option("-s, --session <n>", "Session name to get repo path from")
     .option("-b, --backend <type>", "Task backend type (tasks.md or tasks.csv)")
     .option("-f, --rule-format <format>", "Rule format (cursor or generic)")
+    .option("--mcp <boolean>", "Enable/disable MCP configuration (default: true)")
+    .option("--mcp-transport <type>", "MCP transport type (stdio, sse, httpStream)")
+    .option("--mcp-port <port>", "Port for MCP network transports")
+    .option("--mcp-host <host>", "Host for MCP network transports")
     .action(async (options: {
       repo?: string,
       session?: string,
       backend?: string,
-      ruleFormat?: string
+      ruleFormat?: string,
+      mcp?: string,
+      mcpTransport?: string,
+      mcpPort?: string,
+      mcpHost?: string
     }) => {
       try {
         p.intro("Initialize Minsky in your project");
@@ -85,11 +93,99 @@ export function createInitCommand(): Command {
           ruleFormat = String(formatChoice);
         }
 
+        // Handle MCP configuration options
+        let mcpEnabled = options.mcp !== "false"; // Default to true unless explicitly disabled
+        let mcpTransport = options.mcpTransport;
+        let mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined;
+        let mcpHost = options.mcpHost;
+
+        // Interactive MCP configuration if not provided via options
+        if (options.mcp === undefined) {
+          const mcpEnabledChoice = await p.confirm({
+            message: "Enable MCP (Model Context Protocol) server configuration?",
+            initialValue: true,
+          });
+
+          if (p.isCancel(mcpEnabledChoice)) {
+            p.cancel("Operation cancelled");
+            process.exit(0);
+          }
+
+          mcpEnabled = mcpEnabledChoice;
+        }
+
+        // Only prompt for additional MCP options if MCP is enabled
+        if (mcpEnabled) {
+          // Get MCP transport if not provided
+          if (!mcpTransport) {
+            const transportChoice = await p.select({
+              message: "Choose an MCP transport type",
+              options: [
+                { value: "stdio", label: "stdio - Local machine only (default, most secure)" },
+                { value: "sse", label: "sse - Server-Sent Events (for network access)" },
+                { value: "httpStream", label: "httpStream - HTTP streaming (for network access)" },
+              ],
+            });
+
+            if (p.isCancel(transportChoice)) {
+              p.cancel("Operation cancelled");
+              process.exit(0);
+            }
+
+            mcpTransport = String(transportChoice);
+          }
+
+          // Only prompt for network settings if using a network transport
+          if (mcpTransport === "sse" || mcpTransport === "httpStream") {
+            // Get port if not provided and using network transport
+            if (!mcpPort) {
+              const portText = await p.text({
+                message: "Enter port for MCP server",
+                initialValue: "8080",
+                validate(value) {
+                  const port = parseInt(value, 10);
+                  if (isNaN(port) || port < 1 || port > 65535) {
+                    return "Please enter a valid port number (1-65535)";
+                  }
+                }
+              });
+
+              if (p.isCancel(portText)) {
+                p.cancel("Operation cancelled");
+                process.exit(0);
+              }
+
+              mcpPort = parseInt(String(portText), 10);
+            }
+
+            // Get host if not provided and using network transport
+            if (!mcpHost) {
+              const hostText = await p.text({
+                message: "Enter host for MCP server",
+                initialValue: "localhost",
+              });
+
+              if (p.isCancel(hostText)) {
+                p.cancel("Operation cancelled");
+                process.exit(0);
+              }
+
+              mcpHost = String(hostText);
+            }
+          }
+        }
+
         // Init project
         await initializeProject({
           repoPath,
           backend: backend as "tasks.md" | "tasks.csv",
-          ruleFormat: ruleFormat as "cursor" | "generic"
+          ruleFormat: ruleFormat as "cursor" | "generic",
+          mcp: mcpEnabled ? {
+            enabled: mcpEnabled,
+            transport: mcpTransport as "stdio" | "sse" | "httpStream" || "stdio",
+            port: mcpPort,
+            host: mcpHost
+          } : { enabled: false, transport: "stdio" }
         });
 
         p.outro("Project initialized successfully!");
