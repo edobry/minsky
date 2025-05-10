@@ -62,3 +62,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
 - [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
+
+- [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
