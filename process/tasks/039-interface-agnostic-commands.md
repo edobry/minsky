@@ -604,14 +604,29 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 7. 2025-05-10: Added CLI adapter for git commands in src/adapters/cli/git.ts
 8. 2025-05-10: Created domain utility functions with parameter validation in domain files
 9. 2025-05-10: Updated domain/index.ts to export shared functions for use by adapters
+10. 2025-05-10: Implemented task status domain functions with proper parameter validation
+11. 2025-05-10: Updated CLI and MCP adapters to use the new task status domain functions
+12. 2025-05-10: Added tests for the interface-agnostic task functions
 
 ## Current Status
 
 - [x] Phase 1: Set up schema validation system with Zod
-- [x] Phase 1: Create error handling system
+- [x] Phase 1: Create error handling system 
 - [x] Phase 1: Begin domain logic extraction with parameter validation
 - [x] Phase 2: Begin implementing interface adapters for CLI and MCP
+- [x] Phase 2: Implement task status domain functions with proper validation and error handling
+- [x] Phase 2: Update CLI and MCP adapters to use the new domain functions
+- [x] Phase 4: Add initial tests for the interface-agnostic architecture
 - [ ] Phase 2: Complete refactoring of all commands to use domain functions
 - [ ] Phase 3: Complete parameter validation for all commands
-- [ ] Phase 4: Add comprehensive tests for new architecture
-- [ ] Phase 4: Update documentation
+- [ ] Phase 5: Update MCP server to use the new adapters
+- [ ] Phase 6: Add comprehensive integration tests
+- [ ] Phase 7: Update architecture documentation
+
+## Remaining Work
+
+1. Implement the remaining domain functions for session and git commands
+2. Complete the CLI and MCP adapters for all commands
+3. Update the MCP server to use the new adapter pattern
+4. Add more comprehensive test coverage
+5. Update documentation with the new architecture
