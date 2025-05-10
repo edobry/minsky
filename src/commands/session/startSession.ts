@@ -1,10 +1,11 @@
-import { GitService } from '../../domain/git';
-import { SessionDB, type SessionRecord } from '../../domain/session';
-import { TaskService } from '../../domain/tasks';
+import { GitService } from '../../domain/git.js';
+import { SessionDB, type SessionRecord } from '../../domain/session.js';
+import { TaskService } from '../../domain/tasks.js';
+import { RepositoryBackendType } from '../../domain/repository.js';
 import fs from 'fs';
 import path from 'path';
-import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils';
-import { normalizeTaskId } from '../../utils/task-utils';
+import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils.js';
+import { normalizeTaskId } from '../../utils/task-utils.js';
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -14,12 +15,14 @@ export interface StartSessionOptions {
   session?: string;
   repo?: string;
   taskId?: string;
-  backend?: 'local' | 'github';
+  backend?: 'local' | 'remote' | 'github' | 'auto';
+  branch?: string;
   github?: {
     token?: string;
     owner?: string;
     repo?: string;
   };
+  noStatusUpdate?: boolean;
   gitService?: GitService;
   sessionDB?: SessionDB;
   fs?: typeof fs;
@@ -32,9 +35,27 @@ export interface StartSessionResult {
   sessionRecord: SessionRecord;
   cloneResult: { workdir: string };
   branchResult: { branch: string };
+  statusUpdateResult?: {
+    previousStatus?: string;
+    newStatus: string;
+  };
 }
 
-export async function startSession({ session, repo, taskId, backend = 'local', github, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
+export async function startSession({
+  session,
+  repo,
+  taskId,
+  backend = 'auto',
+  branch,
+  github,
+  noStatusUpdate,
+  gitService,
+  sessionDB,
+  fs,
+  path,
+  resolveRepoPath,
+  taskService
+}: StartSessionOptions): Promise<StartSessionResult> {
   gitService = gitService || new GitService();
   sessionDB = sessionDB || new SessionDB();
   fs = fs || fsDefault;
@@ -91,6 +112,25 @@ export async function startSession({ session, repo, taskId, backend = 'local', g
     }
   }
 
+  // Auto-detect repository backend type if 'auto' is specified
+  let backendType = backend;
+  if (backend === 'auto') {
+    // Determine backend type based on URL format
+    if (repoUrl.startsWith('http://') || 
+        repoUrl.startsWith('https://') || 
+        repoUrl.startsWith('git@')) {
+      
+      // Further detect GitHub repositories
+      if (repoUrl.includes('github.com')) {
+        backendType = 'github';
+      } else {
+        backendType = 'remote';
+      }
+    } else {
+      backendType = 'local';
+    }
+  }
+
   // The session creation approach follows these steps:
   // 1. First add the session to the DB (repoUrl needed)
   // 2. Then clone the repo (session name needed)
@@ -106,17 +146,22 @@ export async function startSession({ session, repo, taskId, backend = 'local', g
     repoName,
     createdAt: new Date().toISOString(),
     taskId,
-    backendType: backend,
-    github
+    backendType: backendType as 'local' | 'remote' | 'github',
+    github,
+    branch
   });
 
-  // Now clone the repo
-  const cloneResult = await gitService.clone({
+  // Prepare clone options with the correct backend type
+  const cloneOptions = {
     repoUrl,
     session,
-    backend,
-    github
-  });
+    backend: backendType as 'local' | 'remote' | 'github',
+    github,
+    branch
+  };
+
+  // Now clone the repo
+  const cloneResult = await gitService.clone(cloneOptions);
 
   // Create a branch based on the session name
   const branchResult = await gitService.branch({
@@ -124,18 +169,45 @@ export async function startSession({ session, repo, taskId, backend = 'local', g
     branch: session
   });
 
-  return {
+  // Update task status if needed
+  let statusUpdateResult;
+  if (taskId && !noStatusUpdate) {
+    const taskService = new TaskService({
+      workspacePath: cloneResult.workdir,
+      backend: 'markdown' // Default to markdown backend
+    });
+
+    const currentStatus = await taskService.getTaskStatus(taskId);
+    
+    // Only update if the status is not already IN-PROGRESS or higher
+    if (!currentStatus || currentStatus === 'TODO') {
+      await taskService.setTaskStatus(taskId, 'IN-PROGRESS');
+      statusUpdateResult = {
+        previousStatus: currentStatus,
+        newStatus: 'IN-PROGRESS'
+      };
+    }
+  }
+
+  // Prepare result
+  const result: StartSessionResult = {
     sessionRecord: { 
       session, 
       repoUrl, 
       repoName, 
       branch: session, 
-      createdAt: new Date().toISOString(), 
+      createdAt: new Date().toISOString(),
       taskId,
-      backendType: backend,
+      backendType: backendType as 'local' | 'remote' | 'github',
       github
     },
     cloneResult,
     branchResult
   };
+
+  if (statusUpdateResult) {
+    result.statusUpdateResult = statusUpdateResult;
+  }
+
+  return result;
 } 

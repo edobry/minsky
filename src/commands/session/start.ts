@@ -18,18 +18,20 @@ export function createStartCommand(): Command {
     .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
     .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
     .option('-q, --quiet', 'Output only the session directory path (for programmatic use)')
-    .option('-b, --backend <type>', 'Repository backend to use (local or github)', 'local')
+    .option('-b, --backend <type>', 'Repository backend type (local, remote, github)', 'auto')
     .option('--github-token <token>', 'GitHub access token for authentication')
-    .option('--github-owner <owner>', 'GitHub repository owner')
-    .option('--github-repo <repo>', 'GitHub repository name')
+    .option('--github-owner <owner>', 'GitHub repository owner (for github backend)')
+    .option('--github-repo <repo>', 'GitHub repository name (for github backend)')
+    .option('-c, --branch <branch>', 'Branch to checkout (for remote repositories)')
     .action(async (sessionArg: string | undefined, options: {
       repo?: string;
       task?: string;
       quiet?: boolean;
-      backend?: 'local' | 'github';
+      backend?: 'local' | 'github' | 'auto';
       githubToken?: string;
       githubOwner?: string;
       githubRepo?: string;
+      branch?: string;
     }) => {
       try {
         const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
@@ -78,8 +80,9 @@ export function createStartCommand(): Command {
           session, 
           repo: repoPath,
           taskId,
-          backend: options.backend as 'local' | 'github',
-          github
+          backend: options.backend as 'local' | 'github' | 'auto',
+          github,
+          branch: options.branch
         });
         
         if (options.quiet) {

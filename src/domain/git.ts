@@ -6,14 +6,15 @@ import type { ExecException } from 'child_process';
 import { normalizeRepoName } from './repo-utils';
 import { SessionDB } from './session';
 import { createRepositoryBackend } from './repository';
-import type { RepositoryBackendConfig } from './repository';
+import type { RepositoryBackendConfig, RepositoryBackendType } from './repository';
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
 export interface CloneOptions {
   repoUrl: string;
   session?: string;
-  backend?: 'local' | 'github';
+  backend?: 'local' | 'remote' | 'github';
+  branch?: string;
   github?: {
     token?: string;
     owner?: string;
@@ -88,8 +89,14 @@ export class GitService {
     
     // Create repository backend configuration
     const backendConfig: RepositoryBackendConfig = {
-      type: options.backend || 'local',
-      repoUrl: options.repoUrl,
+      type: options.backend === 'remote' 
+        ? RepositoryBackendType.REMOTE
+        : options.backend === 'github'
+          ? RepositoryBackendType.GITHUB
+          : RepositoryBackendType.LOCAL,
+      url: options.repoUrl,
+      path: options.repoUrl,
+      branch: options.branch,
       github: options.github
     };
     
