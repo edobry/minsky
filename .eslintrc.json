@@ -18,8 +18,7 @@
         "patterns": [
           {
             "group": ["./*/domain/*", "../*/domain/*"],
-            "message": "Import domain modules from their index file instead of directly",
-            "allowImports": ["**/domain/index.js"]
+            "message": "Import domain modules from their index file instead of directly"
           },
           {
             "group": ["./commands/*", "../commands/*"],
@@ -44,5 +43,13 @@
       "error",
       { "name": "process", "message": "Use Bun APIs instead of Node process when possible" }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/domain/index.js", "**/domain/index.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
 }
