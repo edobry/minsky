@@ -96,6 +96,7 @@
 - Enhanced task #014 (Add Repository Backend Support) to specifically focus on supporting remote Git repositories as repository backends. This includes a generic Remote Git backend for any remote Git URL, as well as a specific GitHub backend implementation. The task now more clearly defines the requirements for ensuring session workflows can use remote repositories as their origin.
 - Created task #051 to add Git command support to the MCP server, enabling AI assistants to perform Git operations via the Model Context Protocol
 - Created task #052 to add remaining task management commands to the MCP server, completing the task management API for AI assistants
+- Detailed implementation plan for task #039: Interface-Agnostic Command Architecture, which will refactor the command architecture to enable direct function calls across different interfaces (CLI, MCP, and potentially others like REST APIs in the future)
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
