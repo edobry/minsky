@@ -129,4 +129,18 @@ _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-
 ### Added
 - Task #022 to address remaining test failures and linting issues after task #002 implementation
 
+### Changed
+- Refactored `prWithDependencies` method in `GitService` into smaller, focused functions:
+  - Extracted commit formatting logic into `formatCommits` method
+  - Extracted PR markdown generation into `buildPrMarkdown` method
+  - Split repository data collection into multiple specialized methods:
+    - `getCommitsOnBranch`
+    - `getModifiedFiles`
+    - `getWorkingDirectoryChanges`
+    - `getChangeStats`
+  - Improved error handling in all extracted methods
+  - Reduced cognitive complexity while maintaining full test coverage
+
+_See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/history/2025-05-22_task-021-refactor-git-service.md) for implementation details._
+
  
