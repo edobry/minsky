@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { createListCommand } from "./list.js";
 import { createGetCommand } from "./get.js";
-import { createDirCommand } from "./cd.js";
+import { createDirCommand } from "./dir.js";
 import { createStartCommand } from "./start.js";
 import { createDeleteCommand } from "./delete.js";
 import { createUpdateCommand } from "./update.js";

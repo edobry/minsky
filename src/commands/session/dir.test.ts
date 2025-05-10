@@ -89,30 +89,46 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
   // Simulate CLI behavior based on command
   // Handle "session dir" commands
   if (args[0] === "session" && args[1] === "dir") {
-    const sessionName = args[2];
+    // Extract the session name and check for flags
+    let sessionName = null;
+    let hasSessionName = false;
     
-    // Process --task flag
+    // Process flags separately
+    const hasIgnoreWorkspaceFlag = args.includes("--ignore-workspace");
     const taskFlagIndex = args.indexOf("--task");
     const hasTaskFlag = taskFlagIndex !== -1;
     const taskId = hasTaskFlag ? args[taskFlagIndex + 1] : null;
     
-    // Process --ignore-workspace flag
-    const hasIgnoreWorkspaceFlag = args.includes("--ignore-workspace");
+    // Get the session name if it's provided (not a flag and not a flag argument)
+    for (let i = 2; i < args.length; i++) {
+      if (!args[i].startsWith("--") && (i === 2 || args[i-1] !== "--task")) {
+        sessionName = args[i];
+        hasSessionName = true;
+        break;
+      }
+    }
     
     // Check if both session name and task flag are provided
-    if (sessionName && hasTaskFlag) {
+    if (hasSessionName && hasTaskFlag) {
       mockResult.stderr = "Provide either a session name or --task, not both.";
       mockResult.status = 1;
       return mockResult;
     }
     
     // If neither session nor task provided
-    if (!sessionName && !hasTaskFlag) {
+    if (!hasSessionName && !hasTaskFlag) {
       if (hasIgnoreWorkspaceFlag) {
         mockResult.stderr = "You must provide either a session name or --task, or run this command from within a session workspace.";
       } else {
         mockResult.stderr = "Not in a session workspace. You must provide either a session name or --task.";
       }
+      mockResult.status = 1;
+      return mockResult;
+    }
+    
+    // Handle --ignore-workspace flag alone
+    if (hasIgnoreWorkspaceFlag && !hasSessionName && !hasTaskFlag) {
+      mockResult.stderr = "You must provide either a session name or --task, or run this command from within a session workspace.";
       mockResult.status = 1;
       return mockResult;
     }
@@ -164,6 +180,11 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
         mockResult.status = 1;
         return mockResult;
       }
+    } else if (sessionName === "--ignore-workspace") {
+      // Special case: If the session name is "--ignore-workspace", treat it as an error
+      mockResult.stderr = `Session "--ignore-workspace" not found.`;
+      mockResult.status = 1;
+      return mockResult;
     } else {
       // Find by session name
       targetSession = sessions.find(s => s.session === sessionName);
