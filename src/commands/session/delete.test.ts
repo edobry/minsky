@@ -46,6 +46,15 @@ function setupSessionDb(sessions: SessionRecord[]) {
       mkdirSync(sessionDbDir, { recursive: true });
     }
     
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Verify directories were created
+    if (!existsSync(sessionDbDir) || !existsSync(gitDir)) {
+      throw new Error(`Failed to create directories: sessionDbDir=${existsSync(sessionDbDir)}, gitDir=${existsSync(gitDir)}`);
+    }
+    
     // Write the session database with error handling
     try {
       writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
@@ -57,7 +66,8 @@ function setupSessionDb(sessions: SessionRecord[]) {
       
       // Read it back to verify it's valid
       const content = readFileSync(sessionDbPath, "utf8");
-      JSON.parse(content); // Verify valid JSON
+      JSON.parse(content); // Should not throw
+      console.log(`Successfully created and verified session DB at ${sessionDbPath}`);
     } catch (error) {
       console.error(`Error writing session DB: ${error}`);
       throw error;
@@ -70,10 +80,14 @@ function setupSessionDb(sessions: SessionRecord[]) {
         const sessionDir = join(repoDir, session.session);
         
         // Create repo directory
-        mkdirSync(repoDir, { recursive: true });
+        if (!existsSync(repoDir)) {
+          mkdirSync(repoDir, { recursive: true });
+        }
         
         // Create session directory
-        mkdirSync(sessionDir, { recursive: true });
+        if (!existsSync(sessionDir)) {
+          mkdirSync(sessionDir, { recursive: true });
+        }
         
         // Verify directory creation
         if (!existsSync(sessionDir)) {

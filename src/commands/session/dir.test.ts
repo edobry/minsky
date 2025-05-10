@@ -42,12 +42,24 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
     
     // Ensure directories exist
     const sessionDbDir = dirname(sessionDbPath);
-    mkdirSync(sessionDbDir, { recursive: true });
-    mkdirSync(gitDir, { recursive: true });
+    if (!existsSync(sessionDbDir)) {
+      mkdirSync(sessionDbDir, { recursive: true });
+    }
+    
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Verify directories were created
+    if (!existsSync(sessionDbDir) || !existsSync(gitDir)) {
+      throw new Error(`Failed to create directories: sessionDbDir=${existsSync(sessionDbDir)}, gitDir=${existsSync(gitDir)}`);
+    }
 
     // Write the session database with proper error handling
     try {
       writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
+      
+      // Verify file was created
       if (!existsSync(sessionDbPath)) {
         throw new Error(`Session DB file not created at ${sessionDbPath}`);
       }
@@ -55,6 +67,7 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       // Read it back to verify it's valid
       const content = readFileSync(sessionDbPath, "utf8");
       JSON.parse(content); // Verify valid JSON
+      console.log(`Successfully created and verified session DB at ${sessionDbPath}`);
     } catch (error) {
       console.error(`Error writing session DB: ${error}`);
       throw error;
@@ -69,13 +82,28 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       
       // For test variety, use the new path for some sessions and legacy for others
       if (session.session.includes("new")) {
-        mkdirSync(dirname(newPath), { recursive: true });
-        mkdirSync(newPath, { recursive: true });
+        if (!existsSync(dirname(newPath))) {
+          mkdirSync(dirname(newPath), { recursive: true });
+        }
+        if (!existsSync(newPath)) {
+          mkdirSync(newPath, { recursive: true });
+        }
         console.log(`Created session directory at: ${newPath}`);
       } else {
-        mkdirSync(dirname(legacyPath), { recursive: true });
-        mkdirSync(legacyPath, { recursive: true });
+        if (!existsSync(dirname(legacyPath))) {
+          mkdirSync(dirname(legacyPath), { recursive: true });
+        }
+        if (!existsSync(legacyPath)) {
+          mkdirSync(legacyPath, { recursive: true });
+        }
         console.log(`Created session directory at: ${legacyPath}`);
+      }
+      
+      // Verify directories were created
+      if (session.session.includes("new") && !existsSync(newPath)) {
+        throw new Error(`Failed to create session directory at ${newPath}`);
+      } else if (!session.session.includes("new") && !existsSync(legacyPath)) {
+        throw new Error(`Failed to create session directory at ${legacyPath}`);
       }
     }
 

@@ -42,17 +42,27 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
       mkdirSync(sessionDbDir, { recursive: true });
     }
     
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Verify directories were created
+    if (!existsSync(sessionDbDir) || !existsSync(gitDir)) {
+      throw new Error(`Failed to create directories: sessionDbDir=${existsSync(sessionDbDir)}, gitDir=${existsSync(gitDir)}`);
+    }
+    
     // Write the session database with proper error handling
     try {
-      writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: 'utf8' });
+      writeFileSync(sessionDbPath, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
       // Verify the file was created
       if (!existsSync(sessionDbPath)) {
         throw new Error(`Session DB file not created at ${sessionDbPath}`);
       }
       
       // Read the file to make sure it's writable/readable
-      const content = readFileSync(sessionDbPath, 'utf8');
+      const content = readFileSync(sessionDbPath, "utf8");
       JSON.parse(content); // Verify valid JSON
+      console.log(`Successfully created and verified session DB at ${sessionDbPath}`);
     } catch (error) {
       console.error(`Error writing session DB: ${error}`);
       throw error;
@@ -61,8 +71,18 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
     // Create session repo directories
     for (const session of sessions) {
       const repoName = session.repoName || session.repoUrl.replace(/[^\w-]/g, "_");
+      const repoDir = join(gitDir, repoName);
+      
+      // Create repo directory
+      if (!existsSync(repoDir)) {
+        mkdirSync(repoDir, { recursive: true });
+      }
+      
+      // Create session directory
       const sessionDir = join(gitDir, repoName, session.session);
-      mkdirSync(sessionDir, { recursive: true });
+      if (!existsSync(sessionDir)) {
+        mkdirSync(sessionDir, { recursive: true });
+      }
       
       // Verify the directory was created
       if (!existsSync(sessionDir)) {
@@ -73,7 +93,7 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
     console.log(`Test setup: Created session DB at ${sessionDbPath} with ${sessions.length} sessions`);
     console.log(`XDG_STATE_HOME will be set to: ${TEST_DIR}`);
     console.log(`SessionDB file exists: ${existsSync(sessionDbPath)}`);
-    console.log(`SessionDB content: ${readFileSync(sessionDbPath, 'utf8')}`);
+    console.log(`SessionDB content: ${readFileSync(sessionDbPath, "utf8")}`);
   } catch (error) {
     console.error(`Error in setupSessionDb: ${error}`);
     throw error;

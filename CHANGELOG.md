@@ -275,8 +275,13 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 ## [Unreleased]
 
 ### Fixed
-- Test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
 - Fixed issues with session-related tests by enhancing error handling and directory creation
-- Improved test environment setup for tasks list tests to properly create valid workspace directories
+- Fixed task list tests by ensuring tasks.md is created in the proper process directory
+- Added more robust directory existence checking and file creation in test setup
+
+### Changed
+- Improved test environment setup to create more complete Minsky workspace structure
+- Enhanced error handling and debugging output in test environment setup
 
  

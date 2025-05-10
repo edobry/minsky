@@ -37,19 +37,34 @@ function setupSessionDb(sessions: TestSessionRecord[]) {
     const gitDir = join(minskyDir, "git");
     const SESSION_DB_PATH = join(minskyDir, "session-db.json");
 
-    // Create parent directories first
-    mkdirSync(TEST_DIR, { recursive: true });
-    mkdirSync(minskyDir, { recursive: true });
-    mkdirSync(gitDir, { recursive: true });
+    // Create parent directories first - ensure they exist
+    if (!existsSync(TEST_DIR)) {
+      mkdirSync(TEST_DIR, { recursive: true });
+    }
+    
+    if (!existsSync(minskyDir)) {
+      mkdirSync(minskyDir, { recursive: true });
+    }
+    
+    if (!existsSync(gitDir)) {
+      mkdirSync(gitDir, { recursive: true });
+    }
+    
+    // Verify directories were created
+    if (!existsSync(TEST_DIR) || !existsSync(minskyDir) || !existsSync(gitDir)) {
+      throw new Error(`Failed to create test directories: TEST_DIR=${existsSync(TEST_DIR)}, minskyDir=${existsSync(minskyDir)}, gitDir=${existsSync(gitDir)}`);
+    }
     
     // Write session DB with careful error handling
     try {
       writeFileSync(SESSION_DB_PATH, JSON.stringify(sessions, null, 2), { encoding: "utf8" });
+      
+      // Verify file was created
       if (!existsSync(SESSION_DB_PATH)) {
         throw new Error(`Session DB file not created at ${SESSION_DB_PATH}`);
       }
       
-      // Verify file is valid by reading it back
+      // Verify file is readable and contains valid JSON
       const content = readFileSync(SESSION_DB_PATH, "utf8");
       JSON.parse(content); // Should not throw
     } catch (error) {
