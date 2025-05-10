@@ -111,6 +111,7 @@ _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
 _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
+_See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
 
 ### Changed
 
@@ -185,11 +186,13 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 ## [0.39.0] - 2025-04-29
 
 ### Changed
+
 - Clarified that `minsky tasks list --json` should be used to query the backlog.
 
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 ### Fixed
+
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
@@ -231,6 +234,7 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 ## [Unreleased]
 
 ### Fixed
+
 - Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
 - Fixed issues with session-related tests by enhancing error handling and directory creation
 - Fixed task list tests by ensuring tasks.md is created in the proper process directory
@@ -240,6 +244,7 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Ensured proper type safety in test mocks
 
 ### Changed
+
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
 
