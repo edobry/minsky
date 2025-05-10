@@ -53,6 +53,29 @@ We need to refactor the command architecture to enable direct function calls acr
    - Create `src/schemas/git.ts` for git-related parameter schemas
    - Create `src/schemas/common.ts` for commonly used schemas (e.g., paths)
 
+3. **Define Error Handling Strategy**
+   - Create consistent error hierarchy in `src/errors/index.ts`:
+     ```typescript
+     // Base application error
+     export class MinskyError extends Error {
+       constructor(message: string, public readonly cause?: unknown) {
+         super(message);
+         this.name = this.constructor.name;
+       }
+     }
+
+     // Domain-specific errors
+     export class ValidationError extends MinskyError {}
+     export class ResourceNotFoundError extends MinskyError {}
+     export class AuthorizationError extends MinskyError {}
+     export class NetworkError extends MinskyError {}
+     export class ConfigurationError extends MinskyError {}
+     ```
+   - Establish error propagation patterns:
+     - Domain layer: Throw domain-specific errors
+     - Adapter layer: Catch domain errors, translate to interface-appropriate format
+     - All errors include proper stack traces and cause chains
+
 ### Phase 2: Refactor Tasks Domain and Commands
 
 1. **Refactor Task Domain Module**
@@ -61,6 +84,24 @@ We need to refactor the command architecture to enable direct function calls acr
    - Ensure all functions have proper TypeScript types
    - Add validation using Zod schemas from the new schema files
    - Ensure all error handling is consistent
+   - Implement dependency injection through function parameters:
+     ```typescript
+     // Example of dependency injection pattern for domain functions
+     export async function listTasksFromParams(
+       params: TaskListParams, 
+       deps: { 
+         resolveRepoPath: typeof resolveRepoPath,
+         resolveWorkspacePath: typeof resolveWorkspacePath,
+         createTaskService: (options: TaskServiceOptions) => TaskService 
+       } = {
+         resolveRepoPath,
+         resolveWorkspacePath,
+         createTaskService: (options) => new TaskService(options)
+       }
+     ): Promise<Task[]> {
+       // Implementation using injected dependencies
+     }
+     ```
 
 2. **Create Tasks CLI Adapter**
    - Create `src/adapters/cli/tasks.ts` that imports from domain and schemas
@@ -148,6 +189,30 @@ We need to refactor the command architecture to enable direct function calls acr
    - Update architecture documentation with new patterns
    - Document how to add new commands using the new pattern
    - Provide examples for both CLI and MCP interfaces
+
+### Phase 7: Documentation and Interface Contracts
+
+1. **Document Domain Function Interfaces**
+   - Create README.md in each domain directory explaining:
+     - Purpose and responsibility of the domain module
+     - Key types and interfaces
+     - Available functions and their usage examples
+     - Error handling expectations
+
+2. **Document Schema Validation**
+   - Create comprehensive JSDoc for all schemas
+   - Include examples of valid and invalid inputs
+   - Document error messages for common validation failures
+
+3. **Adapter Implementation Guide**
+   - Create a guide for implementing new adapters
+   - Document conventions for adapter organization
+   - Provide examples of proper error handling in adapters
+
+4. **Update Architecture Documentation**
+   - Create diagrams showing the flow from interface through adapters to domain
+   - Document domain boundaries and responsibilities
+   - Add sequence diagrams for key operations
 
 ### Example Workflow for Tasks List Command
 
@@ -512,6 +577,29 @@ After analyzing the codebase, here's a more specific plan to implement the inter
    - Create `src/schemas/git.ts` for git-related parameter schemas
    - Create `src/schemas/common.ts` for commonly used schemas (e.g., paths)
 
+3. **Define Error Handling Strategy**
+   - Create consistent error hierarchy in `src/errors/index.ts`:
+     ```typescript
+     // Base application error
+     export class MinskyError extends Error {
+       constructor(message: string, public readonly cause?: unknown) {
+         super(message);
+         this.name = this.constructor.name;
+       }
+     }
+
+     // Domain-specific errors
+     export class ValidationError extends MinskyError {}
+     export class ResourceNotFoundError extends MinskyError {}
+     export class AuthorizationError extends MinskyError {}
+     export class NetworkError extends MinskyError {}
+     export class ConfigurationError extends MinskyError {}
+     ```
+   - Establish error propagation patterns:
+     - Domain layer: Throw domain-specific errors
+     - Adapter layer: Catch domain errors, translate to interface-appropriate format
+     - All errors include proper stack traces and cause chains
+
 ### Phase 2: Refactor Tasks Domain and Commands
 
 1. **Refactor Task Domain Module**
@@ -520,6 +608,24 @@ After analyzing the codebase, here's a more specific plan to implement the inter
    - Ensure all functions have proper TypeScript types
    - Add validation using Zod schemas from the new schema files
    - Ensure all error handling is consistent
+   - Implement dependency injection through function parameters:
+     ```typescript
+     // Example of dependency injection pattern for domain functions
+     export async function listTasksFromParams(
+       params: TaskListParams, 
+       deps: { 
+         resolveRepoPath: typeof resolveRepoPath,
+         resolveWorkspacePath: typeof resolveWorkspacePath,
+         createTaskService: (options: TaskServiceOptions) => TaskService 
+       } = {
+         resolveRepoPath,
+         resolveWorkspacePath,
+         createTaskService: (options) => new TaskService(options)
+       }
+     ): Promise<Task[]> {
+       // Implementation using injected dependencies
+     }
+     ```
 
 2. **Create Tasks CLI Adapter**
    - Create `src/adapters/cli/tasks.ts` that imports from domain and schemas
@@ -607,6 +713,30 @@ After analyzing the codebase, here's a more specific plan to implement the inter
    - Update architecture documentation with new patterns
    - Document how to add new commands using the new pattern
    - Provide examples for both CLI and MCP interfaces
+
+### Phase 7: Documentation and Interface Contracts
+
+1. **Document Domain Function Interfaces**
+   - Create README.md in each domain directory explaining:
+     - Purpose and responsibility of the domain module
+     - Key types and interfaces
+     - Available functions and their usage examples
+     - Error handling expectations
+
+2. **Document Schema Validation**
+   - Create comprehensive JSDoc for all schemas
+   - Include examples of valid and invalid inputs
+   - Document error messages for common validation failures
+
+3. **Adapter Implementation Guide**
+   - Create a guide for implementing new adapters
+   - Document conventions for adapter organization
+   - Provide examples of proper error handling in adapters
+
+4. **Update Architecture Documentation**
+   - Create diagrams showing the flow from interface through adapters to domain
+   - Document domain boundaries and responsibilities
+   - Add sequence diagrams for key operations
 
 ### Example Workflow for Tasks List Command
 
