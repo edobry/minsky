@@ -612,6 +612,10 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 15. 2025-05-11: Added tests for interface-agnostic session functions
 16. 2025-05-12: Implemented createPullRequestFromParams and commitChangesFromParams git domain functions
 17. 2025-05-12: Added tests for interface-agnostic git functions
+18. 2025-05-13: Created new MCP adapters for session operations
+19. 2025-05-13: Created MCP adapter for git operations
+20. 2025-05-13: Updated MCP server to use the new interface-agnostic adapters
+21. 2025-05-13: Ensured all changes follow session-first workflow by making them in the session workspace
 
 ## Current Status
 
@@ -624,17 +628,17 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 - [x] Phase 2: Implement session management domain functions with proper validation
 - [x] Phase 4: Add initial tests for the interface-agnostic architecture
 - [x] Phase 2: Complete refactoring of git commands to use domain functions
-- [ ] Phase 3: Complete parameter validation for git commands
-- [ ] Phase 5: Update MCP server to use the new adapters
+- [x] Phase 3: Complete parameter validation for git commands
+- [x] Phase 5: Update MCP server to use the new adapters
 - [ ] Phase 6: Add comprehensive integration tests
 - [ ] Phase 7: Update architecture documentation
 
 ## Remaining Work
 
-1. **Update MCP Adapters**
-   - Update MCP adapters to use domain functions directly
-   - Ensure consistent behavior between CLI and MCP
-   - Add tests for MCP adapters
+1. **Fix TypeScript and Linting Issues**
+   - Address type compatibility issues in MCP adapters 
+   - Fix import paths in adapters
+   - Ensure consistent error handling across all adapters
 
 2. **Integration Tests**
    - Add integration tests that verify consistent behavior across interfaces
