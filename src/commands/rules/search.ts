@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
+import { exit } from "../../utils/process.js";
 
 export function createSearchCommand(): Command {
   return new Command("search")
@@ -54,8 +55,10 @@ export function createSearchCommand(): Command {
           }
         }
       } catch (error) {
-        console.error(`Error searching rules: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        console.error(
+          `Error searching rules: ${error instanceof Error ? error.message : String(error)}`
+        );
+        exit(1);
       }
     });
 } 
