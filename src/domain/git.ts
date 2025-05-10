@@ -135,14 +135,13 @@ export class GitService {
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
     
-    // Determine the working directory
+    // Determine the working directory and branch
     const workdir = await this.determineWorkingDirectory(options, deps);
     
     if (options.debug) {
       console.error(`[DEBUG] Using workdir: ${workdir}`);
     }
     
-    // Determine branch
     const branch = await this.determineCurrentBranch(workdir, options, deps);
     
     if (options.debug) {
@@ -378,49 +377,83 @@ export class GitService {
     const { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats } = 
       await this.collectRepositoryData(workdir, branch, mergeBase, deps);
     
-    // Format the commits data for display
-    let formattedCommits = "No commits yet";
-    if (commits && commits.trim()) {
-      try {
-        // Check if the commits are in the expected format with delimiters
-        if (commits.includes('\x1f')) {
-          // Parse the commits data with delimiters
-          // Split by record separator
-          const commitRecords = commits.split('\x1e').filter(Boolean);
-          const formattedEntries: string[] = [];
-          
-          for (const record of commitRecords) {
-            // Split by field separator
-            const fields = record.split('\x1f');
-            if (fields.length > 1) {
-              // Format as "hash message"
-              const hash = fields[0].substring(0, 7);
-              const message = fields[1];
-              formattedEntries.push(`${hash} ${message}`);
-            } else {
-              // Use the record as-is if it doesn't have the expected format
-              formattedEntries.push(record.trim());
-            }
-          }
-          
-          if (formattedEntries.length > 0) {
-            formattedCommits = formattedEntries.join('\n');
-          }
-        } else {
-          // Use as-is if not in the expected format
-          formattedCommits = commits;
-        }
-      } catch (error) {
-        // In case of any parsing errors, fall back to the raw commits data
-        formattedCommits = commits;
-      }
-    }
+    // Format the commits for display
+    const formattedCommits = this.formatCommits(commits);
     
     // Check if we have any working directory changes
     const hasWorkingDirChanges = untrackedFiles.trim().length > 0 || uncommittedChanges.trim().length > 0;
     
+    return this.buildPrMarkdown(
+      branch,
+      formattedCommits,
+      modifiedFiles,
+      untrackedFiles,
+      uncommittedChanges,
+      stats,
+      comparisonDescription,
+      hasWorkingDirChanges
+    );
+  }
+
+  /**
+   * Format commit data for display in the PR markdown
+   */
+  private formatCommits(commits: string): string {
+    if (!commits || !commits.trim()) {
+      return "No commits yet";
+    }
+    
+    try {
+      // Check if the commits are in the expected format with delimiters
+      if (commits.includes("\x1f")) {
+        // Parse the commits data with delimiters
+        // Split by record separator
+        const commitRecords = commits.split("\x1e").filter(Boolean);
+        const formattedEntries: string[] = [];
+        
+        for (const record of commitRecords) {
+          // Split by field separator
+          const fields = record.split("\x1f");
+          if (fields.length > 1) {
+            if (fields[0] !== undefined && fields[1] !== undefined) {
+              const hash = fields[0].substring(0, 7);
+              const message = fields[1];
+              formattedEntries.push(`${hash} ${message}`);
+            }
+          } else {
+            // Use the record as-is if it doesn't have the expected format
+            formattedEntries.push(record.trim());
+          }
+        }
+        
+        if (formattedEntries.length > 0) {
+          return formattedEntries.join("\n");
+        }
+      }
+      
+      // Use as-is if not in the expected format
+      return commits;
+    } catch (error) {
+      // In case of any parsing errors, fall back to the raw commits data
+      return commits;
+    }
+  }
+
+  /**
+   * Builds the PR markdown from all the components
+   */
+  private buildPrMarkdown(
+    branch: string,
+    formattedCommits: string,
+    modifiedFiles: string,
+    untrackedFiles: string,
+    uncommittedChanges: string,
+    stats: string,
+    comparisonDescription: string,
+    hasWorkingDirChanges: boolean
+  ): string {
     // Generate the PR markdown
-    let sections = [
+    const sections = [
       `# Pull Request for branch \`${branch}\`\n`,
       `## Commits\n${formattedCommits}\n`
     ];
@@ -470,38 +503,97 @@ export class GitService {
     stats: string; 
   }> {
     // Get commits on the branch
-    const { stdout: commits } = await deps.execAsync(
-      `git -C ${workdir} log --oneline ${mergeBase}..${branch}`, 
-      { maxBuffer: 1024 * 1024 }
-    );
+    const commits = await this.getCommitsOnBranch(workdir, branch, mergeBase, deps);
     
-    // Get modified files in the branch - use name-status format for test compatibility
-    const { stdout: diffNameStatus } = await deps.execAsync(
-      `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`, 
-      { maxBuffer: 1024 * 1024 }
-    );
+    // Get modified files and diff stats
+    const { modifiedFiles, diffNameStatus } = await this.getModifiedFiles(workdir, branch, mergeBase, deps);
     
-    // Also get name-only format for display
-    const { stdout: modifiedFiles } = await deps.execAsync(
-      `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`, 
-      { maxBuffer: 1024 * 1024 }
-    );
+    // Get working directory changes
+    const { uncommittedChanges, untrackedFiles } = await this.getWorkingDirectoryChanges(workdir, deps);
     
-    // Get uncommitted changes
-    let uncommittedChanges = "";
+    // Get changes stats
+    const stats = await this.getChangeStats(workdir, branch, mergeBase, diffNameStatus, uncommittedChanges, deps);
+    
+    return { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats };
+  }
+
+  /**
+   * Get commits on the branch
+   */
+  private async getCommitsOnBranch(
+    workdir: string, 
+    branch: string, 
+    mergeBase: string,
+    deps: PrDependencies
+  ): Promise<string> {
     try {
+      const { stdout } = await deps.execAsync(
+        `git -C ${workdir} log --oneline ${mergeBase}..${branch}`, 
+        { maxBuffer: 1024 * 1024 }
+      );
+      return stdout;
+    } catch (err) {
+      // Return empty string on error
+      return "";
+    }
+  }
+
+  /**
+   * Get modified files in the branch
+   */
+  private async getModifiedFiles(
+    workdir: string, 
+    branch: string, 
+    mergeBase: string,
+    deps: PrDependencies
+  ): Promise<{ modifiedFiles: string; diffNameStatus: string }> {
+    let modifiedFiles = "";
+    let diffNameStatus = "";
+    
+    try {
+      // Get modified files in name-status format for processing
+      const { stdout: nameStatus } = await deps.execAsync(
+        `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`, 
+        { maxBuffer: 1024 * 1024 }
+      );
+      diffNameStatus = nameStatus;
+      
+      // Get name-only format for display
+      const { stdout: nameOnly } = await deps.execAsync(
+        `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`, 
+        { maxBuffer: 1024 * 1024 }
+      );
+      modifiedFiles = nameOnly;
+    } catch (err) {
+      // Return empty strings on error
+    }
+    
+    return { modifiedFiles, diffNameStatus };
+  }
+
+  /**
+   * Get uncommitted changes and untracked files
+   */
+  private async getWorkingDirectoryChanges(
+    workdir: string,
+    deps: PrDependencies
+  ): Promise<{ uncommittedChanges: string; untrackedFiles: string }> {
+    let uncommittedChanges = "";
+    let untrackedFiles = "";
+    
+    try {
+      // Get uncommitted changes
       const { stdout } = await deps.execAsync(
         `git -C ${workdir} diff --name-status`, 
         { maxBuffer: 1024 * 1024 }
       );
       uncommittedChanges = stdout;
     } catch (err) {
-      // Ignore errors
+      // Ignore errors for uncommitted changes
     }
     
-    // Get untracked files
-    let untrackedFiles = "";
     try {
+      // Get untracked files
       const { stdout } = await deps.execAsync(
         `git -C ${workdir} ls-files --others --exclude-standard`, 
         { maxBuffer: 1024 * 1024 }
@@ -511,9 +603,24 @@ export class GitService {
       // Ignore errors for untracked files
     }
     
-    // Get changes stats
+    return { uncommittedChanges, untrackedFiles };
+  }
+
+  /**
+   * Get change statistics
+   */
+  private async getChangeStats(
+    workdir: string, 
+    branch: string, 
+    mergeBase: string,
+    diffNameStatus: string,
+    uncommittedChanges: string,
+    deps: PrDependencies
+  ): Promise<string> {
     let stats = "No changes";
+    
     try {
+      // Try to get diff stats from git
       const { stdout: statOutput } = await deps.execAsync(
         `git -C ${workdir} diff --stat ${mergeBase}..${branch}`, 
         { maxBuffer: 1024 * 1024 }
@@ -525,7 +632,7 @@ export class GitService {
       } 
       // Otherwise, try to infer stats from the diff status
       else if (diffNameStatus && diffNameStatus.trim()) {
-        const lines = diffNameStatus.trim().split('\n');
+        const lines = diffNameStatus.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} files changed`;
         }
@@ -533,16 +640,16 @@ export class GitService {
       // If we have uncommitted changes but no stats for the branch,
       // we should make sure those are reflected in the output
       else if (uncommittedChanges.trim()) {
-        const lines = uncommittedChanges.trim().split('\n');
+        const lines = uncommittedChanges.trim().split("\n");
         if (lines.length > 0) {
           stats = `${lines.length} uncommitted files changed`;
         }
       }
     } catch (err) {
-      // Ignore errors
+      // Ignore errors for stats
     }
     
-    return { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats };
+    return stats;
   }
 
   async getStatus(repoPath?: string): Promise<GitStatus> {
