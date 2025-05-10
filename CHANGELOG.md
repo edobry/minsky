@@ -101,6 +101,13 @@
 - Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
 - Task: Add Session Information to Task Details [#043](process/tasks/043-add-session-information-to-task-details.md)
 - New `test-infrastructure-patterns` cursor rule capturing best practices for test isolation, environment setup, and CLI testing from our test fixes work. The rule includes patterns for creating unique test directories, standardizing environment setup, properly mocking dependencies, and debugging test failures.
+- Added `session commit` command to stage, commit, and push all changes for a session in one step. The command supports:
+  - Automatic session detection when run from a session directory
+  - Optional commit message prompt if not provided
+  - Task ID prefix in commit messages when available
+  - Optional `--no-push` flag to skip pushing changes
+  - Compatible with other session commands using consistent dependency injection
+  - Comprehensive test coverage to ensure reliability
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
