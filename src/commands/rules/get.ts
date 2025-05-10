@@ -32,9 +32,9 @@ export function createGetCommand(): Command {
           // If meta-only, output only the metadata
           if (options.metaOnly) {
             const { content, ...meta } = rule;
-            process.stdout.write(`${JSON.stringify(meta, null, 2)}\n`);
+            console.log(JSON.stringify(meta, null, 2));
           } else {
-            process.stdout.write(`${JSON.stringify(rule, null, 2)}\n`);
+            console.log(JSON.stringify(rule, null, 2));
           }
         } else {
           // Human-readable output
@@ -66,7 +66,7 @@ export function createGetCommand(): Command {
 
           prompts.log.info("\nContent:");
           prompts.log.info("---------------------------");
-          process.stdout.write(`${rule.content}\n`);
+          console.log(rule.content);
           prompts.log.info("---------------------------");
         }
       } catch (error) {

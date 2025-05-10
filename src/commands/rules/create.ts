@@ -170,9 +170,9 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   let content = "";
 
   if (useTemplate === "template") {
-    content = `# ${name || ruleId}
+    content = `# ${String(name) || String(ruleId)}
 
-${description || "No description provided."}
+${String(description) || "No description provided."}
 
 ## Usage
 
