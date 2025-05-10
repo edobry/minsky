@@ -18,7 +18,8 @@
         "patterns": [
           {
             "group": ["./*/domain/*", "../*/domain/*"],
-            "message": "Import domain modules from their index file instead of directly"
+            "message": "Import domain modules from their index file instead of directly",
+            "allowImports": ["**/domain/index.js"]
           },
           {
             "group": ["./commands/*", "../commands/*"],
