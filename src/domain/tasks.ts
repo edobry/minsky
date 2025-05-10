@@ -1,9 +1,15 @@
-import { promises as fs } from 'fs';
-import { join } from 'path';
-import { parse as parsePath } from 'path';
-import { SessionDB } from './session';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { promises as fs } from "fs";
+import { join } from "path";
+import { parse as parsePath } from "path";
+import { SessionDB } from "./session.js";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { resolveRepoPath } from "./repo-utils.js";
+import { resolveWorkspacePath } from "./workspace.js";
+import type { TaskListParams, TaskGetParams } from "../schemas/tasks.js";
+import { taskListParamsSchema, taskGetParamsSchema } from "../schemas/tasks.js";
+import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
+import { z } from "zod";
 const execAsync = promisify(exec);
 
 export interface Task {
@@ -426,5 +432,131 @@ export class TaskService {
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     return this.currentBackend.createTask(specPath, options);
+  }
+}
+
+/**
+ * List tasks using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for listing tasks
+ * @returns Array of tasks
+ */
+export async function listTasksFromParams(
+  params: TaskListParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => new TaskService(options)
+  }
+): Promise<Task[]> {
+  try {
+    // Validate params with Zod schema
+    const validParams = taskListParamsSchema.parse(params);
+    
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({ 
+      session: validParams.session, 
+      repo: validParams.repo 
+    });
+    
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveWorkspacePath({ 
+      workspace: validParams.workspace,
+      sessionRepo: repoPath
+    });
+    
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend
+    });
+    
+    let tasks: Task[];
+    
+    // If status filter is explicitly provided, use it
+    if (validParams.filter) {
+      tasks = await taskService.listTasks({
+        status: validParams.filter
+      });
+    } else {
+      // Otherwise get all tasks first
+      tasks = await taskService.listTasks();
+      
+      // Unless "all" is provided, filter out DONE tasks
+      if (!validParams.all) {
+        tasks = tasks.filter(task => task.status !== TASK_STATUS.DONE);
+      }
+    }
+    
+    return tasks;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for listing tasks", error.format(), error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get a task by ID using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for getting a task
+ * @returns Task or null if not found
+ */
+export async function getTaskFromParams(
+  params: TaskGetParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => new TaskService(options)
+  }
+): Promise<Task> {
+  try {
+    // Validate params with Zod schema
+    const validParams = taskGetParamsSchema.parse(params);
+    
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({ 
+      session: validParams.session, 
+      repo: validParams.repo 
+    });
+    
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveWorkspacePath({ 
+      workspace: validParams.workspace,
+      sessionRepo: repoPath
+    });
+    
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend
+    });
+    
+    // Get the task
+    const task = await taskService.getTask(validParams.taskId);
+    
+    if (!task) {
+      throw new ResourceNotFoundError(
+        `Task #${validParams.taskId} not found`,
+        "task",
+        validParams.taskId
+      );
+    }
+    
+    return task;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for getting task", error.format(), error);
+    }
+    throw error;
   }
 } 

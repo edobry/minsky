@@ -603,14 +603,25 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
    - Implemented error handling strategy with common error classes in `src/errors/index.ts`
    - Created schema files for common, task, session, and git-related parameters
    - Created initial CLI adapter for tasks (structure only, not yet connected to domain)
+5. 2025-05-10: Continued implementation - Phase 2
+   - Updated task schemas to include all necessary parameters
+   - Implemented domain functions using dependency injection and proper error handling:
+     - Added `listTasksFromParams` to refactor task listing functionality
+     - Added `getTaskFromParams` to refactor task retrieval functionality
+   - Updated CLI adapters to use the new domain functions
+   - Fixed various linter issues related to string quoting and TypeScript type safety
 
 ## Remaining Work
 
-1. Continue with Phase 2: Refactor Tasks Domain and Commands
+1. Continue with Phase 2: Complete Refactoring Tasks Domain and Commands
 
-   - Update the domain tasks.ts file to use the new parameter schemas
-   - Complete the adapter implementation with proper domain connections
-   - Write tests for the domain functions and CLI adapter
+   - Implement remaining domain functions for tasks:
+     - `getTaskStatusFromParams`
+     - `setTaskStatusFromParams`
+     - `createTaskFromParams`
+   - Update the remaining CLI adapters to use these domain functions
+   - Create MCP adapters for tasks
+   - Write tests for the domain functions and adapters
 
 2. Complete Phases 3-7:
    - Refactor Session Domain and Commands
