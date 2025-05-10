@@ -188,4 +188,150 @@ describe("minsky session delete CLI", () => {
     expect(jsonOutput.success).toBe(false);
     expect(jsonOutput.error).toContain("not found");
   });
+
+  test("deletes session by task ID when it exists", () => {
+    setupSessionDb([
+      {
+        session: "task-session",
+        repoUrl: "https://github.com/test/repo",
+        repoName: "test/repo",
+        branch: "main",
+        createdAt: "2024-01-01",
+        taskId: "123"
+      }
+    ]);
+
+    const sessionDir = join(GIT_DIR, "test/repo", "task-session");
+
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "123", "--force"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+
+    expect(stdout).toContain("Session 'task-session' successfully deleted");
+    expect(stderr).toBe("");
+
+    const sessions = JSON.parse(String(spawnSync("bun", ["run", CLI, "session", "list", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    }).stdout));
+    expect(sessions.length).toBe(0);
+    expect(existsSync(sessionDir)).toBe(false);
+  });
+
+  test("deletes session by task ID with JSON output", () => {
+    setupSessionDb([
+      {
+        session: "task-session-json",
+        repoUrl: "https://github.com/test/repo",
+        repoName: "test/repo",
+        branch: "main",
+        createdAt: "2024-01-01",
+        taskId: "456"
+      }
+    ]);
+
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "456", "--force", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+
+    const result = JSON.parse(stdout);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Session 'task-session-json' successfully deleted");
+    expect(result.repoDeleted).toBe(true);
+    expect(result.recordDeleted).toBe(true);
+    expect(stderr).toBe("");
+  });
+
+  test("handles non-existent session for task ID with appropriate error", () => {
+    setupSessionDb([]); // No sessions, so no session for any task ID
+
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "789"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+
+    expect(stdout).toBe("");
+    expect(stderr).toContain("No session found for task ID '789'.");
+  });
+
+  test("handles non-existent session for task ID with JSON output", () => {
+    setupSessionDb([]);
+
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "012", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+
+    const result = JSON.parse(stdout);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("No session found for task ID '012'.");
+    expect(stderr).toBe("");
+  });
+  
+  test("handles invalid task ID format", () => {
+    setupSessionDb([]);
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "invalid-id"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+    expect(stdout).toBe("");
+    expect(stderr).toContain("Invalid task ID format: 'invalid-id'. Task ID should be a number.");
+  });
+
+  test("handles invalid task ID format with JSON output", () => {
+    setupSessionDb([]);
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "--task", "invalid-id-json", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+    const result = JSON.parse(stdout);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Invalid task ID format: 'invalid-id-json'. Task ID should be a number.");
+    expect(stderr).toBe("");
+  });
+
+  test("prioritizes task ID when both session name and task ID are provided", () => {
+    setupSessionDb([
+      {
+        session: "session-for-task",
+        repoUrl: "https://github.com/test/task-repo",
+        repoName: "test/task-repo",
+        branch: "main",
+        createdAt: "2024-02-01",
+        taskId: "777"
+      },
+      {
+        session: "other-session",
+        repoUrl: "https://github.com/test/other-repo",
+        repoName: "test/other-repo",
+        branch: "main",
+        createdAt: "2024-02-02"
+      }
+    ]);
+
+    const sessionForTaskDir = join(GIT_DIR, "test/task-repo", "session-for-task");
+    const otherSessionDir = join(GIT_DIR, "test/other-repo", "other-session");
+
+    // Attempt to delete "other-session" by name, but provide task ID for "session-for-task"
+    const { stdout, stderr } = spawnSync("bun", ["run", CLI, "session", "delete", "other-session", "--task", "777", "--force"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    });
+
+    expect(stdout).toContain("Session 'session-for-task' successfully deleted");
+    expect(stderr).toBe("");
+
+    // Check that "session-for-task" was removed from the database and its directory deleted
+    const sessions = JSON.parse(String(spawnSync("bun", ["run", CLI, "session", "list", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, XDG_STATE_HOME: TEST_DIR }
+    }).stdout));
+    
+    expect(sessions.length).toBe(1);
+    expect(sessions[0].session).toBe("other-session"); // Only "other-session" should remain
+    expect(existsSync(sessionForTaskDir)).toBe(false);
+    expect(existsSync(otherSessionDir)).toBe(true); // "other-session" directory should still exist
+  });
 }); 
