@@ -37,7 +37,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
-- [ ] Implement Session-First Workflow Verification [#029](process/tasks/029-implement-session-first-workflow-verification.md)
+- [ ] Add `rules` command for managing Minsky rules [#029](process/tasks/029-add-rules-command.md)
 - [-] Implement Changelog Management Automation [#030](process/tasks/030-implement-changelog-management-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [x] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
