@@ -2,7 +2,7 @@
  * Schema definitions for git-related parameters and types
  */
 import { z } from "zod";
-import { commonCommandOptionsSchema, pathSchema, repoPathSchema, taskIdSchema, flagSchema } from "./common.js";
+import { commonCommandOptionsSchema, pathSchema, repoPathSchema, taskIdSchema, flagSchema, sessionSchema, commonRepoSchema } from "./common.js";
 
 /**
  * Schema for git clone parameters
@@ -33,38 +33,43 @@ export const gitBranchParamsSchema = z.object({
 export type GitBranchParams = z.infer<typeof gitBranchParamsSchema>;
 
 /**
- * Schema for git pull request parameters
+ * Common Git options schema
  */
-export const gitPullRequestParamsSchema = z.object({
-  repo: repoPathSchema.optional().describe("Path to repository"),
-  branch: z.string().optional().describe("Branch to compare against (defaults to main/master)"),
-  debug: flagSchema("Enable debug output"),
-  session: z.string().optional().describe("Session to create pull request for")
-}).merge(commonCommandOptionsSchema);
+export const gitCommonOptionsSchema = z.object({
+  ...commonRepoSchema.shape,
+  branch: z.string().optional().describe("Branch name"),
+  remote: z.string().optional().describe("Remote name"),
+});
 
 /**
- * Type for git pull request parameters
+ * PR Command parameters schema
  */
-export type GitPullRequestParams = z.infer<typeof gitPullRequestParamsSchema>;
+export const createPrParamsSchema = gitCommonOptionsSchema.extend({
+  debug: z.boolean().optional().describe("Enable debug logging"),
+  noStatusUpdate: z.boolean().optional().describe("Skip updating task status"),
+  taskId: taskIdSchema.optional().describe("Task ID associated with this PR"),
+  json: z.boolean().optional().describe("Return output as JSON"),
+});
+
+export type CreatePrParams = z.infer<typeof createPrParamsSchema>;
 
 /**
- * Schema for git commit parameters
+ * Commit command parameters schema
  */
-export const gitCommitParamsSchema = z.object({
-  message: z.string().describe("Commit message"),
-  session: z.string().optional().describe("Session to commit in"),
-  repo: repoPathSchema.optional().describe("Repository path"),
-  push: flagSchema("Push changes after committing"),
-  all: flagSchema("Stage all files"),
-  amend: flagSchema("Amend the previous commit"),
-  noStage: flagSchema("Skip staging files (use already staged files)"),
-  noVerify: flagSchema("Skip pre-commit hooks")
-}).merge(commonCommandOptionsSchema);
+export const commitChangesParamsSchema = gitCommonOptionsSchema.extend({
+  message: z.string().min(1).describe("Commit message"),
+  amend: z.boolean().optional().describe("Amend the previous commit"),
+  all: z.boolean().optional().describe("Stage all changes including deletions"),
+  noStage: z.boolean().optional().describe("Skip staging changes"),
+});
+
+export type CommitChangesParams = z.infer<typeof commitChangesParamsSchema>;
 
 /**
- * Type for git commit parameters
+ * Legacy schema definitions (to maintain backward compatibility)
  */
-export type GitCommitParams = z.infer<typeof gitCommitParamsSchema>;
+export type GitPullRequestParams = z.infer<typeof createPrParamsSchema>;
+export type GitCommitParams = z.infer<typeof commitChangesParamsSchema>;
 
 /**
  * Schema for git push parameters

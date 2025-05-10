@@ -610,6 +610,8 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 13. 2025-05-11: Implemented startSessionFromParams with validation, error handling and dependency injection
 14. 2025-05-11: Implemented updateSessionFromParams with similar robust error handling pattern
 15. 2025-05-11: Added tests for interface-agnostic session functions
+16. 2025-05-12: Implemented createPullRequestFromParams and commitChangesFromParams git domain functions
+17. 2025-05-12: Added tests for interface-agnostic git functions
 
 ## Current Status
 
@@ -621,7 +623,7 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 - [x] Phase 2: Update CLI and MCP adapters to use the new domain functions
 - [x] Phase 2: Implement session management domain functions with proper validation
 - [x] Phase 4: Add initial tests for the interface-agnostic architecture
-- [ ] Phase 2: Complete refactoring of git commands to use domain functions
+- [x] Phase 2: Complete refactoring of git commands to use domain functions
 - [ ] Phase 3: Complete parameter validation for git commands
 - [ ] Phase 5: Update MCP server to use the new adapters
 - [ ] Phase 6: Add comprehensive integration tests
@@ -629,23 +631,17 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 
 ## Remaining Work
 
-1. **Complete Git Domain Functions**
-   - Implement `createPullRequestFromParams` using GitService
-   - Implement `commitChangesFromParams` using GitService
-   - Add proper validation with Zod schemas
-   - Create tests for git domain functions
-
-2. **Update MCP Adapters**
+1. **Update MCP Adapters**
    - Update MCP adapters to use domain functions directly
    - Ensure consistent behavior between CLI and MCP
    - Add tests for MCP adapters
 
-3. **Integration Tests**
+2. **Integration Tests**
    - Add integration tests that verify consistent behavior across interfaces
    - Test error handling and edge cases
    - Test end-to-end flows involving multiple commands
 
-4. **Documentation**
+3. **Documentation**
    - Update architecture documentation with new patterns
    - Document validation and error handling approach
    - Provide examples of correct usage for future development

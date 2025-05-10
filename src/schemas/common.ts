@@ -32,13 +32,15 @@ export const sessionNameSchema = z.string()
   .describe("Session name");
 
 /**
- * Schema for task IDs
- * @example "123"
- * @example "#123"
+ * Task ID schema
+ * Validates and normalizes task IDs (with or without the # prefix)
  */
 export const taskIdSchema = z.string()
-  .regex(/^#?\d+$/, "Task ID must be a number with optional '#' prefix")
-  .describe("Task ID");
+  .transform((val) => {
+    // Normalize task IDs to always have a # prefix
+    return val.startsWith("#") ? val : `#${val}`;
+  })
+  .describe("Task ID (with or without # prefix)");
 
 /**
  * Schema for boolean flags with optional description
@@ -67,4 +69,30 @@ export const commonCommandOptionsSchema = z.object({
 /**
  * Type for common command options
  */
-export type CommonCommandOptions = z.infer<typeof commonCommandOptionsSchema>; 
+export type CommonCommandOptions = z.infer<typeof commonCommandOptionsSchema>;
+
+/**
+ * Session schema
+ * Validates session names
+ */
+export const sessionSchema = z.string()
+  .min(1)
+  .describe("Session identifier");
+
+/**
+ * Common repository options schema
+ * Common parameters shared across repository operations
+ */
+export const commonRepoSchema = z.object({
+  session: sessionSchema.optional().describe("Session name"),
+  repo: z.string().optional().describe("Path to a git repository"),
+  workspace: z.string().optional().describe("Path to main workspace"),
+  json: z.boolean().optional().describe("Return output as JSON"),
+});
+
+/**
+ * Utility function to normalize task IDs
+ */
+export function normalizeTaskId(taskId: string): string {
+  return taskIdSchema.parse(taskId);
+} 

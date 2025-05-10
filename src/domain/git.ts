@@ -2,14 +2,24 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { normalizeRepoName } from "./repo-utils";
-import { SessionDB } from "./session";
-import { TaskService, TASK_STATUS } from "./tasks";
-import type { 
+import { normalizeRepoName } from "./repo-utils.js";
+import { SessionDB } from "./session.js";
+import { TaskService, TASK_STATUS } from "./tasks.js";
+import { 
   GitPullRequestParams,
-  GitCommitParams 
+  GitCommitParams,
+  CreatePrParams,
+  CommitChangesParams,
+  createPrParamsSchema,
+  commitChangesParamsSchema
 } from "../schemas/git.js";
-import { MinskyError } from "../errors/index.js";
+import { MinskyError, ValidationError } from "../errors/index.js";
+import { z } from "zod";
+import { resolveRepoPath } from "./repo-utils.js";
+import { normalizeTaskId } from "../utils/task-utils.js";
+import { CreatePrParamsSchema, CommitChangesParamsSchema } from "../schemas/git.js";
+import { DEFAULT_PR_TEMPLATE } from "./templates.js";
+import { GitPrOptions, PrDependencies, PrResult, PrOptions, GitResult } from "../schemas/git.js";
 
 const execAsync = promisify(exec);
 
@@ -854,19 +864,81 @@ export class GitService {
 }
 
 /**
- * Creates a pull request based on parameters
+ * Creates a pull request document based on parameters
  */
-export async function createPullRequestFromParams(_params: GitPullRequestParams): Promise<string> {
-  // This function will be implemented to call existing PR creation logic
-  // with proper parameter validation
-  throw new MinskyError("Not implemented yet");
+export async function createPullRequestFromParams(params: any): Promise<{ markdown: string; statusUpdateResult?: { taskId: string; previousStatus?: string; newStatus: string } }> {
+  try {
+    // Setup GitService
+    const gitService = new GitService();
+    
+    // Forward the request to GitService.pr with the appropriate parameters
+    const result = await gitService.pr({
+      session: params.session,
+      repoPath: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
+      debug: params.debug,
+      noStatusUpdate: params.noStatusUpdate
+    });
+    
+    return result;
+  } catch (error) {
+    if (error instanceof MinskyError) {
+      throw error;
+    } else {
+      throw new MinskyError(`Failed to create pull request: ${error instanceof Error ? error.message : String(error)}`, error);
+    }
+  }
 }
 
 /**
  * Commits changes based on parameters
  */
-export async function commitChangesFromParams(_params: GitCommitParams): Promise<string> {
-  // This function will be implemented to call existing commit logic
-  // with proper parameter validation
-  throw new MinskyError("Not implemented yet");
+export async function commitChangesFromParams(params: any): Promise<{ commitHash: string; message: string }> {
+  try {
+    // Resolve repository path
+    const repoPath = await resolveRepoPath({
+      session: params.session,
+      repo: params.repo
+    });
+    
+    // Setup GitService
+    const gitService = new GitService();
+    const sessionDb = new SessionDB();
+    
+    // If we have a session, get session record to check for task ID
+    let prefix = "";
+    if (params.session) {
+      const sessionRecord = await sessionDb.getSession(params.session);
+      if (sessionRecord?.taskId) {
+        // Add task ID as prefix to commit message
+        const taskId = normalizeTaskId(sessionRecord.taskId);
+        prefix = `${taskId}: `;
+      }
+    }
+    
+    // Stage changes if noStage was not set
+    if (!params.noStage) {
+      if (params.all) {
+        await gitService.stageAll(repoPath);
+      } else {
+        await gitService.stageModified(repoPath);
+      }
+    }
+    
+    // Add prefix to commit message and commit changes
+    const fullMessage = prefix + params.message;
+    const commitHash = await gitService.commit(fullMessage, repoPath, params.amend);
+    
+    return {
+      commitHash,
+      message: fullMessage
+    };
+  } catch (error) {
+    if (error instanceof MinskyError) {
+      throw error;
+    } else {
+      throw new MinskyError(`Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`, error);
+    }
+  }
 }
