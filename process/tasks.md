@@ -52,3 +52,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
 - [ ] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
+
+- [ ] Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
