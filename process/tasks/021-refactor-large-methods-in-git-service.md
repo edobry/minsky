@@ -44,6 +44,19 @@ This refactoring will make the codebase more maintainable and easier to understa
   - Maintained full test coverage with all tests passing
   - Reduced the complexity of the original method
 
+- 2023-05-22: Further refactored the `prWithDependencies` method in GitService:
+  - Extracted formatCommits into a separate method to handle commit formatting logic
+  - Extracted buildPrMarkdown into a separate method for PR content generation
+  - Split collectRepositoryData into multiple focused methods:
+    - getCommitsOnBranch
+    - getModifiedFiles
+    - getWorkingDirectoryChanges
+    - getChangeStats
+  - Improved error handling throughout all extracted methods
+  - Ensured all PR-related tests pass without regression
+  - Reduced the size and complexity of the original method
+  - Preserved all original functionality
+
 ## Related Files
 
 - src/domain/git.ts
