@@ -12,6 +12,8 @@ export interface InitializeProjectOptions {
     port?: number;
     host?: string;
   };
+  mcpOnly?: boolean;
+  overwrite?: boolean;
 }
 
 /**
@@ -22,58 +24,70 @@ export async function initializeProject({
   backend,
   ruleFormat,
   mcp,
+  mcpOnly = false,
+  overwrite = false,
 }: InitializeProjectOptions): Promise<void> {
-  // Check if backend is implemented
-  if (backend === "tasks.csv") {
-    throw new Error("The tasks.csv backend is not implemented yet.");
-  }
+  // When mcpOnly is true, we only set up MCP configuration and skip other setup
+  if (!mcpOnly) {
+    // Check if backend is implemented
+    if (backend === "tasks.csv") {
+      throw new Error("The tasks.csv backend is not implemented yet.");
+    }
 
-  // Create process/tasks directory structure
-  const tasksDir = path.join(repoPath, "process", "tasks");
-  await createDirectoryIfNotExists(tasksDir);
+    // Create process/tasks directory structure
+    const tasksDir = path.join(repoPath, "process", "tasks");
+    await createDirectoryIfNotExists(tasksDir);
 
-  // Initialize the tasks backend
-  if (backend === "tasks.md") {
-    const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-    await createFileIfNotExists(
-      tasksFilePath,
-      `# Minsky Tasks
+    // Initialize the tasks backend
+    if (backend === "tasks.md") {
+      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
+      await createFileIfNotExists(
+        tasksFilePath,
+        `# Minsky Tasks
 
 ## Task List
 
 | ID | Title | Status |
 |----|-------|--------|
-`
-    );
-  }
+`,
+        overwrite
+      );
+    }
 
-  // Create rule file directory
-  let rulesDirPath: string;
-  if (ruleFormat === "cursor") {
-    rulesDirPath = path.join(repoPath, ".cursor", "rules");
-  } else {
-    rulesDirPath = path.join(repoPath, ".ai", "rules");
-  }
-  await createDirectoryIfNotExists(rulesDirPath);
+    // Create rule file directory
+    let rulesDirPath: string;
+    if (ruleFormat === "cursor") {
+      rulesDirPath = path.join(repoPath, ".cursor", "rules");
+    } else {
+      rulesDirPath = path.join(repoPath, ".ai", "rules");
+    }
+    await createDirectoryIfNotExists(rulesDirPath);
 
-  // Create minsky.mdc rule file
-  const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-  await createFileIfNotExists(ruleFilePath, getMinskyRuleContent());
-  
-  // Create index.mdc rule file for categorizing rules
-  const indexFilePath = path.join(rulesDirPath, "index.mdc");
-  await createFileIfNotExists(indexFilePath, getRulesIndexContent());
+    // Create minsky.mdc rule file
+    const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
+    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite);
+    
+    // Create index.mdc rule file for categorizing rules
+    const indexFilePath = path.join(rulesDirPath, "index.mdc");
+    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite);
+  }
 
   // Setup MCP if enabled
   if (mcp?.enabled !== false) { // Default to enabled if not explicitly disabled
     // Create the MCP config file
     const mcpConfig = getMCPConfigContent(mcp);
     const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-    await createFileIfNotExists(mcpConfigPath, mcpConfig);
+    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite);
 
     // Create MCP usage rule
+    const rulesDirPath = ruleFormat === "cursor" 
+      ? path.join(repoPath, ".cursor", "rules")
+      : path.join(repoPath, ".ai", "rules");
+    
+    await createDirectoryIfNotExists(rulesDirPath);
+    
     const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
-    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent());
+    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite);
   }
 }
 
@@ -87,11 +101,14 @@ async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
 }
 
 /**
- * Creates a file if it doesn't exist, throws an error if it does
+ * Creates a file if it doesn't exist, throws an error if it does unless overwrite is true
  */
-async function createFileIfNotExists(filePath: string, content: string): Promise<void> {
+async function createFileIfNotExists(filePath: string, content: string, overwrite = false): Promise<void> {
   if (fs.existsSync(filePath)) {
-    throw new Error(`File already exists: ${filePath}`);
+    if (!overwrite) {
+      throw new Error(`File already exists: ${filePath}`);
+    }
+    // If overwrite is true, we'll proceed and overwrite the existing file
   }
   
   // Ensure the directory exists

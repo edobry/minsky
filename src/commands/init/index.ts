@@ -16,6 +16,8 @@ export function createInitCommand(): Command {
     .option("--mcp-transport <type>", "MCP transport type (stdio, sse, httpStream)")
     .option("--mcp-port <port>", "Port for MCP network transports")
     .option("--mcp-host <host>", "Host for MCP network transports")
+    .option("--mcp-only", "Only configure MCP, skip other initialization steps")
+    .option("--overwrite", "Overwrite existing files")
     .action(async (options: {
       repo?: string,
       session?: string,
@@ -24,7 +26,9 @@ export function createInitCommand(): Command {
       mcp?: string,
       mcpTransport?: string,
       mcpPort?: string,
-      mcpHost?: string
+      mcpHost?: string,
+      mcpOnly?: boolean,
+      overwrite?: boolean
     }) => {
       try {
         p.intro("Initialize Minsky in your project");
@@ -42,55 +46,60 @@ export function createInitCommand(): Command {
           process.exit(1);
         }
 
-        // If repo path was resolved without explicit flags, confirm with user
-        if (!options.repo && !options.session) {
-          const confirm = await p.confirm({
-            message: `Using current directory: ${repoPath}\nContinue?`,
-            initialValue: true,
-          });
+        // MCP-only mode doesn't need most of the interactive prompts
+        let backend = options.backend || "tasks.md";
+        let ruleFormat = options.ruleFormat || "cursor";
+        
+        // Only need interactive prompts if not in MCP-only mode
+        if (!options.mcpOnly) {
+          // If repo path was resolved without explicit flags, confirm with user
+          if (!options.repo && !options.session) {
+            const confirm = await p.confirm({
+              message: `Using current directory: ${repoPath}\nContinue?`,
+              initialValue: true,
+            });
 
-          if (p.isCancel(confirm) || !confirm) {
-            p.cancel("Operation cancelled");
-            process.exit(0);
-          }
-        }
-
-        // Get backend type if not provided
-        let backend = options.backend;
-        if (!backend) {
-          const backendChoice = await p.select({
-            message: "Choose a task backend",
-            options: [
-              { value: "tasks.md", label: "tasks.md - Markdown-based task tracking" },
-              { value: "tasks.csv", label: "tasks.csv - CSV-based task tracking (not implemented yet)" },
-            ],
-          });
-
-          if (p.isCancel(backendChoice)) {
-            p.cancel("Operation cancelled");
-            process.exit(0);
+            if (p.isCancel(confirm) || !confirm) {
+              p.cancel("Operation cancelled");
+              process.exit(0);
+            }
           }
 
-          backend = String(backendChoice);
-        }
+          // Get backend type if not provided
+          if (!backend) {
+            const backendChoice = await p.select({
+              message: "Choose a task backend",
+              options: [
+                { value: "tasks.md", label: "tasks.md - Markdown-based task tracking" },
+                { value: "tasks.csv", label: "tasks.csv - CSV-based task tracking (not implemented yet)" },
+              ],
+            });
 
-        // Get rule format if not provided
-        let ruleFormat = options.ruleFormat;
-        if (!ruleFormat) {
-          const formatChoice = await p.select({
-            message: "Choose a rule format",
-            options: [
-              { value: "cursor", label: "cursor - Store rules in .cursor/rules" },
-              { value: "generic", label: "generic - Store rules in .ai/rules" },
-            ],
-          });
+            if (p.isCancel(backendChoice)) {
+              p.cancel("Operation cancelled");
+              process.exit(0);
+            }
 
-          if (p.isCancel(formatChoice)) {
-            p.cancel("Operation cancelled");
-            process.exit(0);
+            backend = String(backendChoice);
           }
 
-          ruleFormat = String(formatChoice);
+          // Get rule format if not provided
+          if (!ruleFormat) {
+            const formatChoice = await p.select({
+              message: "Choose a rule format",
+              options: [
+                { value: "cursor", label: "cursor - Store rules in .cursor/rules" },
+                { value: "generic", label: "generic - Store rules in .ai/rules" },
+              ],
+            });
+
+            if (p.isCancel(formatChoice)) {
+              p.cancel("Operation cancelled");
+              process.exit(0);
+            }
+
+            ruleFormat = String(formatChoice);
+          }
         }
 
         // Handle MCP configuration options
@@ -102,7 +111,9 @@ export function createInitCommand(): Command {
         // Interactive MCP configuration if not provided via options
         if (options.mcp === undefined) {
           const mcpEnabledChoice = await p.confirm({
-            message: "Enable MCP (Model Context Protocol) server configuration?",
+            message: options.mcpOnly 
+              ? "Configure MCP (Model Context Protocol) server?"
+              : "Enable MCP (Model Context Protocol) server configuration?",
             initialValue: true,
           });
 
@@ -185,10 +196,16 @@ export function createInitCommand(): Command {
             transport: mcpTransport as "stdio" | "sse" | "httpStream" || "stdio",
             port: mcpPort,
             host: mcpHost
-          } : { enabled: false, transport: "stdio" }
+          } : { enabled: false, transport: "stdio" },
+          mcpOnly: options.mcpOnly,
+          overwrite: options.overwrite
         });
 
-        p.outro("Project initialized successfully!");
+        if (options.mcpOnly) {
+          p.outro("MCP configuration added successfully!");
+        } else {
+          p.outro("Project initialized successfully!");
+        }
       } catch (error) {
         console.error("Error initializing project:", 
           error instanceof Error ? error.message : String(error));

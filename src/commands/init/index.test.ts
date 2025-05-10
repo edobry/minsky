@@ -234,4 +234,93 @@ describe("createInitCommand", () => {
       })
     );
   });
+
+  test("should initialize only MCP config when --mcp-only is provided", async () => {
+    // Setup mocks
+    (resolveRepoPath as any).mockResolvedValue("/test/repo");
+    (p.confirm as any)
+      .mockResolvedValueOnce(true); // mcp enabled
+    (p.select as any)
+      .mockResolvedValueOnce("stdio");  // mcp transport
+    
+    // Run the command
+    await command.parseAsync([
+      "node", 
+      "minsky", 
+      "init", 
+      "--mcp-only"
+    ]);
+    
+    // Verify initializeProject was called with correct args
+    expect(initializeProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: "/test/repo",
+        backend: "tasks.md",
+        ruleFormat: "cursor",
+        mcpOnly: true,
+        overwrite: undefined
+      })
+    );
+  });
+
+  test("should overwrite existing files when --overwrite is provided", async () => {
+    // Setup mocks
+    (resolveRepoPath as any).mockResolvedValue("/test/repo");
+    (p.select as any)
+      .mockResolvedValueOnce("tasks.md") // backend
+      .mockResolvedValueOnce("cursor");  // ruleFormat
+    (p.confirm as any)
+      .mockResolvedValueOnce(true)       // repo confirm
+      .mockResolvedValueOnce(true);      // mcp enabled
+    (p.select as any)
+      .mockResolvedValueOnce("stdio");   // mcp transport
+    
+    // Run the command
+    await command.parseAsync([
+      "node", 
+      "minsky", 
+      "init", 
+      "--overwrite"
+    ]);
+    
+    // Verify initializeProject was called with correct args
+    expect(initializeProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: "/test/repo",
+        backend: "tasks.md",
+        ruleFormat: "cursor",
+        mcpOnly: undefined,
+        overwrite: true
+      })
+    );
+  });
+
+  test("should configure only MCP and overwrite existing files with both options", async () => {
+    // Setup mocks
+    (resolveRepoPath as any).mockResolvedValue("/test/repo");
+    (p.confirm as any)
+      .mockResolvedValueOnce(true); // mcp enabled
+    (p.select as any)
+      .mockResolvedValueOnce("stdio");  // mcp transport
+    
+    // Run the command
+    await command.parseAsync([
+      "node", 
+      "minsky", 
+      "init", 
+      "--mcp-only",
+      "--overwrite"
+    ]);
+    
+    // Verify initializeProject was called with correct args
+    expect(initializeProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoPath: "/test/repo",
+        backend: "tasks.md",
+        ruleFormat: "cursor",
+        mcpOnly: true,
+        overwrite: true
+      })
+    );
+  });
 }); 

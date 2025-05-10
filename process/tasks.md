@@ -55,7 +55,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
 - [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
 - [ ] Document Dependency Management Process [#046](process/tasks/046-document-dependency-management-process.md)
-- [ ] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
+- [+] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
 - [ ] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
 - [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
