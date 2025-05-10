@@ -22,7 +22,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
 - [x] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [x] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
-- [ ] Add Repository Backend Support [#014](tasks/014-add-repository-backend-support.md)
+- [ ] Add Repository Backend Support for Remote Git Repositories [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
@@ -38,7 +38,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
 - [ ] Add `rules` command for managing Minsky rules [#029](process/tasks/029-add-rules-command.md)
-- [-] Implement Changelog Management Automation [#030](process/tasks/030-implement-changelog-management-automation.md)
+- [-] Setup Project Tooling and Automation [#030](process/tasks/030-setup-project-tooling-and-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [x] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
@@ -47,27 +47,18 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
 - [x] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](tasks/037-session-commit-command.md)
 - [x] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
-- [ ] Prevent Session Creation Within Existing Sessions [#039](process/tasks/039-prevent-session-creation-within-existing-sessions.md)
+- [ ] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-commands.md)
 - [x] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
-      <<<<<<< HEAD
-- [ ] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
-
-- [x] # Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
 - [x] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
-
-- [x] Fix Test Failures in Minsky [#044](process/tasks/044-fix-test-failures-in-minsky.md)
-
+- [x] Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
 - [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
-
 - [ ] Document Dependency Management Process [#046](process/tasks/046-document-dependency-management-process.md)
-
 - [ ] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
-
 - [ ] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
-
 - [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
-
-- [ ] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
-  > > > > > > > origin/main
+- [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
+- [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
+- [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
+- [ ] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
