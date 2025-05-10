@@ -97,11 +97,43 @@
 - Created task #051 to add Git command support to the MCP server, enabling AI assistants to perform Git operations via the Model Context Protocol
 - Created task #052 to add remaining task management commands to the MCP server, completing the task management API for AI assistants
 - Detailed implementation plan for task #039: Interface-Agnostic Command Architecture, which will refactor the command architecture to enable direct function calls across different interfaces (CLI, MCP, and potentially others like REST APIs in the future)
+- Added safety check to the `session start` command to prevent creating sessions from within existing session workspaces, displaying a clear error message instructing users to return to the main workspace first
+- Created test-utils module with standard test setup, cleanup, and utility functions:
+  - Fixed timestamp management to eliminate flaky tests
+  - Centralized console output spying
+  - Added temporary directory management for file system tests
+  - Standardized environment setup and teardown
+- Created standardized test fixtures directory with common test data
+- Added `rules` command for managing Minsky rules with YAML frontmatter
+  - Added `rules list` subcommand to list all rules in a repository
+  - Added `rules get` subcommand to view specific rule content and metadata
+  - Added `rules update` subcommand to update rule content or metadata
+  - Added `rules create` subcommand to create new rules (with interactive mode)
+  - Added `rules search` subcommand to search for rules by content or metadata
+  - All commands support filtering by rule format (cursor or generic)
+  - Added JSON output option for machine-readable results
+  - Support for tag-based filtering and advanced metadata handling
+  - Comprehensive domain-level tests for all rule management logic
+- New AI rules to support rule management:
+  - Added `rules-management.mdc` rule documenting how to use the rules command
+  - Updated `rule-creation-guidelines.mdc` with information about using the rules command
+  - Updated `minsky-workflow.mdc` to include guidelines for managing AI rules
+  - Updated `index.mdc` to reference the new rules-management rule
+- Enhanced `minsky init` command with MCP (Model Context Protocol) server configuration options:
+  - Automatically generates `.cursor/mcp.json` configuration file during project initialization
+  - Added new CLI options to customize MCP setup: `--mcp`, `--mcp-transport`, `--mcp-port`, `--mcp-host`
+  - Added interactive prompts for MCP configuration when options are not provided
+  - Implemented support for all MCP transport types: stdio (default), SSE, and HTTP streaming
+  - Created comprehensive MCP usage rule (`mcp-usage.mdc`) with detailed documentation on connecting to and using the MCP server
+  - Added tests for MCP configuration generation and CLI options
+  - Added `--mcp-only` option to configure MCP in existing projects without reinitializing other files
+  - Added `--overwrite` option to update existing configuration files
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
 _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
+_See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
 
 ### Changed
 
@@ -138,6 +170,9 @@ _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history
 - Updated tasks list test with better subprocess error checking
 - Removed Jest-specific code that doesn't work in Bun's test environment
 - Added proper error checking for subprocess execution in tests
+- Updated PR test to use the new test utilities
+- Improved test assertion precision with more specific matchers
+- Standardized test environment setup and teardown
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -172,15 +207,25 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 - Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
 - Fixed issues with `mock` module references in test files
 - Enhanced test documentation with clear TODO markers for proper test mocking
+- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed issues with session-related tests by enhancing error handling and directory creation
+- Fixed task list tests by ensuring tasks.md is created in the proper process directory
+- Added more robust directory existence checking and file creation in test setup
+- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
+- Updated mock CLI command implementations to handle task ID operations consistently
+- Ensured proper type safety in test mocks
+- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
 
 ## [0.39.0] - 2025-04-29
 
 ### Changed
+
 - Clarified that `minsky tasks list --json` should be used to query the backlog.
 
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 ### Fixed
+
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
@@ -222,6 +267,7 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 ## [Unreleased]
 
 ### Fixed
+
 - Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
 - Fixed issues with session-related tests by enhancing error handling and directory creation
 - Fixed task list tests by ensuring tasks.md is created in the proper process directory
@@ -231,6 +277,7 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Ensured proper type safety in test mocks
 
 ### Changed
+
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
 

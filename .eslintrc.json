@@ -43,5 +43,13 @@
       "error",
       { "name": "process", "message": "Use Bun APIs instead of Node process when possible" }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/domain/index.js", "**/domain/index.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
 }

@@ -6,6 +6,14 @@ export interface InitializeProjectOptions {
   repoPath: string;
   backend: "tasks.md" | "tasks.csv";
   ruleFormat: "cursor" | "generic";
+  mcp?: {
+    enabled: boolean;
+    transport: "stdio" | "sse" | "httpStream";
+    port?: number;
+    host?: string;
+  };
+  mcpOnly?: boolean;
+  overwrite?: boolean;
 }
 
 /**
@@ -15,47 +23,72 @@ export async function initializeProject({
   repoPath,
   backend,
   ruleFormat,
+  mcp,
+  mcpOnly = false,
+  overwrite = false,
 }: InitializeProjectOptions): Promise<void> {
-  // Check if backend is implemented
-  if (backend === "tasks.csv") {
-    throw new Error("The tasks.csv backend is not implemented yet.");
-  }
+  // When mcpOnly is true, we only set up MCP configuration and skip other setup
+  if (!mcpOnly) {
+    // Check if backend is implemented
+    if (backend === "tasks.csv") {
+      throw new Error("The tasks.csv backend is not implemented yet.");
+    }
 
-  // Create process/tasks directory structure
-  const tasksDir = path.join(repoPath, "process", "tasks");
-  await createDirectoryIfNotExists(tasksDir);
+    // Create process/tasks directory structure
+    const tasksDir = path.join(repoPath, "process", "tasks");
+    await createDirectoryIfNotExists(tasksDir);
 
-  // Initialize the tasks backend
-  if (backend === "tasks.md") {
-    const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-    await createFileIfNotExists(
-      tasksFilePath,
-      `# Minsky Tasks
+    // Initialize the tasks backend
+    if (backend === "tasks.md") {
+      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
+      await createFileIfNotExists(
+        tasksFilePath,
+        `# Minsky Tasks
 
 ## Task List
 
 | ID | Title | Status |
 |----|-------|--------|
-`
-    );
+`,
+        overwrite
+      );
+    }
+
+    // Create rule file directory
+    let rulesDirPath: string;
+    if (ruleFormat === "cursor") {
+      rulesDirPath = path.join(repoPath, ".cursor", "rules");
+    } else {
+      rulesDirPath = path.join(repoPath, ".ai", "rules");
+    }
+    await createDirectoryIfNotExists(rulesDirPath);
+
+    // Create minsky.mdc rule file
+    const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
+    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite);
+    
+    // Create index.mdc rule file for categorizing rules
+    const indexFilePath = path.join(rulesDirPath, "index.mdc");
+    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite);
   }
 
-  // Create rule file directory
-  let rulesDirPath: string;
-  if (ruleFormat === "cursor") {
-    rulesDirPath = path.join(repoPath, ".cursor", "rules");
-  } else {
-    rulesDirPath = path.join(repoPath, ".ai", "rules");
-  }
-  await createDirectoryIfNotExists(rulesDirPath);
+  // Setup MCP if enabled
+  if (mcp?.enabled !== false) { // Default to enabled if not explicitly disabled
+    // Create the MCP config file
+    const mcpConfig = getMCPConfigContent(mcp);
+    const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
+    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite);
 
-  // Create minsky.mdc rule file
-  const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-  await createFileIfNotExists(ruleFilePath, getMinskyRuleContent());
-  
-  // Create index.mdc rule file for categorizing rules
-  const indexFilePath = path.join(rulesDirPath, "index.mdc");
-  await createFileIfNotExists(indexFilePath, getRulesIndexContent());
+    // Create MCP usage rule
+    const rulesDirPath = ruleFormat === "cursor" 
+      ? path.join(repoPath, ".cursor", "rules")
+      : path.join(repoPath, ".ai", "rules");
+    
+    await createDirectoryIfNotExists(rulesDirPath);
+    
+    const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
+    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite);
+  }
 }
 
 /**
@@ -68,11 +101,14 @@ async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
 }
 
 /**
- * Creates a file if it doesn't exist, throws an error if it does
+ * Creates a file if it doesn't exist, throws an error if it does unless overwrite is true
  */
-async function createFileIfNotExists(filePath: string, content: string): Promise<void> {
+async function createFileIfNotExists(filePath: string, content: string, overwrite = false): Promise<void> {
   if (fs.existsSync(filePath)) {
-    throw new Error(`File already exists: ${filePath}`);
+    if (!overwrite) {
+      throw new Error(`File already exists: ${filePath}`);
+    }
+    // If overwrite is true, we'll proceed and overwrite the existing file
   }
   
   // Ensure the directory exists
@@ -299,6 +335,152 @@ Some rules are closely related and often used together:
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
+}
+
+/**
+ * Returns the content for the MCP config file
+ */
+function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): string {
+  const transport = mcpOptions?.transport || "stdio";
+  const port = mcpOptions?.port || 8080;
+  const host = mcpOptions?.host || "localhost";
+
+  // Base configuration for stdio transport
+  if (transport === "stdio") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--stdio"]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Configuration for SSE transport
+  else if (transport === "sse") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--sse", "--port", String(port), "--host", host]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Configuration for HTTP Stream transport
+  else if (transport === "httpStream") {
+    return JSON.stringify({
+      mcpServers: {
+        "minsky-server": {
+          command: "minsky",
+          args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host]
+        }
+      }
+    }, null, 2);
+  }
+  
+  // Default fallback (shouldn't be reached with proper type checking)
+  return JSON.stringify({
+    mcpServers: {
+      "minsky-server": {
+        command: "minsky",
+        args: ["mcp", "start", "--stdio"]
+      }
+    }
+  }, null, 2);
+}
+
+/**
+ * Returns the content for the MCP usage rule
+ */
+function getMCPRuleContent(): string {
+  return `# MCP Usage
+
+## Overview
+
+The Model Context Protocol (MCP) provides a standardized way for AI agents to interact with the Minsky CLI, enabling automation and intelligent assistance. This rule explains how to use MCP effectively with Minsky.
+
+## MCP Configuration
+
+Minsky uses MCP to expose its functionality to AI agents. The configuration is stored in \`.cursor/mcp.json\`:
+
+\`\`\`json
+{
+  "mcpServers": {
+    "minsky-server": {
+      "command": "minsky",
+      "args": ["mcp", "start", "--stdio"]
+    }
+  }
+}
+\`\`\`
+
+## Available Tools
+
+Minsky exposes the following tools via MCP:
+
+### Task Management
+
+- \`tasks.list\`: List all tasks
+- \`tasks.get\`: Get details of a specific task
+- \`tasks.status.get\`: Get the status of a task
+- \`tasks.status.set\`: Set the status of a task
+- \`tasks.create\`: Create a new task from a specification document
+
+### Session Management
+
+- \`session.list\`: List all sessions
+- \`session.get\`: Get details of a specific session
+- \`session.start\`: Start a new session
+- \`session.commit\`: Commit changes in a session
+- \`session.push\`: Push changes in a session
+
+## Usage Examples
+
+### Example: List Tasks via MCP
+
+\`\`\`typescript
+// AI can retrieve task information using:
+const tasks = await tools.tasks.list({})
+console.log(tasks) // Returns JSON array of tasks
+\`\`\`
+
+### Example: Start a Session via MCP
+
+\`\`\`typescript
+// AI can start a session for task #123:
+const result = await tools.session.start({ task: "123", quiet: true })
+console.log(result.message) // Session directory path
+\`\`\`
+
+## Security Considerations
+
+- MCP servers have access to execute commands on your system
+- Review and approve tool calls before allowing execution
+- Use environment variables for sensitive configuration values
+- For production use, consider network transport security when using SSE or HTTP Stream
+
+## Transport Types
+
+Minsky supports three MCP transport types:
+
+1. **stdio**: Default, runs on local machine only (most secure)
+2. **SSE**: Enables network access, supports remote connections
+3. **HTTP Stream**: Similar to SSE, with different protocol
+
+For team environments, SSE or HTTP Stream can allow shared access to Minsky tools.
+
+## Best Practices
+
+- Always verify that your MCP configuration file exists before running AI agents
+- Use task IDs consistently when referring to tasks through MCP
+- Review AI-proposed tool calls before execution
+- For web interfaces, prefer SSE transport
+- For security-sensitive environments, stick with stdio transport
+
+This rule helps Minsky users configure and leverage the Model Context Protocol effectively.`;
 }
 
 /**

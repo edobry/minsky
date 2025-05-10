@@ -266,6 +266,30 @@ When asked to create a new task:
    - Use the next available task ID
    - Link the task correctly following project conventions
 
+## Managing AI Rules
+
+When working with project AI rules:
+
+1. **Always use the Minsky CLI**
+   - Use `minsky rules list` to view existing rules
+   - Use `minsky rules get <rule-id>` to inspect a specific rule
+   - Use `minsky rules create` to create new rules (interactive mode preferred for first-time rule creators)
+   - Use `minsky rules update <rule-id>` to modify existing rules
+   - Use `minsky rules search <query>` to find relevant rules
+
+2. **Follow Rule Creation Guidelines**
+   - Refer to the `rule-creation-guidelines.mdc` rule for standards
+   - Follow the `rules-management.mdc` rule for command usage details
+   - Ensure rules have proper metadata (description, globs, tags)
+   - Place rules in the correct location (`.cursor/rules/` for Cursor AI rules)
+
+3. **Key Operations**
+   - Viewing a rule: `minsky rules get <rule-id>` 
+   - Updating a rule's description: `minsky rules update <rule-id> --description "New description"`
+   - Searching for relevant rules: `minsky rules search "keyword"`
+   - Creating a new rule: `minsky rules create` (interactive mode)
+   - Listing all rules: `minsky rules list [--format cursor|generic] [--tag <tag>]`
+
 ## Session Management
 
 ### Session Creation Options

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { createStartCommand } from "./start";
+import { createStartCommand } from "./start.js";
 
 // Mock the startSession module
 const mockStartSession = mock(() => ({
@@ -11,13 +11,20 @@ const mockStartSession = mock(() => ({
 // Mock the repo-utils module
 const mockResolveRepoPath = mock(() => "/path/to/repo");
 
+// Mock isSessionRepository function
+const mockIsSessionRepository = mock(() => false);
+
 // Setup mocks before importing the actual modules
-mock.module("./startSession", () => ({
+mock.module("./startSession.js", () => ({
   startSession: mockStartSession
 }));
 
-mock.module("../../domain/repo-utils", () => ({
+mock.module("../../domain/repo-utils.js", () => ({
   resolveRepoPath: mockResolveRepoPath
+}));
+
+mock.module("../../domain/workspace.js", () => ({
+  isSessionRepository: mockIsSessionRepository
 }));
 
 describe("createStartCommand", () => {
@@ -37,6 +44,8 @@ describe("createStartCommand", () => {
     // Reset mocks
     mockStartSession.mockClear();
     mockResolveRepoPath.mockClear();
+    mockIsSessionRepository.mockClear();
+    mockIsSessionRepository.mockImplementation(() => false);
     
     // Mock console.log and console.error
     console.log = (...args: any[]) => {
@@ -129,6 +138,36 @@ describe("createStartCommand", () => {
     expect(errorCalls[0]).toContain("Test error message");
     
     // Should exit with a non-zero status code
+    expect(exitCode).toBe(1);
+  });
+
+  it("prevents creating a session when already in a session workspace", async () => {
+    // Arrange
+    const command = createStartCommand();
+    
+    // Mock isSessionRepository to return true
+    mockIsSessionRepository.mockImplementationOnce(() => true);
+    
+    // Track process.exit calls
+    let exitCode = 0;
+    process.exit = (code = 0) => {
+      exitCode = code;
+      return undefined as never;
+    };
+    
+    // Act - execute the command
+    await command.parseAsync(["node", "test", "test-session", "--repo", "/path/to/repo"]);
+    
+    // Assert
+    // Should log the error about being in a session already
+    expect(errorCalls.length).toBe(1);
+    expect(errorCalls[0]).toContain("Error starting session:");
+    expect(errorCalls[0]).toContain("Cannot create a new session while inside a session workspace");
+    
+    // Should not call startSession
+    expect(mockStartSession.mock.calls.length).toBe(0);
+    
+    // Should exit with non-zero status code
     expect(exitCode).toBe(1);
   });
 }); 
