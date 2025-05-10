@@ -5,6 +5,11 @@ import { promisify } from "util";
 import { normalizeRepoName } from "./repo-utils";
 import { SessionDB } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
+import type { 
+  GitPullRequestParams,
+  GitCommitParams 
+} from "../schemas/git.js";
+import { MinskyError } from "../errors/index.js";
 
 const execAsync = promisify(exec);
 
@@ -846,4 +851,22 @@ export class GitService {
     }
     return undefined;
   }
+}
+
+/**
+ * Creates a pull request based on parameters
+ */
+export async function createPullRequestFromParams(_params: GitPullRequestParams): Promise<string> {
+  // This function will be implemented to call existing PR creation logic
+  // with proper parameter validation
+  throw new MinskyError("Not implemented yet");
+}
+
+/**
+ * Commits changes based on parameters
+ */
+export async function commitChangesFromParams(_params: GitCommitParams): Promise<string> {
+  // This function will be implemented to call existing commit logic
+  // with proper parameter validation
+  throw new MinskyError("Not implemented yet");
 }

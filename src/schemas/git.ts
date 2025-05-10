@@ -2,15 +2,16 @@
  * Schema definitions for git-related parameters and types
  */
 import { z } from "zod";
-import { commonCommandOptionsSchema, repoPathSchema, taskIdSchema, flagSchema } from "./common.js";
+import { commonCommandOptionsSchema, pathSchema, repoPathSchema, taskIdSchema, flagSchema } from "./common.js";
 
 /**
  * Schema for git clone parameters
  */
 export const gitCloneParamsSchema = z.object({
-  url: z.string().url().describe("URL of the repository to clone"),
-  dir: z.string().optional().describe("Directory to clone into"),
-  branch: z.string().optional().describe("Branch to checkout")
+  url: z.string().url().describe("URL of the Git repository to clone"),
+  directory: pathSchema.optional().describe("Target directory for the clone"),
+  branch: z.string().optional().describe("Branch to checkout after cloning"),
+  depth: z.number().optional().describe("Create a shallow clone with specified depth")
 }).merge(commonCommandOptionsSchema);
 
 /**
@@ -34,30 +35,30 @@ export type GitBranchParams = z.infer<typeof gitBranchParamsSchema>;
 /**
  * Schema for git pull request parameters
  */
-export const gitPrParamsSchema = z.object({
-  repo: repoPathSchema.optional().describe("Path to the git repository"),
-  task: taskIdSchema.optional().describe("Task ID to use for PR generation"),
-  base: z.string().optional().describe("Base branch to compare against"),
-  title: z.string().optional().describe("PR title"),
+export const gitPullRequestParamsSchema = z.object({
+  repo: repoPathSchema.optional().describe("Path to repository"),
+  branch: z.string().optional().describe("Branch to compare against (defaults to main/master)"),
   debug: flagSchema("Enable debug output"),
-  noStatusUpdate: flagSchema("Skip updating task status when creating a PR for a task")
+  session: z.string().optional().describe("Session to create pull request for")
 }).merge(commonCommandOptionsSchema);
 
 /**
  * Type for git pull request parameters
  */
-export type GitPrParams = z.infer<typeof gitPrParamsSchema>;
+export type GitPullRequestParams = z.infer<typeof gitPullRequestParamsSchema>;
 
 /**
  * Schema for git commit parameters
  */
 export const gitCommitParamsSchema = z.object({
-  message: z.string().min(1).describe("Commit message"),
-  repo: repoPathSchema.optional().describe("Path to the git repository"),
+  message: z.string().describe("Commit message"),
+  session: z.string().optional().describe("Session to commit in"),
+  repo: repoPathSchema.optional().describe("Repository path"),
+  push: flagSchema("Push changes after committing"),
+  all: flagSchema("Stage all files"),
   amend: flagSchema("Amend the previous commit"),
-  noStage: flagSchema("Skip staging files"),
-  all: flagSchema("Stage all files (including untracked)"),
-  taskPrefix: flagSchema("Prefix commit message with task ID")
+  noStage: flagSchema("Skip staging files (use already staged files)"),
+  noVerify: flagSchema("Skip pre-commit hooks")
 }).merge(commonCommandOptionsSchema);
 
 /**
