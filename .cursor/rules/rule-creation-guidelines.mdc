@@ -64,6 +64,41 @@ The description is **critically important** as it's the main trigger for rule ap
 - Keep under 100 characters while remaining specific
 - Test by asking: "Would an AI correctly apply this rule based solely on this description?"
 
+## Using the Rules Command
+
+**ALWAYS USE THE `minsky rules` COMMAND TO CREATE AND MANAGE RULES.**
+
+The Minsky CLI provides dedicated commands for rule management:
+
+```bash
+# Create a new rule (interactive mode)
+minsky rules create
+
+# Create a new rule (command-line mode)
+minsky rules create my-rule --name "My Rule" --description "When to use this rule"
+
+# View an existing rule
+minsky rules get my-rule
+
+# Update a rule's metadata
+minsky rules update my-rule --description "New description"
+
+# Update a rule's content
+minsky rules update my-rule --content path/to/content.md
+
+# List all rules
+minsky rules list
+
+# Search rules
+minsky rules search "pattern"
+```
+
+Benefits of using the `rules` command:
+- Ensures proper YAML frontmatter formatting
+- Validates rule structure and metadata
+- Places rules in the correct directory
+- Provides consistent rule management across the project
+
 ## Rule Assessment Checklist
 
 Before submitting a rule, verify it:

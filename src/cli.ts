@@ -6,6 +6,7 @@ import { createTasksCommand } from "./commands/tasks/index.js";
 import { createGitCommand } from "./commands/git/index.js";
 import { createInitCommand } from "./commands/init/index.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
+import { createRulesCommand } from "./commands/rules/index.js";
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
@@ -33,5 +34,6 @@ program.addCommand(createTasksCommand());
 program.addCommand(createGitCommand());
 program.addCommand(createInitCommand());
 program.addCommand(createMCPCommand());
+program.addCommand(createRulesCommand());
 
 program.parse();

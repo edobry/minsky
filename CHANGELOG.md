@@ -103,11 +103,27 @@
   - Added temporary directory management for file system tests
   - Standardized environment setup and teardown
 - Created standardized test fixtures directory with common test data
+- Added `rules` command for managing Minsky rules with YAML frontmatter
+  - Added `rules list` subcommand to list all rules in a repository
+  - Added `rules get` subcommand to view specific rule content and metadata
+  - Added `rules update` subcommand to update rule content or metadata
+  - Added `rules create` subcommand to create new rules (with interactive mode)
+  - Added `rules search` subcommand to search for rules by content or metadata
+  - All commands support filtering by rule format (cursor or generic)
+  - Added JSON output option for machine-readable results
+  - Support for tag-based filtering and advanced metadata handling
+  - Comprehensive domain-level tests for all rule management logic
+- New AI rules to support rule management:
+  - Added `rules-management.mdc` rule documenting how to use the rules command
+  - Updated `rule-creation-guidelines.mdc` with information about using the rules command
+  - Updated `minsky-workflow.mdc` to include guidelines for managing AI rules
+  - Updated `index.mdc` to reference the new rules-management rule
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
 _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
+_See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
 
 ### Changed
 
@@ -181,6 +197,59 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 - Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
 - Fixed issues with `mock` module references in test files
 - Enhanced test documentation with clear TODO markers for proper test mocking
+
+## [0.39.0] - 2025-04-29
+
+### Changed
+
+- Clarified that `minsky tasks list --json` should be used to query the backlog.
+
+_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
+
+### Fixed
+
+- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
+- Added missing command imports in src/cli.ts (tasks, git, and init commands)
+- Fixed test failures in session command tests by correcting import paths
+- Improved test structure and reliability for Minsky CLI tests:
+  - Created a comprehensive test helper module with utilities for test isolation, setup, and teardown
+  - Fixed test-related import paths to use `.ts` extension instead of `.js`
+  - Added detailed debug logging to diagnose test failures
+  - Improved session database initialization in tests
+  - Enhanced test fixture creation with proper Minsky workspace structure
+  - Fixed environment variable handling for XDG_STATE_HOME in tests
+  - Improved error reporting in tests to make failures more actionable
+  - Updated test assertions to be more resilient to minor output differences
+  - Fixed several tests to use individual test directories to prevent interference
+  - Added proper cleanup between tests to ensure test isolation
+- Fixed merge conflicts in several test files for task #044
+  - Resolved conflicts in get.test.ts, session commands tests, and gitServiceTaskStatusUpdate.test.ts
+  - Improved file system path handling in session directory tests
+  - Enhanced setupSessionDb functions across session command tests to handle file creation edge cases
+  - Fixed workspace validation in tasks/list.test.ts by correctly setting up required Minsky project structure
+  - Improved error handling and debug logging for test failures
+  - Created more robust helper functions for test setup and cleanup
+- Fixed import extensions in test files to use .ts instead of .js
+  - Updated imports in cd.test.ts and gitServiceTaskStatusUpdate.test.ts
+  - Consistently used double quotes for string literals
+  - Fixed environment variable handling in session tests
+- Enhanced session test error handling and logging:
+  - Added detailed verification of directory and file creation
+  - Improved error messages for file system operations
+  - Added robust error handling with try/catch blocks around file operations
+  - Added parent directory creation checks before file write operations
+- Fixed workspace validation in tasks/list.test.ts:
+  - Added proper package.json and git config files to pass validation
+  - Created filter-messages.ts utility for proper message handling
+  - Added verification steps to confirm directories and files are created
+  - Fixed assertions to match actual command output format
+
+_See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
+
+## [Unreleased]
+
+### Fixed
+
 - Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
 - Fixed issues with session-related tests by enhancing error handling and directory creation
 - Fixed task list tests by ensuring tasks.md is created in the proper process directory
@@ -188,6 +257,13 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 - Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
 - Updated mock CLI command implementations to handle task ID operations consistently
 - Ensured proper type safety in test mocks
+
+### Changed
+
+- Improved test environment setup to create more complete Minsky workspace structure
+- Enhanced error handling and debugging output in test environment setup
+
+_See: SpecStory history [session command test fixes](.specstory/history/session-command-test-fixes.md) for more details about test fixes._
 
 ## [0.39.0] - 2025-04-29
 
