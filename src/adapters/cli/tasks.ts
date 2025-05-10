@@ -11,7 +11,13 @@ import type {
   TaskStatusSetParams,
   TaskCreateParams
 } from "../../schemas/tasks.js";
-import { listTasksFromParams, getTaskFromParams } from "../../domain/index.js";
+import { 
+  listTasksFromParams, 
+  getTaskFromParams, 
+  getTaskStatusFromParams, 
+  setTaskStatusFromParams 
+} from "../../domain/index.js";
+import { MinskyError } from "../../errors/index.js";
 
 /**
  * Creates the task list command
@@ -184,32 +190,40 @@ export function createStatusCommand(): Command {
       json?: boolean
     }) => {
       try {
-        // This will be replaced with direct domain function call
+        // Convert CLI options to domain parameters
         const params: TaskStatusGetParams = {
           taskId,
           session: options.session,
           repo: options.repo,
           workspace: options.workspace,
+          backend: options.backend,
           json: options.json
-          // Note: backend will be handled by the domain function
         };
 
-        // Placeholder for direct domain function call
-        // const status = await getTaskStatusFromParams(params);
+        // Call the domain function
+        const status = await getTaskStatusFromParams(params);
         
-        // Temporary - using existing CLI command until we refactor the domain
-        let command = "bun src/cli.ts tasks status get " + taskId;
-        if (options.session) command += " --session " + options.session;
-        if (options.repo) command += " --repo " + options.repo;
-        if (options.workspace) command += " --workspace " + options.workspace;
-        if (options.backend) command += " -b " + options.backend;
-        if (options.json) command += " --json";
-        
-        const output = execSync(command).toString();
-        console.log(output);
+        // Format and display the result
+        if (options.json) {
+          console.log(JSON.stringify({ taskId, status }, null, 2));
+        } else {
+          console.log(`Status of task #${taskId}: ${status}`);
+        }
       } catch (error) {
-        console.error("Error getting task status:", error);
-        process.exit(1);
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+        } else {
+          console.error(`Unexpected error: ${error}`);
+        }
+        
+        // Use Bun.exit if available, otherwise fallback to process.exit
+        if (typeof Bun !== "undefined") {
+          // eslint-disable-next-line no-restricted-globals
+          Bun.exit(1);
+        } else {
+          // eslint-disable-next-line no-restricted-globals
+          process.exit(1);
+        }
       }
     });
 
@@ -230,31 +244,48 @@ export function createStatusCommand(): Command {
       backend?: string
     }) => {
       try {
-        // This will be replaced with direct domain function call
+        if (!status) {
+          console.error("Error: Status is required");
+          if (typeof Bun !== "undefined") {
+            // eslint-disable-next-line no-restricted-globals
+            Bun.exit(1);
+          } else {
+            // eslint-disable-next-line no-restricted-globals
+            process.exit(1);
+          }
+          return;
+        }
+
+        // Convert CLI options to domain parameters
         const params: TaskStatusSetParams = {
           taskId,
           status: status as any, // We'll let the domain function validate this
           session: options.session,
           repo: options.repo,
-          workspace: options.workspace
-          // Note: backend will be handled by the domain function
+          workspace: options.workspace,
+          backend: options.backend
         };
 
-        // Placeholder for direct domain function call
-        // await setTaskStatusFromParams(params);
+        // Call the domain function
+        await setTaskStatusFromParams(params);
         
-        // Temporary - using existing CLI command until we refactor the domain
-        let command = "bun src/cli.ts tasks status set " + taskId + " " + (status || "");
-        if (options.session) command += " --session " + options.session;
-        if (options.repo) command += " --repo " + options.repo;
-        if (options.workspace) command += " --workspace " + options.workspace;
-        if (options.backend) command += " -b " + options.backend;
-        
-        const output = execSync(command).toString();
-        console.log(output);
+        // Display success message
+        console.log(`Status of task #${taskId} set to ${status}`);
       } catch (error) {
-        console.error("Error setting task status:", error);
-        process.exit(1);
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+        } else {
+          console.error(`Unexpected error: ${error}`);
+        }
+        
+        // Use Bun.exit if available, otherwise fallback to process.exit
+        if (typeof Bun !== "undefined") {
+          // eslint-disable-next-line no-restricted-globals
+          Bun.exit(1);
+        } else {
+          // eslint-disable-next-line no-restricted-globals
+          process.exit(1);
+        }
       }
     });
 

@@ -4,7 +4,12 @@
  */
 
 // Tasks domain exports
-export { listTasksFromParams, getTaskFromParams } from "./tasks.js";
+export { 
+  listTasksFromParams, 
+  getTaskFromParams,
+  getTaskStatusFromParams,
+  setTaskStatusFromParams 
+} from "./tasks.js";
 
 // Session domain exports
 export { 
