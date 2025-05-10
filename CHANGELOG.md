@@ -118,6 +118,15 @@
   - Updated `rule-creation-guidelines.mdc` with information about using the rules command
   - Updated `minsky-workflow.mdc` to include guidelines for managing AI rules
   - Updated `index.mdc` to reference the new rules-management rule
+- Enhanced `minsky init` command with MCP (Model Context Protocol) server configuration options:
+  - Automatically generates `.cursor/mcp.json` configuration file during project initialization
+  - Added new CLI options to customize MCP setup: `--mcp`, `--mcp-transport`, `--mcp-port`, `--mcp-host`
+  - Added interactive prompts for MCP configuration when options are not provided
+  - Implemented support for all MCP transport types: stdio (default), SSE, and HTTP streaming
+  - Created comprehensive MCP usage rule (`mcp-usage.mdc`) with detailed documentation on connecting to and using the MCP server
+  - Added tests for MCP configuration generation and CLI options
+  - Added `--mcp-only` option to configure MCP in existing projects without reinitializing other files
+  - Added `--overwrite` option to update existing configuration files
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
