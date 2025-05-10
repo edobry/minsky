@@ -99,13 +99,18 @@
 - Added `rules` command for managing Minsky rules with YAML frontmatter
   - Added `rules list` subcommand to list all rules in a repository
   - Added `rules get` subcommand to view specific rule content and metadata
-  - Added `rules create` subcommand to create new rules (with interactive mode)
   - Added `rules update` subcommand to update rule content or metadata
+  - Added `rules create` subcommand to create new rules (with interactive mode)
   - Added `rules search` subcommand to search for rules by content or metadata
   - All commands support filtering by rule format (cursor or generic)
   - Added JSON output option for machine-readable results
   - Support for tag-based filtering and advanced metadata handling
   - Comprehensive domain-level tests for all rule management logic
+- New AI rules to support rule management:
+  - Added `rules-management.mdc` rule documenting how to use the rules command
+  - Updated `rule-creation-guidelines.mdc` with information about using the rules command
+  - Updated `minsky-workflow.mdc` to include guidelines for managing AI rules
+  - Updated `index.mdc` to reference the new rules-management rule
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._

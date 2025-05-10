@@ -17,6 +17,7 @@ These rules define the fundamental workflow and processes for using Minsky:
 | **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
+| **rules-management** | Guidelines for creating, updating, and managing Minsky rules using the `rules` command | When working with AI rule files |
 
 ## Code Organization Rules
 
@@ -77,6 +78,7 @@ When a developer first joins the project, they should focus on:
 2. **session-first-workflow** - Learn the critical session creation requirements
 3. **creating-tasks** - Know how to document new work
 4. **module-organization** & **command-organization** - Understand the codebase structure
+5. **rules-management** - Learn how to work with project rules
 
 ### When Implementing Features
 
@@ -112,7 +114,8 @@ Code reviewers should focus on:
 When developing new Minsky rules:
 
 1. **rule-creation-guidelines** - Follow the standards for rule creation
-2. **derived-cursor-rules** - Reference existing patterns and conventions
+2. **rules-management** - Use the rules command for proper rule creation and management
+3. **derived-cursor-rules** - Reference existing patterns and conventions
 
 ### When Setting Up New Projects
 
@@ -121,8 +124,9 @@ For initializing new projects with Minsky:
 1. **minsky-workflow** - Establish the core workflow
 2. **session-first-workflow** - Enforce proper session usage
 3. **creating-tasks** - Enable structured task creation
-4. **changelog** - Set up change tracking
-5. **module-organization** & **command-organization** - If developing with the same architecture
+4. **rules-management** - Set up rule management guidelines
+5. **changelog** - Set up change tracking
+6. **module-organization** & **command-organization** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -133,5 +137,6 @@ Some rules are closely related and often used together:
 - **minsky-workflow** and **session-first-workflow** together define the complete development process
 - **robust-error-handling** and **dont-ignore-errors** ensure comprehensive error management
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
+- **rule-creation-guidelines** and **rules-management** work together for maintaining AI rules
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.
