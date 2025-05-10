@@ -21,7 +21,7 @@
     "@types/commander": "^2.12.5",
     "@types/jest": "^29.5.14",
     "@typescript-eslint/eslint-plugin": "^7.3.1",
-    "@typescript-eslint/parser": "^7.3.1",
+    "@typescript-eslint/parser": "^8.32.0",
     "bun-types": "latest",
     "eslint": "^8.57.0",
     "husky": "^9.1.7",
