@@ -173,9 +173,9 @@ export class RemoteGitBackend implements RepositoryBackend {
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
         const counts = revListOutput.trim().split(/\s+/);
-        if (counts.length === 2) {
-          behind = parseInt(counts[0], 10) || 0;
-          ahead = parseInt(counts[1], 10) || 0;
+        if (counts && counts.length === 2) {
+          behind = parseInt(counts[0] || "0", 10);
+          ahead = parseInt(counts[1] || "0", 10);
         }
       } catch {
         // If no upstream branch is set, this will fail - that's okay
