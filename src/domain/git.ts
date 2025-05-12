@@ -1,12 +1,18 @@
-import { join } from "path";
-import { mkdir } from "fs/promises";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { normalizeRepoName } from "./repo-utils";
-import { SessionDB } from "./session";
+import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { exec as childExec } from "node:child_process";
+import { promisify } from "node:util";
+import type { ExecException } from "node:child_process";
+import { normalizeRepoName } from "./repo-utils.js";
+import { SessionDB } from "./session.js";
+import { createRepositoryBackend, RepositoryBackendType } from "./repository/index.js";
+import type { RepositoryBackendConfig } from "./repository/index.js";
 import { TaskService, TASK_STATUS } from "./tasks";
+import { MinskyError } from "../errors/index.js";
 
-const execAsync = promisify(exec);
+const execAsync = promisify(childExec);
+
+type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
 export interface CloneOptions {
   repoUrl: string;
@@ -37,12 +43,43 @@ export interface PrOptions {
   noStatusUpdate?: boolean;
 }
 
-// Added new interface for dependency injection to make testing easier
-export interface PrDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
-  getSessionByTaskId?: (taskId: string) => Promise<any>;
+export interface GitStatus {
+  modified: string[];
+  untracked: string[];
+  deleted: string[];
+}
+
+export interface StashResult {
+  workdir: string;
+  stashed: boolean;
+}
+
+export interface PullResult {
+  workdir: string;
+  updated: boolean;
+}
+
+export interface MergeResult {
+  workdir: string;
+  merged: boolean;
+  conflicts?: boolean;
+}
+
+export interface PushOptions {
+  session?: string;
+  repoPath?: string;
+  remote?: string;
+  force?: boolean;
+  debug?: boolean;
+}
+
+export interface PushResult {
+  workdir: string;
+  pushed: boolean;
+}
+
+export interface PrDependencies extends PrTestDependencies {
+  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
 }
 
 export interface PrResult {
@@ -54,39 +91,8 @@ export interface PrResult {
   };
 }
 
-export interface GitStatus {
-  modified: string[];
-  untracked: string[];
-  deleted: string[];
-}
-
-// Add interfaces needed for the session update command
 export interface GitResult {
   workdir: string;
-}
-
-export interface StashResult extends GitResult {
-  stashed: boolean;
-}
-
-export interface PullResult extends GitResult {
-  updated: boolean;
-}
-
-export interface MergeResult extends GitResult {
-  merged: boolean;
-  conflicts: boolean;
-}
-
-export interface PushResult extends GitResult {
-  pushed: boolean;
-}
-
-export interface PushOptions {
-  session?: string;
-  repoPath?: string;
-  remote?: string;
-  force?: boolean;
 }
 
 export class GitService {
@@ -112,9 +118,7 @@ export class GitService {
     return Math.random().toString(36).substring(2, 8);
   }
 
-  // Make this public as it's needed by the update command
   getSessionWorkdir(repoName: string, session: string): string {
-    // Use the new path structure with sessions subdirectory
     return join(this.baseDir, repoName, "sessions", session);
   }
 
@@ -124,14 +128,11 @@ export class GitService {
     const session = options.session || this.generateSessionId();
     const repoName = normalizeRepoName(options.repoUrl);
 
-    // Create the repo/sessions directory structure
     const sessionsDir = join(this.baseDir, repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
 
-    // Get the workdir with sessions subdirectory
     const workdir = this.getSessionWorkdir(repoName, session);
 
-    // Clone the repository
     await execAsync(`git clone ${options.repoUrl} ${workdir}`);
 
     return {
@@ -146,10 +147,8 @@ export class GitService {
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
-    // Handle cases where repoName is missing in older records
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     const workdir = this.getSessionWorkdir(repoName, options.session);
-    // Create the branch in the specified session's repo
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
       workdir,
@@ -160,7 +159,6 @@ export class GitService {
   async pr(options: PrOptions): Promise<PrResult> {
     await this.ensureBaseDir();
 
-    // Create dependencies object for easier testing
     const deps: PrDependencies = {
       execAsync,
       getSession: async (name) => this.sessionDb.getSession(name),
@@ -171,29 +169,22 @@ export class GitService {
     const result = await this.prWithDependencies(options, deps);
 
     try {
-      // Get repo path and branch for task resolution
       const workdir = await this.determineWorkingDirectory(options, deps);
       const branch = await this.determineCurrentBranch(workdir, options, deps);
 
-      // Determine the task ID (from options, session, or branch name)
       const taskId = await this.determineTaskId(options, workdir, branch, deps);
 
-      // If task ID is found and status update is not disabled, update the task status
       if (taskId && !options.noStatusUpdate) {
         try {
-          // Create task service
           const taskService = new TaskService({
             workspacePath: workdir,
             backend: "markdown",
           });
 
-          // Get current status for reporting
           const previousStatus = await taskService.getTaskStatus(taskId);
 
-          // Update to IN-REVIEW
           await taskService.setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
 
-          // Add status update info to result
           result.statusUpdateResult = {
             taskId,
             previousStatus,
@@ -211,7 +202,6 @@ export class GitService {
               `[DEBUG] Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
             );
           }
-          // Don't fail the PR generation if status update fails
         }
       }
     } catch (error) {
@@ -225,13 +215,9 @@ export class GitService {
     return result;
   }
 
-  /**
-   * Implementation of PR generation with injectable dependencies for testing
-   */
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
 
-    // Determine the working directory and branch
     const workdir = await this.determineWorkingDirectory(options, deps);
 
     if (options.debug) {
@@ -244,7 +230,6 @@ export class GitService {
       console.error(`[DEBUG] Using branch: ${branch}`);
     }
 
-    // Find the base branch and merge base
     const { baseBranch, mergeBase, comparisonDescription } =
       await this.determineBaseBranchAndMergeBase(workdir, branch, options, deps);
 
@@ -253,7 +238,6 @@ export class GitService {
       console.error(`[DEBUG] Comparison: ${comparisonDescription}`);
     }
 
-    // Create the PR markdown
     const markdown = await this.generatePrMarkdown(
       workdir,
       branch,
@@ -265,9 +249,6 @@ export class GitService {
     return { markdown };
   }
 
-  /**
-   * Determine the working directory based on options
-   */
   private async determineWorkingDirectory(
     options: PrOptions,
     deps: PrDependencies
@@ -295,9 +276,6 @@ export class GitService {
     throw new Error("Either session, repoPath, or taskId must be provided");
   }
 
-  /**
-   * Determine the current branch or use the provided branch
-   */
   private async determineCurrentBranch(
     workdir: string,
     options: PrOptions,
@@ -1015,5 +993,101 @@ export class GitService {
       console.error("[DEBUG] No task ID could be determined");
     }
     return undefined;
+  }
+}
+
+/**
+ * Interface-agnostic function to create a pull request
+ * This implements the interface agnostic command architecture pattern
+ */
+export async function createPullRequestFromParams(params: {
+  session?: string;
+  repo?: string;
+  branch?: string;
+  taskId?: string;
+  debug?: boolean;
+  noStatusUpdate?: boolean;
+}): Promise<{ markdown: string; statusUpdateResult?: any }> {
+  try {
+    const gitService = new GitService();
+
+    const options = {
+      session: params.session,
+      repoPath: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
+      debug: params.debug ?? false,
+      noStatusUpdate: params.noStatusUpdate ?? false,
+    };
+
+    return await gitService.pr(options);
+  } catch (error) {
+    console.error("Error creating pull request:", error);
+    throw new MinskyError(
+      `Failed to create pull request: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
+ * Interface-agnostic function to commit changes
+ * This implements the interface agnostic command architecture pattern
+ */
+export async function commitChangesFromParams(params: {
+  message: string;
+  session?: string;
+  repo?: string;
+  all?: boolean;
+  amend?: boolean;
+  noStage?: boolean;
+}): Promise<{ commitHash: string; message: string }> {
+  try {
+    const gitService = new GitService();
+
+    // Resolve repo path
+    let repoPath = params.repo;
+    let taskId = undefined;
+
+    if (params.session) {
+      const sessionDb = new SessionDB();
+      const session = await sessionDb.getSession(params.session);
+      if (!session) {
+        throw new MinskyError(`Session '${params.session}' not found`);
+      }
+
+      // Get the repo path from session and extract taskId if available
+      const repoName = session.repoName || normalizeRepoName(session.repoUrl);
+      repoPath = gitService.getSessionWorkdir(repoName, params.session);
+
+      // Get taskId from session if it exists
+      if (session.taskId) {
+        taskId = session.taskId;
+      }
+    }
+
+    // Stage changes if needed
+    if (!params.noStage) {
+      if (params.all) {
+        await gitService.stageAll(repoPath);
+      } else {
+        await gitService.stageModified(repoPath);
+      }
+    }
+
+    // Prepare commit message with task ID prefix if available
+    const finalMessage = taskId ? `${taskId}: ${params.message}` : params.message;
+
+    // Commit the changes
+    const commitHash = await gitService.commit(finalMessage, repoPath, params.amend ?? false);
+
+    return {
+      commitHash,
+      message: finalMessage,
+    };
+  } catch (error) {
+    console.error("Error committing changes:", error);
+    throw new MinskyError(
+      `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }
