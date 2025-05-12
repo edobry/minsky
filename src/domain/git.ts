@@ -1,12 +1,12 @@
-import { join } from 'path';
-import { mkdir, symlink } from 'fs/promises';
-import { exec as childExec } from 'child_process';
-import { promisify } from 'util';
-import type { ExecException } from 'child_process';
-import { normalizeRepoName } from './repo-utils';
-import { SessionDB } from './session';
-import { createRepositoryBackend } from './repository';
-import type { RepositoryBackendConfig, RepositoryBackendType } from './repository';
+import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { exec as childExec } from 'node:child_process';
+import { promisify } from 'node:util';
+import type { ExecException } from 'node:child_process';
+import { normalizeRepoName } from './repo-utils.js';
+import { SessionDB } from './session.js';
+import { createRepositoryBackend, RepositoryBackendType } from './repository.js';
+import type { RepositoryConfig, RepositoryBackendConfig } from './repository.js';
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
@@ -19,6 +19,10 @@ export interface CloneOptions {
     token?: string;
     owner?: string;
     repo?: string;
+  };
+  remote?: {
+    authMethod?: 'ssh' | 'https' | 'token';
+    depth?: number;
   };
 }
 
@@ -66,7 +70,7 @@ export class GitService {
   private sessionDb: SessionDB;
 
   constructor() {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || '', '.local/state');
+    const xdgStateHome = globalThis.process.env.XDG_STATE_HOME || join(globalThis.process.env.HOME || '', '.local/state');
     this.baseDir = join(xdgStateHome, 'minsky', 'git');
     this.sessionDb = new SessionDB();
   }
@@ -88,18 +92,30 @@ export class GitService {
     const session = options.session || this.generateSessionId();
     
     // Create repository backend configuration
-    const backendConfig: RepositoryBackendConfig = {
+    const backendConfig: RepositoryConfig = {
       type: options.backend === 'remote' 
         ? RepositoryBackendType.REMOTE
         : options.backend === 'github'
           ? RepositoryBackendType.GITHUB
           : RepositoryBackendType.LOCAL,
       url: options.repoUrl,
-      path: options.repoUrl,
+      path: options.backend === 'local' ? options.repoUrl : undefined,
       branch: options.branch,
-      github: options.github
     };
     
+    // Add GitHub specific config if backend is GitHub
+    if (options.backend === 'github' && options.github) {
+      (backendConfig as any).owner = options.github.owner;
+      (backendConfig as any).repo = options.github.repo;
+      (backendConfig as any).token = options.github.token;
+    }
+    
+    // Add Remote options if backend is Remote or GitHub
+    if ((options.backend === 'remote' || options.backend === 'github') && options.remote) {
+      (backendConfig as any).authMethod = options.remote.authMethod;
+      (backendConfig as any).depth = options.remote.depth;
+    }
+
     // Create backend instance
     const backend = await createRepositoryBackend(backendConfig);
     
@@ -118,14 +134,28 @@ export class GitService {
     }
     
     // Get backend type from session record or default to 'local'
-    const backendType = record.backendType || 'local';
+    const backendType: RepositoryBackendType = record.backendType
+      ? record.backendType as RepositoryBackendType
+      : RepositoryBackendType.LOCAL;
     
     // Create repository backend configuration
-    const backendConfig: RepositoryBackendConfig = {
-      type: backendType as 'local' | 'github',
-      repoUrl: record.repoUrl,
-      github: record.github
+    const backendConfig: RepositoryConfig = {
+      type: backendType,
+      url: record.repoUrl,
+      path: backendType === RepositoryBackendType.LOCAL ? record.repoUrl : undefined,
     };
+
+    if (backendType === RepositoryBackendType.GITHUB && record.github) {
+      (backendConfig as any).owner = record.github.owner;
+      (backendConfig as any).repo = record.github.repo;
+      (backendConfig as any).token = record.github.token;
+    }
+    
+    // Add Remote options if specified in the session record
+    if ((backendType === RepositoryBackendType.REMOTE || backendType === RepositoryBackendType.GITHUB) && record.remote) {
+      (backendConfig as any).authMethod = record.remote.authMethod;
+      (backendConfig as any).depth = record.remote.depth;
+    }
     
     // Create backend instance
     const backend = await createRepositoryBackend(backendConfig);

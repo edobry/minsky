@@ -1,9 +1,10 @@
 import { GitService } from '../../domain/git.js';
-import { SessionDB, type SessionRecord } from '../../domain/session.js';
+import { SessionDB } from '../../domain/session.js';
+import type { SessionRecord } from '../../domain/session.js';
 import { TaskService, TASK_STATUS } from '../../domain/tasks.js';
 import { RepositoryBackendType } from '../../domain/repository.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils.js';
 import { normalizeTaskId } from '../../utils/task-utils.js';
 
@@ -21,6 +22,10 @@ export interface StartSessionOptions {
     token?: string;
     owner?: string;
     repo?: string;
+  };
+  remote?: {
+    authMethod?: 'ssh' | 'https' | 'token';
+    depth?: number;
   };
   noStatusUpdate?: boolean;
   gitService?: GitService;
@@ -49,19 +54,20 @@ export async function startSession({
   backend = 'auto',
   branch,
   github,
+  remote,
   noStatusUpdate,
   gitService,
   sessionDB,
-  fs,
-  path,
+  fs: fsInstance, // Renamed to avoid conflict with import
+  path: pathInstance, // Renamed to avoid conflict with import
   resolveRepoPath,
   taskService
 }: StartSessionOptions): Promise<StartSessionResult> {
   // Only use default if the value is undefined (not null or a falsy mock)
   gitService = typeof gitService !== "undefined" ? gitService : new GitService();
   sessionDB = typeof sessionDB !== "undefined" ? sessionDB : new SessionDB();
-  fs = typeof fs !== "undefined" ? fs : fsDefault;
-  path = typeof path !== "undefined" ? path : pathDefault;
+  const currentFs = typeof fsInstance !== "undefined" ? fsInstance : fsDefault;
+  const currentPath = typeof pathInstance !== "undefined" ? pathInstance : pathDefault;
   resolveRepoPath = typeof resolveRepoPath !== "undefined" ? resolveRepoPath : resolveRepoPathDefault;
 
   // Determine repo URL or path first, as we'll need it for task service
@@ -116,7 +122,7 @@ export async function startSession({
   }
 
   // Auto-detect repository backend type if 'auto' is specified
-  let backendType = backend;
+  let backendType: 'local' | 'remote' | 'github' = 'local'; // Default to local
   if (backend === 'auto') {
     // Determine backend type based on URL format
     if (repoUrl.startsWith('http://') || 
@@ -132,6 +138,8 @@ export async function startSession({
     } else {
       backendType = 'local';
     }
+  } else if (backend) {
+    backendType = backend as 'local' | 'remote' | 'github';
   }
 
   // The session creation approach follows these steps:
@@ -143,23 +151,26 @@ export async function startSession({
   const repoName = normalizeRepoName(repoUrl);
   
   // First record the session in the DB
-  await sessionDB.addSession({
+  const sessionRecordData: SessionRecord = {
     session,
     repoUrl,
     repoName,
     createdAt: new Date().toISOString(),
     taskId,
-    backendType: backendType as 'local' | 'remote' | 'github',
+    backendType: backendType,
     github,
+    remote,
     branch
-  });
+  };
+  await sessionDB.addSession(sessionRecordData);
 
   // Prepare clone options with the correct backend type
   const cloneOptions = {
     repoUrl,
     session,
-    backend: backendType as 'local' | 'remote' | 'github',
+    backend: backendType,
     github,
+    remote,
     branch
   };
 
@@ -174,16 +185,7 @@ export async function startSession({
 
   // Prepare the result object
   const result: StartSessionResult = {
-    sessionRecord: { 
-      session, 
-      repoUrl, 
-      repoName, 
-      branch: session, 
-      createdAt: new Date().toISOString(), 
-      taskId,
-      backendType: backendType as 'local' | 'remote' | 'github',
-      github 
-    },
+    sessionRecord: sessionRecordData, // Use the data we already prepared
     cloneResult,
     branchResult
   };
@@ -195,14 +197,17 @@ export async function startSession({
       const previousStatus = await taskService.getTaskStatus(taskId);
       
       // Update the status to IN-PROGRESS
-      await taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
-      
-      // Add status update result to the response
-      result.statusUpdateResult = {
-        taskId,
-        previousStatus,
-        newStatus: TASK_STATUS.IN_PROGRESS
-      };
+      // Only update if the status is not already IN-PROGRESS or higher
+      if (!previousStatus || previousStatus === TASK_STATUS.TODO) {
+        await taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+        
+        // Add status update result to the response
+        result.statusUpdateResult = {
+          taskId,
+          previousStatus: previousStatus || null, // Ensure null if undefined
+          newStatus: TASK_STATUS.IN_PROGRESS
+        };
+      }
     } catch (error) {
       // Log the error but don't fail the session creation
       console.error(`Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`);

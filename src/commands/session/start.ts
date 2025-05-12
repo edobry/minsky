@@ -1,9 +1,9 @@
 import { Command } from "commander";
 import { GitService } from "../../domain/git.js";
-import { SessionDB } from "../../domain/session.js";
+import { SessionDB, type SessionRecord } from "../../domain/session.js";
 import { TaskService } from "../../domain/tasks.js";
-import fs from "fs";
-import path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { resolveRepoPath } from "../../domain/repo-utils.js";
 import { startSession } from "./startSession.js";
 import { normalizeTaskId } from "../../utils/task-utils.js";
@@ -22,9 +22,12 @@ export function createStartCommand(): Command {
     .option('-b, --backend <type>', 'Repository backend type (local, remote, github)', 'auto')
     .option('--github-token <token>', 'GitHub access token for authentication')
     .option('--github-owner <owner>', 'GitHub repository owner (for github backend)')
-    .option('--github-repo <repo>', 'GitHub repository name (for github backend)')
-    .option('-c, --branch <branch>', 'Branch to checkout (for remote repositories)')
-    .option("--no-status-update", "Skip automatic task status update to IN-PROGRESS")
+    .option('--github-repo <repoName>', 'GitHub repository name (for github backend)')
+    .option('--branch <branch>', 'Branch to checkout (for remote repositories)')
+    .option('--repo-url <url>', 'Remote repository URL (for remote and GitHub backends)')
+    .option('--auth-method <method>', 'Authentication method for remote repositories (ssh, https, token)', 'ssh')
+    .option('--depth <depth>', 'Clone depth for remote repositories (shallow clone)', '1')
+    .option('--no-status-update', "Skip automatic task status update to IN-PROGRESS")
     .action(async (sessionArg: string | undefined, options: {
       repo?: string;
       task?: string;
@@ -34,19 +37,33 @@ export function createStartCommand(): Command {
       githubOwner?: string;
       githubRepo?: string;
       branch?: string;
+      repoUrl?: string;
+      authMethod?: 'ssh' | 'https' | 'token';
+      depth?: string;
       statusUpdate?: boolean;
     }) => {
       try {
         // Check if current directory is already within a session workspace
-        const currentDir = Bun.env.PWD || process.cwd();
+        const currentDir = globalThis.process.env.PWD || globalThis.process.cwd();
         const isInSession = await isSessionRepository(currentDir);
         if (isInSession) {
           throw new Error("Cannot create a new session while inside a session workspace. Please return to the main workspace first.");
         }
 
-        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch((err: Error) => {
-          throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
-        });
+        // Default to repo-url if specified for remote/github backends
+        let repoPath = options.repo;
+        if (!repoPath && options.repoUrl && (options.backend === 'remote' || options.backend === 'github')) {
+          repoPath = options.repoUrl;
+        }
+
+        // Otherwise try to resolve from current directory
+        if (!repoPath) {
+          try {
+            repoPath = await resolveRepoPath({});
+          } catch (err) {
+            throw new Error(`--repo or --repo-url is required: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
 
         // Handle the task ID if provided
         let session = sessionArg;
@@ -72,19 +89,25 @@ export function createStartCommand(): Command {
           
           // Check if a session already exists for this task
           const existingSessions = await sessionDB.listSessions();
-          const taskSession = existingSessions.find((s: { taskId?: string }) => s.taskId === taskId);
+          const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
           
           if (taskSession) {
             throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
           }
         }
 
-        // Configure GitHub options
+        // Configure GitHub options if backend is github
         const github = options.backend === 'github' ? {
           token: options.githubToken,
           owner: options.githubOwner,
           repo: options.githubRepo
         } : undefined;
+
+        // Configure remote options
+        const remoteOptions = {
+          authMethod: options.authMethod,
+          depth: options.depth ? parseInt(options.depth, 10) : 1
+        };
 
         const result = await startSession({ 
           session, 
@@ -93,6 +116,7 @@ export function createStartCommand(): Command {
           backend: options.backend as 'local' | 'remote' | 'github' | 'auto',
           github,
           branch: options.branch,
+          remote: remoteOptions,
           noStatusUpdate: options.statusUpdate === false
         });
         
@@ -126,7 +150,7 @@ export function createStartCommand(): Command {
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         console.error("Error starting session:", err.message);
-        process.exit(1);
+        globalThis.process.exit(1);
       }
     });
 } 
