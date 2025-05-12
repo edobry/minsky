@@ -1,5 +1,5 @@
 import { join } from "path";
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
 
@@ -9,17 +9,23 @@ export interface SessionRecord {
   repoUrl: string;
   createdAt: string;
   taskId?: string;
+  repoPath?: string; // Add repoPath to the interface
 }
 
 export class SessionDB {
   private readonly dbPath: string;
+  private readonly baseDir: string; // Add baseDir property
 
   constructor(dbPath?: string) {
+    const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+
     if (dbPath) {
       this.dbPath = dbPath;
+      // For custom dbPath, set baseDir based on a parallel directory structure
+      this.baseDir = join(dbPath, "..", "..", "git");
     } else {
-      const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
       this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
     }
   }
 
@@ -170,7 +176,7 @@ export class SessionDB {
    */
   private async repoExists(path: string): Promise<boolean> {
     try {
-      await fs.access(path);
+      await access(path);
       return true;
     } catch (err) {
       return false;
@@ -221,11 +227,11 @@ export class SessionDB {
       // Check if legacy path exists
       if (await this.repoExists(legacyPath)) {
         // Create new path directory structure
-        await fs.mkdir(join(this.baseDir, session.repoName, "sessions"), { recursive: true });
+        await mkdir(join(this.baseDir, session.repoName, "sessions"), { recursive: true });
 
         // Move repository to new location
         try {
-          await fs.rename(legacyPath, newPath);
+          await rename(legacyPath, newPath);
           // Update session record
           session.repoPath = newPath;
           modified = true;
