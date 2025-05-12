@@ -103,8 +103,8 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 4. [ ] Update Session Management
 
    - [x] Add backend configuration to session settings
-   - [ ] Modify session creation to use configured backend
-   - [ ] Update session commands to support backend selection
+   - [x] Modify session creation to use configured backend
+   - [x] Update session commands to support backend selection
 
 5. [ ] Add Configuration Support
 
@@ -115,9 +115,9 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 6. [ ] Update CLI Commands
 
-   - [ ] Add backend option to session commands
-   - [ ] Add Remote Git-specific options
-   - [ ] Add GitHub-specific options
+   - [x] Add backend option to session commands
+   - [x] Add Remote Git-specific options
+   - [x] Add GitHub-specific options
    - [ ] Update command documentation
 
 7. [ ] Add Tests
@@ -170,14 +170,21 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 - 2025-05-10: Developed index.ts with factory function to create appropriate backend based on configuration
 - 2025-05-11: Fixed failing tests by updating testing approach to use Bun instead of Jest
 - 2025-05-12: Fixed linting errors in the SessionDB implementation
+- 2025-05-12: Enhanced session start command with additional options for remote repositories
+- 2025-05-12: Added support for remote-specific options (auth method, clone depth) to session commands
+- 2025-05-12: Updated GitService to pass remote configuration options to repository backends
+- 2025-05-13: Updated session start command (start.ts) with new CLI options for repository backends
+- 2025-05-13: Enhanced startSession.ts to properly handle remote repository options
+- 2025-05-13: Modified GitService's clone method to support different backend types and their configurations
+- 2025-05-13: Added backend type detection based on repository URL format
 
 ## Remaining Work
 
 1. **Session Integration**
 
-   - Complete the integration with session management
-   - Update session creation to use the appropriate backend based on configuration
-   - Add support for backend-specific options in session commands
+   - Test end-to-end workflows with different repository backends
+   - Add proper error handling for backend-specific failures
+   - Test authentication methods with remote repositories
 
 2. **Configuration**
 
@@ -185,11 +192,11 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - Implement proper validation for backend-specific options
    - Document configuration process in README
 
-3. **CLI Updates**
+3. **Fix Linting Errors**
 
-   - Add --backend option to session start and related commands
-   - Support all required backend-specific options
-   - Update help text and documentation
+   - Address string quote style issues in updated files (doublequote vs singlequote)
+   - Fix property typing issues with SessionRecord interface
+   - Ensure proper import patterns for domain modules (using index files)
 
 4. **Testing**
 
