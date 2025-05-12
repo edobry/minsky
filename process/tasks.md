@@ -70,3 +70,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Explore OCI Artifacts for Rule Distribution [#056](process/tasks/056-explore-oci-artifacts-for-rule-distribution.md)
 
 - [ ] Implement TypeScript-based Rule Authoring System [#057](process/tasks/057-implement-typescript-based-rule-authoring-system.md)
+
+- [ ] Evaluate zod-matter and Zod for Rule Metadata and Validation [#058](process/tasks/058-evaluate-zod-matter-and-zod-for-rule-metadata-and-validation.md)
