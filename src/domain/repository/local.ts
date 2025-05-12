@@ -33,13 +33,13 @@ export class LocalGitBackend implements RepositoryBackend {
   private readonly repoUrl: string;
   private readonly repoName: string;
   private sessionDb: SessionDB;
-  private config: any;
+  private config: RepositoryBackendConfig;
 
   /**
    * Create a new LocalGitBackend instance
    * @param config Backend configuration
    */
-  constructor(config: any) {
+  constructor(config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky", "git");
     this.repoUrl = config.repoUrl;

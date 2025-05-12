@@ -215,6 +215,53 @@ export class RemoteGitBackend implements RepositoryBackend {
   }
 
   /**
+   * Validate the repository configuration
+   * @returns Promise that resolves with result if the repository is valid
+   */
+  async validate(): Promise<Result> {
+    try {
+      // Basic validation - check if URL looks like a git repository
+      if (!this.repoUrl) {
+        return {
+          success: false,
+          message: "Repository URL is required for Remote Git backend",
+        };
+      }
+
+      // Check if the URL has a git protocol, or ends with .git
+      const isGitUrl =
+        this.repoUrl.startsWith("git@") ||
+        this.repoUrl.startsWith("git://") ||
+        this.repoUrl.startsWith("http://") ||
+        this.repoUrl.startsWith("https://") ||
+        this.repoUrl.endsWith(".git");
+
+      if (!isGitUrl) {
+        return {
+          success: false,
+          message: `URL "${this.repoUrl}" doesn't appear to be a valid Git repository URL`,
+        };
+      }
+
+      // For a comprehensive check, you could try to connect to the repository
+      // but that would slow down validation and may trigger authentication prompts
+      // This is a basic check only
+
+      return {
+        success: true,
+        message: "Git repository URL validated successfully",
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        success: false,
+        message: `Failed to validate Git repository: ${error.message}`,
+        error,
+      };
+    }
+  }
+
+  /**
    * Push changes to remote repository
    * @returns Result of the push operation
    */
@@ -261,53 +308,6 @@ export class RemoteGitBackend implements RepositoryBackend {
       return {
         success: false,
         message: `Failed to pull from Git repository: ${error.message}`,
-        error,
-      };
-    }
-  }
-
-  /**
-   * Validate the repository configuration
-   * @returns Promise that resolves with result if the repository is valid
-   */
-  async validate(): Promise<Result> {
-    try {
-      // Basic validation - check if URL looks like a git repository
-      if (!this.repoUrl) {
-        return {
-          success: false,
-          message: "Repository URL is required for Remote Git backend",
-        };
-      }
-
-      // Check if the URL has a git protocol, or ends with .git
-      const isGitUrl =
-        this.repoUrl.startsWith("git@") ||
-        this.repoUrl.startsWith("git://") ||
-        this.repoUrl.startsWith("http://") ||
-        this.repoUrl.startsWith("https://") ||
-        this.repoUrl.endsWith(".git");
-
-      if (!isGitUrl) {
-        return {
-          success: false,
-          message: `URL "${this.repoUrl}" doesn't appear to be a valid Git repository URL`,
-        };
-      }
-
-      // For a comprehensive check, you could try to connect to the repository
-      // but that would slow down validation and may trigger authentication prompts
-      // This is a basic check only
-
-      return {
-        success: true,
-        message: "Git repository URL validated successfully",
-      };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      return {
-        success: false,
-        message: `Failed to validate Git repository: ${error.message}`,
         error,
       };
     }
