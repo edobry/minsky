@@ -183,9 +183,9 @@ export class GitHubBackend implements RepositoryBackend {
           `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
         );
         const counts = revListOutput.trim().split(/\s+/);
-        if (counts.length === 2) {
-          behind = parseInt(counts[0], 10) || 0;
-          ahead = parseInt(counts[1], 10) || 0;
+        if (counts && counts.length === 2) {
+          behind = parseInt(counts[0] || "0", 10);
+          ahead = parseInt(counts[1] || "0", 10);
         }
       } catch {
         // If no upstream branch is set, this will fail - that's okay
@@ -213,7 +213,7 @@ export class GitHubBackend implements RepositoryBackend {
           const parts = line.split("\t");
           if (parts.length < 2) return { name: "", url: "" };
 
-          const name = parts[0];
+          const name = parts[0] || ""; // Ensure name is always a string
           const urlInfo = parts[1] || "";
           const url = urlInfo.split(" ")[0] || "";
 
@@ -221,7 +221,7 @@ export class GitHubBackend implements RepositoryBackend {
         });
 
       // Extract remote names for RepoStatus
-      const remotes = remotesList.map((r: { name: string; url: string }) => r.name).filter(Boolean);
+      const remotes = remotesList.map((r) => r.name).filter((name) => name !== "");
 
       return {
         branch,

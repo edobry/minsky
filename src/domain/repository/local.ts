@@ -126,8 +126,26 @@ export class LocalGitBackend implements RepositoryBackend {
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
-    const currentBranch = branchOutput.trim();
+    const branch = branchOutput.trim();
+
+    // Get ahead/behind counts
+    let ahead = 0;
+    let behind = 0;
+    try {
+      const { stdout: revListOutput } = await execAsync(
+        `git -C ${workdir} rev-list --left-right --count @{upstream}...HEAD`
+      );
+      const counts = revListOutput.trim().split(/\s+/);
+      if (counts && counts.length === 2) {
+        behind = parseInt(counts[0] || "0", 10);
+        ahead = parseInt(counts[1] || "0", 10);
+      }
+    } catch {
+      // If no upstream branch is set, this will fail - that's okay
+    }
+
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+    const dirty = statusOutput.trim().length > 0;
     const modifiedFiles = statusOutput
       .trim()
       .split("\n")
@@ -136,11 +154,20 @@ export class LocalGitBackend implements RepositoryBackend {
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));
+
+    // Get remote information
+    const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
+    const remotes = remoteOutput.trim().split("\n").filter(Boolean);
+
     return {
-      currentBranch,
-      modifiedFiles,
+      branch,
+      ahead,
+      behind,
+      dirty,
+      remotes,
       workdir,
-    } as unknown as RepoStatus;
+      modifiedFiles,
+    };
   }
 
   /**
