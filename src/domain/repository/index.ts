@@ -28,6 +28,36 @@ export interface RepositoryBackendConfig {
   branch?: string;
 
   /**
+   * Remote repository-specific options
+   */
+  remote?: {
+    /**
+     * Authentication method to use for remote repositories
+     */
+    authMethod?: "ssh" | "https" | "token";
+
+    /**
+     * Clone depth for shallow clones (default: 1)
+     */
+    depth?: number;
+
+    /**
+     * Number of retry attempts for network operations (default: 3)
+     */
+    retryAttempts?: number;
+
+    /**
+     * Timeout in milliseconds for git operations (default: 30000)
+     */
+    timeout?: number;
+
+    /**
+     * Whether to follow redirects when cloning (default: true)
+     */
+    followRedirects?: boolean;
+  };
+
+  /**
    * GitHub-specific options for GitHub backend
    */
   github?: {
@@ -45,6 +75,21 @@ export interface RepositoryBackendConfig {
      * GitHub repository name
      */
     repo?: string;
+
+    /**
+     * GitHub API URL (for GitHub Enterprise)
+     */
+    apiUrl?: string;
+
+    /**
+     * GitHub Enterprise domain (for GitHub Enterprise)
+     */
+    enterpriseDomain?: string;
+
+    /**
+     * Whether to use the GitHub API for operations like PR creation
+     */
+    useApi?: boolean;
   };
 }
 
@@ -209,14 +254,14 @@ export async function createRepositoryBackend(
 ): Promise<RepositoryBackend> {
   // Dynamic import to avoid circular dependencies
   if (config.type === RepositoryBackendType.GITHUB) {
-    const { GitHubBackend } = await import("./github.ts");
+    const { GitHubBackend } = await import("./github.js");
     return new GitHubBackend(config);
   } else if (config.type === RepositoryBackendType.REMOTE) {
-    const { RemoteGitBackend } = await import("./remote.ts");
+    const { RemoteGitBackend } = await import("./remote.js");
     return new RemoteGitBackend(config);
   } else {
     // Default to local git backend
-    const { LocalGitBackend } = await import("./local.ts");
+    const { LocalGitBackend } = await import("./local.js");
     return new LocalGitBackend(config);
   }
 }
