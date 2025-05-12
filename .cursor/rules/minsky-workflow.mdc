@@ -20,6 +20,12 @@ alwaysApply: false
 - **Do NOT use `bun run ...` or direct script execution for these operations.**
 - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself (i.e., when working on the implementation of Minsky, not when using it as a tool).
 
+**VERIFICATION CHECKPOINT: Before running ANY minsky CLI command, you MUST:**
+- **Explicitly check the subcommand spelling against the documented command reference or by running `minsky --help` or `minsky <command> --help`.**
+- **If there is ANY uncertainty about the command or its options, run the relevant `--help` command FIRST.**
+- **NEVER guess subcommand names or options.**
+- **If you use the wrong subcommand, treat this as a process error and immediately correct it.**
+
 ## Mandatory Session Creation
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
