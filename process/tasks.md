@@ -47,7 +47,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](tasks/036-improve-task-creation-workflow.md)
 - [x] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](tasks/037-session-commit-command.md)
 - [x] Make tasks status set prompt for status if not provided [#038](tasks/038-tasks-status-set-prompt.md)
-- [-] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-commands.md)
+- [x] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-commands.md)
 - [x] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
 - [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)

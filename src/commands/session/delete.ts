@@ -3,6 +3,8 @@ import { SessionDB } from "../../domain/session.js";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { createInterface } from "readline";
+import { exit } from "../../utils/process";
+import * as p from "@clack/prompts";
 
 export function createDeleteCommand(): Command {
   return new Command("delete")
@@ -11,189 +13,196 @@ export function createDeleteCommand(): Command {
     .option("--task <taskId>", "Task ID associated with the session to delete")
     .option("--force", "Skip confirmation prompt")
     .option("--json", "Output result as JSON")
-    .action(async (sessionNameInput: string | undefined, options: { task?: string, force?: boolean, json?: boolean }) => {
-      try {
-        const db = new SessionDB();
-        let sessionToDeleteName: string | null = null;
-        let sessionToQuery: string | null = null;
+    .action(
+      async (
+        sessionNameInput: string | undefined,
+        options: { task?: string; force?: boolean; json?: boolean }
+      ) => {
+        try {
+          const db = new SessionDB();
+          let sessionToDeleteName: string | null = null;
+          let sessionToQuery: string | null = null;
 
-        if (options.task) {
-          const normalizedTaskId = options.task.startsWith("#") ? options.task.substring(1) : options.task;
-          // Basic validation for task ID format (e.g., should be a number)
-          if (!/^\d+$/.test(normalizedTaskId)) {
-            const errorMessage = `Invalid task ID format: '${options.task}'. Task ID should be a number.`;
+          if (options.task) {
+            const normalizedTaskId = options.task.startsWith("#")
+              ? options.task.substring(1)
+              : options.task;
+            // Basic validation for task ID format (e.g., should be a number)
+            if (!/^\d+$/.test(normalizedTaskId)) {
+              const errorMessage = `Invalid task ID format: '${options.task}'. Task ID should be a number.`;
+              if (options.json) {
+                console.log(JSON.stringify({ success: false, error: errorMessage }));
+              } else {
+                console.error(errorMessage);
+              }
+              exit(1);
+            }
+            const sessionByTask = await db.getSessionByTaskId(normalizedTaskId);
+            if (sessionByTask) {
+              sessionToDeleteName = sessionByTask.session;
+              sessionToQuery = sessionToDeleteName; // Use the found session name for querying
+            } else {
+              const errorMessage = `No session found for task ID '${options.task}'.`;
+              if (options.json) {
+                console.log(JSON.stringify({ success: false, error: errorMessage }));
+              } else {
+                console.error(errorMessage);
+              }
+              exit(1);
+            }
+          } else if (sessionNameInput) {
+            sessionToDeleteName = sessionNameInput;
+            sessionToQuery = sessionToDeleteName;
+          } else {
+            // This case should ideally be caught by Commander if argument is truly required
+            // and no task ID is provided. However, making argument optional to handle --task properly.
+            const errorMessage = "Session name or task ID must be provided.";
             if (options.json) {
               console.log(JSON.stringify({ success: false, error: errorMessage }));
             } else {
               console.error(errorMessage);
             }
-            process.exit(1);
+            exit(1);
           }
-          const sessionByTask = await db.getSessionByTaskId(normalizedTaskId);
-          if (sessionByTask) {
-            sessionToDeleteName = sessionByTask.session;
-            sessionToQuery = sessionToDeleteName; // Use the found session name for querying
-          } else {
-            const errorMessage = `No session found for task ID '${options.task}'.`;
+
+          if (!sessionToDeleteName || !sessionToQuery) {
+            // Should not happen if logic above is correct, but as a safeguard.
+            const errorMessage = "Could not determine session to delete.";
             if (options.json) {
               console.log(JSON.stringify({ success: false, error: errorMessage }));
             } else {
               console.error(errorMessage);
             }
-            process.exit(1);
+            exit(1);
           }
-        } else if (sessionNameInput) {
-          sessionToDeleteName = sessionNameInput;
-          sessionToQuery = sessionToDeleteName;
-        } else {
-          // This case should ideally be caught by Commander if argument is truly required
-          // and no task ID is provided. However, making argument optional to handle --task properly.
-          const errorMessage = "Session name or task ID must be provided.";
-          if (options.json) {
-            console.log(JSON.stringify({ success: false, error: errorMessage }));
-          } else {
-            console.error(errorMessage);
-          }
-          process.exit(1);
-        }
-        
-        if (!sessionToDeleteName || !sessionToQuery) {
-          // Should not happen if logic above is correct, but as a safeguard.
-          const errorMessage = "Could not determine session to delete.";
-          if (options.json) {
-            console.log(JSON.stringify({ success: false, error: errorMessage }));
-          } else {
-            console.error(errorMessage);
-          }
-          process.exit(1);
-        }
 
-        // First, check if the session exists using the determined sessionToQuery
-        const session = await db.getSession(sessionToQuery);
-        
-        if (!session) {
-          // Use sessionToDeleteName for the error message as it's what the user effectively tried to delete
-          const errorMessage = `Session '${sessionToDeleteName}' not found.`;
-          if (options.json) {
-            console.log(JSON.stringify({ success: false, error: errorMessage }));
-          } else {
-            console.error(errorMessage);
-          }
-          process.exit(1);
-        }
-        
-        // Confirm before deletion unless --force is used
-        if (!options.force) {
-          const answer = await promptConfirmation(
-            `Are you sure you want to delete session '${sessionToDeleteName}' and its repository? This action cannot be undone. (y/n): `
-          );
-          
-          if (!answer) {
-            const message = "Deletion cancelled.";
+          // First, check if the session exists using the determined sessionToQuery
+          const session = await db.getSession(sessionToQuery);
+
+          if (!session) {
+            // Use sessionToDeleteName for the error message as it's what the user effectively tried to delete
+            const errorMessage = `Session '${sessionToDeleteName}' not found.`;
             if (options.json) {
-              console.log(JSON.stringify({ success: false, message }));
-            } else {
-              console.log(message);
-            }
-            return;
-          }
-        }
-        
-        // Check for uncommitted changes
-        const repoPath = getSessionRepoPath(session);
-        
-        // Try to delete the session repository
-        let repoDeleted = false;
-        try {
-          await fs.rm(repoPath, { recursive: true, force: true });
-          repoDeleted = true;
-        } catch (error) {
-          const errorMessage = `Error deleting repository: ${error instanceof Error ? error.message : String(error)}`;
-          
-          if (options.json) {
-            console.log(JSON.stringify({ 
-              success: false, 
-              error: errorMessage,
-              repoDeleted: false,
-              recordDeleted: false
-            }));
-          } else {
-            console.error(errorMessage);
-          }
-          process.exit(1);
-        }
-        
-        // Try to delete session from database
-        let recordDeleted = false;
-        try {
-          recordDeleted = await db.deleteSession(sessionToDeleteName);
-          
-          if (!recordDeleted) {
-            throw new Error("Failed to delete session record from database");
-          }
-        } catch (error) {
-          const errorMessage = `Error removing session record: ${error instanceof Error ? error.message : String(error)}`;
-          
-          // If we deleted the repo but failed to update the DB, this is a critical error
-          if (repoDeleted) {
-            if (options.json) {
-              console.log(JSON.stringify({ 
-                success: false, 
-                error: errorMessage,
-                repoDeleted: true,
-                recordDeleted: false,
-                warning: "Repository was deleted but session record remains. Database might be in an inconsistent state."
-              }));
+              console.log(JSON.stringify({ success: false, error: errorMessage }));
             } else {
               console.error(errorMessage);
-              console.error("WARNING: Repository was deleted but session record remains. Database might be in an inconsistent state.");
             }
-            process.exit(1);
+            exit(1);
           }
+
+          // Confirm before deletion unless --force is used
+          if (!options.force) {
+            const answer = await promptConfirmation(
+              `Are you sure you want to delete session '${sessionToDeleteName}' and its repository? This action cannot be undone. (y/n): `
+            );
+
+            if (!answer) {
+              const message = "Deletion cancelled.";
+              if (options.json) {
+                console.log(JSON.stringify({ success: false, message }));
+              } else {
+                console.log(message);
+              }
+              return;
+            }
+          }
+
+          // Check for uncommitted changes
+          const repoPath = getSessionRepoPath(session);
+
+          // Try to delete the session repository
+          let repoDeleted = false;
+          try {
+            await fs.rm(repoPath, { recursive: true, force: true });
+            repoDeleted = true;
+          } catch (error) {
+            const errorMessage = `Error deleting repository: ${error instanceof Error ? error.message : String(error)}`;
+
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  success: false,
+                  error: errorMessage,
+                  repoDeleted: false,
+                  recordDeleted: false,
+                })
+              );
+            } else {
+              console.error(errorMessage);
+            }
+            exit(1);
+          }
+
+          // Try to delete session from database
+          let recordDeleted = false;
+          try {
+            recordDeleted = await db.deleteSession(sessionToDeleteName);
+
+            if (!recordDeleted) {
+              throw new Error("Failed to delete session record from database");
+            }
+          } catch (error) {
+            const errorMessage = `Error removing session record: ${error instanceof Error ? error.message : String(error)}`;
+
+            // If we deleted the repo but failed to update the DB, this is a critical error
+            if (repoDeleted) {
+              if (options.json) {
+                console.log(
+                  JSON.stringify({
+                    success: false,
+                    error: errorMessage,
+                    repoDeleted: true,
+                    recordDeleted: false,
+                    warning:
+                      "Repository was deleted but session record remains. Database might be in an inconsistent state.",
+                  })
+                );
+              } else {
+                console.error(errorMessage);
+                console.error(
+                  "WARNING: Repository was deleted but session record remains. Database might be in an inconsistent state."
+                );
+              }
+              exit(1);
+            }
+          }
+
+          // Success case
+          const successMessage = `Session '${sessionToDeleteName}' successfully deleted.`;
+          if (options.json) {
+            console.log(
+              JSON.stringify({
+                success: true,
+                message: successMessage,
+                repoDeleted,
+                recordDeleted,
+              })
+            );
+          } else {
+            console.log(successMessage);
+          }
+        } catch (error) {
+          const errorMessage = `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
+
+          if (options.json) {
+            console.log(JSON.stringify({ success: false, error: errorMessage }));
+          } else {
+            console.error(errorMessage);
+          }
+          exit(1);
         }
-        
-        // Success case
-        const successMessage = `Session '${sessionToDeleteName}' successfully deleted.`;
-        if (options.json) {
-          console.log(JSON.stringify({ 
-            success: true, 
-            message: successMessage,
-            repoDeleted,
-            recordDeleted
-          }));
-        } else {
-          console.log(successMessage);
-        }
-      } catch (error) {
-        const errorMessage = `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
-        
-        if (options.json) {
-          console.log(JSON.stringify({ success: false, error: errorMessage }));
-        } else {
-          console.error(errorMessage);
-        }
-        process.exit(1);
       }
-    });
+    );
 }
 
 // Helper function to get session repository path
-function getSessionRepoPath(session: { repoName: string, session: string }): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+function getSessionRepoPath(session: { repoName: string; session: string }): string {
+  const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
   return join(xdgStateHome, "minsky", "git", session.repoName, session.session);
 }
 
 // Helper function to prompt for confirmation
 async function promptConfirmation(prompt: string): Promise<boolean> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-
-  return new Promise<boolean>((resolve) => {
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
-    });
-  });
-} 
+  const result = await p.confirm({ message: prompt, initialValue: false });
+  return !!result;
+}

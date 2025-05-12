@@ -1,8 +1,11 @@
 import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server.js";
 import { CommandMapper } from "../../mcp/command-mapper.js";
-import { registerTaskTools } from "../../mcp/tools/tasks.js";
-import { registerSessionTools } from "../../mcp/tools/session.js";
+
+// Import adapter-based tool registrations
+import { registerSessionTools } from "../../adapters/mcp/session.js";
+import { registerTaskTools } from "../../adapters/mcp/tasks.js";
+import { registerGitTools } from "../../adapters/mcp/git.js";
 
 /**
  * Create the MCP command
@@ -49,13 +52,11 @@ export function createMCPCommand(): Command {
           }
         });
 
-        // Set up command mapper and register tools
+        // Register tools via adapter-based approach
         const commandMapper = new CommandMapper(server.getFastMCPServer());
-        
-        // Register all tool categories
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        // TODO: Add more tools - Git, Rules, etc.
+        registerGitTools(commandMapper);
 
         // Start the server
         await server.start();

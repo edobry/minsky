@@ -139,8 +139,8 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   });
   const globs = globsInput
     ? String(globsInput)
-        .split(",")
-        .map((g: string) => g.trim())
+      .split(",")
+      .map((g: string) => g.trim())
     : [];
 
   const tagsInput = await prompts.text({
@@ -149,8 +149,8 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   });
   const tags = tagsInput
     ? String(tagsInput)
-        .split(",")
-        .map((t: string) => t.trim())
+      .split(",")
+      .map((t: string) => t.trim())
     : [];
 
   const alwaysApply = await prompts.confirm({

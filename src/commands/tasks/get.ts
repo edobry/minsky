@@ -1,92 +1,97 @@
 import { Command } from "commander";
-import { TaskService } from "../../domain/tasks.js";
-import { resolveRepoPath } from "../../domain/repo-utils.js";
-import { resolveWorkspacePath } from "../../domain/workspace.js";
-import { exec } from "child_process";
+import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
 import { promisify } from "util";
-import { normalizeTaskId } from "../../utils/task-utils.js";
-import { SessionDB } from "../../domain/session.js";
+import { exec } from "child_process";
+import { join } from "path";
 
 const execAsync = promisify(exec);
 
+interface GetOptions {
+  session?: string;
+  repo?: string;
+  backend?: string;
+  json?: boolean;
+  config?: boolean;
+}
+
 export function createGetCommand(): Command {
-  return new Command("get")
-    .description("Get task details")
-    .argument("<task-id>", "ID of the task")
-    .option("--session <session>", "Session name to use for repo resolution")
+  const getCommand = new Command("get")
+    .description("Get details for a specific task")
+    .argument("<task-id>", "Task ID to get details for")
+    .option("--session <session>", "Session to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
-    .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
+    .option("--backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output task as JSON")
-    .action(async (taskId: string, options: { 
-      backend?: string, 
-      session?: string, 
-      repo?: string, 
-      workspace?: string,
-      json?: boolean 
-    }) => {
+    .option("--config", "Include task configuration in output")
+    .action(async (taskId: string, options: GetOptions) => {
       try {
-        // Normalize the task ID format
-        const normalizedTaskId = normalizeTaskId(taskId);
-        
-        // First get the repo path (needed for workspace resolution)
-        const repoPath = await resolveRepoPath({ session: options.session, repo: options.repo });
-        
-        // Then get the workspace path (main repo or session's main workspace)
-        const workspacePath = await resolveWorkspacePath({ 
-          workspace: options.workspace,
-          sessionRepo: repoPath
-        });
-        
+        // Resolve repository path
+        let workspacePath = options.repo;
+        if (!workspacePath && options.session) {
+          const sessionDB = new SessionDB();
+          const session = await sessionDB.getSession(options.session);
+          if (!session) {
+            throw new Error(`Session "${options.session}" not found`);
+          }
+          workspacePath = session.repoUrl;
+        }
+        if (!workspacePath) {
+          workspacePath = await resolveRepoPath({});
+        }
+        if (!workspacePath) {
+          throw new Error(
+            "Could not determine repository path. Please provide --repo or --session option."
+          );
+        }
+
+        // Create task service with resolved workspace path
         const taskService = new TaskService({
           workspacePath,
-          backend: options.backend
+          backend: options.backend,
         });
-        
-        const task = await taskService.getTask(normalizedTaskId);
-        
+
+        // Get task details
+        const task = await taskService.getTask(taskId);
+
         if (!task) {
-          console.error(`Task with ID '${normalizedTaskId}' not found.`);
+          console.error(`Task ${taskId} not found.`);
           process.exit(1);
-          return;
         }
-        
-        // Get associated session information (if any)
-        const sessionDB = new SessionDB();
-        const sessionInfo = await sessionDB.getSessionByTaskId(normalizedTaskId);
-        
+
+        // Create absolute paths for config files
+        const config: Record<string, string> = {};
+        if (options.config && task.specPath) {
+          config.specPath = await resolveWorkspacePath({
+            workspace: join(workspacePath, task.specPath),
+          });
+        }
+
+        // Output the result
         if (options.json) {
-          // Add session information to the JSON output
-          console.log(JSON.stringify({
-            ...task,
-            session: sessionInfo ? {
-              name: sessionInfo.session,
-              createdAt: sessionInfo.createdAt,
-              repoName: sessionInfo.repoName
-            } : null
-          }, null, 2));
+          console.log(JSON.stringify({ ...task, config }, null, 2));
         } else {
-          console.log(`Task ID: ${task.id}`);
-          console.log(`Title: ${task.title}`);
+          console.log(`Task ${task.id}: ${task.title}`);
           console.log(`Status: ${task.status}`);
-          if (task.specPath) {
-            console.log(`Spec Path: ${task.specPath}`);
+          console.log(`Spec: ${task.specPath}`);
+
+          if (options.config && Object.keys(config).length > 0) {
+            console.log("\nConfiguration:");
+            console.log(`  Spec file: ${config.specPath}`);
           }
-          
-          // Add session information to the output
-          console.log(`\nSession: ${sessionInfo ? sessionInfo.session : 'No active session'}`);
-          if (sessionInfo) {
-            console.log(`Session Created: ${new Date(sessionInfo.createdAt).toLocaleString()}`);
-          }
-          
-          if (task.description) {
-            console.log("\nDescription:");
-            console.log(task.description);
+
+          // Display worklog entries if available
+          if (task.worklog && task.worklog.length > 0) {
+            console.log("\nWorklog:");
+            console.log(
+              task.worklog.map((entry: { timestamp: string; message: string }) => `  ${entry.timestamp} - ${entry.message}`).join("\n")
+            );
           }
         }
       } catch (error) {
-        console.error("Error getting task:", error);
+        console.error("Error:", error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
     });
-} 
+
+  return getCommand;
+}
