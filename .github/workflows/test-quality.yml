@@ -1,0 +1,48 @@
+name: Test Quality Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-quality:
+    name: Prevent Placeholder Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Detect placeholder tests
+        run: |
+          if grep -r "expect(true).toBe(true)" --include="*.test.ts" --include="*.test.js" .; then
+            echo "::error::Placeholder tests detected. Please replace with real tests."
+            exit 1
+          fi
+
+          if grep -r "test(.*todo.*)" --include="*.test.ts" --include="*.test.js" .; then
+            echo "::error::TODO tests detected. Please implement proper tests."
+            exit 1
+          fi
+
+          if grep -r "test(.*mock.*)" --include="*.test.ts" --include="*.test.js" .; then
+            echo "::error::Mock placeholder tests detected. Please implement proper tests."
+            exit 1
+          fi
+
+          if grep -r "test(.*placeholder.*)" --include="*.test.ts" --include="*.test.js" .; then
+            echo "::error::Placeholder tests detected. Please implement proper tests."
+            exit 1
+          fi
+
+          echo "No placeholder tests detected."

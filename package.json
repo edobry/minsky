@@ -6,6 +6,7 @@
     "start": "bun run src/cli.ts",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
+    "lint:tests": "bun detect-placeholder-tests.ts",
     "prepare": "husky",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
