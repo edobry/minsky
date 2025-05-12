@@ -6,8 +6,18 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { resolveRepoPath } from "./repo-utils.js";
 import { resolveWorkspacePath } from "./workspace.js";
-import type { TaskListParams, TaskGetParams, TaskStatusGetParams, TaskStatusSetParams } from "../schemas/tasks.js";
-import { taskListParamsSchema, taskGetParamsSchema, taskStatusGetParamsSchema, taskStatusSetParamsSchema } from "../schemas/tasks.js";
+import type {
+  TaskListParams,
+  TaskGetParams,
+  TaskStatusGetParams,
+  TaskStatusSetParams,
+} from "../schemas/tasks.js";
+import {
+  taskListParamsSchema,
+  taskGetParamsSchema,
+  taskStatusGetParamsSchema,
+  taskStatusSetParamsSchema,
+} from "../schemas/tasks.js";
 import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
 import { z } from "zod";
 const execAsync = promisify(exec);
@@ -40,69 +50,69 @@ export interface CreateTaskOptions {
 
 // Task status constants and checkbox mapping
 export const TASK_STATUS = {
-  TODO: 'TODO',
-  DONE: 'DONE',
-  IN_PROGRESS: 'IN-PROGRESS',
-  IN_REVIEW: 'IN-REVIEW',
+  TODO: "TODO",
+  DONE: "DONE",
+  IN_PROGRESS: "IN-PROGRESS",
+  IN_REVIEW: "IN-REVIEW",
 } as const;
 
-export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS];
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 
 export const TASK_STATUS_CHECKBOX: Record<string, string> = {
-  [TASK_STATUS.TODO]: ' ',
-  [TASK_STATUS.DONE]: 'x',
-  [TASK_STATUS.IN_PROGRESS]: '-',
-  [TASK_STATUS.IN_REVIEW]: '+',
+  [TASK_STATUS.TODO]: " ",
+  [TASK_STATUS.DONE]: "x",
+  [TASK_STATUS.IN_PROGRESS]: "-",
+  [TASK_STATUS.IN_REVIEW]: "+",
 };
 
 export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
-  ' ': TASK_STATUS.TODO,
-  'x': TASK_STATUS.DONE,
-  '-': TASK_STATUS.IN_PROGRESS,
-  '+': TASK_STATUS.IN_REVIEW,
+  " ": TASK_STATUS.TODO,
+  x: TASK_STATUS.DONE,
+  "-": TASK_STATUS.IN_PROGRESS,
+  "+": TASK_STATUS.IN_REVIEW,
 };
 
 export class MarkdownTaskBackend implements TaskBackend {
-  name = 'markdown';
+  name = "markdown";
   private filePath: string;
   private workspacePath: string;
-  
+
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
-    this.filePath = join(workspacePath, 'process', 'tasks.md');
+    this.filePath = join(workspacePath, "process", "tasks.md");
   }
-  
+
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const tasks = await this.parseTasks();
-    
+
     if (options?.status) {
-      return tasks.filter(task => task.status === options.status);
+      return tasks.filter((task) => task.status === options.status);
     }
-    
+
     return tasks;
   }
-  
+
   async getTask(id: string): Promise<Task | null> {
     const tasks = await this.parseTasks();
-    return tasks.find(task => task.id === id) || null;
+    return tasks.find((task) => task.id === id) || null;
   }
-  
+
   async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(id);
     return task ? task.status : null;
   }
-  
+
   async setTaskStatus(id: string, status: string): Promise<void> {
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
-      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(', ')}`);
+      throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
-    const content = await fs.readFile(this.filePath, 'utf-8');
-    const idNum = id.startsWith('#') ? id.slice(1) : id;
+    const content = await fs.readFile(this.filePath, "utf-8");
+    const idNum = id.startsWith("#") ? id.slice(1) : id;
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     let inCodeBlock = false;
-    const updatedLines = lines.map(line => {
-      if (line.trim().startsWith('```')) {
+    const updatedLines = lines.map((line) => {
+      if (line.trim().startsWith("```")) {
         inCodeBlock = !inCodeBlock;
         return line;
       }
@@ -113,13 +123,13 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       return line;
     });
-    await fs.writeFile(this.filePath, updatedLines.join('\n'), 'utf-8');
+    await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
   }
-  
+
   private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
-    const taskIdNum = taskId.startsWith('#') ? taskId.slice(1) : taskId;
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const specPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+    const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const specPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullPath = join(this.workspacePath, specPath);
 
     try {
@@ -127,12 +137,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       return specPath; // Return relative path if file exists
     } catch {
       // If file doesn't exist, try looking for any file with the task ID prefix
-      const taskDir = join(this.workspacePath, 'process', 'tasks');
+      const taskDir = join(this.workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
-        const matchingFile = files.find(f => f.startsWith(`${taskIdNum}-`));
+        const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
         if (matchingFile) {
-          return join('process', 'tasks', matchingFile);
+          return join("process", "tasks", matchingFile);
         }
       } catch {
         // Directory doesn't exist or can't be read
@@ -140,17 +150,17 @@ export class MarkdownTaskBackend implements TaskBackend {
       return undefined;
     }
   }
-  
+
   private async parseTasks(): Promise<Task[]> {
     try {
-      const content = await fs.readFile(this.filePath, 'utf-8');
+      const content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
-      const lines = content.split('\n');
+      const lines = content.split("\n");
       const tasks: Task[] = [];
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i] ?? '';
-        if (line.trim().startsWith('```')) {
+        const line = lines[i] ?? "";
+        if (line.trim().startsWith("```")) {
           inCodeBlock = !inCodeBlock;
           continue;
         }
@@ -159,50 +169,51 @@ export class MarkdownTaskBackend implements TaskBackend {
         const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
         if (!match) continue;
         const checkbox = match[1];
-        const title = match[2]?.trim() ?? '';
-        const id = `#${match[3] ?? ''}`;
+        const title = match[2]?.trim() ?? "";
+        const id = `#${match[3] ?? ""}`;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status = CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
+        const status =
+          CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
         // Aggregate indented lines as description
-        let description = '';
+        let description = "";
         for (let j = i + 1; j < lines.length; j++) {
-          const subline = lines[j] ?? '';
-          if (subline.trim().startsWith('```')) break;
+          const subline = lines[j] ?? "";
+          if (subline.trim().startsWith("```")) break;
           if (/^- \[.\]/.test(subline)) break; // next top-level task
           if (/^\s+- /.test(subline)) {
-            description += (subline.trim().replace(/^- /, '') ?? '') + '\n';
-          } else if ((subline.trim() ?? '') === '') {
+            description += `${subline.trim().replace(/^- /, "") ?? ""}\n`;
+          } else if ((subline.trim() ?? "") === "") {
             continue;
           } else {
             break;
           }
         }
-        
+
         // Use the new validateSpecPath function to get the correct path
         const specPath = await this.validateSpecPath(id, title);
-        
-        tasks.push({ 
-          id, 
-          title, 
-          status, 
+
+        tasks.push({
+          id,
+          title,
+          status,
           description: description.trim(),
-          specPath
+          specPath,
         });
       }
       return tasks;
     } catch (error) {
-      console.error('Error reading tasks file:', error);
+      console.error("Error reading tasks file:", error);
       return [];
     }
   }
-  
+
   getWorkspacePath(): string {
     return this.workspacePath;
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
-    const fullSpecPath = specPath.startsWith('/') ? specPath : join(this.workspacePath, specPath);
+    const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     try {
       await fs.access(fullSpecPath);
     } catch (error) {
@@ -210,24 +221,24 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Read and parse the spec file
-    const specContent = await fs.readFile(fullSpecPath, 'utf-8');
-    const lines = specContent.split('\n');
+    const specContent = await fs.readFile(fullSpecPath, "utf-8");
+    const lines = specContent.split("\n");
 
     // Extract title from the first heading
-    const titleLine = lines.find(line => line.startsWith('# '));
+    const titleLine = lines.find((line) => line.startsWith("# "));
     if (!titleLine) {
-      throw new Error('Invalid spec file: Missing title heading');
+      throw new Error("Invalid spec file: Missing title heading");
     }
 
     // Support both "# Task: Title" and "# Task #XXX: Title" formats
     // Improved regex patterns for more robust matching
     const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-    
+
     let title: string;
     let hasTaskId = false;
     let existingId: string | null = null;
-    
+
     if (titleWithIdMatch && titleWithIdMatch[2]) {
       title = titleWithIdMatch[2];
       existingId = `#${titleWithIdMatch[1]}`;
@@ -235,22 +246,24 @@ export class MarkdownTaskBackend implements TaskBackend {
     } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
       title = titleWithoutIdMatch[1];
     } else {
-      throw new Error('Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"');
+      throw new Error(
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
+      );
     }
 
     // Extract description from the Context section
-    const contextIndex = lines.findIndex(line => line.trim() === '## Context');
+    const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
     if (contextIndex === -1) {
-      throw new Error('Invalid spec file: Missing Context section');
+      throw new Error("Invalid spec file: Missing Context section");
     }
-    let description = '';
+    let description = "";
     for (let i = contextIndex + 1; i < lines.length; i++) {
-      const line = lines[i] || '';
-      if (line.trim().startsWith('## ')) break;
-      if (line.trim()) description += line.trim() + '\n';
+      const line = lines[i] || "";
+      if (line.trim().startsWith("## ")) break;
+      if (line.trim()) description += `${line.trim()}\n`;
     }
     if (!description.trim()) {
-      throw new Error('Invalid spec file: Empty Context section');
+      throw new Error("Invalid spec file: Empty Context section");
     }
 
     // If we have an existing task ID, validate it doesn't conflict with existing tasks
@@ -269,33 +282,33 @@ export class MarkdownTaskBackend implements TaskBackend {
         const id = parseInt(task.id.slice(1));
         return id > max ? id : max;
       }, 0);
-      taskId = `#${String(maxId + 1).padStart(3, '0')}`;
+      taskId = `#${String(maxId + 1).padStart(3, "0")}`;
     }
-    
+
     const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
 
     // Generate the standardized filename
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const newSpecPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullNewPath = join(this.workspacePath, newSpecPath);
-    
+
     // Update the title in the spec file to include the task number if needed
     let updatedContent = specContent;
     if (!hasTaskId) {
       const updatedTitleLine = `# Task ${taskId}: ${title}`;
       updatedContent = updatedContent.replace(titleLine, updatedTitleLine);
     }
-    
+
     // Rename and update the spec file
     try {
       // Create the tasks directory if it doesn't exist
-      const tasksDir = join(this.workspacePath, 'process', 'tasks');
+      const tasksDir = join(this.workspacePath, "process", "tasks");
       try {
         await fs.mkdir(tasksDir, { recursive: true });
       } catch (error) {
         // Ignore if directory already exists
       }
-      
+
       // Check if the target file already exists
       try {
         await fs.access(fullNewPath);
@@ -305,10 +318,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       } catch (error) {
         // File doesn't exist, which is fine
       }
-      
+
       // Write the updated content to the new file
-      await fs.writeFile(fullNewPath, updatedContent, 'utf-8');
-      
+      await fs.writeFile(fullNewPath, updatedContent, "utf-8");
+
       // Delete the original file if it's different from the new one
       if (fullSpecPath !== fullNewPath) {
         try {
@@ -316,11 +329,15 @@ export class MarkdownTaskBackend implements TaskBackend {
           await fs.unlink(fullSpecPath);
         } catch (error) {
           // If file doesn't exist or can't be deleted, just log it
-          console.warn(`Warning: Could not delete original spec file: ${error instanceof Error ? error.message : String(error)}`);
+          console.warn(
+            `Warning: Could not delete original spec file: ${error instanceof Error ? error.message : String(error)}`
+          );
         }
       }
     } catch (error) {
-      throw new Error(`Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
 
     // Create the task entry
@@ -329,58 +346,58 @@ export class MarkdownTaskBackend implements TaskBackend {
       title,
       description: description.trim(),
       status: TASK_STATUS.TODO,
-      specPath: newSpecPath
+      specPath: newSpecPath,
     };
 
     // Add the task to tasks.md
-    const content = await fs.readFile(this.filePath, 'utf-8');
+    const content = await fs.readFile(this.filePath, "utf-8");
     const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
-    const tasksFileContent = content + '\n' + taskEntry;
-    await fs.writeFile(this.filePath, tasksFileContent, 'utf-8');
+    const tasksFileContent = `${content}\n${taskEntry}`;
+    await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
 
     return task;
   }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
-  name = 'github';
+  name = "github";
   private workspacePath: string;
-  
+
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     // Would initialize GitHub API client here
   }
-  
+
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return [];
   }
-  
+
   async getTask(id: string): Promise<Task | null> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return null;
   }
-  
+
   async getTaskStatus(id: string): Promise<string | null> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
     return null;
   }
-  
+
   async setTaskStatus(id: string, status: string): Promise<void> {
     // Placeholder for GitHub API integration
-    console.log('GitHub task backend not fully implemented');
+    console.log("GitHub task backend not fully implemented");
   }
-  
+
   getWorkspacePath(): string {
     return this.workspacePath;
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     // Implementation needed
-    throw new Error('Method not implemented');
+    throw new Error("Method not implemented");
   }
 }
 
@@ -392,40 +409,39 @@ export interface TaskServiceOptions {
 export class TaskService {
   private backends: TaskBackend[] = [];
   private currentBackend: TaskBackend;
-  
+
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = 'markdown' } = options;
-    
+    const { workspacePath = process.cwd(), backend = "markdown" } = options;
+
     // Initialize backends
-    this.backends = [
-      new MarkdownTaskBackend(workspacePath),
-      new GitHubTaskBackend(workspacePath)
-    ];
-    
+    this.backends = [new MarkdownTaskBackend(workspacePath), new GitHubTaskBackend(workspacePath)];
+
     // Set current backend
-    const selectedBackend = this.backends.find(b => b.name === backend);
+    const selectedBackend = this.backends.find((b) => b.name === backend);
     if (!selectedBackend) {
-      throw new Error(`Backend '${backend}' not found. Available backends: ${this.backends.map(b => b.name).join(', ')}`);
+      throw new Error(
+        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+      );
     }
     this.currentBackend = selectedBackend;
   }
-  
+
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     return this.currentBackend.listTasks(options);
   }
-  
+
   async getTask(id: string): Promise<Task | null> {
     return this.currentBackend.getTask(id);
   }
-  
+
   async getTaskStatus(id: string): Promise<string | null> {
     return this.currentBackend.getTaskStatus(id);
   }
-  
+
   async setTaskStatus(id: string, status: string): Promise<void> {
     return this.currentBackend.setTaskStatus(id, status);
   }
-  
+
   getWorkspacePath(): string {
     return this.currentBackend.getWorkspacePath();
   }
@@ -450,48 +466,48 @@ export async function listTasksFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => new TaskService(options)
+    createTaskService: (options) => new TaskService(options),
   }
 ): Promise<Task[]> {
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
-    
+
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({ 
-      session: validParams.session, 
-      repo: validParams.repo 
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
     });
-    
+
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({ 
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
-      sessionRepo: repoPath
+      sessionRepo: repoPath,
     });
-    
+
     // Create task service
     const taskService = deps.createTaskService({
       workspacePath,
-      backend: validParams.backend
+      backend: validParams.backend,
     });
-    
+
     let tasks: Task[];
-    
+
     // If status filter is explicitly provided, use it
     if (validParams.filter) {
       tasks = await taskService.listTasks({
-        status: validParams.filter
+        status: validParams.filter,
       });
     } else {
       // Otherwise get all tasks first
       tasks = await taskService.listTasks();
-      
+
       // Unless "all" is provided, filter out DONE tasks
       if (!validParams.all) {
-        tasks = tasks.filter(task => task.status !== TASK_STATUS.DONE);
+        tasks = tasks.filter((task) => task.status !== TASK_STATUS.DONE);
       }
     }
-    
+
     return tasks;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -516,34 +532,34 @@ export async function getTaskFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => new TaskService(options)
+    createTaskService: (options) => new TaskService(options),
   }
 ): Promise<Task> {
   try {
     // Validate params with Zod schema
     const validParams = taskGetParamsSchema.parse(params);
-    
+
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({ 
-      session: validParams.session, 
-      repo: validParams.repo 
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
     });
-    
+
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({ 
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
-      sessionRepo: repoPath
+      sessionRepo: repoPath,
     });
-    
+
     // Create task service
     const taskService = deps.createTaskService({
       workspacePath,
-      backend: validParams.backend
+      backend: validParams.backend,
     });
-    
+
     // Get the task
     const task = await taskService.getTask(validParams.taskId);
-    
+
     if (!task) {
       throw new ResourceNotFoundError(
         `Task #${validParams.taskId} not found`,
@@ -551,7 +567,7 @@ export async function getTaskFromParams(
         validParams.taskId
       );
     }
-    
+
     return task;
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -576,34 +592,34 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => new TaskService(options)
+    createTaskService: (options) => new TaskService(options),
   }
 ): Promise<string> {
   try {
     // Validate params with Zod schema
     const validParams = taskStatusGetParamsSchema.parse(params);
-    
+
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({ 
-      session: validParams.session, 
-      repo: validParams.repo 
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
     });
-    
+
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({ 
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
-      sessionRepo: repoPath
+      sessionRepo: repoPath,
     });
-    
+
     // Create task service
     const taskService = deps.createTaskService({
       workspacePath,
-      backend: validParams.backend
+      backend: validParams.backend,
     });
-    
+
     // Get the task status
     const status = await taskService.getTaskStatus(validParams.taskId);
-    
+
     if (!status) {
       throw new ResourceNotFoundError(
         `Task #${validParams.taskId} not found or has no status`,
@@ -611,11 +627,15 @@ export async function getTaskStatusFromParams(
         validParams.taskId
       );
     }
-    
+
     return status;
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for getting task status", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for getting task status",
+        error.format(),
+        error
+      );
     }
     throw error;
   }
@@ -635,41 +655,41 @@ export async function setTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => new TaskService(options)
+    createTaskService: (options) => new TaskService(options),
   }
 ): Promise<void> {
   try {
     // Validate params with Zod schema
     const validParams = taskStatusSetParamsSchema.parse(params);
-    
+
     // Validate the status is one of the allowed values
     if (!Object.values(TASK_STATUS).includes(validParams.status as TaskStatus)) {
       throw new ValidationError(
-        `Invalid status: ${validParams.status}. Must be one of: ${Object.values(TASK_STATUS).join(', ')}`
+        `Invalid status: ${validParams.status}. Must be one of: ${Object.values(TASK_STATUS).join(", ")}`
       );
     }
-    
+
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({ 
-      session: validParams.session, 
-      repo: validParams.repo 
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
     });
-    
+
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({ 
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
-      sessionRepo: repoPath
+      sessionRepo: repoPath,
     });
-    
+
     // Create task service
     const taskService = deps.createTaskService({
       workspacePath,
-      backend: validParams.backend
+      backend: validParams.backend,
     });
-    
+
     // First check if the task exists
     const task = await taskService.getTask(validParams.taskId);
-    
+
     if (!task) {
       throw new ResourceNotFoundError(
         `Task #${validParams.taskId} not found`,
@@ -677,13 +697,17 @@ export async function setTaskStatusFromParams(
         validParams.taskId
       );
     }
-    
+
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for setting task status", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for setting task status",
+        error.format(),
+        error
+      );
     }
     throw error;
   }
-} 
+}

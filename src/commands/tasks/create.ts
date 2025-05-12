@@ -39,36 +39,38 @@ export const createCommand = new Command("create")
         workspacePath = await resolveRepoPath({});
       }
       if (!workspacePath) {
-        throw new Error("Could not determine repository path. Please provide --repo or --session option.");
+        throw new Error(
+          "Could not determine repository path. Please provide --repo or --session option."
+        );
       }
 
       // In dry-run mode, we need to manually parse the spec file
       if (options.dryRun) {
-        const fullSpecPath = specPath.startsWith('/') ? specPath : join(workspacePath, specPath);
-        
+        const fullSpecPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
+
         try {
           await fs.access(fullSpecPath);
         } catch (error) {
           throw new Error(`Spec file not found: ${specPath}`);
         }
 
-        const specContent = await fs.readFile(fullSpecPath, 'utf-8');
-        const lines = specContent.split('\n');
-        
+        const specContent = await fs.readFile(fullSpecPath, "utf-8");
+        const lines = specContent.split("\n");
+
         // Extract title from the first heading
-        const titleLine = lines.find(line => line.startsWith('# '));
+        const titleLine = lines.find((line) => line.startsWith("# "));
         if (!titleLine) {
-          throw new Error('Invalid spec file: Missing title heading');
+          throw new Error("Invalid spec file: Missing title heading");
         }
-        
+
         // Support both title formats with improved regex
         const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
         const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-        
+
         let title: string;
         let hasTaskId = false;
         let existingId: string | null = null;
-        
+
         if (titleWithIdMatch && titleWithIdMatch[2]) {
           title = titleWithIdMatch[2];
           existingId = `#${titleWithIdMatch[1]}`;
@@ -76,21 +78,25 @@ export const createCommand = new Command("create")
         } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
           title = titleWithoutIdMatch[1];
         } else {
-          throw new Error('Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"');
+          throw new Error(
+            'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
+          );
         }
-        
+
         // Find the next available task ID or validate existing one
         const taskService = new TaskService({
           workspacePath,
-          backend: options.backend
+          backend: options.backend,
         });
-        
+
         let taskId: string;
         if (hasTaskId && existingId) {
           // Verify the task ID doesn't already exist
           const existingTask = await taskService.getTask(existingId);
           if (existingTask) {
-            console.log(`Warning: Task ${existingId} already exists. Will use --force when creating.`);
+            console.log(
+              `Warning: Task ${existingId} already exists. Will use --force when creating.`
+            );
           }
           taskId = existingId;
         } else {
@@ -100,46 +106,54 @@ export const createCommand = new Command("create")
             const id = parseInt(task.id.slice(1));
             return id > max ? id : max;
           }, 0);
-          taskId = `#${String(maxId + 1).padStart(3, '0')}`;
+          taskId = `#${String(maxId + 1).padStart(3, "0")}`;
         }
-        
+
         const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
-        
+
         // Generate the standardized filename
-        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-        const newSpecPath = join('process', 'tasks', `${taskIdNum}-${normalizedTitle}.md`);
-        
+        const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+
         if (options.json) {
-          console.log(JSON.stringify({
-            id: taskId,
-            title,
-            status: "TODO",
-            dryRun: true,
-            specPath: newSpecPath
-          }, null, 2));
+          console.log(
+            JSON.stringify(
+              {
+                id: taskId,
+                title,
+                status: "TODO",
+                dryRun: true,
+                specPath: newSpecPath,
+              },
+              null,
+              2
+            )
+          );
         } else {
           console.log(`Would create task ${taskId}: ${title}`);
           console.log("Would update spec file:");
-          
+
           if (!hasTaskId) {
-            console.log(`  - Would change title from "${titleLine}" to "# Task ${taskId}: ${title}"`);
+            console.log(
+              `  - Would change title from "${titleLine}" to "# Task ${taskId}: ${title}"`
+            );
           }
-          
+
           console.log(`  - Would rename file from "${specPath}" to "${newSpecPath}"`);
         }
-        
+
         return;
       }
 
       // Create task service with resolved workspace path
       const taskService = new TaskService({
         workspacePath,
-        backend: options.backend
+        backend: options.backend,
       });
 
       // Create the task
-      const task = await taskService.createTask(specPath, { 
-        force: options.force 
+      const task = await taskService.createTask(specPath, {
+        force: options.force,
       });
 
       // Output the result
@@ -148,11 +162,11 @@ export const createCommand = new Command("create")
       } else {
         console.log(`Task ${task.id} created: ${task.title}`);
         console.log("Spec file updated:");
-        
+
         // Check if file was renamed by comparing paths
-        const originalPath = specPath.startsWith('/') ? specPath : join(workspacePath, specPath);
-        const newPath = join(workspacePath, task.specPath || '');
-        
+        const originalPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
+        const newPath = join(workspacePath, task.specPath || "");
+
         if (originalPath !== newPath) {
           console.log(`  - File renamed from "${specPath}" to "${task.specPath}"`);
         }
@@ -161,4 +175,4 @@ export const createCommand = new Command("create")
       console.error("Error:", error instanceof Error ? error.message : String(error));
       process.exit(1);
     }
-  }); 
+  });

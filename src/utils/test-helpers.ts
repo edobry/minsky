@@ -4,7 +4,11 @@
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, resolve, dirname, basename } from "path";
 import { spawnSync } from "child_process";
-import type { SpawnSyncOptions, SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
+import type {
+  SpawnSyncOptions,
+  SpawnSyncReturns,
+  SpawnSyncOptionsWithStringEncoding,
+} from "child_process";
 import type { PathLike, WriteFileOptions } from "fs";
 import type { MakeDirectoryOptions, ObjectEncodingOptions } from "fs";
 
@@ -15,7 +19,7 @@ const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
   console.log(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
-  
+
   // If recursive, create parent directories
   if (options?.recursive) {
     let parent = dirname(path);
@@ -32,24 +36,24 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(path: string, options?: { recursive?: boolean, force?: boolean }): void {
+export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
   console.log(`[MOCK] Removing ${path}`);
-  
+
   // If recursive, remove all children first
   if (options?.recursive) {
-    const children = Array.from(virtualFS.keys()).filter(key => key.startsWith(path + "/"));
+    const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
     }
   }
-  
+
   virtualFS.delete(path);
 }
 
 export function mockWriteFileSync(path: string, data: string, options?: WriteFileOptions): void {
   console.log(`[MOCK] Writing to file ${path}`);
   virtualFS.set(path, { isDirectory: false, content: data });
-  
+
   // Ensure the directory exists
   const dir = dirname(path);
   if (!virtualFS.has(dir)) {
@@ -78,21 +82,21 @@ type FS = {
 
 // Setup to use real or mock filesystem based on environment
 const useVirtualFS = true; // Set to true to use virtual filesystem
-const fsOps: FS = useVirtualFS ? 
-  { 
-    mkdirSync: mockMkdirSync, 
-    existsSync: mockExistsSync, 
-    rmSync: mockRmSync,
-    writeFileSync: mockWriteFileSync,
-    readFileSync: mockReadFileSync
-  } : 
-  { 
-    mkdirSync, 
-    existsSync, 
-    rmSync,
-    writeFileSync,
-    readFileSync
-  };
+const fsOps: FS = useVirtualFS
+  ? {
+      mkdirSync: mockMkdirSync,
+      existsSync: mockExistsSync,
+      rmSync: mockRmSync,
+      writeFileSync: mockWriteFileSync,
+      readFileSync: mockReadFileSync,
+    }
+  : {
+      mkdirSync,
+      existsSync,
+      rmSync,
+      writeFileSync,
+      readFileSync,
+    };
 
 // Interface for test environment setup
 export interface MinskyTestEnv {
@@ -125,15 +129,15 @@ export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
   const sessionDbPath = join(minskyDir, "session-db.json");
   const processDir = join(basePath, "process");
   const tasksDir = join(processDir, "tasks");
-  
+
   console.log(`[MOCK] Setting up test environment in: ${basePath}`);
-  
+
   return {
     minskyDir,
     gitDir,
     sessionDbPath,
     processDir,
-    tasksDir
+    tasksDir,
   };
 }
 
@@ -177,7 +181,7 @@ export const mockFS = {
   rmSync: mockRmSync,
   writeFileSync: mockWriteFileSync,
   readFileSync: mockReadFileSync,
-  virtualFS
+  virtualFS,
 };
 
 /**
@@ -190,9 +194,9 @@ export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void
     console.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
   }
-  
+
   if (result.status !== 0) {
     console.error(`Command failed with status ${result.status}`);
     console.error(`Stderr: ${result.stderr}`);
   }
-} 
+}
