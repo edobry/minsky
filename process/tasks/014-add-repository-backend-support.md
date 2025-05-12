@@ -100,11 +100,11 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - [x] Implement GitHub-specific repository operations
    - [x] Add GitHub authentication handling
 
-4. [x] Update Session Management
+4. [ ] Update Session Management
 
    - [x] Add backend configuration to session settings
-   - [x] Modify session creation to use configured backend
-   - [x] Update session commands to support backend selection
+   - [ ] Modify session creation to use configured backend
+   - [ ] Update session commands to support backend selection
 
 5. [ ] Add Configuration Support
 
@@ -115,9 +115,9 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 6. [ ] Update CLI Commands
 
-   - [x] Add backend option to session commands
-   - [x] Add Remote Git-specific options
-   - [x] Add GitHub-specific options
+   - [ ] Add backend option to session commands
+   - [ ] Add Remote Git-specific options
+   - [ ] Add GitHub-specific options
    - [ ] Update command documentation
 
 7. [ ] Add Tests
@@ -138,13 +138,13 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 ## Verification
 
-- [x] Local git backend works exactly as before (backward compatibility)
-- [x] Remote Git backend successfully clones, pushes, and pulls repositories
-- [x] GitHub backend successfully interacts with GitHub repositories
-- [x] Session creation works with all backends
+- [ ] Local git backend works exactly as before (backward compatibility)
+- [ ] Remote Git backend successfully clones, pushes, and pulls repositories
+- [ ] GitHub backend successfully interacts with GitHub repositories
+- [ ] Session creation works with all backends
 - [ ] Configuration options are properly handled
 - [ ] Error scenarios are properly handled with clear messages
-- [x] All tests pass
+- [ ] All tests pass
 - [ ] Documentation is complete and accurate
 
 ## Dependencies
@@ -163,525 +163,41 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 ## Work Log
 
-- 2024-05-11: Created repository backend interface in `src/domain/repository/RepositoryBackend.ts`
-- 2024-05-11: Implemented LocalGitBackend, RemoteGitBackend, and GitHubBackend classes
-- 2024-05-11: Integrated repository backends with session creation
-- 2024-05-12: Fixed type safety issues in repository backend implementations
-- 2024-05-12: Fixed GitHub repository backend implementation
-- 2024-05-12: Fixed SessionDB to handle null/undefined values properly for task IDs
-- 2024-05-12: Updated test infrastructure to use Bun testing instead of Jest
-- 2024-05-12: Fixed linter issues in repository code
-
-## Remaining Work Assessment
-
-1. **Test Coverage**
-
-   - Need to implement more thorough test coverage for the new repository backends
-   - Tests should include error handling and edge cases
-   - Need to create mocks for remote operations to avoid hitting real services
-
-2. **Documentation**
-
-   - Update documentation to explain the new repository backend architecture
-   - Add examples for different repository backend configurations
-   - Document configuration options and CLI flags
-
-3. **CLI Integration**
-
-   - Need to verify and potentially improve CLI options for repository selection
-   - Ensure user experience is consistent and intuitive
-
-4. **Configuration Options**
-
-   - Review and finalize configuration options for remote repositories
-   - Add GitHub-specific configuration if needed
-   - Implement configuration validation
-
-5. **Error Handling**
-   - Verify error handling is consistent across all backends
-   - Ensure error messages are clear and actionable
-
-The highest priority remaining tasks are:
-
-1. Improving test coverage
-2. Documenting the new features
-3. Finalizing and validating CLI integration
-
-## Implementation Plan
-
-### Phase 1: Repository Backend Interface Refinement
-
-1. Create or update the core interface in `src/domain/repository.ts`:
-
-   - Define the `RepositoryBackendType` enum (LOCAL, REMOTE, GITHUB)
-   - Define strongly typed interfaces for repository operations
-   - Create repository configuration types with clear validation rules
-   - Define specific return types for all methods (no `any` types)
-
-   ```typescript
-   // Example of improved typing for repository operations
-   export interface RepositoryStatus {
-     clean: boolean;
-     changes: string[];
-     branch: string;
-     tracking?: string;
-   }
-
-   export interface RepositoryBackend {
-     // Core repository operations with well-defined return types
-     clone(destination: string): Promise<void>;
-     getStatus(): Promise<RepositoryStatus>;
-     getPath(): string;
-     validate(): Promise<{ valid: boolean; issues?: string[] }>;
-
-     // Remote operations
-     push(branch?: string): Promise<void>;
-     pull(branch?: string): Promise<void>;
-
-     // Branch operations
-     createBranch(name: string): Promise<void>;
-     checkout(branch: string): Promise<void>;
-
-     // Configuration
-     getConfig(): RepositoryConfig;
-   }
-   ```
-
-2. Create a common repository operations utility in `src/utils/repository-utils.ts`:
-
-   - Implement caching mechanism for repository metadata
-   - Define cache invalidation strategies
-   - Add helper methods for common operations
-
-   ```typescript
-   // Example of repository metadata cache
-   export class RepositoryMetadataCache {
-     private static instance: RepositoryMetadataCache;
-     private cache: Map<string, { data: any; timestamp: number }> = new Map();
-     private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
-
-     private constructor() {}
-
-     static getInstance(): RepositoryMetadataCache {
-       if (!RepositoryMetadataCache.instance) {
-         RepositoryMetadataCache.instance = new RepositoryMetadataCache();
-       }
-       return RepositoryMetadataCache.instance;
-     }
-
-     async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {
-       const cacheEntry = this.cache.get(key);
-       const now = Date.now();
-
-       if (cacheEntry && now - cacheEntry.timestamp < ttl) {
-         return cacheEntry.data as T;
-       }
-
-       const data = await fetcher();
-       this.cache.set(key, { data, timestamp: now });
-       return data;
-     }
-
-     invalidate(key: string): void {
-       this.cache.delete(key);
-     }
-
-     invalidateAll(): void {
-       this.cache.clear();
-     }
-   }
-   ```
-
-### Phase 2: Remote Git Backend Implementation
-
-1. Implement `src/domain/remoteGitBackend.ts` with system git authentication:
-
-   - Rely on the system's git configuration for authentication
-   - Support remote repository operations via git CLI
-   - Implement proper error handling with domain-specific errors
-   - Utilize the repository metadata cache for performance
-
-   ```typescript
-   // src/domain/remoteGitBackend.ts
-   import {
-     RepositoryBackend,
-     RepositoryConfig,
-     RepositoryStatus,
-     RepositoryBackendType,
-   } from "./repository";
-   import { execGit } from "../utils/git";
-   import { RepositoryMetadataCache } from "../utils/repository-utils";
-
-   export class RepositoryError extends Error {
-     constructor(
-       message: string,
-       public readonly cause?: Error
-     ) {
-       super(message);
-       this.name = "RepositoryError";
-     }
-   }
-
-   export class RemoteGitBackend implements RepositoryBackend {
-     protected config: RepositoryConfig;
-     private localPath: string;
-     private cache: RepositoryMetadataCache;
-
-     constructor(config: RepositoryConfig) {
-       this.config = {
-         ...config,
-         type: RepositoryBackendType.REMOTE,
-       };
-       this.localPath = "";
-       this.cache = RepositoryMetadataCache.getInstance();
-     }
-
-     async clone(destination: string): Promise<void> {
-       try {
-         // Clone using system git config for authentication
-         await execGit(["clone", this.config.url, destination]);
-         this.localPath = destination;
-
-         // Checkout specific branch if provided
-         if (this.config.branch) {
-           await this.checkout(this.config.branch);
-         }
-       } catch (error) {
-         throw new RepositoryError(
-           `Failed to clone repository from ${this.config.url}`,
-           error instanceof Error ? error : undefined
-         );
-       }
-     }
-
-     async getStatus(): Promise<RepositoryStatus> {
-       const cacheKey = `status-${this.localPath}`;
-
-       return this.cache.get(
-         cacheKey,
-         async () => {
-           try {
-             const statusOutput = await execGit(["status", "--porcelain"], { cwd: this.localPath });
-             const branchOutput = await execGit(["branch", "--show-current"], {
-               cwd: this.localPath,
-             });
-             const trackingOutput = await execGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
-               cwd: this.localPath,
-             }).catch(() => "");
-
-             return {
-               clean: statusOutput.trim() === "",
-               changes: statusOutput.split("\n").filter((line) => line.trim() !== ""),
-               branch: branchOutput.trim(),
-               tracking: trackingOutput.trim() || undefined,
-             };
-           } catch (error) {
-             throw new RepositoryError(
-               "Failed to get repository status",
-               error instanceof Error ? error : undefined
-             );
-           }
-         },
-         30000
-       ); // 30-second cache
-     }
-
-     // Other methods with similar improvements...
-
-     async validate(): Promise<{ valid: boolean; issues?: string[] }> {
-       try {
-         const issues: string[] = [];
-
-         // Check if directory exists and is a git repository
-         try {
-           await execGit(["rev-parse", "--git-dir"], { cwd: this.localPath });
-         } catch (error) {
-           issues.push("Not a valid git repository");
-           return { valid: false, issues };
-         }
-
-         // Check if remote is accessible
-         try {
-           await execGit(["ls-remote", "--exit-code", "origin"], { cwd: this.localPath });
-         } catch (error) {
-           issues.push("Remote origin is not accessible");
-         }
-
-         return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
-       } catch (error) {
-         return {
-           valid: false,
-           issues: [
-             "Failed to validate repository: " +
-               (error instanceof Error ? error.message : String(error)),
-           ],
-         };
-       }
-     }
-   }
-   ```
-
-### Phase 3: Unified CLI Interface
-
-1. Update `src/commands/session/start.ts` with consistent repository options:
-
-   - Use the `--repo` option for both local paths and remote URLs
-   - Add type detection logic to determine if a repo is local or remote
-   - Maintain backward compatibility for existing options
-   - Apply consistent naming patterns
-
-   ```typescript
-   // src/commands/session/start.ts
-   return new Command("start")
-     .description("Start a new session with a repository")
-     .argument("[session]", "Session identifier (optional if --task is provided)")
-     .option("-r, --repo <repo>", "Repository URL or local path")
-     .option("-b, --branch <branch>", "Branch to checkout (for remote repositories)")
-     .option("--backend <type>", "Repository backend type (local, remote, github)", "auto")
-     .option("--github-owner <owner>", "GitHub repository owner (for github backend)")
-     .option("--github-repo <repo>", "GitHub repository name (for github backend)")
-     .option("-t, --task <taskId>", "Task ID to associate with the session")
-     .option("-q, --quiet", "Output only the session directory path")
-     .option("--no-status-update", "Skip automatic task status update to IN-PROGRESS")
-     .action(async (sessionArg, options) => {
-       try {
-         // Check if current directory is already within a session
-         // ... existing code ...
-
-         // Auto-detect repository type if not explicitly specified
-         let backendType = options.backend;
-         let repoIdentifier = options.repo;
-
-         // Auto-detect backend type
-         if (backendType === "auto" && repoIdentifier) {
-           if (
-             repoIdentifier.startsWith("http://") ||
-             repoIdentifier.startsWith("https://") ||
-             repoIdentifier.startsWith("git@")
-           ) {
-             backendType = "remote";
-
-             // Further detect if it's specifically GitHub
-             if (repoIdentifier.includes("github.com")) {
-               backendType = "github";
-             }
-           } else {
-             backendType = "local";
-           }
-         }
-
-         // Create appropriate repository configuration
-         let repoConfig: RepositoryConfig;
-
-         switch (backendType) {
-           case "local":
-             // ... existing local repo handling
-             break;
-           case "remote":
-             repoConfig = {
-               type: RepositoryBackendType.REMOTE,
-               url: repoIdentifier,
-               branch: options.branch,
-             };
-             break;
-           case "github":
-             // ... existing GitHub handling
-             break;
-           default:
-             throw new Error(`Unsupported backend type: ${backendType}`);
-         }
-
-         // ... continue with session creation
-       } catch (error) {
-         // ... error handling
-       }
-     });
-   ```
-
-### Phase 4: Migration Strategy for Existing Sessions
-
-1. Add migration support in `src/domain/session.ts`:
-
-   - Ensure backward compatibility with existing sessions
-   - Add version field to session configuration
-   - Implement automatic migration for older session formats
-   - Provide utilities for upgrading session configurations
-
-   ```typescript
-   // Update session configuration
-   export interface SessionConfig {
-     version: number; // Add version field
-     name: string;
-     repo: RepositoryConfig;
-     // ... other fields
-   }
-
-   // Migration function for older session configs
-   export function migrateSessionConfig(oldConfig: any): SessionConfig {
-     if (oldConfig.version >= 2) {
-       return oldConfig as SessionConfig; // Already migrated
-     }
-
-     // Migrate from version 1 (implicit local backend) to version 2
-     if (!oldConfig.version) {
-       return {
-         version: 2,
-         name: oldConfig.name,
-         repo: {
-           type: RepositoryBackendType.LOCAL,
-           path: oldConfig.repoPath || oldConfig.repoUrl,
-         },
-         // Copy other fields from old config
-         ...Object.fromEntries(
-           Object.entries(oldConfig).filter(
-             ([key]) => !["repoPath", "repoUrl", "version"].includes(key)
-           )
-         ),
-       };
-     }
-
-     throw new Error(`Unknown session config version: ${oldConfig.version}`);
-   }
-
-   // When loading sessions, apply migration
-   export async function loadSession(sessionName: string): Promise<SessionConfig> {
-     const rawConfig = await sessionDb.getSession(sessionName);
-     return migrateSessionConfig(rawConfig);
-   }
-   ```
-
-### Phase 5: Testing Strategy
-
-1. Comprehensive testing with proper isolation:
-
-   - Unit tests for backend interfaces with mocked git operations
-   - Integration tests for the complete workflow
-   - Test coverage for migration and backward compatibility
-   - Test for specific error scenarios
-
-   ```typescript
-   // Example test file structure
-   // src/domain/__tests__/remoteGitBackend.test.ts
-
-   describe("RemoteGitBackend", () => {
-     // Mock git execution to avoid actual git operations
-     beforeEach(() => {
-       jest.spyOn(gitUtils, "execGit").mockImplementation(async (args, options) => {
-         // Return mock data based on command
-         if (args[0] === "clone") return "";
-         if (args[0] === "status") return "";
-         // ... other commands
-         return "";
-       });
-     });
-
-     it("should clone remote repository", async () => {
-       // ... test implementation
-     });
-
-     it("should use system git config for authentication", async () => {
-       // ... test implementation
-     });
-
-     it("should handle network errors gracefully", async () => {
-       // ... test implementation
-     });
-
-     // ... other tests
-   });
-   ```
-
-### Implementation Sequence
-
-1. Phase 1: Repository Backend Interface Refinement
-
-   - Update the interface with proper typing
-   - Implement caching mechanism
-   - Update existing LocalGitBackend to use the refined interface
-
-2. Phase 3: Unified CLI Interface
-
-   - Update CLI options for consistency
-   - Implement auto-detection logic
-   - Update help documentation
-
-3. Phase 4: Migration Strategy
-
-   - Implement session configuration versioning
-   - Add migration utilities
-   - Test backward compatibility
-
-4. Phase 2: Remote Git Backend Implementation
-
-   - Implement RemoteGitBackend with system git authentication
-   - Integrate with caching system
-   - Add proper error handling
-
-5. Extend GitHub Backend
-
-   - Update GitHubBackend to extend RemoteGitBackend
-   - Ensure GitHub-specific features work correctly
-
-6. Final Testing and Documentation
-   - End-to-end testing of the complete workflow
-   - Update documentation with new options and features
-
-## Work Log
-
-### 2025-05-12: Initial Implementation
-
-- Created the repository backend architecture:
-
-  - Defined `RepositoryBackend` interface with required methods
-  - Created `Result` and `RepoStatus` types for consistent return values
-  - Implemented `RepositoryBackendConfig` for configuration
-
-- Implemented backend classes:
-
-  - `LocalGitBackend`: Extracted from existing code, handles local repositories
-  - `RemoteGitBackend`: New implementation for generic remote Git repositories
-  - `GitHubBackend`: Updated for GitHub-specific repositories
-
-- Added factory function `createRepositoryBackend` that creates appropriate backend based on configuration type
-- Created branch `task#014-repo-backend` with initial implementation
-
-### 2025-05-13: Interface Refinement and Type Safety
-
-- Fixed interface consistency issues between `RepositoryBackend.ts` and `index.ts`
-- Resolved type safety issues in all repository implementations:
-  - Updated `github.ts` to handle nullable values and improved type definitions
-  - Fixed `local.ts` to properly implement the `RepoStatus` interface
-  - Updated `remote.ts` to handle potential undefined values in parsed output
-- Fixed code style issues (quotes, formatting) across repository module files
-- Enhanced error handling in git operations with better error messages and type checking
-- Committed all changes to the session branch
+- 2025-05-10: Created repository backend interface in src/domain/repository/RepositoryBackend.ts with essential operations
+- 2025-05-10: Implemented LocalGitBackend to match current functionality with the new interface
+- 2025-05-10: Created RemoteGitBackend implementation with support for remote repository operations
+- 2025-05-10: Added GitHubBackend with GitHub-specific features and API integration
+- 2025-05-10: Developed index.ts with factory function to create appropriate backend based on configuration
+- 2025-05-11: Fixed failing tests by updating testing approach to use Bun instead of Jest
+- 2025-05-12: Fixed linting errors in the SessionDB implementation
 
 ## Remaining Work
 
-1. **Integration with Session Commands**:
+1. **Session Integration**
 
-   - Complete implementation of the remote repository backend in session commands
-   - Test backend selection logic with different repository URL formats
-   - Ensure smooth transition between backend types
+   - Complete the integration with session management
+   - Update session creation to use the appropriate backend based on configuration
+   - Add support for backend-specific options in session commands
 
-2. **Remote Git Authentication**:
+2. **Configuration**
 
-   - Implement authentication handling for SSH and HTTPS remote repositories
-   - Add support for credentials in configuration
+   - Add configuration options for each backend type
+   - Implement proper validation for backend-specific options
+   - Document configuration process in README
 
-3. **Testing**:
+3. **CLI Updates**
 
-   - Complete unit tests for RemoteGitBackend
-   - Add integration tests for various remote repository scenarios
-   - Test with different authentication methods
+   - Add --backend option to session start and related commands
+   - Support all required backend-specific options
+   - Update help text and documentation
 
-4. **Documentation**:
+4. **Testing**
 
-   - Add detailed Remote Git setup instructions
-   - Document configuration options for remote repositories
-   - Include examples for different remote setups (GitHub, GitLab, custom Git servers)
+   - Complete integration tests between session management and repository backends
+   - Add tests for error handling scenarios
+   - Ensure full test coverage for new functionality
 
-5. **Final Verification**:
-   - Verify that Remote Git backend successfully clones, pushes, and pulls repositories
-   - Test error handling with network issues, authentication failures, etc.
-   - Ensure all tests pass with the refined interfaces
+5. **Documentation**
+   - Add comprehensive documentation for all backend types
+   - Include examples for common use cases
+   - Document configuration and setup requirements
