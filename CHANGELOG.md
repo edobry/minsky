@@ -128,12 +128,21 @@
   - Added tests for MCP configuration generation and CLI options
   - Added `--mcp-only` option to configure MCP in existing projects without reinitializing other files
   - Added `--overwrite` option to update existing configuration files
+- Implemented interface-agnostic command architecture for task #039, enabling direct function calls across different interfaces (CLI, MCP, and others):
+  - Extracted pure domain functions for tasks, session, and git commands with TypeScript interfaces
+  - Added Zod schemas for parameter validation and consistent error handling
+  - Created adapter layers for CLI and MCP interfaces using the same domain functions
+  - Converted task commands from CommonJS to ESM syntax for better module compatibility
+  - Added createTaskFromParams domain function to complete the task command set
+  - All functions follow consistent interface patterns with dependency injection for testing
+  - Merged latest changes from main branch and resolved conflicts in git.ts
 
 _See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
 _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
 _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
 _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
+_See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
 
 ### Changed
 
