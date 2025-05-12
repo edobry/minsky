@@ -38,7 +38,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
 - [x] Add `rules` command for managing Minsky rules [#029](process/tasks/029-add-rules-command.md)
-- [-] Setup Project Tooling and Automation [#030](process/tasks/030-setup-project-tooling-and-automation.md)
+- [x] Setup Project Tooling and Automation [#030](process/tasks/030-setup-project-tooling-and-automation.md)
 - [x] Add Filter Messages to `tasks list` Command [#031](tasks/031-add-task-filter-messages.md)
 - [x] Auto-Rename Task Spec Files in `tasks create` Command [#032](tasks/032-auto-rename-task-spec-files.md)
 - [ ] Enhance Minsky Init Command with Additional Rules [#033](tasks/033-enhance-init-command-with-additional-rules.md)
@@ -64,3 +64,5 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
 - [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
+
+- [ ] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
