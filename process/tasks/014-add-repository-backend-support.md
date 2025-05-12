@@ -166,6 +166,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Phase 1: Repository Backend Interface Refinement
 
 1. Create or update the core interface in `src/domain/repository.ts`:
+
    - Define the `RepositoryBackendType` enum (LOCAL, REMOTE, GITHUB)
    - Define strongly typed interfaces for repository operations
    - Create repository configuration types with clear validation rules
@@ -186,21 +187,22 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
      getStatus(): Promise<RepositoryStatus>;
      getPath(): string;
      validate(): Promise<{ valid: boolean; issues?: string[] }>;
-     
+
      // Remote operations
      push(branch?: string): Promise<void>;
      pull(branch?: string): Promise<void>;
-     
+
      // Branch operations
      createBranch(name: string): Promise<void>;
      checkout(branch: string): Promise<void>;
-     
+
      // Configuration
      getConfig(): RepositoryConfig;
    }
    ```
 
 2. Create a common repository operations utility in `src/utils/repository-utils.ts`:
+
    - Implement caching mechanism for repository metadata
    - Define cache invalidation strategies
    - Add helper methods for common operations
@@ -211,33 +213,33 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
      private static instance: RepositoryMetadataCache;
      private cache: Map<string, { data: any; timestamp: number }> = new Map();
      private readonly DEFAULT_TTL = 5 * 60 * 1000; // 5 minutes
-     
+
      private constructor() {}
-     
+
      static getInstance(): RepositoryMetadataCache {
        if (!RepositoryMetadataCache.instance) {
          RepositoryMetadataCache.instance = new RepositoryMetadataCache();
        }
        return RepositoryMetadataCache.instance;
      }
-     
+
      async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {
        const cacheEntry = this.cache.get(key);
        const now = Date.now();
-       
+
        if (cacheEntry && now - cacheEntry.timestamp < ttl) {
          return cacheEntry.data as T;
        }
-       
+
        const data = await fetcher();
        this.cache.set(key, { data, timestamp: now });
        return data;
      }
-     
+
      invalidate(key: string): void {
        this.cache.delete(key);
      }
-     
+
      invalidateAll(): void {
        this.cache.clear();
      }
@@ -247,6 +249,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Phase 2: Remote Git Backend Implementation
 
 1. Implement `src/domain/remoteGitBackend.ts` with system git authentication:
+
    - Rely on the system's git configuration for authentication
    - Support remote repository operations via git CLI
    - Implement proper error handling with domain-specific errors
@@ -254,14 +257,22 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
    ```typescript
    // src/domain/remoteGitBackend.ts
-   import { RepositoryBackend, RepositoryConfig, RepositoryStatus, RepositoryBackendType } from './repository';
-   import { execGit } from '../utils/git';
-   import { RepositoryMetadataCache } from '../utils/repository-utils';
+   import {
+     RepositoryBackend,
+     RepositoryConfig,
+     RepositoryStatus,
+     RepositoryBackendType,
+   } from "./repository";
+   import { execGit } from "../utils/git";
+   import { RepositoryMetadataCache } from "../utils/repository-utils";
 
    export class RepositoryError extends Error {
-     constructor(message: string, public readonly cause?: Error) {
+     constructor(
+       message: string,
+       public readonly cause?: Error
+     ) {
        super(message);
-       this.name = 'RepositoryError';
+       this.name = "RepositoryError";
      }
    }
 
@@ -275,16 +286,16 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
          ...config,
          type: RepositoryBackendType.REMOTE,
        };
-       this.localPath = '';
+       this.localPath = "";
        this.cache = RepositoryMetadataCache.getInstance();
      }
 
      async clone(destination: string): Promise<void> {
        try {
          // Clone using system git config for authentication
-         await execGit(['clone', this.config.url, destination]);
+         await execGit(["clone", this.config.url, destination]);
          this.localPath = destination;
-         
+
          // Checkout specific branch if provided
          if (this.config.branch) {
            await this.checkout(this.config.branch);
@@ -299,26 +310,34 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
      async getStatus(): Promise<RepositoryStatus> {
        const cacheKey = `status-${this.localPath}`;
-       
-       return this.cache.get(cacheKey, async () => {
-         try {
-           const statusOutput = await execGit(['status', '--porcelain'], { cwd: this.localPath });
-           const branchOutput = await execGit(['branch', '--show-current'], { cwd: this.localPath });
-           const trackingOutput = await execGit(['rev-parse', '--abbrev-ref', '@{upstream}'], { cwd: this.localPath }).catch(() => '');
-           
-           return {
-             clean: statusOutput.trim() === '',
-             changes: statusOutput.split('\n').filter(line => line.trim() !== ''),
-             branch: branchOutput.trim(),
-             tracking: trackingOutput.trim() || undefined
-           };
-         } catch (error) {
-           throw new RepositoryError(
-             'Failed to get repository status',
-             error instanceof Error ? error : undefined
-           );
-         }
-       }, 30000); // 30-second cache
+
+       return this.cache.get(
+         cacheKey,
+         async () => {
+           try {
+             const statusOutput = await execGit(["status", "--porcelain"], { cwd: this.localPath });
+             const branchOutput = await execGit(["branch", "--show-current"], {
+               cwd: this.localPath,
+             });
+             const trackingOutput = await execGit(["rev-parse", "--abbrev-ref", "@{upstream}"], {
+               cwd: this.localPath,
+             }).catch(() => "");
+
+             return {
+               clean: statusOutput.trim() === "",
+               changes: statusOutput.split("\n").filter((line) => line.trim() !== ""),
+               branch: branchOutput.trim(),
+               tracking: trackingOutput.trim() || undefined,
+             };
+           } catch (error) {
+             throw new RepositoryError(
+               "Failed to get repository status",
+               error instanceof Error ? error : undefined
+             );
+           }
+         },
+         30000
+       ); // 30-second cache
      }
 
      // Other methods with similar improvements...
@@ -326,27 +345,30 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
      async validate(): Promise<{ valid: boolean; issues?: string[] }> {
        try {
          const issues: string[] = [];
-         
+
          // Check if directory exists and is a git repository
          try {
-           await execGit(['rev-parse', '--git-dir'], { cwd: this.localPath });
+           await execGit(["rev-parse", "--git-dir"], { cwd: this.localPath });
          } catch (error) {
-           issues.push('Not a valid git repository');
+           issues.push("Not a valid git repository");
            return { valid: false, issues };
          }
-         
+
          // Check if remote is accessible
          try {
-           await execGit(['ls-remote', '--exit-code', 'origin'], { cwd: this.localPath });
+           await execGit(["ls-remote", "--exit-code", "origin"], { cwd: this.localPath });
          } catch (error) {
-           issues.push('Remote origin is not accessible');
+           issues.push("Remote origin is not accessible");
          }
-         
+
          return { valid: issues.length === 0, issues: issues.length > 0 ? issues : undefined };
        } catch (error) {
-         return { 
-           valid: false, 
-           issues: ['Failed to validate repository: ' + (error instanceof Error ? error.message : String(error))]
+         return {
+           valid: false,
+           issues: [
+             "Failed to validate repository: " +
+               (error instanceof Error ? error.message : String(error)),
+           ],
          };
        }
      }
@@ -356,6 +378,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Phase 3: Unified CLI Interface
 
 1. Update `src/commands/session/start.ts` with consistent repository options:
+
    - Use the `--repo` option for both local paths and remote URLs
    - Add type detection logic to determine if a repo is local or remote
    - Maintain backward compatibility for existing options
@@ -378,18 +401,20 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
        try {
          // Check if current directory is already within a session
          // ... existing code ...
-         
+
          // Auto-detect repository type if not explicitly specified
          let backendType = options.backend;
          let repoIdentifier = options.repo;
-         
+
          // Auto-detect backend type
          if (backendType === "auto" && repoIdentifier) {
-           if (repoIdentifier.startsWith("http://") || 
-               repoIdentifier.startsWith("https://") || 
-               repoIdentifier.startsWith("git@")) {
+           if (
+             repoIdentifier.startsWith("http://") ||
+             repoIdentifier.startsWith("https://") ||
+             repoIdentifier.startsWith("git@")
+           ) {
              backendType = "remote";
-             
+
              // Further detect if it's specifically GitHub
              if (repoIdentifier.includes("github.com")) {
                backendType = "github";
@@ -398,10 +423,10 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
              backendType = "local";
            }
          }
-         
+
          // Create appropriate repository configuration
          let repoConfig: RepositoryConfig;
-         
+
          switch (backendType) {
            case "local":
              // ... existing local repo handling
@@ -410,7 +435,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
              repoConfig = {
                type: RepositoryBackendType.REMOTE,
                url: repoIdentifier,
-               branch: options.branch
+               branch: options.branch,
              };
              break;
            case "github":
@@ -419,7 +444,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
            default:
              throw new Error(`Unsupported backend type: ${backendType}`);
          }
-         
+
          // ... continue with session creation
        } catch (error) {
          // ... error handling
@@ -430,6 +455,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Phase 4: Migration Strategy for Existing Sessions
 
 1. Add migration support in `src/domain/session.ts`:
+
    - Ensure backward compatibility with existing sessions
    - Add version field to session configuration
    - Implement automatic migration for older session formats
@@ -443,13 +469,13 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
      repo: RepositoryConfig;
      // ... other fields
    }
-   
+
    // Migration function for older session configs
    export function migrateSessionConfig(oldConfig: any): SessionConfig {
      if (oldConfig.version >= 2) {
        return oldConfig as SessionConfig; // Already migrated
      }
-     
+
      // Migrate from version 1 (implicit local backend) to version 2
      if (!oldConfig.version) {
        return {
@@ -457,20 +483,20 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
          name: oldConfig.name,
          repo: {
            type: RepositoryBackendType.LOCAL,
-           path: oldConfig.repoPath || oldConfig.repoUrl
+           path: oldConfig.repoPath || oldConfig.repoUrl,
          },
          // Copy other fields from old config
          ...Object.fromEntries(
-           Object.entries(oldConfig).filter(([key]) => 
-             !['repoPath', 'repoUrl', 'version'].includes(key)
+           Object.entries(oldConfig).filter(
+             ([key]) => !["repoPath", "repoUrl", "version"].includes(key)
            )
-         )
+         ),
        };
      }
-     
+
      throw new Error(`Unknown session config version: ${oldConfig.version}`);
    }
-   
+
    // When loading sessions, apply migration
    export async function loadSession(sessionName: string): Promise<SessionConfig> {
      const rawConfig = await sessionDb.getSession(sessionName);
@@ -481,6 +507,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Phase 5: Testing Strategy
 
 1. Comprehensive testing with proper isolation:
+
    - Unit tests for backend interfaces with mocked git operations
    - Integration tests for the complete workflow
    - Test coverage for migration and backward compatibility
@@ -489,31 +516,31 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    ```typescript
    // Example test file structure
    // src/domain/__tests__/remoteGitBackend.test.ts
-   
-   describe('RemoteGitBackend', () => {
+
+   describe("RemoteGitBackend", () => {
      // Mock git execution to avoid actual git operations
      beforeEach(() => {
-       jest.spyOn(gitUtils, 'execGit').mockImplementation(async (args, options) => {
+       jest.spyOn(gitUtils, "execGit").mockImplementation(async (args, options) => {
          // Return mock data based on command
-         if (args[0] === 'clone') return '';
-         if (args[0] === 'status') return '';
+         if (args[0] === "clone") return "";
+         if (args[0] === "status") return "";
          // ... other commands
-         return '';
+         return "";
        });
      });
-     
-     it('should clone remote repository', async () => {
+
+     it("should clone remote repository", async () => {
        // ... test implementation
      });
-     
-     it('should use system git config for authentication', async () => {
+
+     it("should use system git config for authentication", async () => {
        // ... test implementation
      });
-     
-     it('should handle network errors gracefully', async () => {
-       // ... test implementation 
+
+     it("should handle network errors gracefully", async () => {
+       // ... test implementation
      });
-     
+
      // ... other tests
    });
    ```
@@ -521,26 +548,31 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 ### Implementation Sequence
 
 1. Phase 1: Repository Backend Interface Refinement
+
    - Update the interface with proper typing
    - Implement caching mechanism
    - Update existing LocalGitBackend to use the refined interface
 
 2. Phase 3: Unified CLI Interface
+
    - Update CLI options for consistency
    - Implement auto-detection logic
    - Update help documentation
 
 3. Phase 4: Migration Strategy
+
    - Implement session configuration versioning
    - Add migration utilities
    - Test backward compatibility
 
 4. Phase 2: Remote Git Backend Implementation
+
    - Implement RemoteGitBackend with system git authentication
    - Integrate with caching system
    - Add proper error handling
 
 5. Extend GitHub Backend
+
    - Update GitHubBackend to extend RemoteGitBackend
    - Ensure GitHub-specific features work correctly
 
@@ -550,12 +582,58 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 ## Work Log
 
-- 2023-XX-XX: Created repository backend interface
-- 2023-XX-XX: Implemented LocalGitBackend wrapping current git operations
-- 2023-XX-XX: Implemented GitHubBackend for GitHub integration
-- 2023-XX-XX: Updated session creation to support repository backends
-- 2023-XX-XX: Added backend-specific CLI options to session commands
-- 2023-XX-XX: Added tests for both backends and integration tests
-- 2023-XX-XX: Updated documentation and CHANGELOG.md 
-- 2025-05-09: Created detailed implementation plan for Remote Git backend support
-- 2025-05-09: Revised implementation plan based on senior engineer feedback
+### 2025-05-12: Initial Implementation
+
+- Created the repository backend architecture:
+
+  - Defined `RepositoryBackend` interface with required methods
+  - Created `Result` and `RepoStatus` types for consistent return values
+  - Implemented `RepositoryBackendConfig` for configuration
+
+- Implemented backend classes:
+
+  - `LocalGitBackend`: Extracted from existing code, handles local repositories
+  - `RemoteGitBackend`: New implementation for generic remote Git repositories
+  - `GitHubBackend`: Updated for GitHub-specific repositories
+
+- Added factory function `createRepositoryBackend` that creates appropriate backend based on configuration type
+- Created branch `task#014-repo-backend` with initial implementation
+
+### Implementation Issues to Resolve:
+
+1. Linter errors related to Node.js imports (`node:path`, `node:fs/promises`, etc.)
+2. Type compatibility between `getStatus()` implementation and interface signature
+3. Documentation of new interfaces and usage examples
+
+## Remaining Work
+
+1. **Linter Issues**:
+
+   - Fix Node.js import errors across implementations
+   - Update `getStatus()` return type to match `RepoStatus` interface
+
+2. **Session Integration**:
+
+   - Update session creation to use the configured backend
+   - Add backend selection to session CLI commands
+   - Ensure backward compatibility for existing sessions
+
+3. **Testing**:
+
+   - Add unit tests for all repository backends
+   - Create integration tests for remote repository operations
+
+4. **Documentation**:
+
+   - Add examples for each backend type
+   - Document repository backend configuration options
+
+5. **CLI Updates**:
+
+   - Add `--backend` option to relevant session commands
+   - Add remote repository specific options (URL, branch)
+   - Add GitHub-specific options (token, owner, repo)
+
+6. **Error Handling**:
+   - Improve error messages for common repository issues
+   - Add validation for backend configuration options
