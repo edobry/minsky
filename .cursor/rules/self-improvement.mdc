@@ -1,0 +1,194 @@
+---
+description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
+globs: 
+alwaysApply: false
+---
+# Self-Improvement
+
+When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
+
+Listen for these user signals:
+
+### Error and Dissatisfaction Signals
+- Direct correction: "that's wrong", "incorrect", "not right"
+- Questions about rationale: "why did you do that?", "what were you thinking?"
+- Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
+- Implied dissatisfaction: "that's not what I asked for", "this doesn't work"
+
+### Preference and Directive Signals
+- Future instructions: "make sure to always...", "going forward, always..."
+- Preference statements: "remember that I want...", "I prefer..."
+- Prohibitions: "never do this again", "stop doing..."
+- Conditional directives: "every time X happens, do Y"
+- Standard setting: "from now on, when..."
+
+## Self-Reflection Protocol
+
+1. **Pause and analyze failed mental model**
+   - Identify the specific action or reasoning that failed
+   - Trace back through your thought process that led to the error
+   - Isolate assumptions that proved incorrect
+
+2. **Create feedback verification loop**
+   - Before continuing, verify your understanding of what went wrong
+   - Acknowledge the specific error without defensiveness
+   - Confirm you understand the user's correction
+
+3. **Explicitly identify error category**
+   ```
+   [ ] Assumption Error: Started with incorrect premise
+   [ ] Process Error: Used wrong methodology/approach
+   [ ] Instruction Error: Misunderstood or skipped requirements
+   [ ] Context Error: Failed to consider relevant information
+   [ ] Pattern Error: Applied pattern inappropriately
+   [ ] Verification Error: Failed to validate before proceeding
+   [ ] Tool Error: Misused available tools/functions
+   [ ] Preference Error: Failed to adhere to user preferences
+   ```
+
+4. **Rule gap analysis**
+   - Identify which rule could have prevented this error
+   - Determine if the gap is:
+     - Missing rule entirely
+     - Inadequate existing rule
+     - Failure to apply correct existing rule
+     - Conflicting rules creating ambiguity
+     - Missing user preference
+
+## Immediate Correction Action
+
+Based on your analysis:
+
+1. **For existing rule gaps**:
+   - Articulate specifically how the rule would need to be updated
+   - Focus on actionable, concrete improvements
+
+2. **For missing rules**:
+   - Propose new rule addressing the specific failure mode
+   - Ensure the rule is precise, testable, and applicable
+
+3. **For application failures**:
+   - Identify why the correct rule wasn't applied
+   - Create a meta-rule or priority hierarchy if needed
+
+4. **For user preference directives**:
+   - Document the preference clearly in the user-preferences rule
+   - If no user-preferences rule exists, propose creating one
+   - Update the most relevant rule based on the preference
+
+## Immediate Implementation Requirement
+
+**CRITICAL:** After identifying required rule changes, they MUST be implemented immediately:
+
+1. **No "talking about changes" without making them**:
+   - NEVER merely describe what changes should be made
+   - IMMEDIATELY perform the file edit operation after analysis
+   - Verify the edit was successfully applied
+
+2. **Implementation verification**:
+   - After making a rule change, verify it was actually committed
+   - If the user points out the change was not made, skip re-analysis and immediately implement
+   - Use concrete actions, not plans or intentions
+
+3. **Meta-error prevention**:
+   - If caught describing changes without implementing them, treat this as a critical protocol failure
+   - Immediately make the change without further discussion
+   - This is considered a serious violation of the self-improvement framework
+
+## Rule Update Protocol
+
+When updating rules based on user feedback:
+
+1. **For user preferences**:
+   - Add to or update the user-preferences rule
+   - Format as clear, actionable directives
+   - Include examples of correct behavior
+
+2. **For specific workflows**:
+   - Identify the most specific rule that addresses the concern
+   - Update that rule rather than creating duplicative content
+   - Ensure the update integrates well with existing directives
+
+3. **For general behaviors**:
+   - Update highest-level applicable rule
+   - Add clear section headers for discoverability
+   - Ensure the scope and triggers are well-defined
+
+## Error Prevention Mechanism
+
+Implement these patterns to minimize recurrence:
+
+- **Verification checkpoints**: Establish explicit verification steps
+- **Assumption testing**: Validate key assumptions before proceeding
+- **Progress confirmation**: Regularly confirm alignment with user intent
+- **Tool usage protocol**: Verify tool arguments and outputs match expectations
+- **Preference review**: Scan for user preferences at the start of new sessions
+
+## Examples
+
+### Error Correction
+
+// AVOID
+User: "That's not correct. I needed the absolute path."
+Assistant: "I'll fix that right away." [proceeds without understanding root cause]
+
+// PREFER
+User: "That's not correct. I needed the absolute path."
+Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
+
+### Preference Handling
+
+// AVOID
+User: "Going forward, always use absolute paths when editing files in the session workspace."
+Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
+
+// PREFER
+User: "Going forward, always use absolute paths when editing files in the session workspace."
+Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
+
+## Rule-Driven Remediation Requirement
+
+Whenever a process, application, or verification error occurs (i.e., a rule is not followed in practice, regardless of whether the rule exists), the AI must:
+- Update or create a rule (or meta-rule) to explicitly prevent recurrence of that error, even if the rule already exists in some form.
+- Add a verification checkpoint or enforcement step to the relevant rule(s) to ensure the correct process is followed in the future.
+- Document the error and the rule update in the session worklog or changelog.
+
+This applies to all failures, including those due to misunderstanding, oversight, or failure to apply an existing rule. The goal is to ensure that the rule system evolves to prevent not just gaps, but also lapses in application.
+
+## Pre-Change Communication Protocol
+
+- Before making any rule or process change in response to user feedback:
+  1. Pause and analyze the root cause of the failure.
+  2. Explicitly communicate this analysis, including the error category and reasoning, to the user.
+  3. Only proceed with the change after this analysis and communication step.
+
+This ensures transparency and gives the user a chance to correct or clarify the assistant's analysis.
+
+## Rule Selection and Update Protocol
+
+**To ensure corrections and new requirements are always applied to the most relevant rule, follow this protocol:**
+
+### 1. Rule Authority Hierarchy
+- **Project Workflow/Process Rules** (e.g., minsky-workflow, session-first-workflow): Always check and update these first for any process, workflow, or command usage requirements.
+- **User-Preferences Rule:** Only update if the user expresses a new, personal preference not already covered by a project workflow rule, or if the user explicitly requests a preference override.
+- **Self-Improvement Rule:** Use for meta-process corrections, error analysis, and documenting how/why a process failed.
+- **Other Domain-Specific Rules:** Update only if the issue is specific to that domain (e.g., constants-management, robust-error-handling).
+
+### 2. Rule Update Steps
+1. Identify the nature of the correction or new requirement.
+2. Search for the most specific, authoritative rule that governs this area.
+3. If a project workflow/process rule exists and covers the case, update or clarify that rule.
+4. If the issue is a user-specific preference not covered by workflow rules, update user-preferences.
+5. If the issue is a meta-process or error pattern, update self-improvement.
+6. Never duplicate logic across rules; always centralize in the most relevant rule.
+
+### 3. Verification Checkpoint
+- Before making any rule update, explicitly state which rule is being updated and why.
+- Justify the choice based on the above hierarchy.
+- If uncertain, default to updating the project workflow/process rule and note the reasoning.
+
+### 4. Automation Directive
+- For every correction, run a rule search (by name and description) to confirm the most relevant rule.
+- If a more relevant rule is found after an update, immediately migrate the update to the correct rule and remove it from the less relevant one.
+
+This protocol must be followed for all future rule updates and corrections.

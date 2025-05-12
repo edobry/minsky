@@ -4,6 +4,7 @@ import { resolveRepoPath } from "../../domain/repo-utils";
 import { resolveWorkspacePath } from "../../domain/workspace";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { generateFilterMessages } from "../../utils/filter-messages";
 
 const execAsync = promisify(exec);
 
@@ -62,6 +63,18 @@ export function createListCommand(): Command {
           if (options.json) {
             console.log(JSON.stringify([]));
           } else {
+            // Generate and display filter messages in non-JSON mode
+            const filterMessages = generateFilterMessages({
+              status: options.status,
+              all: options.all
+            });
+            
+            // Display filter messages if any exist
+            if (filterMessages.length > 0) {
+              filterMessages.forEach(message => console.log(message));
+              console.log("");
+            }
+            
             console.log("No tasks found.");
           }
           return;
@@ -70,6 +83,18 @@ export function createListCommand(): Command {
         if (options.json) {
           console.log(JSON.stringify(tasks, null, 2));
         } else {
+          // Generate and display filter messages in non-JSON mode
+          const filterMessages = generateFilterMessages({
+            status: options.status,
+            all: options.all
+          });
+          
+          // Display filter messages if any exist
+          if (filterMessages.length > 0) {
+            filterMessages.forEach(message => console.log(message));
+            console.log("");
+          }
+          
           console.log("Tasks:");
           tasks.forEach(task => {
             console.log(`- ${task.id}: ${task.title} [${task.status}]`);

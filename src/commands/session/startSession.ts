@@ -1,8 +1,8 @@
 import { GitService } from "../../domain/git";
 import { SessionDB, type SessionRecord } from "../../domain/session";
-import { TaskService } from "../../domain/tasks";
-import fs from "fs";
-import path from "path";
+import { TaskService, TASK_STATUS } from "../../domain/tasks";
+import * as fs from "fs";
+import * as path from "path";
 import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils";
 import { normalizeTaskId } from "../../utils/task-utils";
 
@@ -14,6 +14,7 @@ export interface StartSessionOptions {
   session?: string;
   repo?: string;
   taskId?: string;
+  noStatusUpdate?: boolean;
   gitService?: GitService;
   sessionDB?: SessionDB;
   fs?: typeof fs;
@@ -26,14 +27,37 @@ export interface StartSessionResult {
   sessionRecord: SessionRecord;
   cloneResult: { workdir: string };
   branchResult: { branch: string };
+  statusUpdateResult?: {
+    taskId: string;
+    previousStatus: string | null;
+    newStatus: string;
+  };
 }
 
-export async function startSession({ session, repo, taskId, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
-  gitService = gitService || new GitService();
-  sessionDB = sessionDB || new SessionDB();
-  fs = fs || fsDefault;
-  path = path || pathDefault;
-  resolveRepoPath = resolveRepoPath || resolveRepoPathDefault;
+export async function startSession({ session, repo, taskId, noStatusUpdate, gitService, sessionDB, fs, path, resolveRepoPath, taskService }: StartSessionOptions): Promise<StartSessionResult> {
+  // Only use default if the value is undefined (not null or a falsy mock)
+  gitService = typeof gitService !== "undefined" ? gitService : new GitService();
+  sessionDB = typeof sessionDB !== "undefined" ? sessionDB : new SessionDB();
+  fs = typeof fs !== "undefined" ? fs : fsDefault;
+  path = typeof path !== "undefined" ? path : pathDefault;
+  resolveRepoPath = typeof resolveRepoPath !== "undefined" ? resolveRepoPath : resolveRepoPathDefault;
+
+  // Determine repo URL or path first, as we'll need it for task service
+  let repoUrl = repo;
+  if (!repoUrl) {
+    try {
+      repoUrl = await resolveRepoPath({});
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`--repo is required (not in a git repo and no --repo provided): ${error.message}`);
+    }
+  }
+
+  // Initialize task service if it wasn't provided
+  taskService = taskService || new TaskService({
+    workspacePath: repoUrl,
+    backend: "markdown" // Default to markdown backend
+  });
 
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
@@ -41,11 +65,6 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     taskId = normalizeTaskId(taskId);
 
     // Verify the task exists
-    taskService = taskService || new TaskService({
-      workspacePath: repo || await resolveRepoPath({}),
-      backend: "markdown" // Default to markdown backend
-    });
-
     const task = await taskService.getTask(taskId);
     if (!task) {
       throw new Error(`Task ${taskId} not found`);
@@ -71,17 +90,6 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     
     if (taskSession) {
       throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
-    }
-  }
-
-  // Determine repo URL or path
-  let repoUrl = repo;
-  if (!repoUrl) {
-    try {
-      repoUrl = await resolveRepoPath({});
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`--repo is required (not in a git repo and no --repo provided): ${error.message}`);
     }
   }
 
@@ -114,9 +122,33 @@ export async function startSession({ session, repo, taskId, gitService, sessionD
     branch: session
   });
 
-  return {
-    sessionRecord: { session, repoUrl, repoName, branch: session, createdAt: new Date().toISOString(), taskId },
+  // Prepare the result object
+  const result: StartSessionResult = {
+    sessionRecord: { session, repoUrl, repoName, createdAt: new Date().toISOString(), taskId },
     cloneResult,
     branchResult
   };
+
+  // Update task status to IN-PROGRESS if requested and if we have a task ID
+  if (taskId && !noStatusUpdate) {
+    try {
+      // Get the current status first
+      const previousStatus = await taskService.getTaskStatus(taskId);
+      
+      // Update the status to IN-PROGRESS
+      await taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+      
+      // Add status update result to the response
+      result.statusUpdateResult = {
+        taskId,
+        previousStatus,
+        newStatus: TASK_STATUS.IN_PROGRESS
+      };
+    } catch (error) {
+      // Log the error but don't fail the session creation
+      console.error(`Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return result;
 } 

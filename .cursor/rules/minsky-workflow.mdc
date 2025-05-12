@@ -7,6 +7,19 @@ alwaysApply: false
 
 ⛔️ **STOP - READ THIS FIRST**
 
+## CLI Usage Enforcement (Critical)
+
+**For all user-facing Minsky operations (task/session management, status, etc.), you MUST use the globally installed `minsky` CLI (available on your PATH, typically via `bun link`).**
+
+- Example:
+  ```bash
+  minsky tasks list --json
+  minsky session start --task 001
+  minsky tasks status get '#001'
+  ```
+- **Do NOT use `bun run ...` or direct script execution for these operations.**
+- Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself (i.e., when working on the implementation of Minsky, not when using it as a tool).
+
 ## Mandatory Session Creation
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
@@ -50,29 +63,16 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - NEVER directly manipulate Minsky's state files or databases
    - NEVER delete or modify files in `~/.local/state/minsky/`
    - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
-   - ALWAYS use appropriate minsky commands:
-     ```bash
-     # For task queries
-     minsky tasks list --json          # List all tasks
-     minsky tasks get '#XXX' --json    # Get specific task details
-     minsky tasks status get '#XXX'    # Get task status
-     
-     # For session queries
-     minsky session list --json        # List all sessions
-     minsky session get <name>         # Get session details by name
-     minsky session get --task XXX     # Get session details by task ID
-     ```
+   - ALWAYS use appropriate minsky commands (see Command Reference section below)
+   - **Do NOT use `bun run ...` for these operations.**
+   - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself.
 
 2. **Data Integrity is Critical**
    - Minsky maintains critical state in `~/.local/state/minsky/`
    - Direct manipulation of these files will corrupt the system
    - NEVER attempt to "fix" issues by deleting state files
    - NEVER attempt to read or modify the session database directly
-   - If encountering session/task issues:
-     1. Use `minsky session list` to check current state
-     2. Use `minsky session get <name>` to inspect specific sessions by name
-     3. Use `minsky session get --task XXX` to inspect sessions by task ID
-     4. Report the issue if commands aren't working as expected
+   - If encountering session/task issues, use the appropriate CLI commands in the Command Reference
    - Deleting state files is STRICTLY FORBIDDEN as it:
      - Corrupts Minsky's understanding of tasks and sessions
      - Makes session management impossible
@@ -84,17 +84,98 @@ This rule defines the comprehensive process for working with tasks and sessions 
    - Session state must be queried through CLI, not assumed
    - File system should never be used as a primary data source
 
-## CRITICAL REQUIREMENT: SESSION-FIRST IMPLEMENTATION
+## Command Reference
 
-**⚠️ IMPORTANT: A SESSION MUST BE CREATED AND ACTIVE BEFORE ANY CODE CHANGES**
+**⚠️ IMPORTANT: NEVER GUESS COMMAND NAMES OR OPTIONS**
 
-Before examining or modifying any code, you MUST:
-1. Verify task status (`minsky tasks status get '#id'`)
-2. Create or identify an existing session (`minsky session start --task id`)
-3. Enter the session directory (`cd $(minsky session dir session-name)`)
+Always use `minsky <command> --help` when you are uncertain about any command or its options. Guessing command names (like `info`, `show`, etc.) that don't exist will only result in errors and wasted time.
 
-No code examination or changes are permitted until these steps are complete.
-Violating this rule compromises the entire workflow system.
+### Task Commands
+
+```bash
+# List all tasks
+minsky tasks list [options]
+  --all            # Include completed tasks (default: only active tasks)
+  --json           # Output in JSON format
+  
+# Get details about a specific task
+minsky tasks get <task-id> [options]
+  --json           # Output in JSON format
+  
+# Task status operations
+minsky tasks status
+  get <task-id>    # Get the status of a task
+  set <task-id> <status>  # Set task status (TODO, IN-PROGRESS, IN-REVIEW, DONE)
+    --session <session>   # Session name to use for repo resolution
+    --repo <repoPath>     # Path to a git repository (overrides session)
+    
+# Create a new task from a specification document
+minsky tasks create <spec-path> [options]
+```
+
+### Session Commands
+
+```bash
+# List all sessions
+minsky session list [options]
+  --json           # Output in JSON format
+  
+# Get session details
+minsky session get <session-name> [options]
+  --task <task-id> # Get session by task ID instead of name
+  --json           # Output in JSON format
+  
+# Start a new session (ALWAYS use with --quiet)
+minsky session start [name] [options]
+  --task <task-id> # Associate session with a task
+  --repo <repo>    # Path or URL to repository
+  --quiet          # MANDATORY: Only output session directory path
+  
+# Get session directory path
+minsky session dir <session-name-or-task#id>
+  
+# Delete a session
+minsky session delete <session-name> [options]
+  --force          # Skip confirmation prompt
+  --task <task-id> # Delete session by task ID
+```
+
+### Git Commands
+
+```bash
+# Create a PR from current branch
+minsky git pr [options]
+  --path <path>    # Path to repository
+  
+# Push changes to remote
+minsky git push
+```
+
+### Common Parameters
+
+Several commands accept these common parameters:
+- `--repo <path>`: Specify repository path (overrides session)
+- `--session <name>`: Use specific session for repo resolution
+- `--workspace <path>`: Specify workspace path (overrides repo and session)
+- `--backend <type>`: Specify task backend (markdown, github)
+
+Always check specific command help with `minsky <command> --help` for the most accurate and up-to-date information.
+
+## CRITICAL REQUIREMENT: Adherence to Session-First Workflow
+
+**⚠️ IMPORTANT: A MINSKY SESSION MUST BE ACTIVE AND ALL WORK MUST OCCUR WITHIN IT.**
+
+Before ANY examination or modification of code, tests, or related files for a task, you **MUST**:
+
+1.  **Verify Task Status:** Use `minsky tasks status get '#<task-id>'`.
+2.  **Start or Re-enter Session:** Use `minsky session start --task <task-id> --quiet` (for new/unknown sessions) or `minsky session get --task <task-id>` (to find existing) followed by `cd $(minsky session dir <session-name-or-task#id>)`.
+3.  **Confirm You Are in the Session Directory:** Use `pwd` and verify the path matches the expected Minsky session path.
+
+**No code examination or changes are permitted until these steps are complete and you are operating within the correct session directory.**
+
+**For comprehensive rules on how to correctly work with files (including path resolution, `edit_file` tool usage, and maintaining isolation) once inside the session workspace, you MUST refer to and strictly follow the `@session-first-workflow.mdc` rule.**
+
+Violating this core principle of working exclusively within the Minsky session for all task-related changes compromises the entire workflow system, risks data corruption, and makes changes untraceable.
 
 ## ⚠️ REPOSITORY ISOLATION WARNING
 
@@ -104,16 +185,6 @@ Violating this rule compromises the entire workflow system.
 - Changes made to files in the session directory DO NOT affect the main workspace
 - Always confirm your current working directory with `pwd` before making any changes
 - Session isolation is fundamental to the Minsky model and must be preserved
-
-## FILE PATH RESOLUTION REQUIREMENTS
-
-When working in a session directory, you MUST:
-
-- **ALWAYS use absolute paths when editing files**
-  - CORRECT: `/Users/username/.local/state/minsky/git/task-id/src/file.ts`
-  - INCORRECT: `src/file.ts` (which would edit the main workspace file)
-- Relative paths in file editing tools are resolved against the main workspace, NOT the current shell directory
-- Without absolute paths, changes may silently occur in the main workspace instead of the session directory
 
 ## FILE CHANGE VERIFICATION
 
@@ -125,10 +196,9 @@ After every file edit in a session directory, verify the changes are actually pr
 
 ## Request Interpretation and Workflow Priority
 
-1. **Always interpret requests based on their literal meaning in the project context**
-   - "Create a task" means creating a task specification document, not implementing code
-   - "Implement" or "code" refers to writing the actual implementation
-   - When in doubt, default to task specification over implementation
+1. **Always interpret requests based on their literal meaning in the project context.**
+   - For detailed guidance on interpreting requests related to task creation, including the distinction between task specification and implementation, refer to the `@creating-tasks.mdc` rule.
+   - "Implement" or "code" generally refers to writing the actual implementation for an existing, specified task.
 
 2. **Request Type Recognition**
    - Categorize requests as either "specifying work" or "implementing work"
@@ -160,23 +230,14 @@ After every file edit in a session directory, verify the changes are actually pr
 When asked to work on a task (by name, description, or ID):
 
 1. **Find or Access the Task**
-   - If you already know the task ID (e.g., "001" or "#001"):
-     ```bash
-     # Get direct information about a specific task
-     minsky tasks get '#001' --json
-     ```
-   - If you need to find a task from the backlog:  When asked to list, filter, or check the status of tasks, always run:
-     ```bash
-     minsky tasks list --json
-     ```
-     and present the output directly, unless specifically instructed otherwise.
-     > **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
+   - For a known task ID (e.g., "001" or "#001"): Use `minsky tasks get '<task-id>' --json`
+   - For finding tasks in the backlog: Use `minsky tasks list --json`
+   - See the Command Reference section for complete command options
+   - **Note:** Always use `jq` for JSON parsing, not `grep`. This is a general best practice for all projects.
 
 2. **Check Task Status**
-   - Before starting any work, check the current status of the task:
-     ```bash
-     minsky tasks status get '#001'
-     ```
+   - Before starting work: Use `minsky tasks status get '#<task-id>'`
+   - For verification of implementation state versus tracked status, refer to the `@task-status-verification.mdc` protocol
    - Task status meanings:
      - `TODO`: Not started, available to work on
      - `IN-PROGRESS`: Work has begun but is not complete
@@ -205,136 +266,122 @@ When asked to create a new task:
    - Use the next available task ID
    - Link the task correctly following project conventions
 
+## Managing AI Rules
+
+When working with project AI rules:
+
+1. **Always use the Minsky CLI**
+   - Use `minsky rules list` to view existing rules
+   - Use `minsky rules get <rule-id>` to inspect a specific rule
+   - Use `minsky rules create` to create new rules (interactive mode preferred for first-time rule creators)
+   - Use `minsky rules update <rule-id>` to modify existing rules
+   - Use `minsky rules search <query>` to find relevant rules
+
+2. **Follow Rule Creation Guidelines**
+   - Refer to the `rule-creation-guidelines.mdc` rule for standards
+   - Follow the `rules-management.mdc` rule for command usage details
+   - Ensure rules have proper metadata (description, globs, tags)
+   - Place rules in the correct location (`.cursor/rules/` for Cursor AI rules)
+
+3. **Key Operations**
+   - Viewing a rule: `minsky rules get <rule-id>` 
+   - Updating a rule's description: `minsky rules update <rule-id> --description "New description"`
+   - Searching for relevant rules: `minsky rules search "keyword"`
+   - Creating a new rule: `minsky rules create` (interactive mode)
+   - Listing all rules: `minsky rules list [--format cursor|generic] [--tag <tag>]`
+
 ## Session Management
+
+### Session Creation Options
+
+- **Session creation is flexible**
+  - Sessions can be created with just a name: `minsky session start <name>`
+  - Sessions can be created with a task association: `minsky session start --task <id>`
+  - Task association is optional and depends on the work context
+  
+- **When to use each option**
+  - Use named sessions (without tasks) for:
+    - General testing/fixes
+    - Exploratory work
+    - Temporary changes
+    - Work not associated with a specific task
+  - Use task-associated sessions for:
+    - Implementing a specific task
+    - Work that will be tracked in the task system
+    
+- **Verification step**
+  - Always verify the appropriate session creation approach based on the work context
+  - Never assume a task ID is required when a simple named session would suffice
 
 ### Starting a New Session
 
-1. **Create a Task Session**
-   - Begin a new session for the task (no session name needed when using `--task`):
+1. **Create a Task Session (Using --quiet is MANDATORY)**
+   - The `minsky session start` command **MUST ALWAYS** be used with the `--quiet` option (see Command Reference)
+   - The `--quiet` option ensures consistent output of only the session directory path, critical for scripting and clear output
+   - **Capturing the Session Path:** The standard and correct way to start a session and navigate into its directory is:
      ```bash
-     minsky session start --task 001
-     ```
-   - Use the `--quiet` option for programmatic usage that outputs only the session directory path:
-     ```bash
-     # For programmatic use in scripts
+     # STANDARD USAGE: Capture path and navigate
      SESSION_DIR=$(minsky session start --task 001 --quiet)
      cd "$SESSION_DIR"
+     echo "Working in session directory: $SESSION_DIR"
      ```
-   - The standard output will show:
-     - The auto-generated session name (e.g., `task#001`)
-     - The repository location where files were cloned
-     - The branch name that was created (same as session name)
-     - The task ID association
-     - Command to navigate to the session directory
-     - The session directory path (for programmatic use)
+   - For detailed information about a session after creation, use `minsky session get` (see Command Reference)
 
 2. **Enter the Session Directory**
-   - Navigate to the session directory using the provided command
-
-### Task Status Management
-
-⚠️ **CRITICAL: TASK STATUS UPDATES ARE REQUIRED AT TWO KEY POINTS**
-
-1. **When Starting Work (Set to IN-PROGRESS)**
-   - After entering a session directory, update the task status to IN-PROGRESS:
-     ```bash
-     # ALWAYS run this when beginning work (global minsky command)
-     minsky tasks status set '#XXX' IN-PROGRESS
-     
-     # Verify the status was updated successfully
-     minsky tasks status get '#XXX'
-     ```
-   - This ensures the task is properly marked as being worked on
-   - **IMPORTANT:** Always use the global `minsky` command, NOT the session's version
-
-2. **When Submitting for Review (Set to IN-REVIEW)**
-   - After completing implementation and pushing changes, update to IN-REVIEW:
-     ```bash
-     # ALWAYS run this when work is complete (global minsky command)
-     minsky tasks status set '#XXX' IN-REVIEW
-     
-     # Verify the status was updated successfully
-     minsky tasks status get '#XXX'
-     ```
-   - This is a required step in the task completion checklist (see below)
-   - Skipping this step is considered an implementation failure
-
-3. **When Work Is Merged (Set to DONE)**
-   - Only set a task to DONE after the changes have been reviewed and merged
-   - This should typically be done by the reviewer, not the implementer
+   - After creating a session, navigate to the session directory (e.g., `cd "$SESSION_DIR"`)
 
 ### Re-entering an Existing Session
 
 When asked to continue working on a task:
 
 1. **Find Existing Session**
-   - Look up the session associated with the task:
-     ```bash
-     # Use session get to get details about a specific session by name
-     minsky session get task#001
-     
-     # OR use session get with the --task option to get details by task ID
-     minsky session get --task 001
-     ```
-   - If needed, you can also list all sessions:
-     ```bash
-     minsky session list --json
-     ```
+   - Look up the session associated with the task using `minsky session get` (see Command Reference)
+   - If needed, list all sessions using `minsky session list --json`
 
 2. **Enter Existing Session**
-   - Navigate to the session directory:
-     ```bash
-     cd $(minsky session dir task#001)
-     ```
+   - Navigate to the session directory: `cd $(minsky session dir <session-or-task-id>)`
    - If no session exists, create one as described in "Starting a New Session"
 
-### Programmatic Usage
+## Session Cleanup Procedures
 
-When integrating minsky into automated workflows or scripts:
+When a task is completed and merged into the main branch:
 
-1. **Use `--quiet` for Machine-Readable Output**
-   - The `--quiet` option provides clean, machine-readable output:
+1. **Update Task Status**
+   - Always mark the task as completed:
      ```bash
-     # Create a session and capture its directory path
-     SESSION_DIR=$(minsky session start --task 001 --quiet)
-     
-     # Use the path in a script
-     cd "$SESSION_DIR"
-     echo "Working in session directory: $SESSION_DIR"
-     
-     # Use with other options
-     SESSION_DIR=$(minsky session start my-session --repo https://github.com/org/repo.git --quiet)
+     minsky tasks status set '#001' DONE
+     ```
+   - Verify the status update was successful:
+     ```bash
+     minsky tasks status get '#001'
      ```
 
-2. **Error Handling in Scripts**
-   - Even in quiet mode, errors are sent to stderr and exit codes are set appropriately:
+2. **Delete the Session**
+   - Always use the Minsky CLI to delete the session:
      ```bash
-     # Example bash script with error handling
-     if SESSION_DIR=$(minsky session start --task 001 --quiet); then
-       cd "$SESSION_DIR"
-       echo "Successfully started session in: $SESSION_DIR"
-     else
-       echo "Failed to start session, exiting" >&2
-       exit 1
-     fi
+     minsky session delete task#001
+     ```
+   - If confirmation is required and you're in a script, use the `--force` flag:
+     ```bash
+     minsky session delete task#001 --force
+     ```
+   - Verify the session was deleted:
+     ```bash
+     minsky session get task#001
+     # Should return an error if deletion was successful
      ```
 
-3. **Combining with Other Commands**
-   - Chain with other minsky commands for complex workflows:
-     ```bash
-     # Example: Create session, run tests, and generate PR description
-     SESSION_DIR=$(minsky session start --task 001 --quiet)
-     cd "$SESSION_DIR"
-     bun test
-     
-     if [ $? -eq 0 ]; then
-       minsky git pr --path . > process/tasks/001/pr.md
-       git add process/tasks/001/pr.md
-       git commit -m "task#001: Add PR description"
-       git push origin "$(git branch --show-current)"
-       minsky tasks status set '#001' IN-REVIEW
-     fi
-     ```
+3. **NEVER Manually Delete Session Data**
+   - NEVER manually delete session directories
+   - NEVER directly manipulate files in `~/.local/state/minsky/`
+   - NEVER use `rm -rf` or similar commands to delete session data
+   - Always rely on the Minsky CLI for session management
+
+4. **Cleanup Verification**
+   - After session deletion, verify:
+     - The session no longer appears in `minsky session list`
+     - The task is marked as DONE in `minsky tasks status get '#001'`
+     - Any associated branches have been deleted or merged
 
 ## Implementation Process
 
@@ -346,35 +393,12 @@ When integrating minsky into automated workflows or scripts:
 2. **Implementation**
    - Follow all project coding standards and best practices
    - Implement the required changes, addressing all requirements
-   - Stage and commit changes using the `minsky git commit` command:
-     ```bash
-     # Stage and commit changes with task ID prefix
-     minsky git commit -m "Implement feature X"
-     # Results in: "task#XXX: Implement feature X"
-
-     # Stage all changes including deletions
-     minsky git commit -a -m "Update feature Y"
-
-     # Commit from a specific session
-     minsky git commit -s session-name -m "Fix bug Z"
-
-     # Commit from a specific repository
-     minsky git commit -r /path/to/repo -m "Update docs"
-
-     # Skip staging (for when files are already staged)
-     minsky git commit --no-stage -m "Fix typo"
-
-     # Amend the previous commit
-     minsky git commit --amend -m "Fix typo in previous commit"
-     ```
-   - The command will automatically:
-     - Stage all changes (unless `--no-stage` is used)
-     - Add task ID prefix when in a session
-     - Handle error cases (no changes, no message, etc.)
+   - Commit changes at logical intervals with clear, descriptive messages
+   - Reference the task ID in all commit messages (e.g., "task#001: Implement feature X")
    - **ALWAYS push immediately after committing:**
      ```bash
      # After every commit, immediately push to the session branch
-     git push origin $(git branch --show-current)
+     minsky git push
      ```
    - Never leave commits unpushed at the end of an implementation session
 
@@ -420,9 +444,8 @@ Task implementation is not complete until ALL these steps are performed, in orde
 4. ✓ All changes are committed with task ID in commit message
 5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
 6. ✓ PR description is committed
-7. ✓ Changes are pushed to remote with `git push origin <branch>`
-8. ✓ **[CRITICAL]** Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
-9. ✓ Verify task status update was successful using `minsky tasks status get '#id'`
+7. ✓ Changes are pushed to remote with `minsky git push`
+8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
 
 ## PR Preparation
 
@@ -435,13 +458,14 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```
      process/tasks/<task-id>/pr.md
      ```
+   - **For guidelines on the content and formatting of the PR description itself, refer to the `@pr-description-guidelines.mdc` rule.**
    - Commit this PR description file
 
 2. **Finalization**
    - Push your branch:
      ```bash
      # Current approach (standard git command)
-     git push origin $(git branch --show-current)
+     minsky git push
      
      # Future: Will be simplified with dedicated command (Task #005)
      # minsky git push
@@ -453,9 +477,6 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```bash
      # Use IN-REVIEW after you've generated a PR and pushed your changes
      minsky tasks status set '#001' IN-REVIEW
-     
-     # Verify the status was updated successfully
-     minsky tasks status get '#001'
      
      # Use DONE only after the changes have been reviewed and merged
      minsky tasks status set '#001' DONE
@@ -482,3 +503,22 @@ Task implementation is not complete until ALL these steps are performed, in orde
 > - "Which tasks are in the backlog?"
 >
 > **Do NOT** answer these queries by listing files or reading static documentation. **Always** run the appropriate minsky CLI command (e.g., `minsky tasks list --json`) and present the output directly.
+
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them, adhering to the mandatory `--quiet` rule for `minsky session start`:**
+
+```bash
+# REQUIRED pattern for ALL session navigation
+# This relies on `minsky session start --task <id> --quiet` outputting ONLY the path.
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern **MUST** be used for reliable session creation and navigation because:
+- It correctly applies the **mandatory `--quiet` flag** for `minsky session start`.
+- It ensures `SESSION_DIR` accurately captures only the directory path.
+
+Using any other approach for capturing the session path after creation is prone to errors if the `--quiet` flag is inadvertently omitted.
+
+---

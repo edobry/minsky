@@ -20,7 +20,7 @@ export function createListCommand(): Command {
         console.log(JSON.stringify(sessions, null, 2));
       } else {
         for (const s of sessions) {
-          console.log(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Branch: ${s.branch || "(none)"}\n  Created: ${s.createdAt}\n`);
+          console.log(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Created: ${s.createdAt}\n`);
         }
       }
     });

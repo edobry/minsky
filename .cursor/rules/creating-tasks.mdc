@@ -5,6 +5,37 @@ alwaysApply: false
 ---
 # Task Creation Process
 
+## ⚠️ MANDATORY: Use the Minsky CLI for Task Creation
+
+- The ONLY supported method for creating new tasks is via the `minsky tasks create` command.
+- Manual edits to `process/tasks.md` or direct creation of spec files are NOT permitted except as a last resort (e.g., CLI is broken), and this must be documented in the commit message or task log.
+- All contributors and automations (including AI) MUST use the following workflow:
+
+### Task Creation Workflow
+
+1. Draft your task specification as a temporary file (e.g., `process/tasks/temp-task-spec.md`).
+2. Run:
+   ```bash
+   minsky tasks create process/tasks/temp-task-spec.md
+   ```
+3. The CLI will:
+   - Assign the next available task ID.
+   - Add the task to `process/tasks.md` in the correct format.
+   - Output the assigned ID and new file path.
+4. Rename the spec file as instructed by the CLI (e.g., `process/tasks/042-task-title.md`).
+5. Verify the task appears in `process/tasks.md` and the spec file is correctly named and linked.
+
+**Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
+
+> **This process is mandatory. Skipping the CLI or editing files directly is a process violation.**
+
+## ⚠️ CRITICAL: Always Create Tasks in Main Workspace
+Tasks MUST always be created in the main workspace, not in session directories:
+- Task creation is a metadata operation that affects the project's task tracking system
+- Creating tasks in session directories can lead to lost or inconsistent task data
+- Always ensure you are in the main workspace (`cd /path/to/main/workspace`) before creating tasks
+- Use the Minsky CLI from the main workspace for all task operations
+
 ## ⚠️ IMPORTANT: Task Creation vs. Task Implementation
 In Minsky, "creating a task" means authoring a task specification document and adding it to the tracking system - **not** implementing the code for that task.
 
@@ -29,15 +60,31 @@ All tasks and work items must be tracked using the canonical process described h
 ## Task Creation Methods
 
 ### Method 1: Using the `minsky tasks create` Command (Recommended)
-Once you have created a task specification document, you can register it in the system using:
 
+⚠️ **IMPORTANT: Task ID Assignment**
+The task ID is assigned by the system when you run `minsky tasks create`. You must:
+1. Create a temporary spec file (e.g., `temp-task-spec.md`)
+2. Run `minsky tasks create temp-task-spec.md`
+3. Note the assigned task ID from the command output
+4. Rename the file to match the assigned ID: `{assigned-id}-task-title.md`
+
+Example workflow:
 ```bash
-minsky tasks create path/to/spec-document.md
+# 1. Create temporary spec file
+touch process/tasks/temp-task-spec.md
+# Edit the spec file...
+
+# 2. Register the task and get the ID
+minsky tasks create process/tasks/temp-task-spec.md
+# Output: Task #042 created: Add New Feature
+
+# 3. Rename the file to use the assigned ID
+mv process/tasks/temp-task-spec.md process/tasks/042-add-new-feature.md
 ```
 
-This command will:
+The command will:
 - Extract the title and description from the spec document
-- Find the next available task ID
+- Find and assign the next available task ID
 - Add the task to process/tasks.md with the correct formatting
 - Return the details of the created task
 

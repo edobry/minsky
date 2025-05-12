@@ -1,12 +1,13 @@
 import { Command } from "commander";
-import { GitService } from "../../domain/git";
-import { SessionDB } from "../../domain/session";
-import { TaskService } from "../../domain/tasks";
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
+import { TaskService } from "../../domain/tasks.js";
 import fs from "fs";
 import path from "path";
-import { resolveRepoPath } from "../../domain/repo-utils";
-import { startSession } from "./startSession";
-import { normalizeTaskId } from "../../utils/task-utils";
+import { resolveRepoPath } from "../../domain/repo-utils.js";
+import { startSession } from "./startSession.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
+import { isSessionRepository } from "../../domain/workspace.js";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
@@ -18,9 +19,22 @@ export function createStartCommand(): Command {
     .option("-r, --repo <repo>", "Repository URL or local path to clone (optional)")
     .option("-t, --task <taskId>", "Task ID to associate with the session (uses task ID as session name if provided)")
     .option("-q, --quiet", "Output only the session directory path (for programmatic use)")
-    .action(async (sessionArg: string | undefined, options: { repo?: string, task?: string, quiet?: boolean }) => {
+    .option("--no-status-update", "Skip automatic task status update to IN-PROGRESS")
+    .action(async (sessionArg: string | undefined, options: { 
+      repo?: string; 
+      task?: string; 
+      quiet?: boolean;
+      statusUpdate?: boolean;
+    }) => {
       try {
-        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch(err => {
+        // Check if current directory is already within a session workspace
+        const currentDir = Bun.env.PWD || process.cwd();
+        const isInSession = await isSessionRepository(currentDir);
+        if (isInSession) {
+          throw new Error("Cannot create a new session while inside a session workspace. Please return to the main workspace first.");
+        }
+
+        const repoPath = options.repo ? options.repo : await resolveRepoPath({}).catch((err: Error) => {
           throw new Error(`--repo is required (not in a git repo and no --repo provided): ${err.message}`);
         });
 
@@ -48,7 +62,7 @@ export function createStartCommand(): Command {
           
           // Check if a session already exists for this task
           const existingSessions = await sessionDB.listSessions();
-          const taskSession = existingSessions.find(s => s.taskId === taskId);
+          const taskSession = existingSessions.find((s: { taskId?: string }) => s.taskId === taskId);
           
           if (taskSession) {
             throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
@@ -58,7 +72,8 @@ export function createStartCommand(): Command {
         const result = await startSession({ 
           session, 
           repo: repoPath,
-          taskId
+          taskId,
+          noStatusUpdate: options.statusUpdate === false
         });
         
         if (options.quiet) {
@@ -69,9 +84,19 @@ export function createStartCommand(): Command {
           console.log(`Session '${result.sessionRecord.session}' started.`);
           console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
           console.log(`Branch '${result.branchResult.branch}' created.`);
+          
           if (taskId) {
             console.log(`Associated with task: ${taskId}`);
+            
+            // Show status update information if applicable
+            if (result.statusUpdateResult) {
+              const { previousStatus, newStatus } = result.statusUpdateResult;
+              console.log(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
+            } else if (options.statusUpdate === false) {
+              console.log("Task status update skipped (--no-status-update)");
+            }
           }
+          
           console.log("\nTo navigate to this session's directory, run:");
           console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
           console.log("");

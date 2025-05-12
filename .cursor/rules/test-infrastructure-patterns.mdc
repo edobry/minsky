@@ -1,0 +1,225 @@
+---
+description: REQUIRED to use this rule whenever you're authoring or modifying tests
+globs: 
+alwaysApply: false
+---
+# Test Infrastructure Patterns
+
+Standardize testing approaches for CLI applications with file system operations to improve reliability and maintenance:
+
+## Test Environment Isolation
+
+- **Create Unique Test Directories** for each test file:
+  ```typescript
+  // Create unique, isolated directory for this test file
+  const TEST_DIR = createUniqueTestDir("minsky-command-test");
+  ```
+
+- **Properly Clean Up Test Artifacts** before and after tests:
+  ```typescript
+  beforeEach(() => {
+    cleanupTestDir(TEST_DIR);
+    setupTestEnvironment();
+  });
+  
+  afterEach(() => {
+    cleanupTestDir(TEST_DIR);
+  });
+  ```
+
+- **Mock External Dependencies** consistently:
+  ```typescript
+  // With explicit dependency injection
+  const mockGitService = {
+    clone: async () => ({ workdir: "/test/workdir" }),
+  };
+  
+  // Pass mocks to function under test
+  const result = await startSession({
+    session: "test-session",
+    repo: "test-repo",
+    gitService: mockGitService
+  });
+  ```
+
+## Standardized Test Helpers
+
+- **Create Reusable Test Utilities** for common operations:
+  ```typescript
+  // In test-helpers.ts
+  export function createUniqueTestDir(prefix: string): string {
+    const uniqueSuffix = Date.now() + '-' + Math.random().toString(36).slice(2);
+    const dir = join(os.tmpdir(), `${prefix}-${uniqueSuffix}`);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+  
+  export function cleanupTestDir(dir: string): void {
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  ```
+
+- **Standardize Environment Setup**:
+  ```typescript
+  export function createTestEnv(testDir: string, additionalEnv: Record<string, string> = {}) {
+    return {
+      ...process.env,
+      XDG_STATE_HOME: testDir,
+      ...additionalEnv
+    };
+  }
+  
+  export function setupMinskyTestEnv(testDir: string): MinskyTestEnv {
+    // Create standard directories
+    const minskyDir = join(testDir, '.local', 'state', 'minsky');
+    const gitDir = join(minskyDir, 'git');
+    const sessionDbPath = join(minskyDir, 'session-db.json');
+    
+    // Create directory structure
+    mkdirSync(gitDir, { recursive: true });
+    
+    // Initialize session DB with empty array
+    writeFileSync(sessionDbPath, JSON.stringify([]));
+    
+    return { minskyDir, gitDir, sessionDbPath };
+  }
+  ```
+
+## CLI Testing Techniques
+
+- **Consistent Subprocess Handling**:
+  ```typescript
+  export function standardSpawnOptions() {
+    return {
+      encoding: 'utf8',
+      env: process.env,
+      stdio: 'pipe'
+    };
+  }
+  
+  export function ensureValidCommandResult(result: SpawnSyncReturns<string>) {
+    if (result.status !== 0) {
+      console.error(`Command failed with status ${result.status}`);
+      console.error(`Stderr: ${result.stderr}`);
+      throw new Error(`Command failed: ${result.stderr}`);
+    }
+    return result;
+  }
+  ```
+
+- **Structured Test Command Execution**:
+  ```typescript
+  function runCliCommand(args: string[]) {
+    const env = createTestEnv(TEST_DIR);
+    const options = {
+      ...standardSpawnOptions(),
+      env
+    };
+    
+    const result = spawnSync("bun", ["run", CLI, ...args], options);
+    
+    // Log output for debugging
+    console.log(`Command stdout: ${result.stdout}`);
+    console.log(`Command stderr: ${result.stderr}`);
+    
+    return {
+      stdout: result.stdout as string,
+      stderr: result.stderr as string,
+      status: result.status
+    };
+  }
+  ```
+
+## Test Data Management
+
+- **Setup Test Data Consistently**:
+  ```typescript
+  function setupSessionDb(sessions: Array<{ session: string; repoUrl: string; repoName?: string }>) {
+    // Setup the test environment
+    testEnv = setupMinskyTestEnv(TEST_DIR);
+    sessionDbPath = testEnv.sessionDbPath;
+    
+    // Normalize data structure
+    const normalizedSessions = sessions.map(session => ({
+      ...session,
+      repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
+      createdAt: session.createdAt || new Date().toISOString()
+    }));
+    
+    // Write to the database file
+    writeFileSync(sessionDbPath, JSON.stringify(normalizedSessions, null, 2));
+  }
+  ```
+
+- **Create Realistic Directory Structures**:
+  ```typescript
+  function setupTestRepository() {
+    const repoDir = join(TEST_DIR, 'repo');
+    const gitDir = join(repoDir, '.git');
+    
+    // Create minimal git-like structure
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/main');
+    
+    // Create test files
+    writeFileSync(join(repoDir, 'test.txt'), 'Test content');
+    
+    return repoDir;
+  }
+  ```
+
+## Debugging Test Failures
+
+- **Add Descriptive Logging** during test execution:
+  ```typescript
+  console.log(`Test setup: Created session DB at ${sessionDbPath}`);
+  console.log(`Environment variables: XDG_STATE_HOME=${process.env.XDG_STATE_HOME}`);
+  
+  const { stdout, stderr } = runCliCommand(["session", "list"]);
+  console.log(`Command stdout: ${stdout}`);
+  console.log(`Command stderr: ${stderr}`);
+  ```
+
+- **Check Environment First** when tests fail:
+  ```typescript
+  // Before running the main test, verify environment is correct
+  test("verify test environment", () => {
+    expect(existsSync(testEnv.sessionDbPath)).toBe(true);
+    const dbContents = readFileSync(testEnv.sessionDbPath, 'utf8');
+    expect(dbContents).toBe("[]");
+  });
+  ```
+
+## Advanced Testing Strategies
+
+- **Use Mock File Systems** for faster tests:
+  ```typescript
+  // Instead of real file system operations, consider mock-fs
+  const mockFs = {
+    'session-db.json': JSON.stringify([{ session: 'test' }]),
+    '/tmp/repo': {
+      '.git': {}
+    }
+  };
+  ```
+
+- **Split Integration and Unit Tests**:
+  ```typescript
+  // Unit test with mocked dependencies
+  describe("unit: startSession", () => {
+    test("validates parameters", async () => {
+      // Mock all dependencies
+    });
+  });
+  
+  // Integration test with real file system
+  describe("integration: startSession", () => {
+    test("creates session directory", async () => {
+      // Use real file system
+    });
+  });
+  ```
+
+These patterns improve test reliability, isolation, and maintainability in applications that interact with the file system, environment variables, and external processes.
