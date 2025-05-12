@@ -5,13 +5,12 @@ import { createStatusCommand } from "./status";
 import { createCommand } from "./create";
 
 export function createTasksCommand(): Command {
-  const tasks = new Command("tasks")
-    .description("Task management operations");
+  const tasks = new Command("tasks").description("Task management operations");
 
   tasks.addCommand(createListCommand());
   tasks.addCommand(createGetCommand());
   tasks.addCommand(createStatusCommand());
-  tasks.addCommand(createCommand);
+  tasks.addCommand(createCommand());
 
   return tasks;
-} 
+}

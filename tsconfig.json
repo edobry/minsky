@@ -3,7 +3,7 @@
     // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ES2022",
-    "module": "CommonJS",
+    "module": "ESNext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,

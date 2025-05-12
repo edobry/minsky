@@ -11,12 +11,14 @@ import type {
   TaskGetParams,
   TaskStatusGetParams,
   TaskStatusSetParams,
+  TaskCreateParams,
 } from "../schemas/tasks.js";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
+  taskCreateParamsSchema,
 } from "../schemas/tasks.js";
 import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
 import { z } from "zod";
@@ -707,6 +709,60 @@ export async function setTaskStatusFromParams(
         error.format(),
         error
       );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Create a task using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for creating a task
+ * @returns The created task
+ */
+export async function createTaskFromParams(
+  params: TaskCreateParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => new TaskService(options),
+  }
+): Promise<Task> {
+  try {
+    // Validate params with Zod schema
+    const validParams = taskCreateParamsSchema.parse(params);
+
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveWorkspacePath({
+      workspace: validParams.workspace,
+      sessionRepo: repoPath,
+    });
+
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend,
+    });
+
+    // Create the task
+    const task = await taskService.createTask(validParams.specPath, {
+      force: validParams.force,
+    });
+
+    return task;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for creating task", error.format(), error);
     }
     throw error;
   }

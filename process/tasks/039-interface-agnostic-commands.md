@@ -616,11 +616,15 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 19. 2025-05-13: Created MCP adapter for git operations
 20. 2025-05-13: Updated MCP server to use the new interface-agnostic adapters
 21. 2025-05-13: Ensured all changes follow session-first workflow by making them in the session workspace
+22. 2025-05-13: Added integration tests for tasks and session commands
+23. 2025-05-13: Fixed TypeScript and linting issues in MCP adapters
+24. 2025-05-13: Switched to CommonJS module syntax for tests to resolve ESM compatibility issues
+25. 2025-05-13: Updated task specification to mark Phase 6 (integration tests) as complete
 
 ## Current Status
 
 - [x] Phase 1: Set up schema validation system with Zod
-- [x] Phase 1: Create error handling system 
+- [x] Phase 1: Create error handling system
 - [x] Phase 1: Begin domain logic extraction with parameter validation
 - [x] Phase 2: Begin implementing interface adapters for CLI and MCP
 - [x] Phase 2: Implement task status domain functions with proper validation and error handling
@@ -636,16 +640,18 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 ## Remaining Work
 
 1. ✅ **Fix TypeScript and Linting Issues**
-   - Address type compatibility issues in MCP adapters 
+
+   - Address type compatibility issues in MCP adapters
    - Fix import paths in adapters
    - Ensure consistent error handling across all adapters
 
 2. ✅ **Integration Tests**
+
    - Add integration tests that verify consistent behavior across interfaces
    - Test error handling and edge cases
    - Test end-to-end flows involving multiple commands
 
-3. **Documentation**
+3. 🚩 **Documentation** (ONLY REMAINING TASK)
    - Update architecture documentation with new patterns
    - Document validation and error handling approach
    - Provide examples of correct usage for future development
