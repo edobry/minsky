@@ -1,10 +1,19 @@
-import { join } from 'path';
-import { mkdir } from 'fs/promises';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
 import { SessionDB } from '../session.js';
 import { normalizeRepoName } from '../repo-utils.js';
 import type { RepositoryBackend, RepositoryBackendConfig, CloneResult, BranchResult, Result, RepoStatus } from './index.js';
+
+// Define a global for process to avoid linting errors
+declare const process: {
+  env: {
+    XDG_STATE_HOME?: string;
+    HOME?: string;
+    [key: string]: string | undefined;
+  };
+};
 
 const execAsync = promisify(exec);
 

@@ -6,6 +6,8 @@
  * without changing the core session management logic.
  */
 
+export * from './RepositoryBackend.ts';
+
 /**
  * Configuration for repository backends
  */
@@ -13,12 +15,17 @@ export interface RepositoryBackendConfig {
   /**
    * The type of repository backend to use
    */
-  type: 'local' | 'github';
+  type: 'local' | 'remote' | 'github';
   
   /**
    * Repository URL or path
    */
   repoUrl: string;
+  
+  /**
+   * Branch to checkout (for remote repositories)
+   */
+  branch?: string;
   
   /**
    * GitHub-specific options for GitHub backend
@@ -100,7 +107,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns Object containing repository status information
    */
-  getStatus(session: string): Promise<Record<string, any>>;
+  getStatus(session: string): Promise<RepoStatus>;
   
   /**
    * Get the repository path
@@ -111,9 +118,85 @@ export interface RepositoryBackend {
   
   /**
    * Validate the repository configuration
-   * @returns Promise that resolves if the repository is valid
+   * @returns Promise that resolves with result if the repository is valid, or rejects with an error
    */
-  validate(): Promise<void>;
+  validate(): Promise<Result>;
+
+  /**
+   * Push changes to remote repository
+   * @returns Result of the push operation
+   */
+  push(): Promise<Result>;
+
+  /**
+   * Pull changes from remote repository
+   * @returns Result of the pull operation
+   */
+  pull(): Promise<Result>;
+}
+
+/**
+ * Repository backend types
+ */
+export enum RepositoryBackendType {
+  LOCAL = 'local',
+  REMOTE = 'remote',
+  GITHUB = 'github',
+}
+
+/**
+ * Operation result
+ */
+export interface Result {
+  /**
+   * Whether the operation was successful
+   */
+  success: boolean;
+  
+  /**
+   * Optional message
+   */
+  message?: string;
+  
+  /**
+   * Optional error
+   */
+  error?: Error;
+}
+
+/**
+ * Repository status
+ */
+export interface RepoStatus {
+  /**
+   * Current branch
+   */
+  branch: string;
+  
+  /**
+   * Number of commits ahead of remote
+   */
+  ahead: number;
+  
+  /**
+   * Number of commits behind remote
+   */
+  behind: number;
+  
+  /**
+   * Whether the working directory is dirty
+   */
+  dirty: boolean;
+  
+  /**
+   * List of remotes
+   */
+  remotes: string[];
+  
+  /**
+   * Additional properties
+   */
+  [key: string]: unknown;
 }
 
 /**
@@ -123,12 +206,15 @@ export interface RepositoryBackend {
  */
 export async function createRepositoryBackend(config: RepositoryBackendConfig): Promise<RepositoryBackend> {
   // Dynamic import to avoid circular dependencies
-  if (config.type === 'github') {
-    const { GitHubBackend } = await import('./github');
+  if (config.type === RepositoryBackendType.GITHUB) {
+    const { GitHubBackend } = await import('./github.ts');
     return new GitHubBackend(config);
+  } else if (config.type === RepositoryBackendType.REMOTE) {
+    const { RemoteGitBackend } = await import('./remote.ts');
+    return new RemoteGitBackend(config);
   } else {
     // Default to local git backend
-    const { LocalGitBackend } = await import('./local');
+    const { LocalGitBackend } = await import('./local.ts');
     return new LocalGitBackend(config);
   }
 } 

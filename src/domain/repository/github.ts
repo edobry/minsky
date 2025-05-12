@@ -1,10 +1,19 @@
-import { join } from 'path';
-import { mkdir } from 'fs/promises';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { SessionDB } from '../session';
-import { normalizeRepoName } from '../repo-utils';
-import type { RepositoryBackend, RepositoryBackendConfig, CloneResult, BranchResult } from './index';
+import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import { SessionDB } from '../session.js';
+import { normalizeRepoName } from '../repo-utils.js';
+import type { RepositoryBackend, RepositoryBackendConfig, CloneResult, BranchResult, Result, RepoStatus } from './index.js';
+
+// Define a global for process to avoid linting errors
+declare const process: {
+  env: {
+    XDG_STATE_HOME?: string;
+    HOME?: string;
+    [key: string]: string | undefined;
+  };
+};
 
 const execAsync = promisify(exec);
 
@@ -206,17 +215,20 @@ export class GitHubBackend implements RepositoryBackend {
 
   /**
    * Validate the repository configuration
-   * @returns Promise that resolves if the repository is valid
+   * @returns Promise that resolves with result if the repository is valid
    */
-  async validate(): Promise<void> {
-    // Validate required fields
-    if (!this.repoUrl) {
-      throw new Error('Repository URL is required for GitHub backend');
-    }
-    
-    // If owner/repo are provided, validate them
-    if (this.owner && this.repo) {
-      try {
+  async validate(): Promise<Result> {
+    try {
+      // Validate required fields
+      if (!this.repoUrl) {
+        return { 
+          success: false, 
+          message: 'Repository URL is required for GitHub backend' 
+        };
+      }
+      
+      // If owner/repo are provided, validate them
+      if (this.owner && this.repo) {
         // Use curl to check if the repo exists without cloning
         const command = this.token
           ? `curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${this.token}" https://api.github.com/repos/${this.owner}/${this.repo}`
@@ -226,16 +238,56 @@ export class GitHubBackend implements RepositoryBackend {
         const statusCode = parseInt(stdout.trim(), 10);
         
         if (statusCode === 404) {
-          throw new Error(`GitHub repository not found: ${this.owner}/${this.repo}`);
+          return {
+            success: false,
+            message: `GitHub repository not found: ${this.owner}/${this.repo}`
+          };
         } else if (statusCode === 401 || statusCode === 403) {
-          throw new Error('GitHub authentication failed. Check your token or credentials.');
+          return {
+            success: false,
+            message: 'GitHub authentication failed. Check your token or credentials.'
+          };
         } else if (statusCode !== 200) {
-          throw new Error(`Failed to validate GitHub repository: HTTP ${statusCode}`);
+          return {
+            success: false,
+            message: `Failed to validate GitHub repository: HTTP ${statusCode}`
+          };
         }
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        throw new Error(`Failed to validate GitHub repository: ${error.message}`);
       }
+      
+      return {
+        success: true,
+        message: 'GitHub repository validated successfully'
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        success: false,
+        message: `Failed to validate GitHub repository: ${error.message}`,
+        error
+      };
     }
+  }
+
+  /**
+   * Push changes to GitHub repository
+   */
+  async push(): Promise<Result> {
+    // TODO: Implement GitHub push logic
+    return {
+      success: false,
+      message: 'Push operation not implemented for GitHub backend yet'
+    };
+  }
+
+  /**
+   * Pull changes from GitHub repository
+   */
+  async pull(): Promise<Result> {
+    // TODO: Implement GitHub pull logic
+    return {
+      success: false,
+      message: 'Pull operation not implemented for GitHub backend yet'
+    };
   }
 } 
