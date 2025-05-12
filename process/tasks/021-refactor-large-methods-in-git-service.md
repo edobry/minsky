@@ -7,12 +7,14 @@ Based on codebase analysis, the `GitService` class contains excessively large me
 ## Requirements
 
 1. Refactor the `prWithDependencies` method in `src/domain/git.ts` into smaller, focused functions:
+
    - Extract branch determination logic into a separate method
    - Extract base branch detection logic into its own method
    - Extract PR content generation into a discrete method
    - Ensure all extracted methods have proper error handling
 
 2. Maintain full test coverage during refactoring
+
    - All existing tests must continue to pass
    - Add targeted tests for newly extracted methods
 
@@ -35,6 +37,7 @@ This refactoring will make the codebase more maintainable and easier to understa
 ## Work Log
 
 - 2023-05-26: Refactored the `pr` method in GitService:
+
   - Added a `prWithDependencies` method that accepts injectable dependencies for easier testing
   - Extracted repository path determination into a separate method
   - Extracted branch determination logic into a separate method
@@ -44,8 +47,21 @@ This refactoring will make the codebase more maintainable and easier to understa
   - Maintained full test coverage with all tests passing
   - Reduced the complexity of the original method
 
+- 2023-05-22: Further refactored the `prWithDependencies` method in GitService:
+  - Extracted formatCommits into a separate method to handle commit formatting logic
+  - Extracted buildPrMarkdown into a separate method for PR content generation
+  - Split collectRepositoryData into multiple focused methods:
+    - getCommitsOnBranch
+    - getModifiedFiles
+    - getWorkingDirectoryChanges
+    - getChangeStats
+  - Improved error handling throughout all extracted methods
+  - Ensured all PR-related tests pass without regression
+  - Reduced the size and complexity of the original method
+  - Preserved all original functionality
+
 ## Related Files
 
 - src/domain/git.ts
 - src/domain/git.test.ts
-- src/domain/git.pr.test.ts 
+- src/domain/git.pr.test.ts

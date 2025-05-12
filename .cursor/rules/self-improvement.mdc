@@ -1,6 +1,6 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs: 
+globs:
 alwaysApply: false
 ---
 # Self-Improvement
@@ -10,7 +10,7 @@ When the user indicates that your actions, reasoning, or responses are incorrect
 Listen for these user signals:
 
 ### Error and Dissatisfaction Signals
-- Direct correction: "that's wrong", "incorrect", "not right" 
+- Direct correction: "that's wrong", "incorrect", "not right"
 - Questions about rationale: "why did you do that?", "what were you thinking?"
 - Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
 - Implied dissatisfaction: "that's not what I asked for", "this doesn't work"
@@ -62,7 +62,7 @@ Based on your analysis:
 1. **For existing rule gaps**:
    - Articulate specifically how the rule would need to be updated
    - Focus on actionable, concrete improvements
-   
+
 2. **For missing rules**:
    - Propose new rule addressing the specific failure mode
    - Ensure the rule is precise, testable, and applicable
@@ -99,7 +99,7 @@ Based on your analysis:
 
 When updating rules based on user feedback:
 
-1. **For user preferences**: 
+1. **For user preferences**:
    - Add to or update the user-preferences rule
    - Format as clear, actionable directives
    - Include examples of correct behavior
@@ -163,3 +163,61 @@ This applies to all failures, including those due to misunderstanding, oversight
   3. Only proceed with the change after this analysis and communication step.
 
 This ensures transparency and gives the user a chance to correct or clarify the assistant's analysis.
+
+## Rule Selection and Update Protocol
+
+**To ensure corrections and new requirements are always applied to the most relevant rule, follow this protocol:**
+
+### 1. Rule Authority Hierarchy
+- **Project Workflow/Process Rules** (e.g., minsky-workflow, session-first-workflow): Always check and update these first for any process, workflow, or command usage requirements.
+- **User-Preferences Rule:** Only update if the user expresses a new, personal preference not already covered by a project workflow rule, or if the user explicitly requests a preference override.
+- **Self-Improvement Rule:** Use for meta-process corrections, error analysis, and documenting how/why a process failed.
+- **Other Domain-Specific Rules:** Update only if the issue is specific to that domain (e.g., constants-management, robust-error-handling).
+
+### 2. Rule Update Steps
+1. Identify the nature of the correction or new requirement.
+2. Search for the most specific, authoritative rule that governs this area.
+3. If a project workflow/process rule exists and covers the case, update or clarify that rule.
+4. If the issue is a user-specific preference not covered by workflow rules, update user-preferences.
+5. If the issue is a meta-process or error pattern, update self-improvement.
+6. Never duplicate logic across rules; always centralize in the most relevant rule.
+
+### 3. Verification Checkpoint
+- Before making any rule update, explicitly state which rule is being updated and why.
+- Justify the choice based on the above hierarchy.
+- If uncertain, default to updating the project workflow/process rule and note the reasoning.
+
+### 4. Automation Directive
+- For every correction, run a rule search (by name and description) to confirm the most relevant rule.
+- If a more relevant rule is found after an update, immediately migrate the update to the correct rule and remove it from the less relevant one.
+
+This protocol must be followed for all future rule updates and corrections.
+
+## Rule Update Verification Protocol
+
+- **Before making any rule update:**
+  1. Explicitly identify the nature of the correction (workflow/process, user preference, meta-process, or domain-specific).
+  2. State which rule is being updated and why, referencing the Rule Authority Hierarchy.
+  3. Justify the choice based on the hierarchy (project workflow/process > user-preferences > self-improvement > domain-specific).
+  4. If uncertain, default to updating the project workflow/process rule and note the reasoning.
+  5. Pause and verify: Is this the most authoritative rule for this requirement?
+
+- **After making any rule update:**
+  1. Re-check the rule authority hierarchy to confirm the update is in the correct rule.
+  2. If a more relevant rule is found, immediately migrate the update and remove it from the less relevant rule.
+  3. Document the correction in the session worklog or changelog.
+
+### Example: Rule Update Verification Failure and Remediation
+
+// AVOID
+User: "Never update tasks.md directly, only with the minsky tasks commands."
+Assistant: [updates user-preferences rule]
+User: "That's not the right rule to improve."
+Assistant: [realizes error, moves protocol to minsky-workflow rule]
+
+// PREFER
+User: "Never update tasks.md directly, only with the minsky tasks commands."
+Assistant:
+- "This is a workflow/process requirement. Per the Rule Authority Hierarchy, I will update the minsky-workflow rule, not user-preferences."
+- [updates minsky-workflow rule, adds verification checkpoint]
+- [verifies update is in the correct rule]

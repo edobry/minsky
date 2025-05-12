@@ -3,6 +3,11 @@ description: REQUIRED when checking or reporting on task status to verify both t
 globs: ["**/*"]
 alwaysApply: false
 ---
+# BUG NOTE
+
+> **BUG:** Updates to this file are not currently reflected in the Minsky CLI rule system (`minsky rules get ...`). Manual editing of this file is required until the rule sync bug is fixed.
+> _See: [Task #055: Document and Fix Rule Sync Bug in Minsky CLI](mdc:process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)_
+
 # Task Status Verification Protocol
 
 When investigating or reporting on a task's status, follow these verification steps to ensure accuracy.
@@ -23,17 +28,26 @@ When investigating or reporting on a task's status, follow these verification st
    ```
 
 2. **Implementation Verification**:
+   - Check for *all* commits and merges that might include the task, not just those with a specific message pattern.
+   - Search for the following patterns in commit messages:
+     - `feat(#<taskId>)`
+     - `fix(#<taskId>)`
+     - `task#<taskId>`
+     - Any merge commits that reference the task or its branch (e.g., `Merge.*task#<taskId>`)
+   - Example commands:
    ```bash
-   # Check main branch for relevant commits
    git log --grep="feat(#<taskId>)" --oneline main
    git log --grep="fix(#<taskId>)" --oneline main
+   git log --grep="task#<taskId>" --oneline main
+   git log --oneline --merges --grep=task#<taskId>
    ```
+   - Review the commits included in relevant merge commits to ensure the implementation is present.
 
 3. **Session Status Check**:
    ```bash
    # Check if session exists
    minsky session get --task <taskId>
-   
+
    # If exists, check branch status
    cd $(minsky session dir <session>)
    git status
@@ -55,6 +69,11 @@ When investigating or reporting on a task's status, follow these verification st
 
    // PREFER
    "Task #020: Official status is 'IN-PROGRESS', but implementation has been merged to main branch (commit a36f4e8). The session still exists but is redundant. Recommend updating task status to 'DONE' and cleaning up the session."
+
+## Verification Checkpoint
+- Always check for all possible commit message patterns and merge scenarios, not just `feat`/`fix`.
+- Review merge commits and their included changes for the task.
+- Confirm that the implementation is present on the main branch, regardless of commit message format.
 
 ## When to Apply This Protocol
 

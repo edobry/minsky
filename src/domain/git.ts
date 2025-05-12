@@ -2,24 +2,9 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
-import { TaskService, TASK_STATUS } from "./tasks.js";
-import {
-  GitPullRequestParams,
-  GitCommitParams,
-  CreatePrParams,
-  CommitChangesParams,
-  createPrParamsSchema,
-  commitChangesParamsSchema,
-} from "../schemas/git.js";
-import { MinskyError, ValidationError } from "../errors/index.js";
-import { z } from "zod";
-import { resolveRepoPath } from "./repo-utils.js";
-import { normalizeTaskId } from "../utils/task-utils.js";
-import { CreatePrParamsSchema, CommitChangesParamsSchema } from "../schemas/git.js";
-import { DEFAULT_PR_TEMPLATE } from "./templates.js";
-import { GitPrOptions, PrDependencies, PrResult, PrOptions, GitResult } from "../schemas/git.js";
+import { normalizeRepoName } from "./repo-utils";
+import { SessionDB } from "./session";
+import { TaskService, TASK_STATUS } from "./tasks";
 
 const execAsync = promisify(exec);
 
@@ -246,14 +231,13 @@ export class GitService {
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
 
-    // Determine the working directory
+    // Determine the working directory and branch
     const workdir = await this.determineWorkingDirectory(options, deps);
 
     if (options.debug) {
       console.error(`[DEBUG] Using workdir: ${workdir}`);
     }
 
-    // Determine branch
     const branch = await this.determineCurrentBranch(workdir, options, deps);
 
     if (options.debug) {
@@ -492,49 +476,82 @@ export class GitService {
     const { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats } =
       await this.collectRepositoryData(workdir, branch, mergeBase, deps);
 
-    // Format the commits data for display
-    let formattedCommits = "No commits yet";
-    if (commits && commits.trim()) {
-      try {
-        // Check if the commits are in the expected format with delimiters
-        if (commits.includes("\x1f")) {
-          // Parse the commits data with delimiters
-          // Split by record separator
-          const commitRecords = commits.split("\x1e").filter(Boolean);
-          const formattedEntries: string[] = [];
-
-          for (const record of commitRecords) {
-            // Split by field separator
-            const fields = record.split("\x1f");
-            if (fields.length > 1) {
-              if (fields[0] !== undefined && fields[1] !== undefined) {
-                const hash = fields[0].substring(0, 7);
-                const message = fields[1];
-                formattedEntries.push(`${hash} ${message}`);
-              }
-            } else {
-              // Use the record as-is if it doesn't have the expected format
-              formattedEntries.push(record.trim());
-            }
-          }
-
-          if (formattedEntries.length > 0) {
-            formattedCommits = formattedEntries.join("\n");
-          }
-        } else {
-          // Use as-is if not in the expected format
-          formattedCommits = commits;
-        }
-      } catch (error) {
-        // In case of any parsing errors, fall back to the raw commits data
-        formattedCommits = commits;
-      }
-    }
+    // Format the commits for display
+    const formattedCommits = this.formatCommits(commits);
 
     // Check if we have any working directory changes
     const hasWorkingDirChanges =
       untrackedFiles.trim().length > 0 || uncommittedChanges.trim().length > 0;
 
+    return this.buildPrMarkdown(
+      branch,
+      formattedCommits,
+      modifiedFiles,
+      untrackedFiles,
+      uncommittedChanges,
+      stats,
+      comparisonDescription,
+      hasWorkingDirChanges
+    );
+  }
+
+  /**
+   * Format commit data for display in the PR markdown
+   */
+  private formatCommits(commits: string): string {
+    if (!commits || !commits.trim()) {
+      return "No commits yet";
+    }
+
+    try {
+      // Check if the commits are in the expected format with delimiters
+      if (commits.includes("\x1f")) {
+        // Parse the commits data with delimiters
+        // Split by record separator
+        const commitRecords = commits.split("\x1e").filter(Boolean);
+        const formattedEntries: string[] = [];
+
+        for (const record of commitRecords) {
+          // Split by field separator
+          const fields = record.split("\x1f");
+          if (fields.length > 1) {
+            if (fields[0] !== undefined && fields[1] !== undefined) {
+              const hash = fields[0].substring(0, 7);
+              const message = fields[1];
+              formattedEntries.push(`${hash} ${message}`);
+            }
+          } else {
+            // Use the record as-is if it doesn't have the expected format
+            formattedEntries.push(record.trim());
+          }
+        }
+
+        if (formattedEntries.length > 0) {
+          return formattedEntries.join("\n");
+        }
+      }
+
+      // Use as-is if not in the expected format
+      return commits;
+    } catch (error) {
+      // In case of any parsing errors, fall back to the raw commits data
+      return commits;
+    }
+  }
+
+  /**
+   * Builds the PR markdown from all the components
+   */
+  private buildPrMarkdown(
+    branch: string,
+    formattedCommits: string,
+    modifiedFiles: string,
+    untrackedFiles: string,
+    uncommittedChanges: string,
+    stats: string,
+    comparisonDescription: string,
+    hasWorkingDirChanges: boolean
+  ): string {
     // Generate the PR markdown
     const sections = [
       `# Pull Request for branch \`${branch}\`\n`,
@@ -586,37 +603,111 @@ export class GitService {
     stats: string;
   }> {
     // Get commits on the branch
-    const { stdout: commits } = await deps.execAsync(
-      `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
-      { maxBuffer: 1024 * 1024 }
+    const commits = await this.getCommitsOnBranch(workdir, branch, mergeBase, deps);
+
+    // Get modified files and diff stats
+    const { modifiedFiles, diffNameStatus } = await this.getModifiedFiles(
+      workdir,
+      branch,
+      mergeBase,
+      deps
     );
 
-    // Get modified files in the branch - use name-status format for test compatibility
-    const { stdout: diffNameStatus } = await deps.execAsync(
-      `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
-      { maxBuffer: 1024 * 1024 }
+    // Get working directory changes
+    const { uncommittedChanges, untrackedFiles } = await this.getWorkingDirectoryChanges(
+      workdir,
+      deps
     );
 
-    // Also get name-only format for display
-    const { stdout: modifiedFiles } = await deps.execAsync(
-      `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
-      { maxBuffer: 1024 * 1024 }
+    // Get changes stats
+    const stats = await this.getChangeStats(
+      workdir,
+      branch,
+      mergeBase,
+      diffNameStatus,
+      uncommittedChanges,
+      deps
     );
 
-    // Get uncommitted changes
-    let uncommittedChanges = "";
+    return { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats };
+  }
+
+  /**
+   * Get commits on the branch
+   */
+  private async getCommitsOnBranch(
+    workdir: string,
+    branch: string,
+    mergeBase: string,
+    deps: PrDependencies
+  ): Promise<string> {
     try {
+      const { stdout } = await deps.execAsync(
+        `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
+        { maxBuffer: 1024 * 1024 }
+      );
+      return stdout;
+    } catch (err) {
+      // Return empty string on error
+      return "";
+    }
+  }
+
+  /**
+   * Get modified files in the branch
+   */
+  private async getModifiedFiles(
+    workdir: string,
+    branch: string,
+    mergeBase: string,
+    deps: PrDependencies
+  ): Promise<{ modifiedFiles: string; diffNameStatus: string }> {
+    let modifiedFiles = "";
+    let diffNameStatus = "";
+
+    try {
+      // Get modified files in name-status format for processing
+      const { stdout: nameStatus } = await deps.execAsync(
+        `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
+        { maxBuffer: 1024 * 1024 }
+      );
+      diffNameStatus = nameStatus;
+
+      // Get name-only format for display
+      const { stdout: nameOnly } = await deps.execAsync(
+        `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
+        { maxBuffer: 1024 * 1024 }
+      );
+      modifiedFiles = nameOnly;
+    } catch (err) {
+      // Return empty strings on error
+    }
+
+    return { modifiedFiles, diffNameStatus };
+  }
+
+  /**
+   * Get uncommitted changes and untracked files
+   */
+  private async getWorkingDirectoryChanges(
+    workdir: string,
+    deps: PrDependencies
+  ): Promise<{ uncommittedChanges: string; untrackedFiles: string }> {
+    let uncommittedChanges = "";
+    let untrackedFiles = "";
+
+    try {
+      // Get uncommitted changes
       const { stdout } = await deps.execAsync(`git -C ${workdir} diff --name-status`, {
         maxBuffer: 1024 * 1024,
       });
       uncommittedChanges = stdout;
     } catch (err) {
-      // Ignore errors
+      // Ignore errors for uncommitted changes
     }
 
-    // Get untracked files
-    let untrackedFiles = "";
     try {
+      // Get untracked files
       const { stdout } = await deps.execAsync(
         `git -C ${workdir} ls-files --others --exclude-standard`,
         { maxBuffer: 1024 * 1024 }
@@ -626,9 +717,24 @@ export class GitService {
       // Ignore errors for untracked files
     }
 
-    // Get changes stats
+    return { uncommittedChanges, untrackedFiles };
+  }
+
+  /**
+   * Get change statistics
+   */
+  private async getChangeStats(
+    workdir: string,
+    branch: string,
+    mergeBase: string,
+    diffNameStatus: string,
+    uncommittedChanges: string,
+    deps: PrDependencies
+  ): Promise<string> {
     let stats = "No changes";
+
     try {
+      // Try to get diff stats from git
       const { stdout: statOutput } = await deps.execAsync(
         `git -C ${workdir} diff --stat ${mergeBase}..${branch}`,
         { maxBuffer: 1024 * 1024 }
@@ -654,10 +760,10 @@ export class GitService {
         }
       }
     } catch (err) {
-      // Ignore errors
+      // Ignore errors for stats
     }
 
-    return { commits, modifiedFiles, untrackedFiles, uncommittedChanges, stats };
+    return stats;
   }
 
   async getStatus(repoPath?: string): Promise<GitStatus> {
@@ -909,98 +1015,5 @@ export class GitService {
       console.error("[DEBUG] No task ID could be determined");
     }
     return undefined;
-  }
-}
-
-/**
- * Creates a pull request document based on parameters
- */
-export async function createPullRequestFromParams(
-  params: any
-): Promise<{
-  markdown: string;
-  statusUpdateResult?: { taskId: string; previousStatus?: string; newStatus: string };
-}> {
-  try {
-    // Setup GitService
-    const gitService = new GitService();
-
-    // Forward the request to GitService.pr with the appropriate parameters
-    const result = await gitService.pr({
-      session: params.session,
-      repoPath: params.repo,
-      branch: params.branch,
-      taskId: params.taskId,
-      debug: params.debug,
-      noStatusUpdate: params.noStatusUpdate,
-    });
-
-    return result;
-  } catch (error) {
-    if (error instanceof MinskyError) {
-      throw error;
-    } else {
-      throw new MinskyError(
-        `Failed to create pull request: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
-    }
-  }
-}
-
-/**
- * Commits changes based on parameters
- */
-export async function commitChangesFromParams(
-  params: any
-): Promise<{ commitHash: string; message: string }> {
-  try {
-    // Resolve repository path
-    const repoPath = await resolveRepoPath({
-      session: params.session,
-      repo: params.repo,
-    });
-
-    // Setup GitService
-    const gitService = new GitService();
-    const sessionDb = new SessionDB();
-
-    // If we have a session, get session record to check for task ID
-    let prefix = "";
-    if (params.session) {
-      const sessionRecord = await sessionDb.getSession(params.session);
-      if (sessionRecord?.taskId) {
-        // Add task ID as prefix to commit message
-        const taskId = normalizeTaskId(sessionRecord.taskId);
-        prefix = `${taskId}: `;
-      }
-    }
-
-    // Stage changes if noStage was not set
-    if (!params.noStage) {
-      if (params.all) {
-        await gitService.stageAll(repoPath);
-      } else {
-        await gitService.stageModified(repoPath);
-      }
-    }
-
-    // Add prefix to commit message and commit changes
-    const fullMessage = prefix + params.message;
-    const commitHash = await gitService.commit(fullMessage, repoPath, params.amend);
-
-    return {
-      commitHash,
-      message: fullMessage,
-    };
-  } catch (error) {
-    if (error instanceof MinskyError) {
-      throw error;
-    } else {
-      throw new MinskyError(
-        `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
-    }
   }
 }
