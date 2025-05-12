@@ -56,7 +56,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
 - [ ] Document Dependency Management Process [#046](process/tasks/046-document-dependency-management-process.md)
 - [x] Configure MCP Server in Minsky Init Command [#047](process/tasks/047-configure-mcp-server-in-minsky-init-command.md)
-- [ ] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
+- [-] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
 - [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 - [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
@@ -66,3 +66,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
 
 - [ ] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
+
+- [ ] Explore OCI Artifacts for Rule Distribution [#056](process/tasks/056-explore-oci-artifacts-for-rule-distribution.md)
+
+- [ ] Implement TypeScript-based Rule Authoring System [#057](process/tasks/057-implement-typescript-based-rule-authoring-system.md)
