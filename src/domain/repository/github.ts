@@ -1,7 +1,7 @@
-import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
+import { join } from "path";
+import { mkdir } from "fs/promises";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { SessionDB } from "../session.js";
 import { normalizeRepoName } from "../repo-utils.js";
 import type {
@@ -18,7 +18,6 @@ declare const process: {
   env: {
     XDG_STATE_HOME?: string;
     HOME?: string;
-    [key: string]: string | undefined;
   };
 };
 
