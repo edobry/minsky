@@ -1,0 +1,19 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Rule Map: Best Practices and Canonical Rules
+
+This document maps key engineering best practices to the canonical rules that govern them in this project. Use this as a reference for onboarding, enforcement, and cross-referencing.
+
+| Best Practice Section                | Canonical Rule(s)                        | Description/Reference |
+|--------------------------------------|------------------------------------------|----------------------|
+| Interface/Implementation Alignment   | domain-oriented-modules, testable-design  | Consolidate interfaces/types, update all implementations, avoid duplication |
+| Batch Verification                   | tests, dont-ignore-errors, minsky-workflow| Run lint/type/test after each batch, do not proceed with errors |
+| Tool Adaptation                      | self-improvement, session-first-workflow  | Switch tools if needed, log workarounds, adapt process |
+| Progress Logging/Work Planning       | minsky-workflow, session-first-workflow   | Maintain running log, update changelog, audit trail |
+| Single Source of Truth for Interfaces| domain-oriented-modules, testable-design  | Use one authoritative file per domain |
+| Verification Checkpoints             | tests, dont-ignore-errors, session-first-workflow, minsky-workflow | Confirm all checks pass, session workspace integrity |
+
+**See each rule for detailed requirements and enforcement.**

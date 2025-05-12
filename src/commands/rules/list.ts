@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import type { RuleFormat } from "../../domain/rules.js";
+import { exit } from "../../utils/process.js";
 
 export function createListCommand(): Command {
   return new Command("list")
@@ -63,8 +64,10 @@ export function createListCommand(): Command {
           }
         }
       } catch (error) {
-        console.error(`Error listing rules: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        console.error(
+          `Error listing rules: ${error instanceof Error ? error.message : String(error)}`
+        );
+        exit(1);
       }
     });
 }
@@ -75,8 +78,10 @@ async function resolveRepoPath(options: { repo?: string; session?: string }): Pr
     const { resolveRepoPath: resolve } = await import("../../domain/index.js");
     return await resolve(options);
   } catch (error) {
-    console.error(`Error resolving repository path: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    console.error(
+      `Error resolving repository path: ${error instanceof Error ? error.message : String(error)}`
+    );
+    exit(1);
     // This line is unreachable but needed for TypeScript return type
     throw new Error("Failed to resolve repository path");
   }

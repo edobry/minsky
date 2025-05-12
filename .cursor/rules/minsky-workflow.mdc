@@ -1,6 +1,6 @@
 ---
 description: REQUIRED workflow for BOTH querying and implementing tasks - ANY interaction with tasks/sessions (viewing lists, checking status, or making changes) MUST use Minsky CLI, not file system.
-globs: 
+globs:
 alwaysApply: false
 ---
 # Minsky Workflow
@@ -19,6 +19,12 @@ alwaysApply: false
   ```
 - **Do NOT use `bun run ...` or direct script execution for these operations.**
 - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself (i.e., when working on the implementation of Minsky, not when using it as a tool).
+
+**VERIFICATION CHECKPOINT: Before running ANY minsky CLI command, you MUST:**
+- **Explicitly check the subcommand spelling against the documented command reference or by running `minsky --help` or `minsky <command> --help`.**
+- **If there is ANY uncertainty about the command or its options, run the relevant `--help` command FIRST.**
+- **NEVER guess subcommand names or options.**
+- **If you use the wrong subcommand, treat this as a process error and immediately correct it.**
 
 ## Mandatory Session Creation
 
@@ -97,18 +103,18 @@ Always use `minsky <command> --help` when you are uncertain about any command or
 minsky tasks list [options]
   --all            # Include completed tasks (default: only active tasks)
   --json           # Output in JSON format
-  
+
 # Get details about a specific task
 minsky tasks get <task-id> [options]
   --json           # Output in JSON format
-  
+
 # Task status operations
 minsky tasks status
   get <task-id>    # Get the status of a task
   set <task-id> <status>  # Set task status (TODO, IN-PROGRESS, IN-REVIEW, DONE)
     --session <session>   # Session name to use for repo resolution
     --repo <repoPath>     # Path to a git repository (overrides session)
-    
+
 # Create a new task from a specification document
 minsky tasks create <spec-path> [options]
 ```
@@ -119,21 +125,21 @@ minsky tasks create <spec-path> [options]
 # List all sessions
 minsky session list [options]
   --json           # Output in JSON format
-  
+
 # Get session details
 minsky session get <session-name> [options]
   --task <task-id> # Get session by task ID instead of name
   --json           # Output in JSON format
-  
+
 # Start a new session (ALWAYS use with --quiet)
 minsky session start [name] [options]
   --task <task-id> # Associate session with a task
   --repo <repo>    # Path or URL to repository
   --quiet          # MANDATORY: Only output session directory path
-  
+
 # Get session directory path
 minsky session dir <session-name-or-task#id>
-  
+
 # Delete a session
 minsky session delete <session-name> [options]
   --force          # Skip confirmation prompt
@@ -146,7 +152,7 @@ minsky session delete <session-name> [options]
 # Create a PR from current branch
 minsky git pr [options]
   --path <path>    # Path to repository
-  
+
 # Push changes to remote
 minsky git push
 ```
@@ -218,7 +224,7 @@ After every file edit in a session directory, verify the changes are actually pr
 4. **Clear vs. Ambiguous Request Examples**
    - Clear Specification Request: "Create a task to add a minsky task create command"
      → Create a task specification document
-   - Clear Implementation Request: "Implement the minsky task create command according to task #007"  
+   - Clear Implementation Request: "Implement the minsky task create command according to task #007"
      → Implement the code following the specification
    - Ambiguous Request: "Add the minsky task create command"
      → Default to creating a task specification unless context clearly indicates implementation
@@ -284,7 +290,7 @@ When working with project AI rules:
    - Place rules in the correct location (`.cursor/rules/` for Cursor AI rules)
 
 3. **Key Operations**
-   - Viewing a rule: `minsky rules get <rule-id>` 
+   - Viewing a rule: `minsky rules get <rule-id>`
    - Updating a rule's description: `minsky rules update <rule-id> --description "New description"`
    - Searching for relevant rules: `minsky rules search "keyword"`
    - Creating a new rule: `minsky rules create` (interactive mode)
@@ -298,7 +304,7 @@ When working with project AI rules:
   - Sessions can be created with just a name: `minsky session start <name>`
   - Sessions can be created with a task association: `minsky session start --task <id>`
   - Task association is optional and depends on the work context
-  
+
 - **When to use each option**
   - Use named sessions (without tasks) for:
     - General testing/fixes
@@ -308,7 +314,7 @@ When working with project AI rules:
   - Use task-associated sessions for:
     - Implementing a specific task
     - Work that will be tracked in the task system
-    
+
 - **Verification step**
   - Always verify the appropriate session creation approach based on the work context
   - Never assume a task ID is required when a simple named session would suffice
@@ -466,7 +472,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```bash
      # Current approach (standard git command)
      minsky git push
-     
+
      # Future: Will be simplified with dedicated command (Task #005)
      # minsky git push
      ```
@@ -477,7 +483,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
      ```bash
      # Use IN-REVIEW after you've generated a PR and pushed your changes
      minsky tasks status set '#001' IN-REVIEW
-     
+
      # Use DONE only after the changes have been reviewed and merged
      minsky tasks status set '#001' DONE
      ```
@@ -520,5 +526,25 @@ This pattern **MUST** be used for reliable session creation and navigation becau
 - It ensures `SESSION_DIR` accurately captures only the directory path.
 
 Using any other approach for capturing the session path after creation is prone to errors if the `--quiet` flag is inadvertently omitted.
+
+## Task Status Update Protocol
+
+- All changes to task status (e.g., marking a task as DONE) must be performed using the `minsky tasks` command.
+- Direct edits to `tasks.md` are strictly forbidden for status changes.
+- **Verification Checkpoint:** Before marking any task as complete, verify that the update is performed via the CLI, not by file edit.
+- Example:
+  - Correct: `minsky tasks status set 039 DONE --session task#039`
+  - Incorrect: Editing `tasks.md` directly in any workspace.
+
+## Best Practices Cross-Reference
+- See also: domain-oriented-modules, tests, dont-ignore-errors, session-first-workflow, rule-map.mdc
+- This rule governs: interface alignment, batch verification, progress logging, changelog, and verification checkpoints.
+
+## Requirements (Revised)
+- You MUST update the changelog and reference SpecStory artifacts after each major milestone or batch of changes.
+- You MUST maintain a running log of what was fixed, what remains, and any tool limitations or workarounds.
+- You MUST use batch verification (lint, type check, test) after each set of related changes.
+- You MUST confirm all changes are present in the session workspace and not the main workspace before merging or marking a task complete.
+- You MUST reference this rule when planning, logging, or verifying workflow steps.
 
 ---

@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import * as prompts from "@clack/prompts";
+import { exit } from "../../utils/process.js";
 
 export function createGetCommand(): Command {
   return new Command("get")
@@ -73,7 +74,7 @@ export function createGetCommand(): Command {
         prompts.log.error(
           `Error getting rule: ${error instanceof Error ? error.message : String(error)}`
         );
-        process.exit(1);
+        exit(1);
       }
     });
 }

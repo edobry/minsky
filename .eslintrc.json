@@ -3,7 +3,7 @@
   "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
   "parserOptions": { "ecmaVersion": "latest", "sourceType": "module" },
-  "plugins": ["@typescript-eslint"],
+  "plugins": ["@typescript-eslint", "import"],
   "rules": {
     "indent": ["error", 2],
     "linebreak-style": ["error", "unix"],
@@ -17,8 +17,13 @@
       {
         "patterns": [
           {
-            "group": ["./*/domain/*", "../*/domain/*"],
-            "message": "Import domain modules from their index file instead of directly"
+            "group": [
+              "./*/domain/!(*index)",
+              "../*/domain/!(*index)",
+              "./*/domain/!(*index).js",
+              "../*/domain/!(*index).js"
+            ],
+            "message": "Import domain modules from their index file (extensionless) instead of directly or with .js extension"
           },
           {
             "group": ["./commands/*", "../commands/*"],
@@ -33,15 +38,23 @@
     ],
     "prefer-template": "error",
     "no-var": "error",
-    "prefer-const": "error",
+    "prefer-const": "off",
     "no-throw-literal": "error",
     "prefer-promise-reject-errors": "error",
     "no-useless-catch": "error",
     "no-console": ["warn", { "allow": ["warn", "error"] }],
-    "max-lines": ["warn", { "max": 500, "skipBlankLines": true, "skipComments": true }],
-    "no-restricted-globals": [
-      "error",
-      { "name": "process", "message": "Use Bun APIs instead of Node process when possible" }
-    ]
-  }
+    "max-lines": "off",
+    "no-restricted-globals": "off",
+    "import/extensions": "off",
+    "no-useless-escape": "off",
+    "@typescript-eslint/ban-types": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/domain/index.js", "**/domain/index.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
 }

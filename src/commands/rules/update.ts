@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import type { RuleMeta } from "../../domain/rules.js";
 import { promises as fs } from "fs";
+import { exit } from "../../utils/process.js";
 
 export function createUpdateCommand(): Command {
   return new Command("update")
@@ -61,8 +62,10 @@ export function createUpdateCommand(): Command {
         
         // Ensure we have something to update
         if (!updateOptions.meta && !updateOptions.content) {
-          console.error("Error: No updates specified. Use --name, --description, --globs, --always-apply, --tags, or --content.");
-          process.exit(1);
+          console.error(
+            "Error: No updates specified. Use --name, --description, --globs, --always-apply, --tags, or --content."
+          );
+          exit(1);
         }
         
         // Update the rule
@@ -87,8 +90,10 @@ export function createUpdateCommand(): Command {
         }
         
       } catch (error) {
-        console.error(`Error updating rule: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        console.error(
+          `Error updating rule: ${error instanceof Error ? error.message : String(error)}`
+        );
+        exit(1);
       }
     });
 }

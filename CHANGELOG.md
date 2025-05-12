@@ -114,6 +114,7 @@
 - Enhanced task #014 (Add Repository Backend Support) to specifically focus on supporting remote Git repositories as repository backends. This includes a generic Remote Git backend for any remote Git URL, as well as a specific GitHub backend implementation. The task now more clearly defines the requirements for ensuring session workflows can use remote repositories as their origin.
 - Created task #051 to add Git command support to the MCP server, enabling AI assistants to perform Git operations via the Model Context Protocol
 - Created task #052 to add remaining task management commands to the MCP server, completing the task management API for AI assistants
+- Detailed implementation plan for task #039: Interface-Agnostic Command Architecture, which will refactor the command architecture to enable direct function calls across different interfaces (CLI, MCP, and potentially others like REST APIs in the future)
 - Added safety check to the `session start` command to prevent creating sessions from within existing session workspaces, displaying a clear error message instructing users to return to the main workspace first
 - Created test-utils module with standard test setup, cleanup, and utility functions:
   - Fixed timestamp management to eliminate flaky tests
@@ -151,6 +152,14 @@
 - GitHub API integration for repository backend
 - Remote Git repository support for repository backend
 - Full error handling and retry logic for Git operations
+- Implemented interface-agnostic command architecture for task #039, enabling direct function calls across different interfaces (CLI, MCP, and others):
+  - Extracted pure domain functions for tasks, session, and git commands with TypeScript interfaces
+  - Added Zod schemas for parameter validation and consistent error handling
+  - Created adapter layers for CLI and MCP interfaces using the same domain functions
+  - Converted task commands from CommonJS to ESM syntax for better module compatibility
+  - Added createTaskFromParams domain function to complete the task command set
+  - All functions follow consistent interface patterns with dependency injection for testing
+  - Merged latest changes from main branch and resolved conflicts in git.ts
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -166,6 +175,7 @@ _See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/hi
 _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
 _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
+_See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
 
 ### Changed
 
@@ -205,6 +215,16 @@ _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/
 - Updated PR test to use the new test utilities
 - Improved test assertion precision with more specific matchers
 - Standardized test environment setup and teardown
+- Refactored `prWithDependencies` method in `GitService` into smaller, focused functions:
+  - Extracted commit formatting logic into `formatCommits` method
+  - Extracted PR markdown generation into `buildPrMarkdown` method
+  - Split repository data collection into multiple specialized methods:
+    - `getCommitsOnBranch`
+    - `getModifiedFiles`
+    - `getWorkingDirectoryChanges`
+    - `getChangeStats`
+  - Improved error handling in all extracted methods
+  - Reduced cognitive complexity while maintaining full test coverage
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -222,6 +242,7 @@ _See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-
 _See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
 _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
 _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
+_See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/history/2025-05-22_task-021-refactor-git-service.md) for implementation details._
 
 ### Fixed
 
@@ -311,38 +332,7 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
 - Updated mock CLI command implementations to handle task ID operations consistently
 - Ensured proper type safety in test mocks
-
-### Changed
-
-- Improved test environment setup to create more complete Minsky workspace structure
-- Enhanced error handling and debugging output in test environment setup
-
-_See: SpecStory history [session command test fixes](.specstory/history/session-command-test-fixes.md) for more details about test fixes._
-
-## [0.39.0] - 2025-04-29
-
-### Changed
-
-- Clarified that `minsky tasks list --json` should be used to query the backlog.
-
-_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
-
-### Fixed
-
-- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
-- Added missing command imports in src/cli.ts (tasks, git, and init commands)
-- Fixed test failures in session command tests by correcting import paths
-
-_See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
-
-## [Unreleased]
-
-### Fixed
-
-- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
-- Fixed issues with session-related tests by enhancing error handling and directory creation
-- Fixed task list tests by ensuring tasks.md is created in the proper process directory
-- Added more robust directory existence checking and file creation in test setup
+- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
 
 ### Changed
 

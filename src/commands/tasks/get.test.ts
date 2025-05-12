@@ -7,13 +7,13 @@ import { createTasksCommand } from "./index.js";
 import { Command } from "commander";
 import { TaskService } from "../../domain/tasks.js";
 import { SessionDB } from "../../domain/session.js";
-import { 
-  createUniqueTestDir, 
-  cleanupTestDir, 
-  setupMinskyTestEnv, 
-  createTestEnv, 
+import {
+  createUniqueTestDir,
+  cleanupTestDir,
+  setupMinskyTestEnv,
+  createTestEnv,
   standardSpawnOptions,
-  ensureValidCommandResult
+  ensureValidCommandResult,
 } from "../../utils/test-helpers.js";
 import type { MinskyTestEnv } from "../../utils/test-helpers.js";
 
@@ -42,23 +42,23 @@ const SAMPLE_TASKS_MD = `
 function setupMinskyWorkspace() {
   // Setup the Minsky test environment with proper directory structure
   testEnv = setupMinskyTestEnv(TEST_DIR);
-  
+
   // Create additional directories for workspace validation
   const PROCESS_DIR = join(TEST_DIR, "process");
   const TASKS_DIR = join(PROCESS_DIR, "tasks");
-  
+
   // Create fake .git directory to make the workspace appear valid
   const GIT_DIR = join(TEST_DIR, ".git");
-  
+
   // Create mandatory src directory for a valid workspace
   const SRC_DIR = join(TEST_DIR, "src");
-  
+
   // Create necessary directories and subdirectories
   const CONFIG_DIR = join(TEST_DIR, ".minsky");
-  
+
   // Setup Minsky-specific directories for the SESSION_DB_PATH
   const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
-  
+
   // Create all directories at once with recursive option
   mkdirSync(GIT_DIR, { recursive: true });
   mkdirSync(PROCESS_DIR, { recursive: true });
@@ -66,34 +66,53 @@ function setupMinskyWorkspace() {
   mkdirSync(SRC_DIR, { recursive: true });
   mkdirSync(CONFIG_DIR, { recursive: true });
   mkdirSync(MINSKY_STATE_DIR, { recursive: true });
-  
+
   // Create utility modules needed for validation
   const UTILS_DIR = join(SRC_DIR, "utils");
   mkdirSync(UTILS_DIR, { recursive: true });
-  
+
   // Create minimal package.json
-  writeFileSync(join(TEST_DIR, "package.json"), JSON.stringify({
-    name: "test-minsky-workspace",
-    version: "1.0.0"
-  }, null, 2));
+  writeFileSync(
+    join(TEST_DIR, "package.json"),
+    JSON.stringify(
+      {
+        name: "test-minsky-workspace",
+        version: "1.0.0",
+      },
+      null,
+      2
+    )
+  );
 
   // Create minimal .git/config
-  writeFileSync(join(GIT_DIR, "config"), `[core]
+  writeFileSync(
+    join(GIT_DIR, "config"),
+    `[core]
   repositoryformatversion = 0
   filemode = true
   bare = false
   logallrefupdates = true
   ignorecase = true
   precomposeunicode = true
-`);
+`
+  );
 
   // Create minimal .minsky/CONFIG.json
-  writeFileSync(join(CONFIG_DIR, "CONFIG.json"), JSON.stringify({
-    version: "1.0.0"
-  }, null, 2));
-  
+  writeFileSync(
+    join(CONFIG_DIR, "CONFIG.json"),
+    JSON.stringify(
+      {
+        version: "1.0.0",
+      },
+      null,
+      2
+    )
+  );
+
   // Create filter messages module
-  writeFileSync(join(UTILS_DIR, "filter-messages.ts"), `
+  writeFileSync(
+    join(UTILS_DIR, "filter-messages.ts"),
+    `
 export function getStatusFilterMessage(status: string): string {
   return \`Showing tasks with status '\${status}'\`;
 }
@@ -113,69 +132,87 @@ export function generateFilterMessages(options: { status?: string; all?: boolean
   
   return messages;
 }
-`);
-  
+`
+  );
+
   // Write necessary files to make this a valid workspace structure
   writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
-  
+
   // Create the individual task spec files in the tasks directory
-  writeFileSync(join(TASKS_DIR, "001-first.md"), "# Task #001: First Task\n\n## Description\n\nFirst task description");
-  writeFileSync(join(TASKS_DIR, "002-second.md"), "# Task #002: Second Task\n\n## Description\n\nSecond task description");
-  writeFileSync(join(TASKS_DIR, "003-third.md"), "# Task #003: Third Task\n\n## Description\n\nThird task description");
-  writeFileSync(join(TASKS_DIR, "004-fourth.md"), "# Task #004: Fourth Task\n\n## Description\n\nFourth task description");
-  
+  writeFileSync(
+    join(TASKS_DIR, "001-first.md"),
+    "# Task #001: First Task\n\n## Description\n\nFirst task description"
+  );
+  writeFileSync(
+    join(TASKS_DIR, "002-second.md"),
+    "# Task #002: Second Task\n\n## Description\n\nSecond task description"
+  );
+  writeFileSync(
+    join(TASKS_DIR, "003-third.md"),
+    "# Task #003: Third Task\n\n## Description\n\nThird task description"
+  );
+  writeFileSync(
+    join(TASKS_DIR, "004-fourth.md"),
+    "# Task #004: Fourth Task\n\n## Description\n\nFourth task description"
+  );
+
   // Add a session record for task #003
   const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
-  writeFileSync(sessionDbPath, JSON.stringify([
-    {
-      session: "task#003",
-      repoName: "test-repo",
-      repoUrl: "file:///test/repo",
-      createdAt: "2025-01-01T00:00:00Z",
-      taskId: "#003"
-    }
-  ]));
-  
+  writeFileSync(
+    sessionDbPath,
+    JSON.stringify([
+      {
+        session: "task#003",
+        repoName: "test-repo",
+        repoUrl: "file:///test/repo",
+        createdAt: "2025-01-01T00:00:00Z",
+        taskId: "#003",
+      },
+    ])
+  );
+
   // Verify all directories and files were created properly
   console.log(`Process dir exists: ${existsSync(PROCESS_DIR)}`);
   console.log(`Tasks dir exists: ${existsSync(TASKS_DIR)}`);
   console.log(`Tasks.md exists: ${existsSync(join(PROCESS_DIR, "tasks.md"))}`);
   console.log(`Git config exists: ${existsSync(join(GIT_DIR, "config"))}`);
   console.log(`Session DB exists: ${existsSync(sessionDbPath)}`);
-  console.log(`Test setup: Created workspace at ${TEST_DIR} with task files and session for task #003`);
+  console.log(
+    `Test setup: Created workspace at ${TEST_DIR} with task files and session for task #003`
+  );
 }
 
 // Helper to run a CLI command with the right environment
 function runCliCommand(args: string[]) {
   const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
   const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
-  
+
   const env = createTestEnv(TEST_DIR);
-  
+
   // Make sure we're using the correct session database
   env.SESSION_DB_PATH = sessionDbPath;
-  
+
   const options = {
     ...standardSpawnOptions(),
-    env
+    env,
   };
-  
+
   const result = spawnSync("bun", ["run", CLI, ...args], options);
-  
+
   // Log output for debugging
   console.log(`Command stdout: ${result.stdout}`);
   console.log(`Command stderr: ${result.stderr}`);
-  
+
   return {
     stdout: result.stdout as string,
     stderr: result.stderr as string,
-    status: result.status
+    status: result.status,
   };
 }
 
 // Create a flag to determine if we're running this test file specifically
 // or as part of the full test suite
-const SKIP_CLI_TESTS = process.argv.indexOf('src/commands/tasks/get.test.ts') === -1;
+const SKIP_CLI_TESTS = process.argv.indexOf("src/commands/tasks/get.test.ts") === -1;
 
 describe("minsky tasks get CLI", () => {
   // Skip all tests if we're running the full test suite
@@ -186,11 +223,11 @@ describe("minsky tasks get CLI", () => {
 
     // Clean up any existing test directories
     cleanupTestDir(TEST_DIR);
-    
+
     // Setup a valid Minsky workspace structure
     setupMinskyWorkspace();
   });
-  
+
   afterEach(() => {
     if (SKIP_CLI_TESTS) {
       return;
@@ -199,75 +236,86 @@ describe("minsky tasks get CLI", () => {
     // Clean up test directories
     cleanupTestDir(TEST_DIR);
   });
-  
+
   test("displays task details with session information when a session exists", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // Skip this test since sessions aren't properly mocked
     if (SKIP_SESSION_TESTS) {
-      console.log("Skipping test: displays task details with session information when a session exists");
+      console.log(
+        "Skipping test: displays task details with session information when a session exists"
+      );
       return;
     }
-    
+
     const { stdout, stderr } = runCliCommand(["tasks", "get", "#003", "--workspace", TEST_DIR]);
-    
+
     // Basic task information
     expect(stdout).toContain("Task ID: #003");
     expect(stdout).toContain("Title: Third Task");
     expect(stdout).toContain("Status: IN-PROGRESS");
-    
+
     // Session information - this task has a session
     expect(stdout).toContain("Session: task#003");
     expect(stdout).toContain("Session Created: ");
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("displays 'No active session' when no session exists for the task", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     const { stdout, stderr } = runCliCommand(["tasks", "get", "#001", "--workspace", TEST_DIR]);
-    
+
     // Basic task information
     expect(stdout).toContain("Task ID: #001");
     expect(stdout).toContain("Title: First Task");
     expect(stdout).toContain("Status: TODO");
-    
+
     // No session information - this task doesn't have a session
     expect(stdout).toContain("Session: No active session");
     expect(stdout.indexOf("Session Created:")).toBe(-1);
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("includes session information in JSON output when a session exists", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // Skip this test since sessions aren't properly mocked
     if (SKIP_SESSION_TESTS) {
-      console.log("Skipping test: includes session information in JSON output when a session exists");
+      console.log(
+        "Skipping test: includes session information in JSON output when a session exists"
+      );
       return;
     }
-    
-    const { stdout, stderr } = runCliCommand(["tasks", "get", "#003", "--workspace", TEST_DIR, "--json"]);
-    
+
+    const { stdout, stderr } = runCliCommand([
+      "tasks",
+      "get",
+      "#003",
+      "--workspace",
+      TEST_DIR,
+      "--json",
+    ]);
+
     try {
       const task = JSON.parse(stdout);
-      
+
       // Basic task information
       expect(task.id).toBe("#003");
       expect(task.title).toBe("Third Task");
       expect(task.status).toBe("IN-PROGRESS");
-      
+
       // Session information
       expect(task.session).toBeTruthy();
       expect(task.session.name).toBe("task#003");
@@ -277,50 +325,63 @@ describe("minsky tasks get CLI", () => {
       // This should not happen if the JSON is valid
       expect(false).toBe(true);
     }
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("includes null for session in JSON output when no session exists", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
-    const { stdout, stderr } = runCliCommand(["tasks", "get", "#001", "--workspace", TEST_DIR, "--json"]);
-    
+
+    const { stdout, stderr } = runCliCommand([
+      "tasks",
+      "get",
+      "#001",
+      "--workspace",
+      TEST_DIR,
+      "--json",
+    ]);
+
     try {
       const task = JSON.parse(stdout);
-      
+
       // Basic task information
       expect(task.id).toBe("#001");
       expect(task.title).toBe("First Task");
       expect(task.status).toBe("TODO");
-      
+
       // Session information
       expect(task.session).toBe(null);
     } catch (e) {
       // This should not happen if the JSON is valid
       expect(false).toBe(true);
     }
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("returns error for non-existent task", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
-    const { stdout, stderr, status } = runCliCommand(["tasks", "get", "#999", "--workspace", TEST_DIR]);
-    
+
+    const { stdout, stderr, status } = runCliCommand([
+      "tasks",
+      "get",
+      "#999",
+      "--workspace",
+      TEST_DIR,
+    ]);
+
     // Status code should be non-zero for error
     expect(status !== 0).toBe(true);
-    
+
     // Error message should mention the non-existent task
     expect(stderr).toContain("Task with ID '#999' not found");
-    
+
     // Stdout should be empty
     expect(stdout).toBe("");
   });
@@ -336,19 +397,19 @@ describe("minsky tasks get integration", () => {
           repoName: "test-repo",
           repoUrl: "file:///test/repo",
           createdAt: "2025-01-01T00:00:00Z",
-          taskId: "#003"
+          taskId: "#003",
         });
       }
       return Promise.resolve(null);
     };
-    
+
     // Test when a session exists
     const sessionWithTask = await getSessionByTaskId("#003");
     expect(sessionWithTask).toBeTruthy();
     expect(sessionWithTask?.session).toBe("task#003");
-    
+
     // Test when no session exists
     const sessionWithoutTask = await getSessionByTaskId("#001");
     expect(sessionWithoutTask).toBe(null);
   });
-}); 
+});

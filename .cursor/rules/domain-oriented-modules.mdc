@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: true
 ---
 # Domain-Oriented Module Organization
@@ -65,3 +65,15 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 4. **Consolidate Shared Interfaces**: Keep type definitions together with their primary implementation
 
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
+
+## Best Practices Cross-Reference
+- See also: testable-design, minsky-workflow, session-first-workflow, rule-map.mdc
+- This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
+
+## Requirements (Revised)
+- You MUST consolidate all shared interfaces/types into a single authoritative file per domain.
+- You MUST update all implementations to match the authoritative interface before making further changes.
+- You MUST group related functions and types by domain, not by technical layer.
+- You MUST avoid duplication of interfaces/types across files or modules.
+- You MUST review and update all imports/exports when consolidating interfaces.
+- You MUST reference this rule when aligning interfaces or refactoring domain modules.

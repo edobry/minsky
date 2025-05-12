@@ -84,3 +84,16 @@ function computeUpdatedUser(user, timestamp) {
 - Add debugging helpers when dealing with complex state
 
 These principles improve not only testability but also maintainability, readability, and resilience of your codebase. Apply them from the beginning of development to avoid painful refactoring later.
+
+# Testable Design
+
+## Best Practices Cross-Reference
+- See also: domain-oriented-modules, minsky-workflow, tests, rule-map.mdc
+- This rule governs: interface clarity, maintainability, and testability.
+
+## Requirements (Revised)
+- You MUST ensure all interfaces/types are clear, unambiguous, and consolidated in a single location per domain.
+- You MUST update all tests and implementations to match the authoritative interface before proceeding.
+- You MUST design modules and interfaces to be easily testable, with proper separation of concerns.
+- You MUST avoid any ambiguity or duplication in interface/type definitions.
+- You MUST reference this rule when designing or refactoring interfaces for testability.

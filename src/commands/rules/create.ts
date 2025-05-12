@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { RuleService, type RuleMeta } from "../../domain/index.js";
 import { promises as fs } from "fs";
 import * as prompts from "@clack/prompts";
+import { exit } from "../../utils/process.js";
 
 export const createCommand = new Command("create")
   .description("Create a new Minsky rule")
@@ -37,7 +38,7 @@ export const createCommand = new Command("create")
       // Make sure we have a rule ID
       if (!ruleId) {
         prompts.log.error("Error: Rule ID is required for non-interactive mode");
-        process.exit(1);
+        exit(1);
       }
 
       // Get the rule content
@@ -90,7 +91,7 @@ Describe how and when to use this rule.
       prompts.log.error(
         `Error creating rule: ${error instanceof Error ? error.message : String(error)}`
       );
-      process.exit(1);
+      exit(1);
     }
   });
 
@@ -138,8 +139,8 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   });
   const globs = globsInput
     ? String(globsInput)
-        .split(",")
-        .map((g: string) => g.trim())
+      .split(",")
+      .map((g: string) => g.trim())
     : [];
 
   const tagsInput = await prompts.text({
@@ -148,8 +149,8 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   });
   const tags = tagsInput
     ? String(tagsInput)
-        .split(",")
-        .map((t: string) => t.trim())
+      .split(",")
+      .map((t: string) => t.trim())
     : [];
 
   const alwaysApply = await prompts.confirm({
@@ -203,7 +204,7 @@ Describe how and when to use this rule.
       prompts.log.error(
         `Failed to read file: ${error instanceof Error ? error.message : String(error)}`
       );
-      process.exit(1);
+      exit(1);
     }
   }
 
@@ -236,6 +237,6 @@ Describe how and when to use this rule.
     prompts.log.error(
       `\nError creating rule: ${error instanceof Error ? error.message : String(error)}`
     );
-    process.exit(1);
+    exit(1);
   }
 }
