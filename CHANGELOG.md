@@ -53,23 +53,24 @@
 - Added new task #027 to auto-detect session context in session commands
 - Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
 - Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
-- Added repository backend support with abstract interface for different repository implementations
-- Created LocalGitBackend for existing git repository operations
-- Added RemoteGitBackend for any remote Git repository URL
-- Added GitHubBackend for GitHub repository integration
-- Enhanced session commands to support repository backend selection
-- Added repository caching system for improved performance
-- Added type-safe repository error handling
-- Added automatic repository backend detection based on URL format
-- Added backend-specific options to session start command:
-  - `--backend <type>` to specify repository backend (local, remote, github)
-  - `--branch <branch>` for specifying branch to checkout
-  - `--github-token <token>` for GitHub authentication
-  - `--github-owner <owner>` for GitHub repository owner
-  - `--github-repo <repo>` for GitHub repository name
-- Improved session records to store backend type and backend-specific information
-- Enhanced error handling for repository operations with detailed error messages
-- Added tests for repository backends
+- Added repository backend support with interfaces for different repository implementations:
+  - Created `RepositoryBackend` interface with standardized methods for repository operations
+  - Implemented `LocalGitBackend` to handle existing local Git repositories
+  - Implemented `RemoteGitBackend` for generic remote Git URLs
+  - Implemented `GitHubBackend` for GitHub-specific repositories
+  - Added consistent return types with `Result` and `RepoStatus` interfaces
+  - Added repository configuration through `RepositoryBackendConfig` interface
+- Enhanced session commands with repository backend support:
+  - Added `--backend` option to specify backend type (local, remote, github)
+  - Added automatic backend detection based on repository URL format
+  - Added GitHub-specific options for authentication and repository information
+  - Improved error handling with type-safe error messages
+  - Added backwards compatibility for existing sessions
+- Added robust type safety throughout repository implementations:
+  - Fixed potential undefined values in parsed command output
+  - Added null safety with fallback values
+  - Improved error handling with proper error propagation
+  - Enhanced interface consistency across all backend implementations
 - Added `git commit` command for staging and committing changes in a single step, with support for automatic staging (can be disabled with `--no-stage`), staging all changes (via `--all`), task ID prefixing for commit messages, and amending commits (via `--amend`). Supports specifying a session or repository path.
 - Project tooling and automation setup (ESLint, Prettier, Husky, lint-staged)
 - Continuous Integration workflow with GitHub Actions
@@ -144,6 +145,12 @@
   - Added tests for MCP configuration generation and CLI options
   - Added `--mcp-only` option to configure MCP in existing projects without reinitializing other files
   - Added `--overwrite` option to update existing configuration files
+- Repository backend support for session operations with different Git repository sources
+- Interface for repository backend operations (clone, branch, PR)
+- Local file system implementation for repository backend
+- GitHub API integration for repository backend
+- Remote Git repository support for repository backend
+- Full error handling and retry logic for Git operations
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -232,6 +239,18 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 - Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
 - Fixed issues with `mock` module references in test files
 - Enhanced test documentation with clear TODO markers for proper test mocking
+- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
+- Fixed issues with session-related tests by enhancing error handling and directory creation
+- Fixed task list tests by ensuring tasks.md is created in the proper process directory
+- Added more robust directory existence checking and file creation in test setup
+- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
+- Updated mock CLI command implementations to handle task ID operations consistently
+- Ensured proper type safety in test mocks
+- Fixed SessionDB to properly handle null/undefined values in getSessionByTaskId
+- Fixed Session test database isolation to ensure tests don't interfere with each other
+- Fixed Error handling in repository operations with proper cleaning and recovery
+
+_See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
 
 ## [0.39.0] - 2025-04-29
 
@@ -303,11 +322,13 @@ _See: SpecStory history [session command test fixes](.specstory/history/session-
 ## [0.39.0] - 2025-04-29
 
 ### Changed
+
 - Clarified that `minsky tasks list --json` should be used to query the backlog.
 
 _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 ### Fixed
+
 - Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
 - Added missing command imports in src/cli.ts (tasks, git, and init commands)
 - Fixed test failures in session command tests by correcting import paths
