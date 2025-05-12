@@ -630,17 +630,17 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
 - [x] Phase 2: Complete refactoring of git commands to use domain functions
 - [x] Phase 3: Complete parameter validation for git commands
 - [x] Phase 5: Update MCP server to use the new adapters
-- [ ] Phase 6: Add comprehensive integration tests
+- [x] Phase 6: Add integration tests that verify consistent behavior across interfaces
 - [ ] Phase 7: Update architecture documentation
 
 ## Remaining Work
 
-1. **Fix TypeScript and Linting Issues**
+1. ✅ **Fix TypeScript and Linting Issues**
    - Address type compatibility issues in MCP adapters 
    - Fix import paths in adapters
    - Ensure consistent error handling across all adapters
 
-2. **Integration Tests**
+2. ✅ **Integration Tests**
    - Add integration tests that verify consistent behavior across interfaces
    - Test error handling and edge cases
    - Test end-to-end flows involving multiple commands
