@@ -83,7 +83,7 @@ export function createGetCommand(): Command {
           if (task.worklog && task.worklog.length > 0) {
             console.log("\nWorklog:");
             console.log(
-              task.worklog.map((entry) => `  ${entry.timestamp} - ${entry.message}`).join("\n")
+              task.worklog.map((entry: { timestamp: string; message: string }) => `  ${entry.timestamp} - ${entry.message}`).join("\n")
             );
           }
         }

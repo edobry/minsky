@@ -203,11 +203,11 @@ export function createInitCommand(): Command {
             ruleFormat: ruleFormat as "cursor" | "generic",
             mcp: mcpEnabled
               ? {
-                  enabled: mcpEnabled,
-                  transport: (mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
-                  port: mcpPort,
-                  host: mcpHost,
-                }
+                enabled: mcpEnabled,
+                transport: (mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
+                port: mcpPort,
+                host: mcpHost,
+              }
               : { enabled: false, transport: "stdio" },
             mcpOnly: options.mcpOnly,
             overwrite: options.overwrite,

@@ -30,6 +30,7 @@ export interface Task {
   description: string;
   status: string;
   specPath?: string; // Path to the task specification document
+  worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
 }
 
 export interface TaskBackend {
@@ -249,7 +250,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       title = titleWithoutIdMatch[1];
     } else {
       throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
