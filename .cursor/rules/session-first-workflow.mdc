@@ -1,12 +1,24 @@
 ---
 description: REQUIRED when making any code, test, config, or doc change for a task in a session workspace
-globs: 
+globs:
 alwaysApply: false
 ---
 # Session-First Workflow
 
-**Purpose:**  
+**Purpose:**
 To ensure all code, test, and configuration changes for a task are made exclusively within the session workspace, maintaining strict isolation and traceability as required by the Minsky workflow.
+
+## Best Practices Cross-Reference
+- See also: minsky-workflow, dont-ignore-errors, rule-map.mdc
+- This rule governs: session workspace integrity, audit trail, progress logging, and tool adaptation.
+
+## Requirements (Revised)
+- You MUST perform all code, test, config, and doc changes for a task in the session workspace only.
+- You MUST use absolute paths for all file operations in the session workspace.
+- You MUST log all edits and maintain an audit trail for traceability.
+- You MUST adapt to tool limitations and log any workarounds in the session worklog.
+- You MUST confirm all changes are present in the session workspace before merging or marking a task complete.
+- You MUST reference this rule when working in or verifying session workspaces.
 
 ---
 
@@ -20,9 +32,9 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 
 - **Session workspace** is a full, isolated clone of the repository, created and managed by the Minsky CLI.
 - All edits, commits, and pushes must be performed from within the session workspace.
-- **Never copy files from the main workspace into the session workspace.**  
+- **Never copy files from the main workspace into the session workspace.**
   The session workspace already contains all project files as of the session's creation or last update.
-- **Never copy files from the session workspace back to the main workspace manually.**  
+- **Never copy files from the session workspace back to the main workspace manually.**
   All changes must be merged via the session branch after review.
 
 ## 3. Core Practices for Session File Integrity

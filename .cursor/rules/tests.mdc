@@ -1,10 +1,10 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: true
 ---
 Rule Name: tests
-Description: 
+Description:
 Test Coverage and Quality Requirements:
 
 1. **When to Run Tests**
@@ -89,3 +89,15 @@ Test Coverage and Quality Requirements:
    - Before submitting changes, verify all tests are properly testing functionality
 
 This is a zero-tolerance policy. Any violation will require immediate remediation.
+
+# Tests
+
+## Best Practices Cross-Reference
+- See also: dont-ignore-errors, designing-tests, minsky-workflow, rule-map.mdc
+- This rule governs: batch verification, verification checkpoints, and test pass/fail gating.
+
+## Requirements (Revised)
+- You MUST run all relevant tests after any change to source, test, or config files.
+- You MUST NOT proceed with further changes until all tests pass and all errors are fixed.
+- You MUST use batch verification (lint, type check, test) after each set of related changes.
+- You MUST reference this rule when verifying code before merging or marking a task complete.

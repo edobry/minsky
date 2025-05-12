@@ -1,6 +1,6 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs: 
+globs:
 alwaysApply: false
 ---
 # Self-Improvement
@@ -192,3 +192,32 @@ This ensures transparency and gives the user a chance to correct or clarify the 
 - If a more relevant rule is found after an update, immediately migrate the update to the correct rule and remove it from the less relevant one.
 
 This protocol must be followed for all future rule updates and corrections.
+
+## Rule Update Verification Protocol
+
+- **Before making any rule update:**
+  1. Explicitly identify the nature of the correction (workflow/process, user preference, meta-process, or domain-specific).
+  2. State which rule is being updated and why, referencing the Rule Authority Hierarchy.
+  3. Justify the choice based on the hierarchy (project workflow/process > user-preferences > self-improvement > domain-specific).
+  4. If uncertain, default to updating the project workflow/process rule and note the reasoning.
+  5. Pause and verify: Is this the most authoritative rule for this requirement?
+
+- **After making any rule update:**
+  1. Re-check the rule authority hierarchy to confirm the update is in the correct rule.
+  2. If a more relevant rule is found, immediately migrate the update and remove it from the less relevant rule.
+  3. Document the correction in the session worklog or changelog.
+
+### Example: Rule Update Verification Failure and Remediation
+
+// AVOID
+User: "Never update tasks.md directly, only with the minsky tasks commands."
+Assistant: [updates user-preferences rule]
+User: "That's not the right rule to improve."
+Assistant: [realizes error, moves protocol to minsky-workflow rule]
+
+// PREFER
+User: "Never update tasks.md directly, only with the minsky tasks commands."
+Assistant:
+- "This is a workflow/process requirement. Per the Rule Authority Hierarchy, I will update the minsky-workflow rule, not user-preferences."
+- [updates minsky-workflow rule, adds verification checkpoint]
+- [verifies update is in the correct rule]
