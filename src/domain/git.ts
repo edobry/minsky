@@ -1017,3 +1017,85 @@ export class GitService {
     return undefined;
   }
 }
+
+/**
+ * Interface-agnostic function to create a pull request
+ * This implements the interface agnostic command architecture pattern
+ */
+export async function createPullRequestFromParams(params: {
+  session?: string;
+  repo?: string;
+  branch?: string;
+  taskId?: string;
+  debug?: boolean;
+  noStatusUpdate?: boolean;
+}): Promise<{ markdown: string; statusUpdateResult?: any }> {
+  try {
+    const gitService = new GitService();
+
+    const options = {
+      session: params.session,
+      repoPath: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
+      debug: params.debug ?? false,
+      noStatusUpdate: params.noStatusUpdate ?? false,
+    };
+
+    return await gitService.pr(options);
+  } catch (error) {
+    console.error("Error creating pull request:", error);
+    throw error;
+  }
+}
+
+/**
+ * Interface-agnostic function to commit changes
+ * This implements the interface agnostic command architecture pattern
+ */
+export async function commitChangesFromParams(params: {
+  message: string;
+  session?: string;
+  repo?: string;
+  all?: boolean;
+  amend?: boolean;
+  noStage?: boolean;
+}): Promise<{ commitHash: string; message: string }> {
+  try {
+    const gitService = new GitService();
+
+    // Resolve repo path
+    let repoPath = params.repo;
+    if (params.session) {
+      const sessionDb = new SessionDB();
+      const session = await sessionDb.getSession(params.session);
+      if (!session) {
+        throw new Error(`Session '${params.session}' not found`);
+      }
+
+      // Get the repo path from session
+      const repoName = session.repoName || normalizeRepoName(session.repoUrl);
+      repoPath = gitService.getSessionWorkdir(repoName, params.session);
+    }
+
+    // Stage changes if needed
+    if (!params.noStage) {
+      if (params.all) {
+        await gitService.stageAll(repoPath);
+      } else {
+        await gitService.stageModified(repoPath);
+      }
+    }
+
+    // Commit the changes
+    const commitHash = await gitService.commit(params.message, repoPath, params.amend ?? false);
+
+    return {
+      commitHash,
+      message: params.message,
+    };
+  } catch (error) {
+    console.error("Error committing changes:", error);
+    throw error;
+  }
+}
