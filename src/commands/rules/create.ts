@@ -3,6 +3,7 @@ import { RuleService, type RuleMeta } from "../../domain/index.js";
 import { promises as fs } from "fs";
 import * as prompts from "@clack/prompts";
 import { exit } from "../../utils/process.js";
+import { validateSingleLineDescription } from "../../domain/validationUtils.js";
 
 export const createCommand = new Command("create")
   .description("Create a new Minsky rule")
@@ -17,73 +18,79 @@ export const createCommand = new Command("create")
   .option("--overwrite", "Overwrite existing rule if it exists")
   .option("--repo <path>", "Path to repository (default: current directory)")
   .option("--session <n>", "Use session for repo resolution")
-  .action(rulesCreateAction);
+  .action(async (ruleId, options) => {
+    try {
+      // Resolve the repo path using the domain module
+      const { resolveRepoPath } = await import("../../domain/index.js");
+      const repoPath = await resolveRepoPath({
+        repo: options.repo,
+        session: options.session,
+      });
 
-export async function rulesCreateAction(ruleId: string | undefined, options: any): Promise<void> {
-  try {
-    // Resolve the repo path using the domain module
-    const { resolveRepoPath } = await import("../../domain/index.js");
-    const repoPath = await resolveRepoPath({
-      repo: options.repo,
-      session: options.session,
-    });
+      // Initialize the rule service
+      const ruleService = new RuleService(repoPath);
 
-    // Initialize the rule service
-    const ruleService = new RuleService(repoPath);
+      // If no ruleId or options are provided, run in interactive mode
+      if (!ruleId && !options.content) {
+        await interactiveCreate(ruleService);
+        return;
+      }
 
-    // If no ruleId or options are provided, run in interactive mode
-    if (!ruleId && !options.content) {
-      await interactiveCreate(ruleService);
-      return;
-    }
+      // Make sure we have a rule ID
+      if (!ruleId) {
+        prompts.log.error("Error: Rule ID is required for non-interactive mode");
+        exit(1);
+      }
 
-    if (!ruleId) {
-      prompts.log.error("Error: Rule ID is required for non-interactive mode");
-      exit(1);
-      return; // For type safety, though exit(1) stops execution
-    }
+      // Validate description for newlines
+      if (!validateSingleLineDescription.isValid(options.description)) {
+        prompts.log.error(validateSingleLineDescription.errorMessage);
+        exit(1);
+      }
 
-    if (options.description && typeof options.description === 'string' && options.description.includes("\n")) {
+      // Get the rule content
+      let content = "";
+      if (options.content) {
+        if (options.content === "-") {
+          // Read from stdin
+          const { readFromStdin } = await import("./stdin-helpers.js");
+          content = await readFromStdin();
+        } else {
+          // Read from file
+          content = await fs.readFile(options.content, "utf-8");
+        }
+      } else {
+        // Default content template
+        content = `# ${options.name || ruleId}\n\n${options.description || "No description provided."}\n\n## Usage\n\nDescribe how and when to use this rule.\n\n## Examples\n\n\`\`\`typescript\n// Example of code the rule applies to\n\`\`\`\n`;
+      }
+
+      // Prepare the metadata
+      const meta: RuleMeta = {
+        name: options.name,
+        description: options.description,
+        globs: options.globs,
+        alwaysApply: options.alwaysApply || false,
+        tags: options.tags,
+      };
+
+      // Create the rule
+      const rule = await ruleService.createRule(ruleId, content, meta, {
+        format: options.format as "cursor" | "generic",
+        overwrite: options.overwrite,
+      });
+
+      prompts.log.success(`Rule '${rule.id}' created successfully.`);
+      prompts.log.info(`Path: ${rule.path}`);
+    } catch (error) {
       prompts.log.error(
-        "Error: Rule description must be a single line and cannot contain newline characters."
+        `Error creating rule: ${error instanceof Error ? error.message : String(error)}`
       );
       exit(1);
-      return;
     }
+  });
 
-    let content = "";
-    if (options.content) {
-      if (options.content === "-") {
-        const { readFromStdin } = await import("./stdin-helpers.js");
-        content = await readFromStdin();
-      } else {
-        content = await fs.readFile(options.content, "utf-8");
-      }
-    } else {
-      content = `# ${options.name || ruleId}\n\n${options.description || "No description provided."}\n\n## Usage\n\nDescribe how and when to use this rule.\n\n## Examples\n\n\`\`\`typescript\n// Example of code the rule applies to\n\`\`\`\n`;
-    }
-
-    const meta: RuleMeta = {
-      name: options.name,
-      description: options.description,
-      globs: options.globs,
-      alwaysApply: options.alwaysApply || false,
-      tags: options.tags,
-    };
-
-    const rule = await ruleService.createRule(ruleId, content, meta, {
-      format: options.format as "cursor" | "generic" || "cursor", // Ensure default
-      overwrite: options.overwrite,
-    });
-
-    prompts.log.success(`Rule '${rule.id}' created successfully.`);
-    prompts.log.info(`Path: ${rule.path}`);
-  } catch (error) {
-    prompts.log.error(
-      `Error creating rule: ${error instanceof Error ? error.message : String(error)}`
-    );
-    exit(1);
-  }
+export function createCreateCommand(): Command {
+  return createCommand;
 }
 
 // Interactive mode with @clack/prompts
@@ -118,12 +125,7 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   const description = await prompts.text({
     message: "Rule description",
     placeholder: "What does this rule do?",
-    validate: (value: string) => {
-      if (value.includes('\n')) {
-        return "Rule description must be a single line and cannot contain newline characters.";
-      }
-      return undefined;
-    },
+    validate: validateSingleLineDescription.forPrompt,
   });
 
   const globsInput = await prompts.text({
@@ -164,20 +166,7 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   let content = "";
 
   if (useTemplate === "template") {
-    content = `# ${String(name) || String(ruleId)}
-
-${String(description) || "No description provided."}
-
-## Usage
-
-Describe how and when to use this rule.
-
-## Examples
-
-\`\`\`typescript
-// Example of code the rule applies to
-\`\`\`
-`;
+    content = `# ${String(name) || String(ruleId)}\n\n${String(description) || "No description provided."}\n\n## Usage\n\nDescribe how and when to use this rule.\n\n## Examples\n\n\`\`\`typescript\n// Example of code the rule applies to\n\`\`\`\n`;
   } else if (useTemplate === "stdin") {
     prompts.log.info("\nEnter rule content (press Ctrl+D when finished):");
     const { readFromStdin } = await import("./stdin-helpers.js");
@@ -232,8 +221,4 @@ Describe how and when to use this rule.
     );
     exit(1);
   }
-}
-
-export function createCreateCommand(): Command {
-  return createCommand;
 }
