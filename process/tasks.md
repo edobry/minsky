@@ -79,4 +79,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#061](process/tasks/061-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
 
-- [x] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
+- [+] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
