@@ -102,3 +102,5 @@ This file tracks work items for the project. Each task follows this format:
 - [-] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
 
 - [ ] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
+
+- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
