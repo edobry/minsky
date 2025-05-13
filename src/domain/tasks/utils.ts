@@ -20,8 +20,8 @@ export function normalizeTaskId(userInput: string): string | null {
     normalizedInput = normalizedInput.substring(5);
   }
 
-  // Remove existing '#' prefix if present, to avoid double "##"
-  if (normalizedInput.startsWith("#")) {
+  // Remove all leading '#' characters to avoid multiple hashes
+  while (normalizedInput.startsWith("#")) {
     normalizedInput = normalizedInput.substring(1);
   }
 
