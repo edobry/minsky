@@ -5,8 +5,7 @@ import { createPrCommand } from "./pr";
 import { createGitCommitCommand } from "./commit";
 
 export function createGitCommand(): Command {
-  const git = new Command("git")
-    .description("Git repository operations");
+  const git = new Command("git").description("Git repository operations");
 
   git.addCommand(createCloneCommand());
   git.addCommand(createBranchCommand());
@@ -14,4 +13,4 @@ export function createGitCommand(): Command {
   git.addCommand(createGitCommitCommand());
 
   return git;
-} 
+}

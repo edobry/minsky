@@ -9,16 +9,19 @@ Adding the specification path to the task object would improve the workflow by p
 ## Requirements
 
 1. **Update Task Object Structure**
+
    - Add a `specPath` property to the Task interface in `src/domain/tasks.ts`
    - Ensure this property holds the absolute or relative path to the task specification document
    - Make the property optional to maintain backward compatibility with existing tasks
 
 2. **Task Backend Updates**
+
    - Update the MarkdownTaskBackend to populate the `specPath` property when parsing tasks
    - The path should be derived from the task ID and follow the established convention (e.g., `process/tasks/023-task-name.md`)
    - Handle edge cases where task spec files might be in different locations or might not exist
 
 3. **Command Output Updates**
+
    - Update the `tasks get` command to display the specification path in its output
    - Ensure the `--json` output includes the new `specPath` property
    - Consider adding a flag to open the spec file directly (e.g., `--open` or `--edit`)
@@ -30,15 +33,18 @@ Adding the specification path to the task object would improve the workflow by p
 ## Implementation Steps
 
 1. **Update Domain Models**
+
    - Modify the Task interface in `src/domain/tasks.ts` to include the optional `specPath` property
    - Update any relevant type definitions or interfaces that extend or use the Task type
 
 2. **Update Task Backend**
+
    - Modify the MarkdownTaskBackend to populate the `specPath` property when parsing tasks
    - Implement logic to determine the correct path based on task ID and conventions
    - Add tests to verify the path is correctly generated
 
 3. **Update Commands**
+
    - Modify the `tasks get` command to display the spec path in its output
    - Ensure the `--json` output includes the new property
    - Update any other commands that return full task details
@@ -64,4 +70,4 @@ Adding the specification path to the task object would improve the workflow by p
 ## Notes
 
 - This enhancement will improve the developer experience by making it easier to navigate between task summaries and detailed specifications
-- Future enhancements could include a command to open the specification file directly in an editor 
+- Future enhancements could include a command to open the specification file directly in an editor

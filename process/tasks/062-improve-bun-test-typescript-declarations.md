@@ -1,14 +1,17 @@
 # Task #062: Improve bun:test TypeScript Declarations
 
 ## Context
+
 We've observed discrepancies between bun:test runtime behavior and its TypeScript definitions, leading to linter errors for valid code (e.g., `test.skip`, `test.todo`, `mock.fn`). Improving these declarations will enhance the developer experience and reduce confusion.
 
 ## Requirements
+
 - Create or update TypeScript declaration files (`.d.ts`) to provide correct types for bun:test APIs.
 - Specifically address known issues with `test.skip`, `test.todo`, `mock()`, and `mock.fn()`, ensuring mock instance methods (`mockClear`, `mockReturnValue`, etc.) are correctly typed.
 - Consider submitting improvements as pull requests to relevant type repositories if applicable.
 
 ## Implementation Steps
+
 - [ ] Investigate existing bun:test type definitions.
 - [ ] Identify specific areas where types are incomplete or incorrect.
 - [ ] Create a local `bun-test.d.ts` file (e.g., in `types/`).
@@ -21,6 +24,7 @@ We've observed discrepancies between bun:test runtime behavior and its TypeScrip
 - [ ] Update documentation.
 
 ## Verification
+
 - [ ] Running `bun lint` no longer shows errors for valid bun:test API usage (like `test.skip`, `test.todo`).
 - [ ] TypeScript correctly infers types for mock objects and their methods.
-- [ ] The project compiles without type errors related to bun:test APIs. 
+- [ ] The project compiles without type errors related to bun:test APIs.

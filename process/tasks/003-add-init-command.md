@@ -55,4 +55,4 @@ Add a new CLI command `init` to the Minsky CLI that sets up a project to work wi
 
 ## Context/References
 
-- See this SpecStory conversation for requirements and rationale. 
+- See this SpecStory conversation for requirements and rationale.

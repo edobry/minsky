@@ -20,4 +20,4 @@ describe("normalizeTaskId", () => {
     expect(normalizeTaskId("")).toBe("");
   });
 });
-*/ 
+*/

@@ -23,34 +23,37 @@ export interface TestDependencies {
  * @returns true if in a session repo, false otherwise
  */
 export async function isSessionRepository(
-  repoPath: string, 
+  repoPath: string,
   execAsyncFn: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
     // Get the git root of the provided path
     const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
     const gitRoot = stdout.trim();
-    
+
     // Check if the git root contains a session marker
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyPath = join(xdgStateHome, "minsky", "git");
-    
+
     if (gitRoot.startsWith(minskyPath)) {
       // Extract the relative path from the minsky git directory
       const relativePath = gitRoot.substring(minskyPath.length + 1);
       const pathParts = relativePath.split("/");
-      
+
       // Should have at least 2 parts for legacy format (repoName/session)
       // or 3 parts for new format (repoName/sessions/session)
-      return pathParts.length >= 2 && (
-        pathParts.length === 2 || 
-        (pathParts.length >= 3 && pathParts[1] === "sessions") ||
-        // Check if any part of the path is a "sessions" directory
-        // This handles nested directory structures like local/minsky/sessions/task#027
-        pathParts.some((part, index) => index > 0 && index < pathParts.length - 1 && part === "sessions")
+      return (
+        pathParts.length >= 2 &&
+        (pathParts.length === 2 ||
+          (pathParts.length >= 3 && pathParts[1] === "sessions") ||
+          // Check if any part of the path is a "sessions" directory
+          // This handles nested directory structures like local/minsky/sessions/task#027
+          pathParts.some(
+            (part, index) => index > 0 && index < pathParts.length - 1 && part === "sessions"
+          ))
       );
     }
-    
+
     return false;
   } catch (error) {
     return false;
@@ -63,10 +66,10 @@ export async function isSessionRepository(
  * @returns Information about the session if found, null otherwise
  */
 export async function getSessionFromRepo(
-  repoPath: string, 
+  repoPath: string,
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
-): Promise<{ 
+): Promise<{
   session: string;
   mainWorkspace: string;
 } | null> {
@@ -74,26 +77,26 @@ export async function getSessionFromRepo(
     // Get the git root of the provided path
     const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
     const gitRoot = stdout.trim();
-    
+
     // Check if this is in the minsky sessions directory structure
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyPath = join(xdgStateHome, "minsky", "git");
-    
+
     if (!gitRoot.startsWith(minskyPath)) {
       return null;
     }
-    
+
     // Extract session name from the path
     // Pattern could be either:
     // - Legacy: <minsky_path>/<repo_name>/<session_name>
     // - New: <minsky_path>/<repo_name>/sessions/<session_name>
     const relativePath = gitRoot.substring(minskyPath.length + 1);
     const pathParts = relativePath.split("/");
-    
+
     if (pathParts.length < 2) {
       return null;
     }
-    
+
     // Get the session name from the path parts
     let sessionName;
     if (pathParts.length >= 3 && pathParts[1] === "sessions") {
@@ -112,7 +115,7 @@ export async function getSessionFromRepo(
         }
       }
     }
-    
+
     // Type check to ensure sessionName is a string (for the compiler)
     if (typeof sessionName !== "string") {
       return null;
@@ -120,14 +123,14 @@ export async function getSessionFromRepo(
 
     const db = sessionDbOverride || new SessionDB();
     const sessionRecord = await db.getSession(sessionName);
-    
+
     if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
     }
-    
+
     return {
       session: sessionName,
-      mainWorkspace: sessionRecord.repoUrl
+      mainWorkspace: sessionRecord.repoUrl,
     };
   } catch (error) {
     return null;
@@ -138,7 +141,7 @@ export async function getSessionFromRepo(
  * Resolve the main workspace path for task operations
  * This ensures task operations are performed in the main workspace
  * even when executed from a session repository
- * 
+ *
  * Resolution strategy:
  * 1. Use explicitly provided workspace path if available
  * 2. If in a session repo, use the main workspace path
@@ -148,10 +151,8 @@ export async function resolveWorkspacePath(
   options?: WorkspaceResolutionOptions,
   deps: TestDependencies = {}
 ): Promise<string> {
-  const {
-    access = fs.access,
-    getSessionFromRepo: getSessionFromRepoFn = getSessionFromRepo
-  } = deps;
+  const { access = fs.access, getSessionFromRepo: getSessionFromRepoFn = getSessionFromRepo } =
+    deps;
 
   // If workspace path is explicitly provided, use it
   if (options?.workspace) {
@@ -161,14 +162,16 @@ export async function resolveWorkspacePath(
       await access(processDir);
       return options.workspace;
     } catch (error) {
-      throw new Error(`Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`);
+      throw new Error(
+        `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
+      );
     }
   }
-  
+
   // Check if current or provided path is a session repository
   const checkPath = options?.sessionRepo || process.cwd();
   const sessionInfo = await getSessionFromRepoFn(checkPath);
-  
+
   if (sessionInfo) {
     // Strip file:// protocol if present
     let mainWorkspace = sessionInfo.mainWorkspace;
@@ -177,7 +180,7 @@ export async function resolveWorkspacePath(
     }
     return mainWorkspace;
   }
-  
+
   // If not in a session repo, use current directory
   return checkPath;
 }
@@ -193,4 +196,51 @@ export async function getCurrentSession(
 ): Promise<string | null> {
   const sessionInfo = await getSessionFromRepo(cwd, execAsyncFn, sessionDbOverride);
   return sessionInfo ? sessionInfo.session : null;
-} 
+}
+
+/**
+ * Returns the current session ID and associated task ID if in a session repository, or null otherwise.
+ * Uses getSessionFromRepo to extract the session context from the current working directory
+ * and then queries the SessionDB for the taskId.
+ */
+export async function getCurrentSessionContext(
+  cwd: string = process.cwd(),
+  execAsyncFn: typeof execAsync = execAsync,
+  sessionDbOverride?: { getSession: SessionDB["getSession"] }
+): Promise<{ sessionId: string; taskId?: string } | null> {
+  const currentSessionName = await getCurrentSession(cwd, execAsyncFn, sessionDbOverride);
+
+  if (!currentSessionName) {
+    return null;
+  }
+
+  const db = sessionDbOverride
+    ? ({ getSession: sessionDbOverride.getSession } as SessionDB)
+    : new SessionDB();
+  // Type assertion for db.getSession as SessionDB may not be directly instantiable with only getSession
+  // This will likely need adjustment based on how SessionDB is structured for DI.
+  // For now, assuming direct usage or that the DI pattern supports this.
+  // A more robust DI would pass the db instance itself.
+
+  try {
+    const sessionRecord = await db.getSession(currentSessionName);
+    if (!sessionRecord) {
+      // This case should ideally not happen if getCurrentSession found a name
+      // that originated from getSessionFromRepo which itself queries the DB.
+      // However, keeping it for robustness.
+      console.warn(
+        `Session name ${currentSessionName} found by getCurrentSession, but no record in DB.`
+      );
+      return null;
+    }
+    return {
+      sessionId: currentSessionName,
+      taskId: sessionRecord.taskId, // Assuming taskId is a property on SessionRecord
+    };
+  } catch (error) {
+    // Log error or handle as appropriate
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error(`Error fetching session record for ${currentSessionName}: ${err.message}`);
+    return null;
+  }
+}

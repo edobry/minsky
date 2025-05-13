@@ -7,6 +7,7 @@ Currently, Minsky users need to manually stage and commit changes using standard
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky git commit [--session <session-name>] [--repo <repo-path>] [--message <commit-message>] [--all] [--amend]
@@ -20,21 +21,25 @@ Currently, Minsky users need to manually stage and commit changes using standard
      - If not in a session directory, use the current git repository
 
 2. **Staging Behavior**
+
    - By default, stage all modified and untracked files (equivalent to `git add .`)
    - If `--all` flag is provided, stage all modified, untracked, and deleted files (equivalent to `git add -A`)
    - Provide clear output about which files were staged
 
 3. **Commit Message**
+
    - Require a commit message via the `--message` or `-m` option
    - If the task ID is known (via session), automatically include the task ID in the commit message
    - If no task ID is available, use the provided message as is
 
 4. **Amend Option**
+
    - Support an `--amend` flag to amend the previous commit
    - When used with `--message`, update the commit message
    - When used without `--message`, retain the previous commit message
 
 5. **Output and Error Handling**
+
    - Display clear progress messages during the staging and commit process
    - Show helpful error messages for common issues (e.g., no changes to commit)
    - On success, display the commit hash and message
@@ -46,22 +51,26 @@ Currently, Minsky users need to manually stage and commit changes using standard
 ## Implementation Steps
 
 1. [ ] Create a new command file `src/commands/git/commit.ts`:
+
    - [ ] Implement the command with the required options
    - [ ] Handle session and repository resolution
    - [ ] Add support for the commit message option
    - [ ] Implement the amend and all flags
 
 2. [ ] Update the GitService in `src/domain/git.ts`:
+
    - [ ] Add a `stageAll` method to stage all changes
    - [ ] Add a `commit` method to commit staged changes
    - [ ] Include logic for amending commits
 
 3. [ ] Add appropriate error handling and user feedback:
+
    - [ ] Check if there are changes to stage
    - [ ] Validate the commit message
    - [ ] Handle common git errors
 
 4. [ ] Write tests to cover various scenarios:
+
    - [ ] Committing from a session
    - [ ] Committing from a standalone repository
    - [ ] Amending a commit
@@ -91,4 +100,4 @@ Currently, Minsky users need to manually stage and commit changes using standard
 - This command simplifies the git workflow by combining staging and committing into a single step
 - It's particularly helpful for junior engineers and AI agents who may not be familiar with git commands
 - It ensures consistency in how commits are formatted, especially for task-related work
-- Future enhancements could include support for interactive staging or excluding specific files 
+- Future enhancements could include support for interactive staging or excluding specific files

@@ -8,34 +8,36 @@ describe("session commit command", () => {
   // Create mock objects with explicit typing
   const mockCommit = (message: string) => Promise.resolve("abc123");
   const mockPush = () => Promise.resolve({ pushed: true, workdir: "/test" });
-  const mockGetStatus = () => Promise.resolve({ modified: ["test.ts"], untracked: [], deleted: [] });
+  const mockGetStatus = () =>
+    Promise.resolve({ modified: ["test.ts"], untracked: [], deleted: [] });
   const mockStageAll = () => Promise.resolve();
   const mockGetSessionWorkdir = () => "/test/workdir";
-  
+
   const mockGitService = {
     commit: mockCommit,
     push: mockPush,
     getStatus: mockGetStatus,
     stageAll: mockStageAll,
-    getSessionWorkdir: mockGetSessionWorkdir
+    getSessionWorkdir: mockGetSessionWorkdir,
   };
 
-  const mockGetSession = () => Promise.resolve({ 
-    session: "test-session", 
-    taskId: "037", 
-    repoName: "test-repo" 
-  });
-  
+  const mockGetSession = () =>
+    Promise.resolve({
+      session: "test-session",
+      taskId: "037",
+      repoName: "test-repo",
+    });
+
   const mockSessionDb = {
     getSession: mockGetSession,
-    getSessionByTaskId: () => Promise.resolve({ taskId: "037" } as SessionRecord)
+    getSessionByTaskId: () => Promise.resolve({ taskId: "037" } as SessionRecord),
   };
 
   const mockGetCurrentSession = () => Promise.resolve("test-session");
-  
+
   // Mock prompt to avoid hanging in tests
   const mockPromptForMessage = () => Promise.resolve("mocked prompt message");
-  
+
   // Spy on function calls
   let commitCalls: string[] = [];
   let pushCalls: boolean = false;
@@ -46,23 +48,23 @@ describe("session commit command", () => {
     commitCalls = [];
     pushCalls = false;
     stageAllCalls = false;
-    
+
     // Override mock implementations to track calls
     mockGitService.commit = (message: string) => {
       commitCalls.push(message);
       return Promise.resolve("abc123");
     };
-    
+
     mockGitService.push = () => {
       pushCalls = true;
       return Promise.resolve({ pushed: true, workdir: "/test" });
     };
-    
+
     mockGitService.stageAll = () => {
       stageAllCalls = true;
       return Promise.resolve();
     };
-    
+
     mockGitService.getStatus = () => {
       return Promise.resolve({ modified: ["test.ts"], untracked: [], deleted: [] });
     };
@@ -75,7 +77,7 @@ describe("session commit command", () => {
       sessionDb: mockSessionDb as unknown as SessionDB,
       getCurrentSession: async () => mockGetCurrentSession(),
       promptForMessage: mockPromptForMessage,
-      isTestEnvironment: true
+      isTestEnvironment: true,
     });
 
     const program = new Command();
@@ -95,7 +97,7 @@ describe("session commit command", () => {
       sessionDb: mockSessionDb as unknown as SessionDB,
       getCurrentSession: async () => mockGetCurrentSession(),
       promptForMessage: mockPromptForMessage,
-      isTestEnvironment: true
+      isTestEnvironment: true,
     });
 
     const program = new Command();
@@ -116,7 +118,7 @@ describe("session commit command", () => {
       sessionDb: mockSessionDb as unknown as SessionDB,
       getCurrentSession: async () => mockGetCurrentSession(),
       promptForMessage: mockPromptForMessage,
-      isTestEnvironment: true
+      isTestEnvironment: true,
     });
 
     const program = new Command();
@@ -132,13 +134,13 @@ describe("session commit command", () => {
 
   test("adds task ID prefix when in session", async () => {
     const currentSession = "task#037";
-    
+
     const command = createCommitCommand({
       gitService: mockGitService as unknown as GitService,
       sessionDb: mockSessionDb as unknown as SessionDB,
       getCurrentSession: async () => currentSession,
       promptForMessage: mockPromptForMessage,
-      isTestEnvironment: true
+      isTestEnvironment: true,
     });
 
     const program = new Command();
@@ -153,15 +155,14 @@ describe("session commit command", () => {
 
   test("errors when no changes to commit", async () => {
     // Override getStatus to return no changes
-    mockGitService.getStatus = () => 
-      Promise.resolve({ modified: [], untracked: [], deleted: [] });
+    mockGitService.getStatus = () => Promise.resolve({ modified: [], untracked: [], deleted: [] });
 
     const command = createCommitCommand({
       gitService: mockGitService as unknown as GitService,
       sessionDb: mockSessionDb as unknown as SessionDB,
       getCurrentSession: async () => mockGetCurrentSession(),
       promptForMessage: mockPromptForMessage,
-      isTestEnvironment: true
+      isTestEnvironment: true,
     });
 
     const program = new Command();
@@ -177,4 +178,4 @@ describe("session commit command", () => {
     expect(error).toBeDefined();
     expect(commitCalls.length).toBe(0);
   });
-}); 
+});

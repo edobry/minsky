@@ -30,7 +30,7 @@ export function normalizeRepoName(repoUrl: string): string {
       return `${org}/${project}`;
     }
   }
-  
+
   // For local paths, use local/<basename>
   return `local/${basename(repoUrl)}`;
 }
@@ -50,4 +50,4 @@ export async function resolveRepoPath(options: RepoResolutionOptions): Promise<s
   // Fallback: use current git repo
   const { stdout } = await execAsync("git rev-parse --show-toplevel");
   return stdout.trim();
-} 
+}

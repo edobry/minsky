@@ -7,6 +7,7 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky tasks create <spec-path>
@@ -19,11 +20,13 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
      - Return the created task details
 
 2. **Integration with Domain Module**
+
    - Use the TaskService domain module to record the task
    - Add a createTask method to the TaskService class
    - Implement createTask in the MarkdownTaskBackend
 
 3. **Error Handling**
+
    - Validate that the spec file exists
    - Ensure the spec file has a valid title and description
    - Handle errors gracefully with informative messages
@@ -60,9 +63,10 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 - [x] The command returns the created task details
 - [x] All options work as expected
 - [x] Error handling works correctly for invalid inputs
-- [x] Tests pass 
+- [x] Tests pass
 
 ## Work Log
+
 - 2023-05-03: Created a session for task #007
 - 2023-05-03: Updated TaskBackend interface to include createTask method
 - 2023-05-03: Implemented createTask in MarkdownTaskBackend
@@ -71,4 +75,4 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 - 2023-05-03: Registered command in src/commands/tasks/index.ts
 - 2023-05-03: Added tests for the createTask functionality
 - 2023-05-03: Updated CHANGELOG.md
-- 2023-05-03: Updated task specification with implementation details 
+- 2023-05-03: Updated task specification with implementation details

@@ -8,7 +8,8 @@ import { z } from "zod";
  * @example "/path/to/directory"
  * @example "relative/path/to/file.txt"
  */
-export const pathSchema = z.string()
+export const pathSchema = z
+  .string()
   .min(1, "Path cannot be empty")
   .describe("File or directory path");
 
@@ -18,7 +19,8 @@ export const pathSchema = z.string()
  * @example "https://github.com/user/repo.git"
  * @example "git@github.com:user/repo.git"
  */
-export const repoPathSchema = z.string()
+export const repoPathSchema = z
+  .string()
   .min(1, "Repository path cannot be empty")
   .describe("Path to a Git repository");
 
@@ -27,7 +29,8 @@ export const repoPathSchema = z.string()
  * @example "my-session"
  * @example "task#123"
  */
-export const sessionNameSchema = z.string()
+export const sessionNameSchema = z
+  .string()
   .min(1, "Session name cannot be empty")
   .describe("Session name");
 
@@ -35,7 +38,8 @@ export const sessionNameSchema = z.string()
  * Task ID schema
  * Validates and normalizes task IDs (with or without the # prefix)
  */
-export const taskIdSchema = z.string()
+export const taskIdSchema = z
+  .string()
   .transform((val) => {
     // Normalize task IDs to always have a # prefix
     return val.startsWith("#") ? val : `#${val}`;
@@ -45,10 +49,8 @@ export const taskIdSchema = z.string()
 /**
  * Schema for boolean flags with optional description
  */
-export const flagSchema = (description: string) => z.boolean()
-  .optional()
-  .default(false)
-  .describe(description);
+export const flagSchema = (description: string) =>
+  z.boolean().optional().default(false).describe(description);
 
 /**
  * Schema for JSON output option
@@ -58,13 +60,15 @@ export const jsonOutputSchema = flagSchema("Output as JSON");
 /**
  * Common options present in many commands
  */
-export const commonCommandOptionsSchema = z.object({
-  json: jsonOutputSchema,
-  session: sessionNameSchema.optional().describe("Session name to use"),
-  repo: repoPathSchema.optional().describe("Git repository path"),
-  workspace: pathSchema.optional().describe("Workspace path"),
-  task: taskIdSchema.optional().describe("Task ID")
-}).partial();
+export const commonCommandOptionsSchema = z
+  .object({
+    json: jsonOutputSchema,
+    session: sessionNameSchema.optional().describe("Session name to use"),
+    repo: repoPathSchema.optional().describe("Git repository path"),
+    workspace: pathSchema.optional().describe("Workspace path"),
+    task: taskIdSchema.optional().describe("Task ID"),
+  })
+  .partial();
 
 /**
  * Type for common command options
@@ -75,9 +79,7 @@ export type CommonCommandOptions = z.infer<typeof commonCommandOptionsSchema>;
  * Session schema
  * Validates session names
  */
-export const sessionSchema = z.string()
-  .min(1)
-  .describe("Session identifier");
+export const sessionSchema = z.string().min(1).describe("Session identifier");
 
 /**
  * Common repository options schema
@@ -95,4 +97,4 @@ export const commonRepoSchema = z.object({
  */
 export function normalizeTaskId(taskId: string): string {
   return taskIdSchema.parse(taskId);
-} 
+}

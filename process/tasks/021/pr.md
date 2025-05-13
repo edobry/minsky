@@ -7,6 +7,7 @@ This PR refactors the large methods in GitService to improve maintainability and
 ### Key Changes
 
 - Extracted the logic from `pr` method into smaller, focused methods:
+
   - Added a new `prWithDependencies` method that accepts injectable dependencies for easier testing
   - Extracted repository path determination into `determineWorkingDirectory`
   - Extracted branch determination logic into `determineCurrentBranch`
@@ -24,16 +25,18 @@ This PR refactors the large methods in GitService to improve maintainability and
 All tests are passing, with no regression in functionality.
 
 ## Commits
+
 d744f36 Refactor GitService PR generation methods
 a1c4fe8 Update task document with work log
 5d46364 Update CHANGELOG.md with task #021 changes
 
 ## Modified Files (Changes compared to merge-base with main)
+
 process/tasks.md
 src/domain/git.ts
 
-
 ## Stats
- process/tasks.md  |   2 +-
- src/domain/git.ts | 435 ++++++++++++++++++++++++++++++++++++++++++++----------
- 2 files changed, 362 insertions(+), 75 deletions(-)
+
+process/tasks.md | 2 +-
+src/domain/git.ts | 435 ++++++++++++++++++++++++++++++++++++++++++++----------
+2 files changed, 362 insertions(+), 75 deletions(-)

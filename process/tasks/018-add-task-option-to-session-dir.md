@@ -7,6 +7,7 @@ The Minsky CLI's `session dir` command currently only accepts a session name as 
 ## Requirements
 
 1. **CLI Behavior**
+
    - Modify the `session dir` command to accept an optional `--task` parameter:
      ```
      minsky session dir [session-name] [--task <task-id>]
@@ -19,11 +20,13 @@ The Minsky CLI's `session dir` command currently only accepts a session name as 
      - Return an error message explaining that only one should be used
 
 2. **Implementation Details**
+
    - Reuse the existing logic from `SessionDB.getSessionByTaskId()` that was added for the `session get` command
    - Normalize the task ID format using the existing `normalizeTaskId` utility
    - Use the same error handling patterns as the `session get` command
 
 3. **Backward Compatibility**
+
    - The command must continue to support looking up session directories by session name (without `--task`)
 
 4. **Error Handling**
@@ -33,12 +36,14 @@ The Minsky CLI's `session dir` command currently only accepts a session name as 
 ## Implementation Steps
 
 1. Update the `session dir` command in `src/commands/session/cd.ts`:
+
    - Add a `--task` option
    - Modify the command logic to handle looking up sessions by task ID
    - Implement error handling for the case where both session name and task ID are provided
    - Ensure the directory path is returned correctly
 
 2. Update the tests to cover the new functionality:
+
    - Test looking up a session directory by task ID
    - Test error handling for non-existent task IDs
    - Test error handling for providing both session name and task ID
@@ -61,4 +66,4 @@ The Minsky CLI's `session dir` command currently only accepts a session name as 
 ## Notes
 
 - This enhancement improves the workflow for users who are continuing work on an existing task, making it easier to navigate to the associated session directory.
-- It's particularly helpful when working in script-based workflows where the session directory path is needed for further operations. 
+- It's particularly helpful when working in script-based workflows where the session directory path is needed for further operations.

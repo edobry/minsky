@@ -18,7 +18,7 @@ interface CacheEntry<T> {
 export class RepositoryMetadataCache {
   private static instance: RepositoryMetadataCache;
   private cache: Map<string, CacheEntry<unknown>> = new Map();
-  
+
   /**
    * Default TTL for cache entries in milliseconds (5 minutes).
    */
@@ -42,7 +42,7 @@ export class RepositoryMetadataCache {
 
   /**
    * Get a value from the cache, or fetch it if it doesn't exist or is expired.
-   * 
+   *
    * @param key Cache key
    * @param fetcher Function to fetch the value if it's not in the cache
    * @param ttl Time to live in milliseconds (defaults to 5 minutes)
@@ -53,7 +53,7 @@ export class RepositoryMetadataCache {
     const now = Date.now();
 
     // If the entry exists and is not expired, return it
-    if (cacheEntry && (now - cacheEntry.timestamp) < ttl) {
+    if (cacheEntry && now - cacheEntry.timestamp < ttl) {
       return cacheEntry.data;
     }
 
@@ -65,7 +65,7 @@ export class RepositoryMetadataCache {
 
   /**
    * Set a value in the cache with the current timestamp.
-   * 
+   *
    * @param key Cache key
    * @param data Data to cache
    */
@@ -75,7 +75,7 @@ export class RepositoryMetadataCache {
 
   /**
    * Invalidate a single cache entry.
-   * 
+   *
    * @param key Cache key to invalidate
    */
   invalidate(key: string): void {
@@ -85,7 +85,7 @@ export class RepositoryMetadataCache {
   /**
    * Invalidate all cache entries matching a prefix.
    * Useful for invalidating all entries related to a specific repository.
-   * 
+   *
    * @param prefix Cache key prefix to match
    */
   invalidateByPrefix(prefix: string): void {
@@ -106,19 +106,23 @@ export class RepositoryMetadataCache {
 
 /**
  * Generate a cache key for a repository operation.
- * 
+ *
  * @param repoPath Repository path
  * @param operation Operation name
  * @param params Additional parameters to include in the key
  * @returns The cache key
  */
-export function generateRepoKey(repoPath: string, operation: string, params?: Record<string, unknown>): string {
+export function generateRepoKey(
+  repoPath: string,
+  operation: string,
+  params?: Record<string, unknown>
+): string {
   let key = `repo:${repoPath}:${operation}`;
-  
+
   if (params) {
     key += `:${JSON.stringify(params)}`;
   }
-  
+
   return key;
 }
 
@@ -128,12 +132,15 @@ export function generateRepoKey(repoPath: string, operation: string, params?: Re
 export class RepositoryError extends Error {
   /**
    * Create a new repository error.
-   * 
+   *
    * @param message Error message
    * @param cause Underlying cause of the error
    */
-  constructor(message: string, public readonly cause?: Error) {
+  constructor(
+    message: string,
+    public readonly cause?: Error
+  ) {
     super(message);
     this.name = "RepositoryError";
   }
-} 
+}

@@ -7,6 +7,7 @@ Currently, there is no way to cleanly remove a session and its associated reposi
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky session delete <session-name>
@@ -18,6 +19,7 @@ Currently, there is no way to cleanly remove a session and its associated reposi
      - Provide clear feedback about the deletion status
 
 2. **Integration with Domain Module**
+
    - Add a deleteSession method to the SessionService class
    - Implement proper error handling for:
      - Non-existent sessions
@@ -25,6 +27,7 @@ Currently, there is no way to cleanly remove a session and its associated reposi
      - Database errors during record removal
 
 3. **CLI Options**
+
    - Support the following options:
      - `--force`: Skip confirmation prompt
      - `--json`: Output result as JSON
@@ -38,11 +41,13 @@ Currently, there is no way to cleanly remove a session and its associated reposi
 ## Implementation Steps
 
 1. [x] Add deleteSession method to SessionService:
+
    - [x] Add method to delete session from database
    - [x] Implement proper error handling
    - [x] Add rollback mechanism for partial failures
 
 2. [x] Create new file in src/commands/session/delete.ts:
+
    - [x] Define command using Commander.js
    - [x] Add appropriate options and arguments
    - [x] Implement action handler to call domain method
@@ -51,6 +56,7 @@ Currently, there is no way to cleanly remove a session and its associated reposi
 3. [x] Register command in src/commands/session/index.ts
 
 4. [x] Add tests:
+
    - [x] Unit tests for SessionDB.deleteSession
    - [x] Integration tests for the command
    - [x] Test cases for:
@@ -77,11 +83,11 @@ Currently, there is no way to cleanly remove a session and its associated reposi
 - [x] --force flag works as expected
 - [x] --json flag produces valid JSON output
 - [x] All tests pass
-- [x] Documentation is complete and accurate 
+- [x] Documentation is complete and accurate
 
 ## Work Log
 
 - 2024-04-30: Added the deleteSession method to SessionDB with tests to ensure it handles various edge cases
 - 2024-04-30: Created the delete command implementation with proper error handling and interactive confirmation
 - 2024-04-30: Added comprehensive tests for both the domain module and CLI command
-- 2024-04-30: Updated CHANGELOG.md and documentation 
+- 2024-04-30: Updated CHANGELOG.md and documentation

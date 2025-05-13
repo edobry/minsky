@@ -54,7 +54,6 @@ describe("startSession - Task ID Normalization", () => {
   };
 
   beforeEach(() => {
-    // Clear mocks before each test
     mockGitServiceInstance.clone.mockClear();
     mockGitServiceInstance.branch.mockClear();
     mockSessionDBInstance.getSession.mockClear();
@@ -63,7 +62,6 @@ describe("startSession - Task ID Normalization", () => {
     mockTaskServiceInstance.getTask.mockClear();
     mockTaskServiceInstance.getTaskStatus.mockClear();
     mockTaskServiceInstance.setTaskStatus.mockClear();
-    // Also clear the repo-utils mocks if they are to be checked per test
     const repoUtilsMocks = require("../../domain/repo-utils.js");
     repoUtilsMocks.resolveRepoPath.mockClear();
     repoUtilsMocks.normalizeRepoName.mockClear();
@@ -122,6 +120,4 @@ describe("startSession - Task ID Normalization", () => {
   });
 });
 
-// Remove or update the old placeholder tests
-// describe("startSession", () => { ... });
-// describe("Local Path to URL Conversion", () => { ... });
+// Comments for old placeholders can be removed entirely as we have new tests now.

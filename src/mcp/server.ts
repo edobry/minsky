@@ -98,7 +98,8 @@ export class MinskyMCPServer {
         intervalMs: 5000,
       },
       // Instructions for LLMs on how to use the Minsky MCP server
-      instructions: "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
+      instructions:
+        "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
         "You can use these tools to:\n" +
         "- Manage tasks and track their status\n" +
         "- Create and manage development sessions\n" +
@@ -127,7 +128,7 @@ export class MinskyMCPServer {
       if (!this.options.transportType) {
         this.options.transportType = "stdio";
       }
-      
+
       if (this.options.transportType === "stdio") {
         await this.server.start({ transportType: "stdio" });
       } else if (this.options.transportType === "sse" && this.options.sse) {
@@ -135,16 +136,16 @@ export class MinskyMCPServer {
           transportType: "sse",
           sse: {
             endpoint: "/sse", // Endpoint must start with a / character
-            port: this.options.sse.port || 8080
-          }
+            port: this.options.sse.port || 8080,
+          },
         });
       } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
         await this.server.start({
           transportType: "httpStream",
           httpStream: {
             endpoint: "/stream", // Endpoint must start with a / character
-            port: this.options.httpStream.port || 8080
-          }
+            port: this.options.httpStream.port || 8080,
+          },
         });
       } else {
         // Default to stdio if transport type is invalid
@@ -163,4 +164,4 @@ export class MinskyMCPServer {
   getFastMCPServer(): FastMCP {
     return this.server;
   }
-} 
+}

@@ -3,7 +3,7 @@ declare module "bun:test" {
   export function test(name: string, fn: () => void | Promise<void>): void;
   export function beforeEach(fn: () => void | Promise<void>): void;
   export function afterEach(fn: () => void | Promise<void>): void;
-  
+
   export function expect(actual: any): {
     toBe(expected: any): void;
     toEqual(expected: any): void;
@@ -17,26 +17,31 @@ declare module "bun:test" {
     toHaveBeenCalledWith(...args: any[]): void;
     rejects: {
       toThrow(message?: string): Promise<void>;
-    }
+    };
   };
-  
+
   export const mock: {
-    fn: <T extends (...args: any[]) => any>(implementation?: T) => {
+    fn: <T extends (...args: any[]) => any>(
+      implementation?: T
+    ) => {
       mockImplementation: (impl: T) => void;
     };
     module: (path: string, factory: () => any) => void;
     restoreAll: () => void;
     restore: () => void;
   };
-  
-  export function spyOn(object: any, method: string): {
+
+  export function spyOn(
+    object: any,
+    method: string
+  ): {
     mockImplementation: (impl: any) => void;
     mockReturnValue: (value: any) => void;
   };
-  
+
   // Add namespace for expect matchers
   export namespace expect {
     export function stringContaining(expected: string): any;
     export function any(constructor: any): any;
   }
-} 
+}

@@ -32,6 +32,7 @@ bun_over_node
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the Synthase project. Bun is the preferred runtime for Synthase.
 
 Examples:
+
 - Use `bun install` instead of `npm install`
 - Use `bun run` instead of `node`
 - Use `bun test` instead of `jest` or `mocha`
@@ -40,6 +41,7 @@ Examples:
 When writing documentation, commands, or implementation code, always prefer Bun's API and CLI over Node.js equivalents. The project is specifically designed to leverage Bun's performance and capabilities.
 
 In package.json scripts, ensure all commands use bun:
+
 ```json
 "scripts": {
   "start": "bun run src/index.ts",
@@ -50,6 +52,7 @@ In package.json scripts, ensure all commands use bun:
 ```
 
 When creating new files, use the bun shebang:
+
 ```typescript
 #!/usr/bin/env bun
 ```
@@ -57,6 +60,7 @@ When creating new files, use the bun shebang:
 This rule applies to all code, documentation, and configuration files in the Synthase project.
 
 changelog
+
 # Changelog Rule
 
 ## Rule Name: changelog
@@ -70,10 +74,12 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 - Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
 
 ### SpecStory Conversation History Referencing (Required)
+
 - For every changegroup (e.g., Added, Changed, Fixed) in the changelog, **add a reference to the relevant SpecStory conversation history file(s) where the change originated**.
 - Place the reference(s) at the end of each changegroup, using the format:
-  
+
   `_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for ..._`
+
 - If multiple changegroups originate from different conversations, reference each appropriately.
 - At the top of the changelog, add a note referencing `.specstory/.what-is-this.md` to explain the SpecStory artifact system.
 
@@ -87,35 +93,40 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 ## [Unreleased]
 
 ### Added
+
 - New feature X
 - New feature Y
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup._
 
 ### Changed
+
 - Improved logic for Z
 
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management._
 ```
 
 ## Additional Guidance
+
 - Only update the `CHANGELOG.md` at the end of an editing session, after testing whether the change worked.
 - If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
 - For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
 
 ## Rationale
+
 This ensures that changelog entries are always relevant to the part of the codebase they affect, and provides traceability and context by linking to the exact SpecStory conversation(s) where the change was discussed and implemented.
 
 ### Examples
 
-| File Changed                              | Changelog to Update         |
-|----|----|
-| `synthase/src/commands/tools/constants.ts`| `synthase/CHANGELOG.md`    |
-| `synthase/src/utils/tools.ts`             | `synthase/CHANGELOG.md`    |
-| `README.md` (root)                        | `CHANGELOG.md`             |
-| `docs/usage.md`                           | `CHANGELOG.md`             |
+| File Changed                               | Changelog to Update     |
+| ------------------------------------------ | ----------------------- |
+| `synthase/src/commands/tools/constants.ts` | `synthase/CHANGELOG.md` |
+| `synthase/src/utils/tools.ts`              | `synthase/CHANGELOG.md` |
+| `README.md` (root)                         | `CHANGELOG.md`          |
+| `docs/usage.md`                            | `CHANGELOG.md`          |
 
 constants-management
+
 # Constants Management
 
 Extract and organize constants systematically to improve maintainability and reduce duplication:
@@ -123,12 +134,13 @@ Extract and organize constants systematically to improve maintainability and red
 ## Key Principles
 
 1. **Extract Repetition Aggressively**: Always extract strings/characters/emoji/numbers that appear 3 or more times, even as a substring of longer strings:
+
    ```typescript
    // AVOID - Repeated emoji
    console.log("🔴 Error: Connection failed");
    console.log("🔴 Error: Authentication failed");
    console.log("🔴 Error: Network timeout");
-   
+
    // PREFER - Extracted emoji constant
    const ERROR_EMOJI = "🔴";
    console.log(`${ERROR_EMOJI} Error: Connection failed`);
@@ -137,36 +149,38 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 2. **Categorize Constants**: Group related constants together in meaningful categories:
+
    ```typescript
    // Organize by domain
    export const BREW_CMD = {
-     LIST_FORMULAS: 'brew list --formula',
-     LIST_CASKS: 'brew list --cask',
-     INSTALL_FORMULA: 'brew install',
-     INSTALL_CASK: 'brew install --cask',
+     LIST_FORMULAS: "brew list --formula",
+     LIST_CASKS: "brew list --cask",
+     INSTALL_FORMULA: "brew install",
+     INSTALL_CASK: "brew install --cask",
    };
-   
+
    export const DISPLAY = {
      EMOJIS: {
-       ENABLED: '🟢',
-       DISABLED: '🔴',
-       WARNING: '⚠️',
-       UNKNOWN: '❓',
-       CHECK: '✅',
-       INSTALL: '🏗️',
-       ADDITIONAL_INFO: 'ℹ️',
+       ENABLED: "🟢",
+       DISABLED: "🔴",
+       WARNING: "⚠️",
+       UNKNOWN: "❓",
+       CHECK: "✅",
+       INSTALL: "🏗️",
+       ADDITIONAL_INFO: "ℹ️",
      },
-     SEPARATOR: '─'.repeat(80),
+     SEPARATOR: "─".repeat(80),
    };
    ```
 
 3. **Extract Common Patterns**: Even substrings that appear in different contexts should be extracted if repeated:
+
    ```typescript
    // AVOID
    app.get('/api/users', ...);
    app.post('/api/users', ...);
    app.get('/api/posts', ...);
-   
+
    // PREFER
    const API_PREFIX = '/api';
    app.get(`${API_PREFIX}/users`, ...);
@@ -175,33 +189,36 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 4. **Consolidate Related Files**: Keep all constants in one place or organized by domain:
+
    ```typescript
    // constants/index.ts - The main export point
    export * from './display';
    export * from './commands';
    export * from './paths';
-   
+
    // constants/display.ts - Display-related constants
    export const DISPLAY = { ... };
-   
+
    // constants/commands.ts - Command-related constants
    export const COMMANDS = { ... };
    ```
 
 5. **Use Template Literals For Derived Constants**: Derive constants from other constants when possible:
+
    ```typescript
-   const BASE_URL = 'https://api.example.com';
-   const API_VERSION = 'v1';
-   
+   const BASE_URL = "https://api.example.com";
+   const API_VERSION = "v1";
+
    // Derived constant using template literals
    const API_ENDPOINT = `${BASE_URL}/${API_VERSION}`;
    ```
 
 6. **Proper Types for Constants**: Use proper TypeScript types for constants:
+
    ```typescript
    // String literal union for status
-   export type Status = 'idle' | 'loading' | 'success' | 'error';
-   
+   export type Status = "idle" | "loading" | "success" | "error";
+
    // Properly typed object of constants
    export const HTTP_STATUS: Record<string, number> = {
      OK: 200,
@@ -215,28 +232,29 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 7. **Environment-specific Constants**: Handle environment-specific constants cleanly:
+
    ```typescript
    // Base constants for all environments
    const BASE_CONSTANTS = {
      TIMEOUT_MS: 5000,
      MAX_RETRIES: 3,
    };
-   
+
    // Environment-specific overrides
    const ENV_CONSTANTS = {
      development: {
        ...BASE_CONSTANTS,
-       API_URL: 'http://localhost:3000',
+       API_URL: "http://localhost:3000",
        TIMEOUT_MS: 10000, // Longer timeout for development
      },
      production: {
        ...BASE_CONSTANTS,
-       API_URL: 'https://api.example.com',
+       API_URL: "https://api.example.com",
      },
    };
-   
+
    // Export the appropriate constants
-   export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || 'development'];
+   export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || "development"];
    ```
 
 ## Benefits
@@ -257,6 +275,7 @@ Extract and organize constants systematically to improve maintainability and red
 - **Missed Repetition**: Don't miss opportunities to extract strings that repeat 3+ times
 
 domain-oriented-modules
+
 # Domain-Oriented Module Organization
 
 When organizing code in a modular application, follow these principles for better maintainability:
@@ -264,14 +283,17 @@ When organizing code in a modular application, follow these principles for bette
 ## Principles
 
 - **Reduce cross-module dependencies and import cycles**
+
   - Co-locate related functions to prevent circular imports
   - Move utility functions to modules where they're most relevant
 
 - **Improve code understandability**
+
   - Keep related functions together based on domain, not just technical category
   - Group functions by what they operate on rather than how they operate
 
 - **Enhance maintainability**
+
   - Organize code according to domain boundaries, not just technical layers
   - Make it easier to update related functionality without needing to touch multiple files
 
@@ -285,27 +307,37 @@ When organizing code in a modular application, follow these principles for bette
 
 ```typescript
 // utils/homebrew.ts
-export async function isBrewPackageInstalled() { /* ... */ }
+export async function isBrewPackageInstalled() {
+  /* ... */
+}
 
 // commands/tools/homebrew.ts
-import { isBrewPackageInstalled } from '../../utils/homebrew.ts';
-export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+import { isBrewPackageInstalled } from "../../utils/homebrew.ts";
+export function getToolBrewPackageName(brewConfig, toolId) {
+  /* ... */
+}
 
 // utils/tool-status.ts
-import { getToolBrewPackageName } from '../commands/tools/homebrew';
-import { isBrewPackageInstalled } from './homebrew';
+import { getToolBrewPackageName } from "../commands/tools/homebrew";
+import { isBrewPackageInstalled } from "./homebrew";
 ```
 
 ### ✅ Better: Domain-Oriented Organization
 
 ```typescript
 // utils/homebrew.ts - Contains ALL homebrew-related functions
-export async function isBrewPackageInstalled() { /* ... */ }
-export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
-export function normalizeBrewConfig(brewConfig, toolId) { /* ... */ }
+export async function isBrewPackageInstalled() {
+  /* ... */
+}
+export function getToolBrewPackageName(brewConfig, toolId) {
+  /* ... */
+}
+export function normalizeBrewConfig(brewConfig, toolId) {
+  /* ... */
+}
 
 // Commands use the consolidated utility module
-import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/homebrew';
+import { isBrewPackageInstalled, getToolBrewPackageName } from "../../utils/homebrew";
 ```
 
 ## Guidelines
@@ -324,7 +356,8 @@ dont-ignore-errors
 ANY errors encountered during implementation, testing, or verification MUST be fixed before considering the task complete, regardless of whether they appear related to your current changes. This includes warnings, linting errors, type errors, and build errors.
 
 If you encounter errors that seem to require significant changes beyond the original scope:
-1. Explicitly acknowledge all errors 
+
+1. Explicitly acknowledge all errors
 2. Propose a plan to fix them
 3. Ask for confirmation before proceeding with the fixes
 4. Never mark a task as complete while known errors remain
@@ -337,17 +370,21 @@ file-size
 Try to not create very large code files, the definition of which is flexible but generally not more than ~500 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
 
 module-organization
+
 # Module Organization
 
 Business logic should be strictly separated from CLI concerns.
 
 ## Domain Modules
+
 - All business logic should live in `src/domain/` modules
 - Domain modules should be focused on a single domain concept
 - Example: `src/domain/git.ts` for git-related business logic
 
 ## Command Modules
+
 Command modules should only handle:
+
 - Parsing command-line arguments and options
 - Setting up the environment
 - Calling domain modules
@@ -357,6 +394,7 @@ Command modules should only handle:
 Example: `src/commands/git/clone.ts` should only handle CLI concerns while delegating actual git operations to `src/domain/git.ts`
 
 robust-error-handling
+
 # Robust Error Handling
 
 Always implement thorough error handling that provides clear, actionable information:
@@ -364,6 +402,7 @@ Always implement thorough error handling that provides clear, actionable informa
 ## Key Principles
 
 1. **Type-safe Error Handling**: Ensure errors maintain their proper types to preserve stack traces and error details:
+
    ```typescript
    // AVOID
    catch (err) {
@@ -379,6 +418,7 @@ Always implement thorough error handling that provides clear, actionable informa
    ```
 
 2. **Structured Error Objects**: Use structured error objects rather than error strings:
+
    ```typescript
    // For function results that may contain errors
    interface OperationResult {
@@ -391,12 +431,13 @@ Always implement thorough error handling that provides clear, actionable informa
    class ConfigurationError extends Error {
      constructor(message: string) {
        super(message);
-       this.name = 'ConfigurationError';
+       this.name = "ConfigurationError";
      }
    }
    ```
 
 3. **Graceful Degradation**: Always handle errors in a way that allows the application to continue running if possible:
+
    ```typescript
    async function checkStatus() {
      try {
@@ -404,12 +445,13 @@ Always implement thorough error handling that provides clear, actionable informa
      } catch (err) {
        logger.error(`Status check failed: ${err instanceof Error ? err.message : String(err)}`);
        // Return a default or fallback state
-       return { status: 'unknown', error: err };
+       return { status: "unknown", error: err };
      }
    }
    ```
 
 4. **Propagate Relevant Context**: Include context information with errors:
+
    ```typescript
    try {
      await processFile(filePath);
@@ -419,6 +461,7 @@ Always implement thorough error handling that provides clear, actionable informa
    ```
 
 5. **Timeouts for Async Operations**: Always include timeouts for operations that might hang:
+
    ```typescript
    // Set up a timeout with proper cleanup
    const timeoutPromise = new Promise((_, reject) => {
@@ -460,6 +503,7 @@ Always implement thorough error handling that provides clear, actionable informa
 - **Untyped Error Handling**: Always handle the fact that errors might not be Error instances
 
 self-improvement-router
+
 # Self-Improvement Router
 
 Scan every user message for signals of dissatisfaction, error, or correction (e.g., user says "that's wrong", "you're doing it again", "fix this", or expresses frustration).
@@ -478,25 +522,28 @@ template-literals
 When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
 
 test-expectations
+
 # Test Expectations Management
 
 When making code changes that will modify behavior and require updating test expectations:
 
-1. **Test-First Modification**: Always modify tests to reflect the expected new behavior *before* implementing the actual code change.
+1. **Test-First Modification**: Always modify tests to reflect the expected new behavior _before_ implementing the actual code change.
 
 2. **Explicit Expectation Updates**: When test expectations need to change, comment the changes with explicit reasoning:
+
    ```typescript
-   // Updating test expectation: now using BLACK_CIRCLE (⚫) for disabled status 
+   // Updating test expectation: now using BLACK_CIRCLE (⚫) for disabled status
    // instead of RED_CIRCLE (🔴) per design decision in PR #123
-   expect(getChainStatus(false, true)).toBe('⚫');
+   expect(getChainStatus(false, true)).toBe("⚫");
    ```
 
-3. **Snapshot Updates**: For snapshot tests, run tests with `--update-snapshots` flag only *after* you understand and validate the expected changes.
+3. **Snapshot Updates**: For snapshot tests, run tests with `--update-snapshots` flag only _after_ you understand and validate the expected changes.
 
 4. **Regression Prevention**: Include both the old and new expected values in your commit message to document the intentional change:
+
    ```
    feat: Change disabled status indicator from 🔴 to ⚫
-   
+
    - Updates getChainStatus to use BLACK_CIRCLE for disabled items
    - Updates tests that previously expected RED_CIRCLE (🔴) to now expect BLACK_CIRCLE (⚫)
    ```
@@ -507,32 +554,36 @@ This practice ensures test changes are deliberate rather than reflexive adjustme
 
 tests
 Rule Name: tests
-Description: 
+Description:
 Test Coverage and Quality Requirements:
 
 1. **When to Run Tests**
+
    - Run tests after ANY change to:
-     - Source code files (*.ts, *.js)
-     - Test files (*.test.ts, *.spec.ts)
+     - Source code files (_.ts, _.js)
+     - Test files (_.test.ts, _.spec.ts)
      - Configuration files that affect test behavior
    - Do NOT run tests for:
-     - Documentation changes (*.md)
+     - Documentation changes (\*.md)
      - Comment-only changes
      - Formatting-only changes (unless they affect test output)
 
 2. **Which Tests to Run**
+
    - Run all tests in the affected package/module
    - For changes to shared utilities or core functionality, run all tests
    - Use `bun test` for the default test suite
    - Use `bun test --coverage` when making significant changes
 
 3. **Test Success Criteria**
+
    - All tests must pass (no failures)
    - No new test warnings should be introduced
    - Test coverage should not decrease for modified files
    - Flaky tests should be fixed or marked as such
 
 4. **Test Development**
+
    - When writing new tests:
      - Only the new/modified test files should be failing
      - Document why tests are failing in the commit message
@@ -543,11 +594,13 @@ Test Coverage and Quality Requirements:
      - Consider adding new tests for edge cases
 
 5. **Test Environment**
+
    - Run tests in the development environment
    - Ensure all required dependencies are installed
    - Document any environment-specific requirements
 
 6. **Test Reporting**
+
    - Document any skipped tests and why
    - Note any changes to test coverage
    - Flag any new test warnings or flaky tests
@@ -577,6 +630,7 @@ Test Coverage and Quality Requirements:
 This is a zero-tolerance policy. Any violation will require immediate remediation.
 
 user-preferences
+
 # User Preferences
 
 This rule documents preferences expressed by the user during interactions with the AI coding assistant. These preferences are to be adhered to in future interactions.
@@ -614,17 +668,18 @@ The above is not optional guidance - it is a mandatory filter that must be appli
 ## VERIFICATION CHECKPOINT
 
 At the end of drafting ANY response, the AI must verify:
+
 1. Does this response contain ANY confirmation questions? If yes, remove them.
 2. Does this response explain actions without taking them? If yes, replace with the actual implementation.
 3. Does this response ask "Would you like me to..." when the intent is clear? If yes, rewrite to take direct action.
 4. **If the user has stated a preference for uninterrupted progress, never pause for confirmation or status unless explicitly requested.**
 
 > **AI Commitment:** The AI will always strictly adhere to these preferences, especially regarding avoiding confirmation prompts and always taking the next implied step without asking. This is a persistent, high-priority rule for all future interactions.
-</required_instructions>
+> </required_instructions>
 
 </custom_instructions>
 
-</code_block_to_apply_changes_from> 
+</code_block_to_apply_changes_from>
 
 ## Available Tools/Functions
 
@@ -795,84 +850,90 @@ You have tools to search the codebase and read files. Follow these rules regardi
 
 ## Code Citation Format
 
-```
+````
 You MUST use the following format when citing code regions or blocks:
 ```12:15:app/components/Todo.tsx
 // ... existing code ...
-```
+````
+
 This is the ONLY acceptable format for code citations. The format is ```startLine:endLine:filepath where startLine and endLine are line numbers.
+
 ```
 
 ## Project Layout/Directory Structure
 
 ```
+
 Here is the directory structure of the current workspace:
 
 minsky
-  .cursor/
-    rules/
-  .specstory/
-    ai_rules_backups/
-    history/
-  process/
-    tasks/
-      002/
-      003/
-      006/
-      007/
-      008/
-      011/
-      012/
-      013/
-      015/
-      016/
-      017/
-      018/
-      020/
-      021/
-      022/
-      023/
-      024/
-      026/
-      027/
-      031/
-      036/
-  src/
-    commands/
-      git/
-        __tests__/
-      init/
-      session/
-      tasks/
-    domain/
-    types/
-    utils/
-  test-minsky-project/
-  .cursorignore
-  .cursorindexingignore
-  .eslintrc.json
-  .gitignore
-  bun.lock
-  CHANGELOG.md
-  CHANGELOG.md.save
-  full-ai-prompt.md
-  minsky.code-workspace
-  package.json
-  README.md
-  test-cli.ts
-  test-commands-session-index.js
-  test-current-session.ts
-  test-debug-paths.ts
-  test-debug-session.ts
-  test-file.txt
-  test-fixed-functions.ts
-  test-migration.ts
-  test-mock-session-autodetect.ts
-  test-session-command-autodetect.ts
-  test-session-detection.ts
-  test-session-mock-helper.ts
-  test-session-path-detection.ts
-  test-workspace-detection.ts
-  tsconfig.json
-  workspace.ts.patch
+.cursor/
+rules/
+.specstory/
+ai_rules_backups/
+history/
+process/
+tasks/
+002/
+003/
+006/
+007/
+008/
+011/
+012/
+013/
+015/
+016/
+017/
+018/
+020/
+021/
+022/
+023/
+024/
+026/
+027/
+031/
+036/
+src/
+commands/
+git/
+**tests**/
+init/
+session/
+tasks/
+domain/
+types/
+utils/
+test-minsky-project/
+.cursorignore
+.cursorindexingignore
+.eslintrc.json
+.gitignore
+bun.lock
+CHANGELOG.md
+CHANGELOG.md.save
+full-ai-prompt.md
+minsky.code-workspace
+package.json
+README.md
+test-cli.ts
+test-commands-session-index.js
+test-current-session.ts
+test-debug-paths.ts
+test-debug-session.ts
+test-file.txt
+test-fixed-functions.ts
+test-migration.ts
+test-mock-session-autodetect.ts
+test-session-command-autodetect.ts
+test-session-detection.ts
+test-session-mock-helper.ts
+test-session-path-detection.ts
+test-workspace-detection.ts
+tsconfig.json
+workspace.ts.patch
+
+```
+
 ```

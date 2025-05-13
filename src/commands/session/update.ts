@@ -5,7 +5,9 @@ import { getCurrentSession } from "../../domain/workspace";
 
 export function createUpdateCommand(gitService: GitService, sessionDb: SessionDB) {
   const command = new Command("update")
-    .description("Update a session with the latest changes from the main branch. If no session is provided, auto-detects the current session if run from a session workspace.")
+    .description(
+      "Update a session with the latest changes from the main branch. If no session is provided, auto-detects the current session if run from a session workspace."
+    )
     .argument("[session]", "Session name (defaults to current session)")
     .option("--no-stash", "Don't stash changes before updating")
     .option("--no-push", "Don't push changes after updating")
@@ -26,11 +28,15 @@ export function createUpdateCommand(gitService: GitService, sessionDb: SessionDB
           // Try to detect current session from working directory using the utility
           const currentSessionName = await getCurrentSession();
           if (!currentSessionName) {
-            throw new Error("No session specified and not in a session workspace. Please provide a session name.");
+            throw new Error(
+              "No session specified and not in a session workspace. Please provide a session name."
+            );
           }
           const record = await sessionDb.getSession(currentSessionName);
           if (!record) {
-            throw new Error(`Current session '${currentSessionName}' not found in session database.`);
+            throw new Error(
+              `Current session '${currentSessionName}' not found in session database.`
+            );
           }
           workdir = gitService.getSessionWorkdir(record.repoName, record.session);
         } else {

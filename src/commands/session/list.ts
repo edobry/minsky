@@ -24,4 +24,4 @@ export function createListCommand(): Command {
         }
       }
     });
-} 
+}

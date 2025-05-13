@@ -36,7 +36,7 @@ export function createMCPCommand(): Command {
 
         // Set port (used for both SSE and HTTP Stream)
         const port = parseInt(options.port, 10);
-        
+
         // Create server with appropriate options
         const server = new MinskyMCPServer({
           name: "Minsky MCP Server",
@@ -44,12 +44,12 @@ export function createMCPCommand(): Command {
           transportType,
           sse: {
             endpoint: "/sse",
-            port
+            port,
           },
           httpStream: {
             endpoint: "/stream",
-            port
-          }
+            port,
+          },
         });
 
         // Register tools via adapter-based approach
@@ -60,22 +60,22 @@ export function createMCPCommand(): Command {
 
         // Start the server
         await server.start();
-        
+
         console.log(`Minsky MCP Server started with ${transportType} transport`);
         if (transportType !== "stdio") {
           console.log(`Listening on ${options.host}:${port}`);
         }
         console.log("Press Ctrl+C to stop");
-        
+
         // Keep the process running
         process.stdin.resume();
-        
+
         // Handle termination signals
         process.on("SIGINT", () => {
           console.log("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-        
+
         process.on("SIGTERM", () => {
           console.log("\nStopping Minsky MCP Server...");
           process.exit(0);
@@ -88,4 +88,4 @@ export function createMCPCommand(): Command {
 
   mcpCommand.addCommand(startCommand);
   return mcpCommand;
-} 
+}

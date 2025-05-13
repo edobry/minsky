@@ -7,10 +7,12 @@ Minsky already has a `git pr` command that prepares PR descriptions, but the wor
 To complete the PR workflow, we need to implement a `git approve` command that works in concert with the existing `git pr` command. This will establish a "prepared-merge" workflow where the merge commit is created before review and then can be easily landed by a reviewer via fast-forward merge.
 
 The workflow consists of two main steps:
+
 1. Author creates a PR branch with a prepared merge commit (`minsky git pr`)
 2. Reviewer approves and merges the prepared commit (`minsky git approve`)
 
 This approach provides several benefits:
+
 - Reviewers see and review the exact commit they will merge
 - Fast-forward merges keep the history linear
 - The main branch isn't polluted with direct pushes
@@ -19,7 +21,9 @@ This approach provides several benefits:
 ## Requirements
 
 1. **Enhanced PR Workflow**
+
    - Update `minsky git pr` to:
+
      - Ensure clean work-tree (exit 2 if dirty)
      - Create a PR branch named `pr/<feature-branch>` off latest BASE (default: `main`)
      - Generate a proper merge message (already implemented)
@@ -37,7 +41,9 @@ This approach provides several benefits:
      - Exit 3 if base branch has moved (author must rerun `git pr`)
 
 2. **CLI Behavior**
+
    - Command signatures:
+
      ```
      minsky git pr [--session <session>] [--path <repo-path>] [--base <base-branch>]
      minsky git approve <pr-branch> [--session <session>] [--path <repo-path>] [--task <task-id>]
@@ -50,6 +56,7 @@ This approach provides several benefits:
 
 3. **Git Operations**
    For `git pr`:
+
    ```bash
    # 1. Sync & clean
    git fetch origin --prune
@@ -73,17 +80,18 @@ This approach provides several benefits:
    ```
 
    For `git approve`:
+
    ```bash
    git fetch origin pr/$TOPIC
    git switch main
    git merge --ff-only origin/pr/$TOPIC   # land prepared merge
-   
+
    # Get the merge commit hash
    MERGE_COMMIT=$(git rev-parse HEAD)
-   
+
    git push origin main                   # publish
    git push origin --delete pr/$TOPIC     # tidy up
-   
+
    # If task ID is provided, update task record with merge commit info
    if [ -n "$TASK_ID" ]; then
      minsky tasks set-metadata "$TASK_ID" --merge-commit "$MERGE_COMMIT" --merge-date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -91,6 +99,7 @@ This approach provides several benefits:
    ```
 
 4. **Task Record Updates**
+
    - Extend the Task interface to include merge commit information:
      ```typescript
      interface Task {
@@ -121,17 +130,20 @@ This approach provides several benefits:
 ## Implementation Steps
 
 1. [ ] Update GitService in `src/domain/git.ts`:
+
    - [ ] Enhance the `pr` method to create and push a PR branch with a prepared merge commit
    - [ ] Add an `approve` method to fetch, merge, push, and clean up
    - [ ] Add proper error handling with specific exit codes
    - [ ] Add functionality to capture merge commit information
 
 2. [ ] Update PR command in `src/commands/git/pr.ts`:
+
    - [ ] Update the command to create and push a PR branch
    - [ ] Add `--base` option to specify the base branch (default: `main`)
    - [ ] Ensure proper validation and error handling
 
 3. [ ] Create Approve command in `src/commands/git/approve.ts`:
+
    - [ ] Implement command using Commander.js
    - [ ] Add appropriate options and arguments, including `--task <task-id>`
    - [ ] Implement action handler to call GitService methods
@@ -141,11 +153,13 @@ This approach provides several benefits:
 4. [ ] Register new command in `src/commands/git/index.ts`
 
 5. [ ] Update TaskService in `src/domain/tasks.ts`:
+
    - [ ] Extend the Task interface to include merge commit information
    - [ ] Add a `setTaskMetadata` method to update task metadata
    - [ ] Implement this method in the MarkdownTaskBackend
 
 6. [ ] Add comprehensive tests:
+
    - [ ] Unit tests for the GitService methods
    - [ ] Unit tests for the TaskService metadata methods
    - [ ] Integration tests for the commands
@@ -174,10 +188,11 @@ This approach provides several benefits:
 ## Notes
 
 This implementation follows the "prepared-merge" workflow described in the specification, which offers several advantages over traditional merge workflows:
+
 - **Exact review**: Reviewers diff the commit they will merge
 - **Fast landing**: Fast-forward keeps history linear
 - **No base pollution**: Authors never push directly to `main`
 - **Pure Git**: Works over plain SSH remotes without requiring GitHub
 - **Task traceability**: Merge commit information is stored in the task record for future reference
 
-The workflow is particularly useful for projects with distributed teams or when integrating with automated review systems. Adding merge commit information to task records enhances traceability and provides a complete history of the task from creation to completion. 
+The workflow is particularly useful for projects with distributed teams or when integrating with automated review systems. Adding merge commit information to task records enhances traceability and provides a complete history of the task from creation to completion.

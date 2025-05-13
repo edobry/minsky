@@ -7,9 +7,11 @@ Currently, session repositories are stored in a flat directory structure and the
 ## Requirements
 
 1. **SessionRecord Update**
+
    - Add a `repoName` field (string, e.g., `org/project` or `local/project`) to `SessionRecord` in `src/domain/session.ts`.
 
 2. **Repo Name Normalization**
+
    - For remote URLs:
      - Extract the org and project (e.g., `github.com/org/project.git` → `org/project`).
      - Strip `.git` if present.
@@ -17,6 +19,7 @@ Currently, session repositories are stored in a flat directory structure and the
      - Use `local/<basename-of-path>` (e.g., `/Users/edobry/Projects/minsky` → `local/minsky`).
 
 3. **Directory Structure**
+
    - Store session repos under:
      ```
      $XDG_STATE_HOME/minsky/git/<repoName>/<session>
@@ -26,13 +29,16 @@ Currently, session repositories are stored in a flat directory structure and the
      - `.../minsky/git/local/minsky/test-session-2`
 
 4. **Session DB Migration**
+
    - On next run, migrate any existing session records to include the new `repoName` field and update their workdir if needed.
    - No need for backward compatibility with the old structure.
 
 5. **Update All Logic**
+
    - All session creation, lookup, and path resolution must use the new per-repo directory structure and `repoName` field.
 
 6. **Testing**
+
    - Ensure all commands (start, cd, branch, pr, etc.) work with the new structure.
    - Add/modify tests to verify correct repo grouping and DB schema.
 
@@ -59,6 +65,7 @@ Currently, session repositories are stored in a flat directory structure and the
 - [x] Documentation and CLI help are updated.
 
 ## Work Log
+
 - 2025-04-29: Added `repoName` field to `SessionRecord` interface
 - 2025-04-29: Implemented `normalizeRepoName` utility function with tests
 - 2025-04-29: Updated `GitService` to use per-repo directory structure
@@ -82,15 +89,17 @@ Currently, session repositories are stored in a flat directory structure and the
 ## Remaining Work
 
 1. **Test Failures**:
+
    - There are some remaining test failures in workspace.test.ts and repo-utils.test.ts that need to be addressed.
    - These tests are not properly accounting for the new directory structure.
    - The mocking implementations need to be updated to correctly simulate the new path structure.
 
 2. **Documentation Updates**:
+
    - Ensure CLI help text is updated to reflect the new session storage structure.
    - Consider adding a note to the README or other user-facing documentation about the change in session storage structure.
 
 3. **Final Verification**:
    - Run a comprehensive test suite to ensure all commands (session list, get, dir, start) work correctly with the new structure.
    - Verify that existing sessions are properly migrated to the new structure in real-world usage.
-   - Check for any edge cases in the migration logic that might not be covered by tests. 
+   - Check for any edge cases in the migration logic that might not be covered by tests.

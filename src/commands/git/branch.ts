@@ -12,7 +12,7 @@ export function createBranchCommand(): Command {
       try {
         const result = await gitService.branch({
           session: options.session,
-          branch
+          branch,
         });
         console.log(`Branch '${result.branch}' created in workdir: ${result.workdir}`);
       } catch (error) {
@@ -20,4 +20,4 @@ export function createBranchCommand(): Command {
         process.exit(1);
       }
     });
-} 
+}

@@ -8,4 +8,4 @@ export function exit(code: number): never {
   // In the future, we could adapt this to use Bun-specific APIs if needed
   // eslint-disable-next-line no-restricted-globals
   process.exit(code);
-} 
+}

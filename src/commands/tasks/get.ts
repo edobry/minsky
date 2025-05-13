@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
 import { normalizeTaskId } from "../../domain/tasks";
+import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { join } from "path";
@@ -18,21 +19,49 @@ interface GetOptions {
 export function createGetCommand(): Command {
   const getCommand = new Command("get")
     .description("Get details for a specific task")
-    .argument("<task-id>", "Task ID to get details for")
+    .argument("[task-id]", "Task ID to get details for (optional, auto-detects if in session)")
     .option("--session <session>", "Session to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
     .option("--backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output task as JSON")
     .option("--config", "Include task configuration in output")
-    .action(async (taskIdArgument: string, options: GetOptions) => {
+    .action(async (taskIdArgument: string | undefined, options: GetOptions) => {
       try {
-        const normalizedId = normalizeTaskId(taskIdArgument);
-        if (!normalizedId) {
-          console.error(`Error: Invalid Task ID format provided: "${taskIdArgument}"`);
-          process.exit(1);
+        let taskIdToUse: string | null = null;
+        let originalInputForError: string = "auto-detected";
+
+        if (taskIdArgument) {
+          originalInputForError = taskIdArgument;
+          taskIdToUse = normalizeTaskId(taskIdArgument);
+          if (!taskIdToUse) {
+            console.error(`Error: Invalid Task ID format provided: "${taskIdArgument}"`);
+            process.exit(1);
+            return;
+          }
+        } else {
+          const sessionContext = await getCurrentSessionContext();
+          if (sessionContext && sessionContext.taskId) {
+            const contextTaskId = sessionContext.taskId.startsWith("#") ? sessionContext.taskId : `#${sessionContext.taskId}`;
+            taskIdToUse = normalizeTaskId(contextTaskId);
+            originalInputForError = contextTaskId;
+            if (!taskIdToUse) {
+                console.error(`Error: Invalid Task ID format from session context: "${contextTaskId}"`);
+                process.exit(1);
+                return;
+            }
+            if (!options.json) {
+              console.info(`Auto-detected task ID: ${taskIdToUse} (from current session)`);
+            }
+          } else {
+            console.error(
+              "Task ID not provided and could not auto-detect from the current session. " +
+                "Please provide a task ID or run this command from within a session associated with a task."
+            );
+            process.exit(1);
+            return;
+          }
         }
 
-        // Resolve repository path
         let workspacePath = options.repo;
         if (!workspacePath && options.session) {
           const sessionDB = new SessionDB();
@@ -51,21 +80,18 @@ export function createGetCommand(): Command {
           );
         }
 
-        // Create task service with resolved workspace path
         const taskService = new TaskService({
           workspacePath,
           backend: options.backend,
         });
 
-        // Get task details
-        const task = await taskService.getTask(normalizedId);
+        const task = await taskService.getTask(taskIdToUse);
 
         if (!task) {
-          console.error(`Task with ID originating from "${taskIdArgument}" (normalized to "${normalizedId}") not found.`);
+          console.error(`Task with ID originating from "${originalInputForError}" (normalized to "${taskIdToUse}") not found.`);
           process.exit(1);
         }
 
-        // Create absolute paths for config files
         const config: Record<string, string> = {};
         if (options.config && task.specPath) {
           config.specPath = await resolveWorkspacePath({
@@ -73,7 +99,6 @@ export function createGetCommand(): Command {
           });
         }
 
-        // Output the result
         if (options.json) {
           console.log(JSON.stringify({ ...task, config }, null, 2));
         } else {
@@ -86,11 +111,15 @@ export function createGetCommand(): Command {
             console.log(`  Spec file: ${config.specPath}`);
           }
 
-          // Display worklog entries if available
           if (task.worklog && task.worklog.length > 0) {
             console.log("\nWorklog:");
             console.log(
-              task.worklog.map((entry: { timestamp: string; message: string }) => `  ${entry.timestamp} - ${entry.message}`).join("\n")
+              task.worklog
+                .map(
+                  (entry: { timestamp: string; message: string }) =>
+                    `  ${entry.timestamp} - ${entry.message}`
+                )
+                .join("\n")
             );
           }
         }

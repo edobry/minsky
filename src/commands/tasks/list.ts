@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath } from "../../domain";
+import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { generateFilterMessages } from "../../utils/filter-messages";
@@ -45,6 +46,13 @@ export function createListCommand(): Command {
           backend: options.backend,
         });
 
+        // Get current session context to identify current task
+        let currentTaskId: string | undefined;
+        const sessionContext = await getCurrentSessionContext();
+        if (sessionContext && sessionContext.taskId) {
+          currentTaskId = sessionContext.taskId;
+        }
+
         // Get tasks
         const tasks = await taskService.listTasks();
 
@@ -81,7 +89,8 @@ export function createListCommand(): Command {
           console.log(`Found ${filteredTasks.length} tasks:\n`);
 
           for (const task of filteredTasks) {
-            console.log(`${task.id}: ${task.title} [${task.status}]`);
+            const prefix = task.id === currentTaskId ? "* " : "  ";
+            console.log(`${prefix}${task.id}: ${task.title} [${task.status}]`);
           }
         }
       } catch (error) {

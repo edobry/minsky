@@ -41,4 +41,4 @@ This PR improves the task creation workflow in two main ways:
 ## Related
 
 - Closes #032: Auto-Rename Task Spec Files in `tasks create` Command
-- Closes #035: Fix Task Creation Workflow to Not Require Task Number in Spec Title 
+- Closes #035: Fix Task Creation Workflow to Not Require Task Number in Spec Title

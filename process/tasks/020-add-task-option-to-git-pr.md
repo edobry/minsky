@@ -13,6 +13,7 @@ This is inconvenient for users who are already working on a specific task and wa
 ## Requirements
 
 1. **CLI Behavior**
+
    - Enhance the `git pr` command to accept a new `--task` option:
      ```
      minsky git pr --task <taskId>
@@ -23,11 +24,13 @@ This is inconvenient for users who are already working on a specific task and wa
      - Use the existing PR generation logic after resolving the session
 
 2. **Integration with Existing Code**
+
    - Update the command options in the git pr module to accept the `--task` option
    - Implement logic to look up the session associated with a task ID
    - Reuse the existing session-based PR generation logic
 
 3. **Error Handling**
+
    - Validate that the task ID exists
    - Check if a session exists for the specified task
    - Provide clear error messages when:
@@ -44,20 +47,24 @@ This is inconvenient for users who are already working on a specific task and wa
 ## Implementation Steps
 
 1. [x] Update the command options in `src/commands/git/pr.ts`:
+
    - [x] Add the `--task` option with appropriate description
    - [x] Update the command usage documentation
 
 2. [x] Enhance the PR generation logic:
+
    - [x] Modify the command to accept and validate the task option
    - [x] Implement task-to-session resolution logic
    - [x] Integrate with existing session path resolution
 
 3. [x] Add error handling for task-specific cases:
+
    - [x] Task not found
    - [x] No session for task
    - [x] Multiple sessions for task (if relevant)
 
 4. [x] Update tests:
+
    - [x] Add unit tests for task option validation
    - [x] Add integration tests for PR generation with task option
    - [x] Test error cases and option precedence
@@ -73,7 +80,7 @@ This is inconvenient for users who are already working on a specific task and wa
 - [x] Appropriate error messages are shown for invalid task IDs or missing sessions
 - [x] Option precedence works correctly when multiple options are provided
 - [x] All tests pass
-- [x] Documentation is updated 
+- [x] Documentation is updated
 
 ## Work Log
 
@@ -84,4 +91,4 @@ This is inconvenient for users who are already working on a specific task and wa
   - Added error handling for cases where no session is found for a task
   - Implemented option precedence hierarchy (session > path > task)
   - Added comprehensive tests for the new functionality
-  - Fixed test code to properly work with Bun's testing framework 
+  - Fixed test code to properly work with Bun's testing framework

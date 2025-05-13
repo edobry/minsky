@@ -1,5 +1,9 @@
 const { describe, it, expect, mock, beforeEach, afterEach } = require("bun:test");
-const { mockDateFunctions, setupConsoleSpy, createTempTestDir } = require("../../../utils/test-utils");
+const {
+  mockDateFunctions,
+  setupConsoleSpy,
+  createTempTestDir,
+} = require("../../../utils/test-utils");
 const { execSync } = require("child_process");
 const { registerSessionTools } = require("../../../mcp/tools/session");
 const { CommandMapper } = require("../../../mcp/command-mapper");
@@ -26,15 +30,15 @@ describe("Session Command Integration Tests", () => {
       name: "Test Session 1",
       repo: "/path/to/repo1",
       branch: "session/test-1",
-      createdAt: "2025-05-01T12:00:00.000Z"
+      createdAt: "2025-05-01T12:00:00.000Z",
     },
     {
       id: "test-session-2",
       name: "Test Session 2",
       repo: "/path/to/repo2",
       branch: "session/test-2",
-      createdAt: "2025-05-02T12:00:00.000Z"
-    }
+      createdAt: "2025-05-02T12:00:00.000Z",
+    },
   ]);
 
   // Create a fake session get response for mocking
@@ -43,7 +47,7 @@ describe("Session Command Integration Tests", () => {
     name: "Test Session 1",
     repo: "/path/to/repo1",
     branch: "session/test-1",
-    createdAt: "2025-05-01T12:00:00.000Z"
+    createdAt: "2025-05-01T12:00:00.000Z",
   });
 
   // Set up mock FastMCP server for testing
@@ -53,27 +57,27 @@ describe("Session Command Integration Tests", () => {
   beforeEach(() => {
     // Set up mock function
     execSyncMock = mock(execSync);
-    
+
     // Mock console.error
     console.error = mock(() => {});
-    
+
     // Set up FastMCP mock
     const mockServer = {
       addTool: mock(() => {}),
-      tools: []
+      tools: [],
     };
     mockCommandMapper = new CommandMapper(mockServer);
-    
+
     // For testing, manually add tools array that we can access
     mockCommandMapper.server = {
-      tools: []
+      tools: [],
     };
-    
+
     // Mock the addTool method
     mockCommandMapper.server.addTool = (tool) => {
       mockCommandMapper.server.tools.push(tool);
     };
-    
+
     // Register session tools with mock command mapper
     registerSessionTools(mockCommandMapper);
   });
@@ -97,7 +101,7 @@ describe("Session Command Integration Tests", () => {
 
       // Check that the tool was registered
       expect(listSessionTool).toBeDefined();
-      
+
       // Execute the MCP tool
       const mcpResult = await listSessionTool.execute({});
 
@@ -154,7 +158,7 @@ describe("Session Command Integration Tests", () => {
 
       // Check that the tool was registered
       expect(getSessionTool).toBeDefined();
-      
+
       // Execute the MCP tool
       const mcpResult = await getSessionTool.execute({ session: "test-session-1" });
 
@@ -217,7 +221,7 @@ describe("Session Command Integration Tests", () => {
       expect(parsedResult).toEqual({
         success: true,
         message: "Session 'test-session' started",
-        session: "test-session"
+        session: "test-session",
       });
 
       // Verify execSync was called correctly and includes the required --quiet flag
@@ -242,11 +246,11 @@ describe("Session Command Integration Tests", () => {
       expect(parsedResult).toEqual({
         success: true,
         message: "Session 'task#123' started",
-        session: "task#123"
+        session: "task#123",
       });
 
       // Verify execSync was called correctly with the task parameter
       expect(execSyncMock).toHaveBeenCalledWith("minsky session start --task 123 --quiet");
     });
   });
-}); 
+});
