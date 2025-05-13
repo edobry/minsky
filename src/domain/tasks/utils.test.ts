@@ -21,7 +21,7 @@ describe("normalizeTaskId", () => {
     });
   }
 
-  const invalidTestCases = [
+  const invalidInputs = [
     { input: "abc", note: "non-numeric" },
     { input: "#abc", note: "# with non-numeric" },
     { input: "task#abc", note: "task# with non-numeric" },
@@ -31,14 +31,14 @@ describe("normalizeTaskId", () => {
     { input: "task#", note: "only task#" },
     { input: "", note: "empty string" },
     { input: "   ", note: "whitespace only" },
-    { input: null as any, note: "null input" },
-    { input: undefined as any, note: "undefined input" },
-    { input: 123 as any, note: "number input type" },
+    { input: null, note: "null input" },
+    { input: undefined, note: "undefined input" },
+    { input: 123, note: "number input type" },
   ];
 
-  for (const { input, note } of invalidTestCases) {
+  for (const { input, note } of invalidInputs) {
     test(`should return null for invalid input "${String(input)}" (${note})`, () => {
-      expect(normalizeTaskId(input as string)).toBeNull();
+      expect(normalizeTaskId(input as any)).toBeNull();
     });
   }
 });
