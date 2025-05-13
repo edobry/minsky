@@ -5,7 +5,10 @@ import { TaskService, TASK_STATUS } from "../../domain/tasks.js";
 import { RepositoryBackendType } from "../../domain/repository.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils.js";
+import {
+  resolveRepoPath as resolveRepoPathDefault,
+  normalizeRepoName,
+} from "../../domain/repo-utils.js";
 import { normalizeTaskId } from "../../utils/task-utils.js";
 
 // Default imports for optional parameters
@@ -61,14 +64,15 @@ export async function startSession({
   fs: fsInstance, // Renamed to avoid conflict with import
   path: pathInstance, // Renamed to avoid conflict with import
   resolveRepoPath,
-  taskService
+  taskService,
 }: StartSessionOptions): Promise<StartSessionResult> {
   // Only use default if the value is undefined (not null or a falsy mock)
   gitService = typeof gitService !== "undefined" ? gitService : new GitService();
   sessionDB = typeof sessionDB !== "undefined" ? sessionDB : new SessionDB();
   const currentFs = typeof fsInstance !== "undefined" ? fsInstance : fsDefault;
   const currentPath = typeof pathInstance !== "undefined" ? pathInstance : pathDefault;
-  resolveRepoPath = typeof resolveRepoPath !== "undefined" ? resolveRepoPath : resolveRepoPathDefault;
+  resolveRepoPath =
+    typeof resolveRepoPath !== "undefined" ? resolveRepoPath : resolveRepoPathDefault;
 
   // Determine repo URL or path first, as we'll need it for task service
   let repoUrl = repo;
@@ -77,15 +81,19 @@ export async function startSession({
       repoUrl = await resolveRepoPath({});
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`--repo is required (not in a git repo and no --repo provided): ${error.message}`);
+      throw new Error(
+        `--repo is required (not in a git repo and no --repo provided): ${error.message}`
+      );
     }
   }
 
   // Initialize task service if it wasn't provided
-  taskService = taskService || new TaskService({
-    workspacePath: repoUrl,
-    backend: "markdown" // Default to markdown backend
-  });
+  taskService =
+    taskService ||
+    new TaskService({
+      workspacePath: repoUrl,
+      backend: "markdown", // Default to markdown backend
+    });
 
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
@@ -115,7 +123,7 @@ export async function startSession({
   if (taskId) {
     const existingSessions = await sessionDB.listSessions();
     const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
-    
+
     if (taskSession) {
       throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
     }
@@ -125,10 +133,11 @@ export async function startSession({
   let backendType: "local" | "remote" | "github" = "local"; // Default to local
   if (backend === "auto") {
     // Determine backend type based on URL format
-    if (repoUrl.startsWith("http://") || 
-        repoUrl.startsWith("https://") || 
-        repoUrl.startsWith("git@")) {
-      
+    if (
+      repoUrl.startsWith("http://") ||
+      repoUrl.startsWith("https://") ||
+      repoUrl.startsWith("git@")
+    ) {
       // Further detect GitHub repositories
       if (repoUrl.includes("github.com")) {
         backendType = "github";
@@ -146,10 +155,10 @@ export async function startSession({
   // 1. First add the session to the DB (repoUrl needed)
   // 2. Then clone the repo (session name needed)
   // 3. Then create a branch (session name needed)
-  
+
   // Extract the repository name
   const repoName = normalizeRepoName(repoUrl);
-  
+
   // First record the session in the DB
   const sessionRecordData: SessionRecord = {
     session,
@@ -160,7 +169,7 @@ export async function startSession({
     backendType: backendType,
     github,
     remote,
-    branch
+    branch,
   };
   await sessionDB.addSession(sessionRecordData);
 
@@ -171,7 +180,7 @@ export async function startSession({
     backend: backendType,
     github,
     remote,
-    branch
+    branch,
   };
 
   // Now clone the repo
@@ -180,14 +189,14 @@ export async function startSession({
   // Create a branch based on the session name
   const branchResult = await gitService.branch({
     session,
-    branch: session
+    branch: session,
   });
 
   // Prepare the result object
   const result: StartSessionResult = {
     sessionRecord: sessionRecordData, // Use the data we already prepared
     cloneResult,
-    branchResult
+    branchResult,
   };
 
   // Update task status to IN-PROGRESS if requested and if we have a task ID
@@ -195,24 +204,26 @@ export async function startSession({
     try {
       // Get the current status first
       const previousStatus = await taskService.getTaskStatus(taskId);
-      
+
       // Update the status to IN-PROGRESS
       // Only update if the status is not already IN-PROGRESS or higher
       if (!previousStatus || previousStatus === TASK_STATUS.TODO) {
         await taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
-        
+
         // Add status update result to the response
         result.statusUpdateResult = {
           taskId,
           previousStatus: previousStatus || null, // Ensure null if undefined
-          newStatus: TASK_STATUS.IN_PROGRESS
+          newStatus: TASK_STATUS.IN_PROGRESS,
         };
       }
     } catch (error) {
       // Log the error but don't fail the session creation
-      console.error(`Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   return result;
-} 
+}

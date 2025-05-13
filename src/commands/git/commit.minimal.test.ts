@@ -7,4 +7,4 @@ describe("git commit command", () => {
     expect(command).toBeDefined();
     expect(typeof command.parse).toBe("function");
   });
-}); 
+});

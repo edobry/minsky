@@ -44,7 +44,7 @@ export class CommandMapper {
           console.error(`Error executing command ${command.name}:`, errorMessage);
           throw error; // Re-throw to let FastMCP handle error presentation
         }
-      }
+      },
     });
   }
 
@@ -65,7 +65,7 @@ export class CommandMapper {
       name: `tasks.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -86,7 +86,7 @@ export class CommandMapper {
       name: `session.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -107,7 +107,7 @@ export class CommandMapper {
       name: `git.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -128,7 +128,7 @@ export class CommandMapper {
       name: `rules.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
-} 
+}

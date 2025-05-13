@@ -3,23 +3,23 @@ import { spawnSync } from "child_process";
 import { join } from "path";
 import { mkdirSync, writeFileSync, existsSync } from "fs";
 /* eslint-disable-next-line no-restricted-imports */
-import type { Task } from "../../domain/tasks.ts";
+import type { Task } from "../../domain/tasks";
 /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
-import { createTasksCommand } from "./index.ts";
+import { createTasksCommand } from ".";
 /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
-import { Command } from "commander";
+// import { Command } from "commander"; // Assuming Command from commander is still needed if used elsewhere
 /* eslint-disable-next-line no-restricted-imports, @typescript-eslint/no-unused-vars */
-import { TaskService } from "../../domain/tasks.ts";
-import { 
-  createUniqueTestDir, 
-  cleanupTestDir, 
-  setupMinskyTestEnv, 
-  createTestEnv, 
+import { TaskService } from "../../domain/tasks";
+import {
+  createUniqueTestDir,
+  cleanupTestDir,
+  setupMinskyTestEnv,
+  createTestEnv,
   standardSpawnOptions,
   /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
-  ensureValidCommandResult
-} from "../../utils/test-helpers.ts";
-import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
+  ensureValidCommandResult,
+} from "../../utils/test-helpers";
+import type { MinskyTestEnv } from "../../utils/test-helpers";
 
 // Path to the CLI entry point - use absolute path
 const CLI = join(Bun.main, "/../src/cli.ts");
@@ -63,11 +63,11 @@ function setupMinskyWorkspace() {
   const PROCESS_DIR = join(TEST_DIR, "process");
   const TASKS_DIR = join(PROCESS_DIR, "tasks");
   const CONFIG_DIR = join(TEST_DIR, ".minsky");
-  
+
   // Create fake .git directory to make the workspace appear valid
   const GIT_DIR = join(TEST_DIR, ".git");
   const SRC_DIR = join(TEST_DIR, "src");
-  
+
   // Setup Minsky-specific directories
   const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
 
@@ -118,10 +118,13 @@ function setupMinskyWorkspace() {
       2
     )
   );
-  
+
   // Create session db file
   const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
-  writeFileSync(sessionDbPath, JSON.stringify([], null, /* eslint-disable-next-line no-magic-numbers */ 2));
+  writeFileSync(
+    sessionDbPath,
+    JSON.stringify([], null, /* eslint-disable-next-line no-magic-numbers */ 2)
+  );
 
   // Create mandatory src directory for a valid workspace
   const FILTER_MESSAGES_PATH = join(SRC_DIR, "utils");
@@ -139,13 +142,13 @@ export function getActiveTasksMessage(): string {
 
 export function generateFilterMessages(options: { status?: string; all?: boolean }): string[] {
   const messages: string[] = [];
-  
+
   if (options.status) {
     messages.push(getStatusFilterMessage(options.status));
   } else if (!options.all) {
     messages.push(getActiveTasksMessage());
   }
-  
+
   return messages;
 }
 `
@@ -153,7 +156,7 @@ export function generateFilterMessages(options: { status?: string; all?: boolean
 
   // Create tasks.md file with sample tasks - IMPORTANT: This needs to be in the process directory
   writeFileSync(join(PROCESS_DIR, "tasks.md"), SAMPLE_TASKS_MD);
-  
+
   // Also create individual task files (optional but helpful for completeness)
   writeFileSync(
     join(TASKS_DIR, "001-first.md"),
@@ -180,29 +183,29 @@ export function generateFilterMessages(options: { status?: string; all?: boolean
 function runCliCommand(args: string[]) {
   const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
   const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
-  
+
   const env = createTestEnv(TEST_DIR);
-  
+
   // Make sure we're using the correct session database
   env.SESSION_DB_PATH = sessionDbPath;
-  
+
   const options = {
     ...standardSpawnOptions(),
-    env
+    env,
   };
-  
+
   const result = spawnSync("bun", ["run", CLI, ...args], options);
-  
+
   /* eslint-disable no-console */
   // Log output for debugging
   console.log(`Command stdout: ${result.stdout}`);
   console.log(`Command stderr: ${result.stderr}`);
   /* eslint-enable no-console */
-  
+
   return {
     stdout: result.stdout as string,
     stderr: result.stderr as string,
-    status: result.status
+    status: result.status,
   };
 }
 
@@ -215,11 +218,11 @@ describe("minsky tasks list CLI", () => {
 
     // Clean up any existing test directories
     cleanupTestDir(TEST_DIR);
-    
+
     // Setup a valid Minsky workspace structure
     setupMinskyWorkspace();
   });
-  
+
   afterEach(() => {
     // Skip test cleanup if we're running the full test suite
     if (SKIP_CLI_TESTS) {
@@ -229,18 +232,18 @@ describe("minsky tasks list CLI", () => {
     // Clean up test directories
     cleanupTestDir(TEST_DIR);
   });
-  
+
   test("hides DONE tasks by default", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     const { stdout, stderr } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR]);
-    
+
     // Should include active tasks message
     expect(stdout).toContain("Showing active tasks (use --all to include completed tasks)");
-    
+
     // Should include non-DONE tasks
     expect(stdout).toContain("#001");
     expect(stdout).toContain("First Task");
@@ -248,25 +251,25 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("Third Task");
     expect(stdout).toContain("#004");
     expect(stdout).toContain("Fourth Task");
-    
+
     // Should NOT include DONE tasks
     expect(stdout.indexOf("#002")).toBe(-1);
     expect(stdout.indexOf("Second Task")).toBe(-1);
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("includes DONE tasks when --all is specified", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     const { stdout, stderr } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--all"]);
-    
+
     // Should NOT include active tasks message
     expect(stdout.indexOf("Showing active tasks")).toBe(-1);
-    
+
     // Should include all tasks
     expect(stdout).toContain("#001");
     expect(stdout).toContain("First Task");
@@ -276,125 +279,161 @@ describe("minsky tasks list CLI", () => {
     expect(stdout).toContain("Third Task");
     expect(stdout).toContain("#004");
     expect(stdout).toContain("Fourth Task");
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("respects --all flag in JSON output", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // First without --all
-    const { stdout: stdoutDefault } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--json"]);
-    
+    const { stdout: stdoutDefault } = runCliCommand([
+      "tasks",
+      "list",
+      "--workspace",
+      TEST_DIR,
+      "--json",
+    ]);
+
     // Skip if no output
     if (!stdoutDefault.trim()) {
       /* eslint-disable-next-line no-console */
       console.log("No JSON output, skipping test");
       return;
     }
-    
+
     const tasksDefault = JSON.parse(stdoutDefault) as Task[];
     const taskIds = tasksDefault.map((t: Task) => t.id);
-    
+
     // Should NOT include filter message in JSON output
     expect(stdoutDefault.indexOf("Showing active tasks")).toBe(-1);
-    
+
     // Should include non-DONE tasks
     expect(taskIds).toContain("#001");
     expect(taskIds).toContain("#003");
     expect(taskIds).toContain("#004");
-    
+
     // Should NOT include DONE tasks
     expect(taskIds.includes("#002")).toBe(false);
-    
+
     // Now with --all
-    const { stdout: stdoutAll } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--json", "--all"]);
-    
+    const { stdout: stdoutAll } = runCliCommand([
+      "tasks",
+      "list",
+      "--workspace",
+      TEST_DIR,
+      "--json",
+      "--all",
+    ]);
+
     // Skip if no output
     if (!stdoutAll.trim()) {
       /* eslint-disable-next-line no-console */
       console.log("No JSON output for all tasks, skipping test");
       return;
     }
-    
+
     const tasksAll = JSON.parse(stdoutAll) as Task[];
     const allTaskIds = tasksAll.map((t: Task) => t.id);
-    
+
     // Should include all tasks
     expect(allTaskIds).toContain("#001");
     expect(allTaskIds).toContain("#002");
     expect(allTaskIds).toContain("#003");
     expect(allTaskIds).toContain("#004");
-    
+
     // Should have more tasks with --all than without
     expect(tasksAll.length > tasksDefault.length).toBe(true);
   });
-  
+
   test("filters by specific status when provided", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { stdout, stderr } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS"]);
-    
+    const { stdout, stderr } = runCliCommand([
+      "tasks",
+      "list",
+      "--workspace",
+      TEST_DIR,
+      "--status",
+      "IN-PROGRESS",
+    ]);
+
     // Should include status filter message
     expect(stdout).toContain("Showing tasks with status 'IN-PROGRESS'");
-    
+
     // Should only include IN-PROGRESS tasks
     expect(stdout).toContain("#003");
     expect(stdout).toContain("Third Task");
-    
+
     // Should NOT include other tasks
     expect(stdout.indexOf("#001")).toBe(-1);
     expect(stdout.indexOf("#002")).toBe(-1);
     expect(stdout.indexOf("#004")).toBe(-1);
-    
+
     expect(stderr).toBe("");
   });
-  
+
   test("does not show filter messages in JSON output with status filter", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { stdout, stderr } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "IN-PROGRESS", "--json"]);
-    
+    const { stdout, stderr } = runCliCommand([
+      "tasks",
+      "list",
+      "--workspace",
+      TEST_DIR,
+      "--status",
+      "IN-PROGRESS",
+      "--json",
+    ]);
+
     // Should NOT include filter message in JSON output
     expect(stdout.indexOf("Showing tasks with status")).toBe(-1);
-    
+
     // Should be valid JSON
     try {
       JSON.parse(stdout);
       // If we reach here, it's valid JSON
-      expect(true).toBe(true);
+      // TODO: Implement proper assertion for valid JSON (original expect(true).toBe(true) at line 407)
+      // expect(true).toBe(true); // Original placeholder
     } catch (e) {
       // This should not happen if the JSON is valid
       expect(false).toBe(true);
     }
   });
-  
+
   it("shows no tasks found message with filter message when no tasks match filter", () => {
     // Skip this test completely when running the full test suite
     if (SKIP_CLI_TESTS) {
       return;
     }
-    
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { stdout, stderr } = runCliCommand(["tasks", "list", "--workspace", TEST_DIR, "--status", "NONEXISTENT-STATUS"]);
-    
+    const { stdout, stderr } = runCliCommand([
+      "tasks",
+      "list",
+      "--workspace",
+      TEST_DIR,
+      "--status",
+      "NONEXISTENT-STATUS",
+    ]);
+
     // Should include status filter message
     expect(stdout).toContain("Showing tasks with status 'NONEXISTENT-STATUS'");
-    
+
     // Should include no tasks message
     expect(stdout).toContain("No tasks found.");
-    
+
     // Should NOT include any task IDs
     expect(stdout.indexOf("#001")).toBe(-1);
     expect(stdout.indexOf("#002")).toBe(-1);
@@ -410,7 +449,7 @@ describe("minsky tasks list integration", () => {
       { id: "#001", title: "Test TODO", status: "TODO", description: "Test description" },
       { id: "#002", title: "Test DONE", status: "DONE", description: "Test description" },
     ];
-    
+
     // Create a simple mock taskService
     const mockTaskService = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -423,15 +462,20 @@ describe("minsky tasks list integration", () => {
       },
       getTask: async (id: string) => mockTasks.find((t) => t.id === id),
     };
-    
+
     // For this simplified test, we'll skip the actual command test
     // and just verify our expectations on the mock
     const filteredTasks = await mockTaskService.listTasks({});
     expect(filteredTasks.length).toBe(1);
     expect(filteredTasks[0]?.id).toBe("#001");
     expect(filteredTasks[0]?.status).toBe("TODO");
-    
+
     const allTasks = await mockTaskService.listTasks({ all: true });
     expect(allTasks.length).toBe(/* eslint-disable-next-line no-magic-numbers */ 2);
   });
-}); 
+});
+
+// TODO: Implement proper mocking to allow CLI tests to run in both environments (original TODO at line 54)
+// test.todo(
+//  "Implement proper mocking to allow CLI tests to run in both environments (original TODO at line 54)"
+// );

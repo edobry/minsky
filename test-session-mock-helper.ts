@@ -11,14 +11,11 @@ export function createMockSessionCLI(sessionName: string | null) {
   };
 
   const program = new Command();
-  program
-    .name("minsky")
-    .description("CLI for managing Minsky workflow")
-    .version("0.1.0");
+  program.name("minsky").description("CLI for managing Minsky workflow").version("0.1.0");
 
   // Use a modified session command that uses our custom getCurrentSession function
-  const sessionCommand = createSessionCommand({ 
-    getCurrentSession 
+  const sessionCommand = createSessionCommand({
+    getCurrentSession,
   });
 
   program.addCommand(sessionCommand);
@@ -32,4 +29,4 @@ if (import.meta.main) {
   const sessionName = process.env.MINSKY_TEST_CURRENT_SESSION || null;
   const program = createMockSessionCLI(sessionName);
   program.parse();
-} 
+}

@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { spawnSync } from "child_process";
 import { join } from "path";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
 import type { Task } from "../../domain/tasks.js";
 import { createTasksCommand } from "./index.js";
 import { Command } from "commander";
@@ -123,13 +123,13 @@ export function getActiveTasksMessage(): string {
 
 export function generateFilterMessages(options: { status?: string; all?: boolean }): string[] {
   const messages: string[] = [];
-  
+
   if (options.status) {
     messages.push(getStatusFilterMessage(options.status));
   } else if (!options.all) {
     messages.push(getActiveTasksMessage());
   }
-  
+
   return messages;
 }
 `
@@ -158,18 +158,26 @@ export function generateFilterMessages(options: { status?: string; all?: boolean
 
   // Add a session record for task #003
   const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
-  writeFileSync(
-    sessionDbPath,
-    JSON.stringify([
-      {
-        session: "task#003",
-        repoName: "test-repo",
-        repoUrl: "file:///test/repo",
-        createdAt: "2025-01-01T00:00:00Z",
-        taskId: "#003",
-      },
-    ])
+  const sessionForTask003 = {
+    session: "task#003",
+    repoName: "test-minsky-workspace", // Matches package.json name for consistency
+    repoUrl: `file://${TEST_DIR}`, // Points to the test workspace itself
+    createdAt: "2025-01-01T00:00:00Z",
+    taskId: "#003",
+  };
+  writeFileSync(sessionDbPath, JSON.stringify([sessionForTask003]));
+
+  // Create the actual session directory for task#003 to allow cd-ing into it
+  const sessionRepoDir = join(
+    MINSKY_STATE_DIR,
+    "git",
+    sessionForTask003.repoName,
+    "sessions",
+    sessionForTask003.session
   );
+  mkdirSync(sessionRepoDir, { recursive: true });
+  // Create a dummy .git folder inside session to make it a git repo, needed for some session logic
+  mkdirSync(join(sessionRepoDir, ".git"), { recursive: true });
 
   // Verify all directories and files were created properly
   console.log(`Process dir exists: ${existsSync(PROCESS_DIR)}`);
@@ -380,12 +388,127 @@ describe("minsky tasks get CLI", () => {
     expect(status !== 0).toBe(true);
 
     // Error message should mention the non-existent task
-    expect(stderr).toContain("Task with ID '#999' not found");
+    expect(stderr).toContain("Task #999 not found");
 
     // Stdout should be empty
     expect(stdout).toBe("");
   });
+
+  test("auto-detects task ID when run from within a session directory with an associated task", () => {
+    if (SKIP_CLI_TESTS) {
+      return;
+    }
+
+    const sessionForTask003 = {
+      session: "task#003",
+      repoName: "test-minsky-workspace",
+      repoUrl: `file://${TEST_DIR}`,
+      taskId: "#003",
+    };
+    const sessionRepoDir = join(
+      TEST_DIR,
+      ".local",
+      "state",
+      "minsky",
+      "git",
+      sessionForTask003.repoName,
+      "sessions",
+      sessionForTask003.session
+    );
+
+    // Ensure the session directory exists (should be created by setupMinskyWorkspace)
+    expect(existsSync(sessionRepoDir)).toBe(true);
+    expect(existsSync(join(sessionRepoDir, ".git"))).toBe(true); // check .git too
+
+    const result = runCliCommandInDir(sessionRepoDir, ["tasks", "get"]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+
+    expect(result.stdout).toContain("Auto-detected task ID: #003 (from current session)");
+    expect(result.stdout).toContain("Task #003: Third Task");
+    expect(result.stdout).toContain("Status: IN-PROGRESS");
+  });
+
+  test("errors if task ID is not provided and not in a session context", () => {
+    if (SKIP_CLI_TESTS) {
+      return;
+    }
+    // Run from TEST_DIR, which is not a session directory
+    const result = runCliCommandInDir(TEST_DIR, ["tasks", "get"]);
+
+    expect(result.status === 0).toBe(false); // Check for non-zero status
+    expect(result.stderr).toContain(
+      "Task ID not provided and could not auto-detect from the current session."
+    );
+  });
+
+  test("errors if task ID is not provided and in a session context WITHOUT an associated task", () => {
+    if (SKIP_CLI_TESTS) {
+      return;
+    }
+    // Setup: Create a session without a taskId in session-db.json
+    // And create its directory
+    const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
+    const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
+    const sessionNoTask = {
+      session: "session-no-task",
+      repoName: "test-minsky-workspace",
+      repoUrl: `file://${TEST_DIR}`,
+      createdAt: "2025-01-02T00:00:00Z",
+      // No taskId here
+    };
+    // Read existing DB, add new session, write back
+    const existingDb = JSON.parse(readFileSync(sessionDbPath, "utf-8"));
+    existingDb.push(sessionNoTask);
+    writeFileSync(sessionDbPath, JSON.stringify(existingDb));
+
+    const sessionNoTaskDir = join(
+      MINSKY_STATE_DIR,
+      "git",
+      sessionNoTask.repoName,
+      "sessions",
+      sessionNoTask.session
+    );
+    mkdirSync(sessionNoTaskDir, { recursive: true });
+    mkdirSync(join(sessionNoTaskDir, ".git"), { recursive: true }); // Make it a git repo
+
+    const result = runCliCommandInDir(sessionNoTaskDir, ["tasks", "get"]);
+
+    expect(result.status === 0).toBe(false); // Check for non-zero status
+    expect(result.stderr).toContain(
+      "Task ID not provided and could not auto-detect from the current session."
+    );
+  });
 });
+
+// Helper to run CLI command in a specific directory
+function runCliCommandInDir(cwd: string, args: string[]) {
+  const MINSKY_STATE_DIR = join(TEST_DIR, ".local", "state", "minsky");
+  const sessionDbPath = join(MINSKY_STATE_DIR, "session-db.json");
+  const env = createTestEnv(TEST_DIR);
+  env.SESSION_DB_PATH = sessionDbPath;
+
+  const options = {
+    ...standardSpawnOptions(),
+    env,
+    cwd, // Set current working directory for spawnSync
+  };
+
+  const result = spawnSync("bun", ["run", CLI, ...args], options);
+
+  console.log(`CWD: ${cwd}`);
+  console.log(`Command: bun run ${CLI} ${args.join(" ")}`);
+  console.log(`Command stdout: ${result.stdout}`);
+  console.log(`Command stderr: ${result.stderr}`);
+  console.log(`Command status: ${result.status}`);
+
+  return {
+    stdout: result.stdout?.toString() || "",
+    stderr: result.stderr?.toString() || "",
+    status: result.status,
+  };
+}
 
 describe("minsky tasks get integration", () => {
   test("handles SessionDB.getSessionByTaskId correctly", async () => {

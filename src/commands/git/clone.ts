@@ -12,9 +12,9 @@ export function createCloneCommand(): Command {
       try {
         const result = await gitService.clone({
           repoUrl,
-          session: options.session
+          session: options.session,
         });
-        
+
         console.log("Repository cloned successfully!");
         console.log(`Session: ${result.session}`);
         console.log(`Workdir: ${result.workdir}`);
@@ -23,4 +23,4 @@ export function createCloneCommand(): Command {
         process.exit(1);
       }
     });
-} 
+}

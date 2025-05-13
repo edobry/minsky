@@ -13,7 +13,7 @@ mock.module("child_process", () => ({
     } else {
       callback(null, { stdout: "", stderr: "" });
     }
-  }
+  },
 }));
 
 describe("resolveRepoPath", () => {
@@ -27,7 +27,7 @@ describe("resolveRepoPath", () => {
       session: "test-session",
       repoUrl: "/mock/repo",
       repoName: "mock/repo",
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     // Override getSession just for this test
@@ -47,11 +47,11 @@ describe("resolveRepoPath", () => {
     // Mock execAsync to simulate a git rev-parse failure
     const execAsync = promisify(exec);
     const originalExecAsync = (global as any).execAsync || execAsync;
-    
+
     // Replace with a mock that throws an error
     const mockExecAsync = () => Promise.reject(new Error("git rev-parse failed"));
     (global as any).execAsync = mockExecAsync;
-    
+
     try {
       const result = await resolveRepoPath({});
       // When execAsync fails, resolveRepoPath falls back to process.cwd()
@@ -84,4 +84,4 @@ describe("normalizeRepoName", () => {
     expect(normalizeRepoName("file:///Users/edobry/Projects/minsky")).toBe("local/minsky");
     expect(normalizeRepoName("file:///tmp/some-project")).toBe("local/some-project");
   });
-}); 
+});

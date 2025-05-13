@@ -51,10 +51,13 @@ This change maintains full backward compatibility with existing sessions while a
 Implements task #014 - Add Repository Backend Support
 
 ## Commits
-*No commits found between merge base and current branch*
+
+_No commits found between merge base and current branch_
 
 ## Modified Files (Changes compared to merge-base with main)
-- A	process/tasks/014/pr.md
+
+- A process/tasks/014/pr.md
 
 ## Stats
-*No change statistics available*
+
+_No change statistics available_

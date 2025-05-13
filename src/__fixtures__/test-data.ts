@@ -12,15 +12,15 @@ export const MOCK_SESSIONS = {
     createdAt: "2025-05-01T12:00:00.000Z",
     repoName: "local/project",
     repoPath: "/path/to/repo",
-    task: "123"
+    task: "123",
   },
   TASK_SESSION: {
     name: "task#042",
     createdAt: "2025-05-01T12:00:00.000Z",
     repoName: "local/project",
     repoPath: "/path/to/repo",
-    task: "042"
-  }
+    task: "042",
+  },
 };
 
 /**
@@ -32,15 +32,15 @@ export const MOCK_TASKS = {
     title: "Test task",
     status: "TODO",
     description: "A test task",
-    specPath: "process/tasks/123-test-task.md"
+    specPath: "process/tasks/123-test-task.md",
   },
   IN_PROGRESS_TASK: {
     id: "#042",
     title: "Another test task",
     status: "IN-PROGRESS",
     description: "Another test task",
-    specPath: "process/tasks/042-another-test-task.md"
-  }
+    specPath: "process/tasks/042-another-test-task.md",
+  },
 };
 
 /**
@@ -50,8 +50,8 @@ export const MOCK_REPOS = {
   VALID_REPO: {
     path: "/path/to/repo",
     name: "test-repo",
-    baseBranch: "main"
-  }
+    baseBranch: "main",
+  },
 };
 
 /**
@@ -89,7 +89,7 @@ export const SAMPLE_FILES = {
 - [ ] Added unit tests
 - [ ] Added integration tests
 - [ ] All tests pass
-`
+`,
 };
 
 /**
@@ -98,7 +98,7 @@ export const SAMPLE_FILES = {
 export const MOCK_CLI_ARGS = {
   SESSION_START: ["session", "start", "--task", "123"],
   TASK_LIST: ["tasks", "list", "--json"],
-  GIT_PR: ["git", "pr", "--session", "test-session"]
+  GIT_PR: ["git", "pr", "--session", "test-session"],
 };
 
 /**
@@ -107,10 +107,10 @@ export const MOCK_CLI_ARGS = {
 export const MOCK_COMMAND_OUTPUTS = {
   SESSION_LIST: [
     { name: "task#123", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
-    { name: "task#042", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" }
+    { name: "task#042", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
   ],
   TASK_LIST: [
     { id: "#123", title: "Test task", status: "TODO" },
-    { id: "#042", title: "Another test task", status: "IN-PROGRESS" }
-  ]
-}; 
+    { id: "#042", title: "Another test task", status: "IN-PROGRESS" },
+  ],
+};

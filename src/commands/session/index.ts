@@ -24,17 +24,16 @@ export function createSessionCommand(dependencies: SessionCommandDependencies = 
   const getCurrentSession = dependencies?.getCurrentSession || defaultGetCurrentSession;
 
   const commandDeps = {
-    getCurrentSession
+    getCurrentSession,
   };
 
   const commitCommandDeps: CommitCommandDependencies = {
     gitService,
     sessionDb,
-    getCurrentSession
+    getCurrentSession,
   };
 
-  const session = new Command("session")
-    .description("Session management commands");
+  const session = new Command("session").description("Session management commands");
 
   session.addCommand(createListCommand());
   session.addCommand(createGetCommand(commandDeps));
@@ -45,4 +44,4 @@ export function createSessionCommand(dependencies: SessionCommandDependencies = 
   session.addCommand(createCommitCommand(commitCommandDeps));
 
   return session;
-} 
+}

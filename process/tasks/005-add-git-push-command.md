@@ -7,6 +7,7 @@ Currently, Minsky users need to manually push their branches to remote repositor
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky git push [--session <session-name>] [--repo <repo-path>] [--remote <remote-name>] [--force]
@@ -22,16 +23,19 @@ Currently, Minsky users need to manually push their branches to remote repositor
      - If not in a session directory, use the current git repository and branch
 
 2. **Remote Handling**
+
    - Default to `origin` if `--remote` is not specified
    - Allow specifying a different remote with `--remote <remote-name>`
    - Verify remote exists before attempting to push
    - Provide a clear error if the remote doesn't exist
 
 3. **Force Push Option**
+
    - Support a `--force` flag for force-pushing when needed
    - Include a warning about the risks of force-pushing when this option is used
 
 4. **Output and Error Handling**
+
    - Display clear progress messages during the push
    - Show helpful error messages for common issues (e.g., no upstream, network issues)
    - On success, display information about the pushed branch and remote
@@ -43,16 +47,19 @@ Currently, Minsky users need to manually push their branches to remote repositor
 ## Implementation Steps
 
 1. Create a new command file `src/commands/git/push.ts`:
+
    - Implement the command with the required options
    - Handle session and repository resolution
 
 2. Update the GitService in `src/domain/git.ts`:
+
    - Add a `push` method to handle pushing branches to remotes
    - Include logic for handling force push and remote validation
 
 3. Add appropriate error handling and user feedback.
 
 4. Write tests to cover various scenarios:
+
    - Pushing from a session
    - Pushing from a standalone repository
    - Handling various error conditions
@@ -80,4 +87,4 @@ Currently, Minsky users need to manually push their branches to remote repositor
 - This command simplifies the most common git operation in the Minsky workflow
 - It's particularly helpful for junior engineers and AI agents who may not be familiar with git commands
 - It ensures consistency in how branches are pushed, reducing the chance of errors
-- Future enhancements could include support for pushing specific commits or pushing to multiple remotes 
+- Future enhancements could include support for pushing specific commits or pushing to multiple remotes

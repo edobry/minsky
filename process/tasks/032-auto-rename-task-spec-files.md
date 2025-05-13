@@ -7,18 +7,21 @@ Currently, when using the `minsky tasks create` command, the task ID is assigned
 ## Requirements
 
 1. **Automatic File Renaming**
+
    - After assigning a task ID, automatically rename the spec file to match the standardized format
    - Format: `process/tasks/{id}-{kebab-case-title}.md`
    - Handle cases where the target filename already exists
    - Update the task's specPath to reflect the new location
 
 2. **Error Handling**
+
    - Handle file system errors gracefully (permissions, file exists, etc.)
    - Provide clear error messages if renaming fails
    - Roll back task creation if file operations fail
    - Handle edge cases like read-only files or directories
 
 3. **Path Resolution**
+
    - Support both absolute and relative paths for input spec file
    - Ensure the renamed file is always in the correct `process/tasks` directory
    - Handle cases where the source file is already in the tasks directory
@@ -31,17 +34,20 @@ Currently, when using the `minsky tasks create` command, the task ID is assigned
 ## Implementation Steps
 
 1. [ ] Update `createTask` method in `MarkdownTaskBackend`:
+
    - [ ] Add function to generate standardized filename from task ID and title
    - [ ] Add file renaming logic after task ID assignment
    - [ ] Update task entry in tasks.md with new path
    - [ ] Add rollback functionality for error cases
 
 2. [ ] Add new options to `tasks create` command:
+
    - [ ] Add `--dry-run` flag to preview changes
    - [ ] Add `--force` flag to overwrite existing files
    - [ ] Update command help text
 
 3. [ ] Add tests:
+
    - [ ] Test successful file renaming
    - [ ] Test error cases and rollback
    - [ ] Test path resolution edge cases
@@ -78,4 +84,4 @@ Would rename spec file:
 - [ ] Error handling works correctly for all edge cases
 - [ ] All tests pass
 - [ ] Documentation is updated to reflect the new behavior
-- [ ] Changelog is updated with a reference to this task spec 
+- [ ] Changelog is updated with a reference to this task spec

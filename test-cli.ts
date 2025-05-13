@@ -6,10 +6,7 @@ import { createSessionCommand } from "./src/commands/session";
 import { createTasksCommand } from "./src/commands/tasks";
 import { createInitCommand } from "./src/commands/init";
 
-program
-  .name("minsky")
-  .description("A CLI tool for Minsky")
-  .version("0.1.0");
+program.name("minsky").description("A CLI tool for Minsky").version("0.1.0");
 
 program
   .command("hello")
@@ -23,4 +20,4 @@ program.addCommand(createSessionCommand());
 program.addCommand(createTasksCommand());
 program.addCommand(createInitCommand());
 
-program.parse(); 
+program.parse();

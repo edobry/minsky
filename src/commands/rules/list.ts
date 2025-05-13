@@ -7,9 +7,9 @@ export function createListCommand(): Command {
   return new Command("list")
     .description("List all Minsky rules in a repository")
     .option(
-      "--format <format>", 
-      "Type of rules to list (cursor or generic)", 
-      /^(cursor|generic|both)$/i, 
+      "--format <format>",
+      "Type of rules to list (cursor or generic)",
+      /^(cursor|generic|both)$/i,
       "both"
     )
     .option("--tag <tag>", "Filter rules by tag")
@@ -21,24 +21,24 @@ export function createListCommand(): Command {
         // Resolve the repo path
         const repoPath = await resolveRepoPath({
           repo: options.repo,
-          session: options.session
+          session: options.session,
         });
-        
+
         // Initialize the rule service
         const ruleService = new RuleService(repoPath);
-        
+
         // Get the format option
         let format: RuleFormat | undefined;
         if (options.format && options.format !== "both") {
           format = options.format.toLowerCase() as RuleFormat;
         }
-        
+
         // List rules with the given options
         const rules = await ruleService.listRules({
           format,
-          tag: options.tag
+          tag: options.tag,
         });
-        
+
         if (options.json) {
           // Output as JSON
           console.log(JSON.stringify(rules, null, 2));
@@ -48,14 +48,14 @@ export function createListCommand(): Command {
             console.log("No rules found.");
             return;
           }
-          
+
           console.log(`Found ${rules.length} rules:`);
           console.log();
-          
+
           for (const rule of rules) {
             const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
             const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
-            
+
             console.log(`${rule.id} (${formatLabel})${tags}`);
             if (rule.description) {
               console.log(`  ${rule.description}`);
@@ -85,4 +85,4 @@ async function resolveRepoPath(options: { repo?: string; session?: string }): Pr
     // This line is unreachable but needed for TypeScript return type
     throw new Error("Failed to resolve repository path");
   }
-} 
+}

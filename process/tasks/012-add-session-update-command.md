@@ -7,6 +7,7 @@ Currently, there's no streamlined way to update a session with the latest change
 ## Requirements
 
 1. **CLI Behavior**
+
    - Command signature:
      ```
      minsky session update [session-name]
@@ -21,6 +22,7 @@ Currently, there's no streamlined way to update a session with the latest change
      - Apply stashed changes back
 
 2. **Integration with Git Domain Module**
+
    - Leverage the existing git domain module for all git operations
    - Add necessary methods to GitService if not already available:
      - stashChanges
@@ -30,6 +32,7 @@ Currently, there's no streamlined way to update a session with the latest change
      - pushBranch
 
 3. **Error Handling**
+
    - Handle merge conflicts gracefully:
      - If conflicts occur, restore original state and notify user
      - Provide clear instructions on manual resolution steps
@@ -47,6 +50,7 @@ Currently, there's no streamlined way to update a session with the latest change
 ## Implementation Steps
 
 1. [x] Add new methods to GitService (if not existing):
+
    - [x] stashChanges: Stash working directory changes
    - [x] popStash: Apply stashed changes
    - [x] pullLatest: Pull latest changes from remote
@@ -54,6 +58,7 @@ Currently, there's no streamlined way to update a session with the latest change
    - [x] pushBranch: Push current branch to remote
 
 2. [x] Create new file src/commands/session/update.ts:
+
    - [x] Define command using Commander.js
    - [x] Add command options
    - [x] Implement command handler:
@@ -65,6 +70,7 @@ Currently, there's no streamlined way to update a session with the latest change
 3. [x] Register command in src/commands/session/index.ts
 
 4. [x] Add tests:
+
    - [x] Unit tests for new GitService methods
    - [x] Integration tests for update command
    - [x] Test error scenarios:
@@ -95,4 +101,4 @@ Currently, there's no streamlined way to update a session with the latest change
   - [x] Network issues provide clear error messages
   - [x] Working directory state is preserved on failure
 - [x] All tests pass
-- [x] Documentation is complete and accurate 
+- [x] Documentation is complete and accurate

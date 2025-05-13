@@ -35,4 +35,4 @@ Currently, the `minsky tasks list` command displays all tasks, including those m
 - [ ] `minsky tasks list --all` (or `--show-done`) shows all tasks, including DONE.
 - [ ] The help text for `minsky tasks list` documents the new behavior and option.
 - [ ] Tests pass for both default and new option behaviors.
-- [ ] Changelog is updated with a reference to this task spec. 
+- [ ] Changelog is updated with a reference to this task spec.

@@ -11,7 +11,7 @@ describe("session update command", () => {
 
     // Create command with mocked dependencies
     const command = createUpdateCommand(mockGitService, mockSessionDb);
-    
+
     // Verify the command was created successfully
     expect(!!command).toBe(true);
     expect(command.name()).toBe("update");

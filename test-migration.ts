@@ -10,7 +10,7 @@ async function main() {
   // List all current sessions
   const sessions = await db.listSessions();
   console.log(`Found ${sessions.length} sessions`);
-  
+
   for (const session of sessions) {
     console.log(`- ${session.session} (${session.repoName}): ${session.repoPath || "no path"}`);
   }
@@ -22,13 +22,13 @@ async function main() {
   // List sessions after migration
   const migratedSessions = await db.listSessions();
   console.log(`\nAfter migration: ${migratedSessions.length} sessions`);
-  
+
   for (const session of migratedSessions) {
     console.log(`- ${session.session} (${session.repoName}): ${session.repoPath || "no path"}`);
   }
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error("Error during migration:", error);
   process.exit(1);
-}); 
+});

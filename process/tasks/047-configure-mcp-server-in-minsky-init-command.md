@@ -108,7 +108,7 @@ The implementation will be considered complete when:
 - [x] The `mcp-usage.mdc` rule is generated when appropriate
 - [x] All interactive prompts work correctly and validate input
 - [x] The `--mcp-only` option correctly adds MCP to existing projects without affecting other files
-- [x] The `--overwrite` option allows updating existing configuration files 
+- [x] The `--overwrite` option allows updating existing configuration files
 - [x] All tests pass, including new tests for MCP configuration
 - [x] Documentation is updated to reflect the changes
 

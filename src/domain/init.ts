@@ -66,26 +66,28 @@ export async function initializeProject({
     // Create minsky.mdc rule file
     const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
     await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite);
-    
+
     // Create index.mdc rule file for categorizing rules
     const indexFilePath = path.join(rulesDirPath, "index.mdc");
     await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite);
   }
 
   // Setup MCP if enabled
-  if (mcp?.enabled !== false) { // Default to enabled if not explicitly disabled
+  if (mcp?.enabled !== false) {
+    // Default to enabled if not explicitly disabled
     // Create the MCP config file
     const mcpConfig = getMCPConfigContent(mcp);
     const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
     await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite);
 
     // Create MCP usage rule
-    const rulesDirPath = ruleFormat === "cursor" 
-      ? path.join(repoPath, ".cursor", "rules")
-      : path.join(repoPath, ".ai", "rules");
-    
+    const rulesDirPath =
+      ruleFormat === "cursor"
+        ? path.join(repoPath, ".cursor", "rules")
+        : path.join(repoPath, ".ai", "rules");
+
     await createDirectoryIfNotExists(rulesDirPath);
-    
+
     const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
     await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite);
   }
@@ -103,18 +105,22 @@ async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
 /**
  * Creates a file if it doesn't exist, throws an error if it does unless overwrite is true
  */
-async function createFileIfNotExists(filePath: string, content: string, overwrite = false): Promise<void> {
+async function createFileIfNotExists(
+  filePath: string,
+  content: string,
+  overwrite = false
+): Promise<void> {
   if (fs.existsSync(filePath)) {
     if (!overwrite) {
       throw new Error(`File already exists: ${filePath}`);
     }
     // If overwrite is true, we'll proceed and overwrite the existing file
   }
-  
+
   // Ensure the directory exists
   const dirPath = path.dirname(filePath);
   await createDirectoryIfNotExists(dirPath);
-  
+
   // Write the file
   fs.writeFileSync(filePath, content);
 }
@@ -347,49 +353,65 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
 
   // Base configuration for stdio transport
   if (transport === "stdio") {
-    return JSON.stringify({
-      mcpServers: {
-        "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--stdio"]
-        }
-      }
-    }, null, 2);
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--stdio"],
+          },
+        },
+      },
+      null,
+      2
+    );
   }
-  
+
   // Configuration for SSE transport
   else if (transport === "sse") {
-    return JSON.stringify({
-      mcpServers: {
-        "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--sse", "--port", String(port), "--host", host]
-        }
-      }
-    }, null, 2);
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
+          },
+        },
+      },
+      null,
+      2
+    );
   }
-  
+
   // Configuration for HTTP Stream transport
   else if (transport === "httpStream") {
-    return JSON.stringify({
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
+          },
+        },
+      },
+      null,
+      2
+    );
+  }
+
+  // Default fallback (shouldn't be reached with proper type checking)
+  return JSON.stringify(
+    {
       mcpServers: {
         "minsky-server": {
           command: "minsky",
-          args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host]
-        }
-      }
-    }, null, 2);
-  }
-  
-  // Default fallback (shouldn't be reached with proper type checking)
-  return JSON.stringify({
-    mcpServers: {
-      "minsky-server": {
-        command: "minsky",
-        args: ["mcp", "start", "--stdio"]
-      }
-    }
-  }, null, 2);
+          args: ["mcp", "start", "--stdio"],
+        },
+      },
+    },
+    null,
+    2
+  );
 }
 
 /**
@@ -519,4 +541,4 @@ export async function initializeProjectWithFS(
     fs.mkdirSync = originalMkdirSync;
     fs.writeFileSync = originalWriteFileSync;
   }
-} 
+}

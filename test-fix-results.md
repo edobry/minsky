@@ -7,6 +7,7 @@ We worked on fixing failing tests in the Minsky CLI project. The goal was to mak
 ## Approach
 
 1. Created a robust test helper module (`src/utils/test-helpers.ts`) with functions for:
+
    - Creating unique test directories
    - Standardizing environment setup
    - Ensuring proper test cleanup
@@ -71,16 +72,19 @@ The project would benefit from a more unified approach to testing, particularly 
 ## Sample Commands
 
 Test an individual file with timeout:
+
 ```
 bun test src/commands/session/list.test.ts --timeout 10000
 ```
 
 Run tests in a specific directory:
+
 ```
 bun test src/commands/session --timeout 10000
 ```
 
 Run the full test suite with timeout:
+
 ```
 bun test --timeout 10000
 ```

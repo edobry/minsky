@@ -1,10 +1,11 @@
 import { describe, test, expect } from "bun:test";
 
 describe("startSession", () => {
-  test("should mock the tests for now", () => {
-    // Mock test that always passes
-    expect(true).toBe(true);
-  });
+  // TODO: Implement proper tests for startSession. Original test was a placeholder.
+  // test("should mock the tests for now", () => {
+  //   // Mock test that always passes
+  //   expect(true).toBe(true);
+  // });
 });
 
 describe("Local Path to URL Conversion", () => {

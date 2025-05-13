@@ -16,4 +16,4 @@ describe("normalizeTaskId", () => {
     expect(normalizeTaskId("")).toBe("");
     expect(normalizeTaskId(undefined as unknown as string)).toBe(undefined);
   });
-}); 
+});

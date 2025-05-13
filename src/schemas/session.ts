@@ -2,7 +2,13 @@
  * Schema definitions for session-related parameters and types
  */
 import { z } from "zod";
-import { commonCommandOptionsSchema, sessionNameSchema, taskIdSchema, repoPathSchema, flagSchema } from "./common.js";
+import {
+  commonCommandOptionsSchema,
+  sessionNameSchema,
+  taskIdSchema,
+  repoPathSchema,
+  flagSchema,
+} from "./common.js";
 
 /**
  * Schema for session list parameters
@@ -17,12 +23,14 @@ export type SessionListParams = z.infer<typeof sessionListParamsSchema>;
 /**
  * Schema for session get parameters
  */
-export const sessionGetParamsSchema = z.object({
-  name: sessionNameSchema.optional().describe("Name of the session to retrieve"),
-  task: taskIdSchema.optional().describe("Task ID associated with the session")
-}).merge(commonCommandOptionsSchema)
-  .refine(data => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided"
+export const sessionGetParamsSchema = z
+  .object({
+    name: sessionNameSchema.optional().describe("Name of the session to retrieve"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
+  })
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
+    message: "Either session name or task ID must be provided",
   });
 
 /**
@@ -33,14 +41,16 @@ export type SessionGetParams = z.infer<typeof sessionGetParamsSchema>;
 /**
  * Schema for session start parameters
  */
-export const sessionStartParamsSchema = z.object({
-  name: sessionNameSchema.optional().describe("Name for the new session"),
-  repo: repoPathSchema.optional().describe("Repository to start the session in"),
-  task: taskIdSchema.optional().describe("Task ID to associate with the session"),
-  branch: z.string().optional().describe("Branch name to create"),
-  quiet: flagSchema("Suppress output except for the session directory path"),
-  noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task")
-}).merge(commonCommandOptionsSchema);
+export const sessionStartParamsSchema = z
+  .object({
+    name: sessionNameSchema.optional().describe("Name for the new session"),
+    repo: repoPathSchema.optional().describe("Repository to start the session in"),
+    task: taskIdSchema.optional().describe("Task ID to associate with the session"),
+    branch: z.string().optional().describe("Branch name to create"),
+    quiet: flagSchema("Suppress output except for the session directory path"),
+    noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for session start parameters
@@ -50,10 +60,12 @@ export type SessionStartParams = z.infer<typeof sessionStartParamsSchema>;
 /**
  * Schema for session delete parameters
  */
-export const sessionDeleteParamsSchema = z.object({
-  name: sessionNameSchema.describe("Name of the session to delete"),
-  force: flagSchema("Skip confirmation prompt")
-}).merge(commonCommandOptionsSchema);
+export const sessionDeleteParamsSchema = z
+  .object({
+    name: sessionNameSchema.describe("Name of the session to delete"),
+    force: flagSchema("Skip confirmation prompt"),
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for session delete parameters
@@ -63,12 +75,14 @@ export type SessionDeleteParams = z.infer<typeof sessionDeleteParamsSchema>;
 /**
  * Schema for session dir parameters
  */
-export const sessionDirParamsSchema = z.object({
-  name: sessionNameSchema.optional().describe("Name of the session"),
-  task: taskIdSchema.optional().describe("Task ID associated with the session")
-}).merge(commonCommandOptionsSchema)
-  .refine(data => data.name !== undefined || data.task !== undefined, {
-    message: "Either session name or task ID must be provided"
+export const sessionDirParamsSchema = z
+  .object({
+    name: sessionNameSchema.optional().describe("Name of the session"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
+  })
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
+    message: "Either session name or task ID must be provided",
   });
 
 /**
@@ -79,15 +93,17 @@ export type SessionDirParams = z.infer<typeof sessionDirParamsSchema>;
 /**
  * Schema for session update parameters
  */
-export const sessionUpdateParamsSchema = z.object({
-  name: sessionNameSchema.describe("Name of the session to update"),
-  branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
-  remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
-  noStash: flagSchema("Skip stashing local changes"),
-  noPush: flagSchema("Skip pushing changes to remote after update")
-}).merge(commonCommandOptionsSchema);
+export const sessionUpdateParamsSchema = z
+  .object({
+    name: sessionNameSchema.describe("Name of the session to update"),
+    branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
+    remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
+    noStash: flagSchema("Skip stashing local changes"),
+    noPush: flagSchema("Skip pushing changes to remote after update"),
+  })
+  .merge(commonCommandOptionsSchema);
 
 /**
  * Type for session update parameters
  */
-export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>; 
+export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;

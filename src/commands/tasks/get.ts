@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
+import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { join } from "path";
@@ -17,14 +18,35 @@ interface GetOptions {
 export function createGetCommand(): Command {
   const getCommand = new Command("get")
     .description("Get details for a specific task")
-    .argument("<task-id>", "Task ID to get details for")
+    .argument("[task-id]", "Task ID to get details for (optional, auto-detects if in session)")
     .option("--session <session>", "Session to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
     .option("--backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output task as JSON")
     .option("--config", "Include task configuration in output")
-    .action(async (taskId: string, options: GetOptions) => {
+    .action(async (taskIdArg: string | undefined, options: GetOptions) => {
       try {
+        let taskIdToUse: string;
+
+        if (taskIdArg) {
+          taskIdToUse = taskIdArg;
+        } else {
+          const sessionContext = await getCurrentSessionContext();
+          if (sessionContext && sessionContext.taskId) {
+            taskIdToUse = sessionContext.taskId;
+            if (!options.json) {
+              console.info(`Auto-detected task ID: ${taskIdToUse} (from current session)`);
+            }
+          } else {
+            console.error(
+              "Task ID not provided and could not auto-detect from the current session. " +
+                "Please provide a task ID or run this command from within a session associated with a task."
+            );
+            process.exit(1);
+            return;
+          }
+        }
+
         // Resolve repository path
         let workspacePath = options.repo;
         if (!workspacePath && options.session) {
@@ -51,10 +73,10 @@ export function createGetCommand(): Command {
         });
 
         // Get task details
-        const task = await taskService.getTask(taskId);
+        const task = await taskService.getTask(taskIdToUse);
 
         if (!task) {
-          console.error(`Task ${taskId} not found.`);
+          console.error(`Task ${taskIdToUse} not found.`);
           process.exit(1);
         }
 
@@ -83,7 +105,12 @@ export function createGetCommand(): Command {
           if (task.worklog && task.worklog.length > 0) {
             console.log("\nWorklog:");
             console.log(
-              task.worklog.map((entry: { timestamp: string; message: string }) => `  ${entry.timestamp} - ${entry.message}`).join("\n")
+              task.worklog
+                .map(
+                  (entry: { timestamp: string; message: string }) =>
+                    `  ${entry.timestamp} - ${entry.message}`
+                )
+                .join("\n")
             );
           }
         }

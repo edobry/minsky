@@ -84,6 +84,7 @@ Options:
 Delete a session and its repository.
 
 Options:
+
 - `--force`: Skip confirmation prompt
 - `--json`: Output in JSON format
 - `--task <task-id>`: Delete session by task ID
@@ -198,6 +199,7 @@ minsky mcp start --sse --port 8080
 ```
 
 MCP allows AI agents to:
+
 - Manage tasks and track their status
 - Create and manage development sessions
 - Perform git operations

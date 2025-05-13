@@ -17,4 +17,4 @@ declare module "../../domain/session" {
     repoPath: string;
     createdAt: string;
   }
-} 
+}

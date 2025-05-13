@@ -17,19 +17,19 @@ export function createSearchCommand(): Command {
         const { resolveRepoPath } = await import("../../domain/index.js");
         const repoPath = await resolveRepoPath({
           repo: options.repo,
-          session: options.session
+          session: options.session,
         });
-        
+
         // Initialize the rule service
         const ruleService = new RuleService(repoPath);
-        
+
         // Search for rules
         const rules = await ruleService.searchRules({
           query,
           format: options.format,
-          tag: options.tag
+          tag: options.tag,
         });
-        
+
         if (options.json) {
           // Output as JSON
           console.log(JSON.stringify(rules, null, 2));
@@ -39,14 +39,14 @@ export function createSearchCommand(): Command {
             console.log(`No rules found matching query: "${query}"`);
             return;
           }
-          
+
           console.log(`Found ${rules.length} rules matching query: "${query}"`);
           console.log();
-          
+
           for (const rule of rules) {
             const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
             const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
-            
+
             console.log(`${rule.id} (${formatLabel})${tags}`);
             if (rule.description) {
               console.log(`  ${rule.description}`);
@@ -61,4 +61,4 @@ export function createSearchCommand(): Command {
         exit(1);
       }
     });
-} 
+}

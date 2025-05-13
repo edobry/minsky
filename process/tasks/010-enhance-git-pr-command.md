@@ -5,6 +5,7 @@
 Currently, the `minsky git pr` command generates a markdown document containing commit history and file changes for the current or specified branch. However, it only outputs this information to the console and doesn't actually create a GitHub PR. Additionally, it doesn't update the task status to reflect that the work is now in review.
 
 To further streamline the development workflow, especially for junior engineers and AI agents, an enhanced `minsky git pr` command should:
+
 1. Generate an AI-summarized PR description based on the commit history
 2. Create an actual GitHub PR using the GitHub API
 3. Update the associated task's status to "IN-REVIEW"
@@ -15,6 +16,7 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
 ## Requirements
 
 1. **Enhanced CLI Behavior**
+
    - Updated command signature:
      ```
      minsky git pr [--session <session-name>] [--repo <repo-path>] [--branch <branch>] [--create] [--summarize] [--task <task-id>] [--title <title>] [--debug]
@@ -26,6 +28,7 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
      - `--title <title>`: Title for the PR (optional, will be AI-generated if not provided)
 
 2. **Contextual Awareness**
+
    - If no session name or task ID is provided:
      - Automatically detect if running within an active session directory
      - Extract the session name and associated task ID
@@ -33,6 +36,7 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
    - Provide clear output about which session/task was detected
 
 3. **GitHub Integration**
+
    - Authenticate with GitHub using environment variables (`GITHUB_TOKEN`)
    - Determine the GitHub repository URL from the git remote configuration
    - Create a PR using the GitHub API with:
@@ -41,6 +45,7 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
      - The specified branch as the source and the appropriate base branch as the target
 
 4. **AI PR Title Generation**
+
    - When no title is provided, generate a title in the conventional commits format:
      - `<type>(<scope>): <description>`
      - Type examples: feat, fix, docs, style, refactor, test, chore
@@ -49,6 +54,7 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
    - Ensure the title follows best practices for PR titles
 
 5. **AI PR Summarization**
+
    - Use an AI service to generate a concise summary of changes from:
      - The commit messages and descriptions
      - The list of modified files
@@ -60,11 +66,13 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
      - Any notes or caveats
 
 6. **Task Status Update**
+
    - After successfully creating a PR, automatically update the associated task's status to "IN-REVIEW"
    - Use the existing `TaskService` domain module to update the status
    - Output a confirmation of the status change
 
 7. **Error Handling and Feedback**
+
    - Handle authentication errors for GitHub API
    - Provide informative error messages for common issues
    - Add proper validation for all new options
@@ -77,12 +85,14 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
 ## Implementation Steps
 
 1. [ ] Update GitService in `src/domain/git.ts`:
+
    - [ ] Enhance the `pr` method to support the new options
    - [ ] Add methods for GitHub authentication and PR creation
    - [ ] Implement AI summarization and title generation functionality
    - [ ] Add optional task status updating
 
 2. [ ] Update PR command in `src/commands/git/pr.ts`:
+
    - [ ] Add the new command line options
    - [ ] Implement automatic session/task detection when in a session directory
    - [ ] Update action handler to support new functionality
@@ -90,33 +100,39 @@ This enhancement will complete the end-to-end workflow from task creation to PR 
    - [ ] Integrate with TaskService for task status updates
 
 3. [ ] Add GitHub API integration:
+
    - [ ] Add necessary dependencies for GitHub API
    - [ ] Implement authentication and PR creation logic
    - [ ] Handle rate limiting and API errors
 
 4. [ ] Implement AI title generation:
+
    - [ ] Extract commit types and scope from commit history
    - [ ] Design a prompt for generating conventional commit format titles
    - [ ] Implement the service integration
    - [ ] Validate the generated titles meet the format requirements
 
 5. [ ] Implement AI PR summarization:
+
    - [ ] Research and select an appropriate AI service
    - [ ] Design the prompt for effective PR summarization
    - [ ] Implement the API integration
    - [ ] Format the results appropriately
 
 6. [ ] Add session/task detection:
+
    - [ ] Detect if the command is run from within a session directory
    - [ ] Extract session details and associated task ID
    - [ ] Add fallbacks if detection fails
 
 7. [ ] Add task status updating:
+
    - [ ] Link with the TaskService domain module
    - [ ] Update task status after successful PR creation
    - [ ] Add proper error handling for task updates
 
 8. [ ] Add comprehensive tests:
+
    - [ ] Unit tests for the new functionality
    - [ ] Integration tests for GitHub API interactions
    - [ ] Test cases for different command arguments
