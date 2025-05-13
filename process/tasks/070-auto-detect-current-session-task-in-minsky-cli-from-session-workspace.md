@@ -83,3 +83,58 @@ Enhance Minsky CLI commands to automatically detect the current session and/or a
 - Update the mocking approach in these tests to use Bun's mocking API correctly.
 - Consider refactoring other commands (e.g., `tasks status set`, `git pr`) to use `getCurrentSessionContext` where applicable.
 - Run a full test suite to verify all changes work correctly.
+
+## Extension Plan: Auto-Detection for Additional Commands
+
+The following commands could benefit from auto-detection using the centralized `getCurrentSessionContext` utility:
+
+### 1. `tasks status set` Command
+- **Current behavior:** Requires explicit task ID 
+- **Changes needed:**
+  - Update argument parsing in `src/commands/tasks/status.ts` to make task-id optional in the "set" subcommand
+  - Add auto-detection logic using `getCurrentSessionContext` when task ID is not provided
+  - Add clear feedback message when auto-detection is used
+  - Update command help text to indicate task ID is optional in a session workspace
+- **Testing approach:**
+  - Add unit tests for auto-detected task status setting
+  - Update CLI integration tests to verify behavior in and outside session workspace
+
+### 2. `git pr` Command  
+- **Current behavior:** Requires session name or repository path
+- **Changes needed:**
+  - Modify argument parsing in `src/commands/git/pr.ts` to make --session and --repo optional
+  - Use `getCurrentSessionContext` to auto-detect session when neither flag is provided
+  - Add feedback message when auto-detection is used
+  - Update command help to indicate flags are optional in session workspace
+- **Testing approach:**
+  - Add unit tests with mocked `getCurrentSessionContext` 
+  - Add CLI integration tests for auto-detection scenarios
+
+### 3. `session update` Command
+- **Current behavior:** May already use auto-detection but not the centralized utility
+- **Changes needed:**
+  - Review `src/commands/session/update.ts` and migrate to use `getCurrentSessionContext`
+  - Ensure consistent behavior with other auto-detecting commands
+  - Standardize feedback messages 
+- **Testing approach:**
+  - Update existing tests to verify consistent behavior
+  - Add tests specifically for auto-detection scenarios
+
+### 4. `session cd` Command
+- **Current behavior:** May use its own auto-detection logic
+- **Changes needed:**
+  - Update to use `getCurrentSessionContext` for consistency
+  - Standardize error and feedback messages
+- **Testing approach:**
+  - Update tests to verify consistent behavior with other commands
+
+### Implementation Strategy
+1. Start with `tasks status set` as it's most similar to already updated commands
+2. Then tackle `git pr` which provides high user value
+3. Finally review and update the `session` commands for consistency
+4. In each case:
+   - Follow the established pattern from `tasks get` and `tasks list`
+   - Use dependency injection for testability
+   - Add clear user feedback
+   - Update documentation
+   - Add comprehensive tests
