@@ -1,0 +1,91 @@
+---
+name: Framework-Specific Testing
+description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
+globs:
+  - '**/*.test.ts'
+  - '**/*.spec.ts'
+alwaysApply: false
+---
+# Framework-Specific Testing
+
+## Bun.js Testing Standards
+
+### Mocking Standards
+- Prefer `jest.fn()` from bun:test for mocking functions
+- Use `mock.module()` for module-level mocking
+- Always clean up mocks with `mock.restore()` in `afterEach` blocks
+
+### Type vs. Runtime Reconciliation
+- When encountering linter errors for valid bun:test patterns:
+  - Follow runtime documentation over linter suggestions when they conflict
+  - Document any linter errors that are known false positives
+  - Consider adding appropriate ESLint exceptions for known issues
+
+### Standard Test Setup Pattern
+```typescript
+describe("Feature under test", () => {
+  // Define mock functions
+  const mockDependency = jest.fn();
+  
+  // Mock modules
+  mock.module("../path/to/module", () => ({
+    exportedFunction: mockDependency,
+  }));
+  
+  beforeEach(() => {
+    // Reset mock state
+    mockDependency.mockClear();
+  });
+  
+  afterEach(() => {
+    // Restore all mocks
+    mock.restore();
+  });
+  
+  test("specific behavior", () => {
+    // Test implementation
+    mockDependency.mockReturnValue("expected");
+    // ... test assertions
+  });
+});
+```
+
+### Required Test File Structure
+- Import section with all necessary test functions at the top
+- Mock setup section with clear separation of concerns
+- Describe/test blocks with focused assertions
+- Cleanup in appropriate afterEach/afterAll blocks
+
+### Common Test Patterns
+1. **Mocking Return Values**
+   ```typescript
+   mockFunction.mockReturnValue("fixed value");
+   mockFunction.mockReturnValueOnce("first call only");
+   mockFunction.mockResolvedValue("resolved promise value");
+   mockFunction.mockRejectedValue(new Error("rejection"));
+   ```
+
+2. **Verifying Mock Calls**
+   ```typescript
+   expect(mockFunction).toHaveBeenCalled();
+   expect(mockFunction).toHaveBeenCalledTimes(2);
+   expect(mockFunction).toHaveBeenCalledWith("expected arg");
+   expect(mockFunction.mock.calls.length).toBe(2);
+   ```
+
+3. **Handling Async Tests**
+   ```typescript
+   test("async operation", async () => {
+     mockFunction.mockResolvedValue({ result: "success" });
+     const result = await functionUnderTest();
+     expect(result).toEqual({ result: "success" });
+   });
+   ```
+
+4. **Testing Error Cases**
+   ```typescript
+   test("error handling", async () => {
+     mockFunction.mockRejectedValue(new Error("test error"));
+     await expect(functionUnderTest()).rejects.toThrow("test error");
+   });
+   ```

@@ -73,10 +73,28 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Evaluate zod-matter and Zod for Rule Metadata and Validation [#058](process/tasks/058-evaluate-zod-matter-and-zod-for-rule-metadata-and-validation.md)
 
-- [ ] Improve Task ID Permissiveness in Minsky CLI Commands [#059](process/tasks/059-improve-task-id-permissiveness-in-minsky-cli-commands.md)
+- [ ] Add Centralized Test Mock Utilities [#059](process/tasks/059-add-centralized-test-mock-utilities.md)
 
-- [ ] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#060](process/tasks/060-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
+- [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
-- [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#061](process/tasks/061-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
+- [ ] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
+
+- [ ] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
+
+- [ ] Define and Implement Snapshot Testing Strategy [#063](process/tasks/063-define-and-implement-snapshot-testing-strategy.md)
 
 - [+] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
+
+- [ ] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
+
+- [ ] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
+
+- [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
+
+- [ ] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
+
+- [ ] Improve Task ID Permissiveness in Minsky CLI Commands [#069](process/tasks/069-improve-task-id-permissiveness-in-minsky-cli-commands.md)
+
+- [ ] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#070](process/tasks/070-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
+
+- [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)

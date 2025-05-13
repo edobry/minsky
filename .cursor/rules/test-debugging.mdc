@@ -1,0 +1,57 @@
+---
+description: Use for systematic debugging of bun:test issues and test failures.
+globs:
+alwaysApply: false
+---
+# Test Debugging
+
+## Systematic Test Debugging Process
+When encountering test failures, follow this process:
+
+1. **Isolation**
+   - Run the specific failing test file: `bun test path/to/file.test.ts`
+   - Use `it.only()` or `test.only()` to focus on a specific test case
+
+2. **Framework Verification**
+   - Check imports for completeness and correctness
+   - Verify mock setup follows established patterns
+   - Review cleanup procedures in afterEach blocks
+
+3. **Error Analysis**
+   - Type errors: Check for import issues or framework API mismatches
+   - Runtime errors: Examine stack traces for mock setup issues
+   - Assertion failures: Compare expected vs. actual values
+
+4. **Common bun:test Issues & Solutions**
+   | Issue | Solution |
+   |-------|----------|
+   | `mock.fn is not a function` | Use `jest.fn()` instead |
+   | `mock.restoreAll is not a function` | Use `mock.restore()` |
+   | Missing mock methods | Use `jest.fn()`, not `mock()` |
+   | Linter errors on valid code | Proceed if runtime works correctly |
+
+5. **Documentation**
+   - After resolving an issue, document the solution in comments
+   - For significant issues, update the team knowledge base
+
+## Effective Debugging Strategies
+
+### Tracing Mock Function Calls
+- Use `console.log(mockFunction.mock.calls)` to see all calls and arguments
+- Verify the number of calls with `.mock.calls.length`
+- Inspect call arguments with `.mock.calls[0][0]` syntax
+
+### Testing Framework Version Issues
+- When updating bun, check for any test API changes
+- Watch for changes in mock behavior between versions
+- Document version-specific workarounds in test file comments
+
+### Test Environment Setup
+- Verify that test environment variables are correctly set
+- Check for global setup/teardown logic that may affect the test
+- Use `beforeEach` to reset state for each test case
+
+### Debugging Type vs. Runtime Discrepancies
+- If linter errors persist but tests run correctly, prioritize runtime behavior
+- Add explicit type annotations where TypeScript inference fails
+- Consider adding `// @ts-ignore` comments as a last resort for known discrepancies
