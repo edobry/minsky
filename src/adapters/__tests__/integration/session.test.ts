@@ -1,9 +1,16 @@
+<<<<<<< HEAD
 import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
+=======
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+>>>>>>> origin/main
 import * as testUtils from "../../../utils/test-utils";
 import { execSync } from "child_process";
 import { registerSessionTools } from "../../../mcp/tools/session";
 import { CommandMapper } from "../../../mcp/command-mapper";
+<<<<<<< HEAD
 import type { FastMCP } from "fastmcp"; // Import FastMCP type if available, otherwise use any
+=======
+>>>>>>> origin/main
 import fs from "fs";
 import path from "path";
 

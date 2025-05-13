@@ -90,12 +90,12 @@ export async function startSession({
     taskService ||
     new TaskService({
       workspacePath: repoUrl,
-      backend: "markdown",
+      backend: "markdown", // Assuming markdown backend for now
     });
 
-  // If taskId is provided but no session name, use the task ID to generate the session name (HEAD version)
+  // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
-    const normalizedTaskInput = taskId;
+    const normalizedTaskInput = taskId; // Store original input for better error messages
     const internalTaskId = normalizeTaskId(normalizedTaskInput);
     if (!internalTaskId) {
       throw new Error(`Invalid Task ID format provided: "${normalizedTaskInput}"`);
@@ -104,8 +104,8 @@ export async function startSession({
     if (!task) {
       throw new Error(`Task with ID originating from "${normalizedTaskInput}" (normalized to "${internalTaskId}") not found`);
     }
-    taskId = internalTaskId;
-    session = `task#${internalTaskId}`;
+    taskId = internalTaskId; // Update taskId to the normalized (numeric) version
+    session = `task#${internalTaskId}`; // Update session name based on normalized (numeric) ID
   }
 
   if (!session) {
@@ -170,7 +170,7 @@ export async function startSession({
   const cloneResult = await gitService.clone(cloneOptions);
   const branchResult = await gitService.branch({
     session,
-    branch: session,
+    branch: session, // Typically branch name is same as session name for new sessions
   });
 
   const result: StartSessionResult = {
