@@ -64,3 +64,22 @@ Enhance Minsky CLI commands to automatically detect the current session and/or a
 - [x] Running commands outside a session workspace without an ID behaves as before (e.g., `tasks get` errors, `tasks list` lists all applicable).
 - [x] All new and modified unit tests for `getCurrentSessionContext` and `tasks get` pass.
 - [ ] All integration tests in `src/adapters/__tests__/integration/` pass (Covered by Task #073).
+
+## Working
+
+- Centralized session/task auto-detection logic in a new utility (`getCurrentSessionContext`).
+- Updated CLI commands (`minsky tasks get`, `minsky tasks list`, etc.) to use this utility, making task ID arguments optional and providing clear feedback.
+- Ensured session/task auto-detection is not duplicated but reused across commands.
+- Added and updated unit and integration tests for the new auto-detection logic.
+- Fixed most test errors related to mocking, type mismatches, and assertion mismatches.
+- Updated all imports of `normalizeTaskId` to use the new location from `domain/tasks` instead of `utils/task-utils`.
+- Added null checking for `normalizeTaskId` return values in all commands that use it to prevent type errors.
+- Created a re-export of `normalizeTaskId` in `src/domain/tasks.ts` to maintain backward compatibility.
+- Fixed SessionRecord type issues in `startSession.ts` to handle the branch property correctly.
+
+## Remaining Work
+
+- Fix integration test failures in the adapter tests (`src/adapters/__tests__/integration/tasks.test.ts` and `src/adapters/__tests__/integration/session.test.ts`).
+- Update the mocking approach in these tests to use Bun's mocking API correctly.
+- Consider refactoring other commands (e.g., `tasks status set`, `git pr`) to use `getCurrentSessionContext` where applicable.
+- Run a full test suite to verify all changes work correctly.
