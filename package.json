@@ -40,6 +40,7 @@
     "commander": "^13.1.0",
     "fastmcp": "^1.27.4",
     "fs-extra": "^11.3.0",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "zod": "^3.24.4"
   }
 }

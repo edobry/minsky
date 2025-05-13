@@ -29,22 +29,13 @@ export const repoPathSchema = z
  * @example "my-session"
  * @example "task#123"
  */
-export const sessionNameSchema = z
-  .string()
-  .min(1, "Session name cannot be empty")
-  .describe("Session name");
+export const sessionNameSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
  * Validates and normalizes task IDs (with or without the # prefix)
  */
-export const taskIdSchema = z
-  .string()
-  .transform((val) => {
-    // Normalize task IDs to always have a # prefix
-    return val.startsWith("#") ? val : `#${val}`;
-  })
-  .describe("Task ID (with or without # prefix)");
+export const taskIdSchema = z.string().regex(/^#[a-zA-Z0-9]+$/);
 
 /**
  * Schema for boolean flags with optional description
@@ -92,9 +83,4 @@ export const commonRepoSchema = z.object({
   json: z.boolean().optional().describe("Return output as JSON"),
 });
 
-/**
- * Utility function to normalize task IDs
- */
-export function normalizeTaskId(taskId: string): string {
-  return taskIdSchema.parse(taskId);
-}
+export const filePathSchema = z.string().min(1);
