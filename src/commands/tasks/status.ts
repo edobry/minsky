@@ -4,7 +4,7 @@ import type { TaskStatus } from "../../domain/tasks";
 import { resolveRepoPath, resolveWorkspacePath } from "../../domain";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { normalizeTaskId } from "../../utils/task-utils";
+import { normalizeTaskId } from "../../domain/tasks";
 import * as p from "@clack/prompts";
 import * as fs from "fs/promises";
 import * as path from "path";

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../domain/tasks";
+import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSession as importedGetCurrentSession } from "../../domain/workspace.js";
 import { join } from "path";
 import { existsSync } from "fs";

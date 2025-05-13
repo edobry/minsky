@@ -19,6 +19,7 @@ To ensure all code, test, and configuration changes for a task are made exclusiv
 - You MUST adapt to tool limitations and log any workarounds in the session worklog.
 - You MUST confirm all changes are present in the session workspace before merging or marking a task complete.
 - You MUST reference this rule when working in or verifying session workspaces.
+- **Main Workspace Edits Prohibition:** NEVER make direct code changes to files within the main Minsky project workspace (e.g., `/Users/edobry/Projects/minsky`). If the Minsky CLI tool itself or any core project file in the main workspace is found to have a bug, this must be addressed by creating a new Minsky task specifically for that bug, and all fixes must be implemented within that task\'s dedicated session workspace. Changes should then be integrated back into the main project via the standard PR process from the session.
 
 ---
 

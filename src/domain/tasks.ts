@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { resolveRepoPath } from "./repo-utils.js";
 import { resolveWorkspacePath } from "./workspace.js";
+export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import type {
   TaskListParams,
   TaskGetParams,

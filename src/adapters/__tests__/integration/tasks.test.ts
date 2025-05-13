@@ -4,8 +4,8 @@ import { execSync } from "child_process";
 import type { ExecSyncOptionsWithStringEncoding } from "child_process";
 import { registerTaskTools } from "../../../mcp/tools/tasks";
 import { CommandMapper } from "../../../mcp/command-mapper";
-import * as fs from "fs";
-import * as path from "path";
+import fs from "fs";
+import path from "path";
 import { z } from "zod";
 
 /**
@@ -15,7 +15,7 @@ import { z } from "zod";
  */
 describe("Tasks Command Integration Tests", () => {
   // Mock dependencies
-  let execSyncMock: jest.Mock<typeof execSync>;
+  let execSyncMock: jest.Mock; // Will be initialised by mock.module below
   let consoleErrorSpy: any; // Simplify type to bypass complex type issues for now
 
   // Store original console.error and execSync
@@ -43,168 +43,276 @@ describe("Tasks Command Integration Tests", () => {
 
   // Set up mock FastMCP server for testing
   let mockCommandMapper: CommandMapper;
-  let mockServerInstance: { addTool: jest.Mock, tools?: any[] }; // Simpler Mock type
 
-  beforeEach(() => {
-    // Set up mock function. Default to returning string, as most CLI --json commands do.
-    execSyncMock = jest.fn<typeof execSync>((command: string, options?: any) => {
-      // This is a simplified mock implementation.
-      // It assumes commands being tested return strings (e.g., JSON output).
-      // If a test needs Buffer output, this mock would need to be more specific for that call.
-      if (command.includes("minsky tasks list")) return mockTaskListResponse as any;
-      if (command.includes("minsky tasks get")) return mockTaskGetResponse as any;
-      if (command.includes("minsky tasks status get")) return "Status: TODO" as any;
-      if (command.includes("minsky tasks status set")) return "Status updated" as any;
-      return Buffer.from("") as any; // Default fallback for other commands
+  beforeEach(async () => {
+    // Mock child_process.execSync
+    mock.module("child_process", () => {
+      return {
+        // Create a mock function for execSync that returns a default value
+        execSync: mock(() => {
+          // This is a simplified mock implementation.
+          // It will be overridden in individual tests
+          return "";
+        }),
+        // Keep other exports intact
+        exec: () => {},
+        spawn: () => {},
+      };
+    });
+
+    // Obtain mocked execSync reference after mock.module patch
+    const { execSync } = await import("child_process");
+    execSyncMock = execSync;
+
+    // Set up default behavior that individual tests can override
+    execSyncMock.mockImplementation((command: string) => {
+      if (command.includes("minsky tasks list")) {
+        return mockTaskListResponse;
+      }
+      if (command.includes("minsky tasks get")) {
+        return mockTaskGetResponse;
+      }
+      if (command.includes("minsky tasks status get")) {
+        return "Status: TODO";
+      }
+      if (command.includes("minsky tasks status set")) {
+        return "Status updated";
+      }
+      return "";
     });
 
     // Mock console.error
     consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
 
     // Set up FastMCP mock
-    mockServerInstance = {
+    const mockServer = {
       addTool: jest.fn<any>(() => {}),
+      tools: [],
+    } as any;
+
+    mockCommandMapper = new CommandMapper(mockServer);
+
+    // For testing, manually add tools array that we can access
+    (mockCommandMapper as any).server = {
+      tools: [],
     };
 
-    mockCommandMapper = new CommandMapper(mockServerInstance as any);
+    (mockCommandMapper as any).server.addTool = (tool: any) => {
+      (mockCommandMapper as any).server.tools.push(tool);
+    };
+
+    // Dynamically import *after* mocks are established so that the module picks
+    // up the mocked `execSync` reference.
+    const { registerTaskTools } = await import("../../../mcp/tools/tasks");
 
     // Register task tools with mock command mapper
     registerTaskTools(mockCommandMapper);
   });
 
   afterEach(() => {
-    execSyncMock.mockRestore();
+    execSyncMock.mockReset();
     consoleErrorSpy.mockRestore();
   });
 
   describe("tasks.list command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      expect(mockServerInstance.addTool.mock.calls.length).toBeGreaterThan(0);
-      const listToolCallArgs = mockServerInstance.addTool.mock.calls.find((call: any) => call[0].name === "tasks.list")?.[0];
-      expect(listToolCallArgs).toBeDefined();
-      expect(listToolCallArgs.name).toBe("tasks.list");
-      
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const listToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.list");
-      expect(listToolCall).toBeDefined();
-      const listToolDefinition = listToolCall![0];
+      // execSyncMock is already set up in beforeEach to handle this command
+      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
+      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
+      //     return mockTaskListResponse as any; // CLI usually returns string for JSON
+      //   }
+      //   return Buffer.from(mockTaskListResponse) as any;
+      // });
 
-      const mcpResult = await listToolDefinition.execute({});
+      // Get the tasks.list tool from the mockCommandMapper
+      const listTasksTool = mockCommandMapper.server.tools.find(
+        /** @param {any} tool */
+        (tool) => tool.name === "tasks.list"
+      );
+
+      // Check that the tool was registered
+      expect(listTasksTool).toBeDefined();
+
+      // Execute the MCP tool
+      const mcpResult = await listTasksTool.execute({});
+
+      // Parse the MCP result (which should be JSON string)
       const mcpTasks = JSON.parse(mcpResult);
+
+      // Parse the mock response (what the CLI would return)
       const cliTasks = JSON.parse(mockTaskListResponse);
+
+      // Verify the results are the same
       expect(mcpTasks).toEqual(cliTasks);
+
+      // Verify execSync was called with the expected command
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks list --json");
     });
 
     it("should handle filtering by status properly", async () => {
-      expect(mockServerInstance.addTool.mock.calls.length).toBeGreaterThan(0);
-      const listToolCallArgs = mockServerInstance.addTool.mock.calls.find((call: any) => call[0].name === "tasks.list")?.[0];
-      expect(listToolCallArgs).toBeDefined(); 
-      expect(listToolCallArgs.name).toBe("tasks.list"); 
+      // execSyncMock is already set up in beforeEach
+      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
+      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
+      //     return mockTaskListResponse as any;
+      //   }
+      //   return Buffer.from(mockTaskListResponse) as any;
+      // });
 
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const listToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.list");
-      expect(listToolCall).toBeDefined();
-      const listToolDefinition = listToolCall![0];
+      // Get the tasks.list tool
+      const listTasksTool = mockCommandMapper.server.tools.find(
+        /** @param {any} tool */
+        (tool) => tool.name === "tasks.list"
+      );
 
-      await listToolDefinition.execute({ filter: "TODO" });
+      // Execute the MCP tool with filter parameter
+      await listTasksTool.execute({ filter: "TODO" });
+
+      // Verify execSync was called with the filter parameter
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks list --filter TODO --json");
     });
 
     it("should handle error conditions consistently", async () => {
+      // Mock execSync to throw an error for this specific test case
       const testError = new Error("Command failed");
-      execSyncMock.mockImplementation(() => { throw testError; });
+      execSyncMock.mockImplementation(() => {
+        throw testError;
+      });
 
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const listToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.list");
-      expect(listToolCall).toBeDefined();
-      const listToolDefinition = listToolCall![0];
+      // Get the tasks.list tool
+      const listTasksTool = (mockCommandMapper as any).server.tools.find(
+        /** @param {any} tool */
+        (tool: any) => tool.name === "tasks.list"
+      );
 
+      // Check that the tool was registered
+      expect(listTasksTool).toBeDefined();
+
+      // Expect the MCP tool to propagate the error
       try {
-        await listToolDefinition.execute({});
-        expect(true).toBe(false); 
+        await listTasksTool.execute({});
+        // Should not reach here
+        expect(true).toBe(false);
       } catch (error) {
-        expect(String(error)).toContain("Error executing command tasks.list"); 
+        expect(String(error)).toContain("Failed to list tasks");
       }
-      expect(consoleErrorSpy.mock.calls.length).toBeGreaterThan(0);
+
+      // Verify error handling occurred using a more compatible approach
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
   });
 
   describe("tasks.get command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      expect(mockServerInstance.addTool.mock.calls.length).toBeGreaterThan(0);
-      const getToolCallArgs = mockServerInstance.addTool.mock.calls.find((call: any) => call[0].name === "tasks.get")?.[0];
-      expect(getToolCallArgs).toBeDefined();
-      expect(getToolCallArgs.name).toBe("tasks.get");
+      // execSyncMock is already set up in beforeEach
+      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
+      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
+      //     return mockTaskGetResponse as any; // CLI usually returns string for JSON
+      //   }
+      //   return Buffer.from(mockTaskGetResponse) as any;
+      // });
 
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const getToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.get");
-      expect(getToolCall).toBeDefined();
-      const getToolDefinition = getToolCall![0];
+      // Get the tasks.get tool
+      const getTaskTool = mockCommandMapper.server.tools.find(
+        /** @param {any} tool */
+        (tool) => tool.name === "tasks.get"
+      );
 
-      const mcpResult = await getToolDefinition.execute({ taskId: "001" });
+      // Check that the tool was registered
+      expect(getTaskTool).toBeDefined();
+
+      // Execute the MCP tool
+      const mcpResult = await getTaskTool.execute({ taskId: "001" });
+
+      // Parse the MCP result
       const mcpTask = JSON.parse(mcpResult);
+
+      // Parse the mock response (what the CLI would return)
       const cliTask = JSON.parse(mockTaskGetResponse);
+
+      // Verify the results are the same
       expect(mcpTask).toEqual(cliTask);
+
+      // Verify execSync was called with the expected command
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks get 001 --json");
     });
 
     it("should handle error conditions consistently", async () => {
+      // Mock execSync to throw an error for this specific test case
       const testError = new Error("Task not found");
-      execSyncMock.mockImplementation(() => { throw testError; });
+      execSyncMock.mockImplementation(() => {
+        throw testError;
+      });
 
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const getToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.get");
-      expect(getToolCall).toBeDefined();
-      const getToolDefinition = getToolCall![0];
+      // Get the tasks.get tool
+      const getTaskTool = (mockCommandMapper as any).server.tools.find(
+        /** @param {any} tool */
+        (tool: any) => tool.name === "tasks.get"
+      );
 
+      // Check that the tool was registered
+      expect(getTaskTool).toBeDefined();
+
+      // Expect the MCP tool to propagate the error
       try {
-        await getToolDefinition.execute({ taskId: "999" });
-        expect(true).toBe(false); 
+        await getTaskTool.execute({ taskId: "999" });
+        // Should not reach here
+        expect(true).toBe(false);
       } catch (error) {
-        expect(String(error)).toContain("Error executing command tasks.get");
+        expect(String(error)).toContain("Failed to get task 999");
       }
-      expect(consoleErrorSpy.mock.calls.length).toBeGreaterThan(0);
+
+      // Verify error handling occurred
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
   });
 
   describe("tasks.status commands", () => {
     it("should get task status consistently", async () => {
-      expect(mockServerInstance.addTool.mock.calls.length).toBeGreaterThan(0);
-      const getStatusToolCallArgs = mockServerInstance.addTool.mock.calls.find((call: any) => call[0].name === "tasks.status.get")?.[0];
-      expect(getStatusToolCallArgs).toBeDefined();
-      expect(getStatusToolCallArgs.name).toBe("tasks.status.get");
-      
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const getStatusToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.status.get");
-      expect(getStatusToolCall).toBeDefined();
-      const getStatusToolDefinition = getStatusToolCall![0];
+      // execSyncMock is already set up in beforeEach
+      // execSyncMock.mockImplementation(() => "Status: TODO" as any);
 
-      const result = await getStatusToolDefinition.execute({ taskId: "001" });
-      expect(result).toEqual({
+      // Get the tasks.status.get tool
+      const getStatusTool = mockCommandMapper.server.tools.find(
+        /** @param {any} tool */
+        (tool) => tool.name === "tasks.status.get"
+      );
+
+      // Execute the MCP tool
+      const result = await getStatusTool.execute({ taskId: "001" });
+      const parsedResult = JSON.parse(result);
+
+      // Verify the result format
+      expect(parsedResult).toEqual({
         taskId: "001",
         status: "TODO",
       });
+
+      // Verify execSync was called correctly
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status get 001");
     });
 
     it("should set task status consistently", async () => {
-      expect(mockServerInstance.addTool.mock.calls.length).toBeGreaterThan(0);
-      const setStatusToolCallArgs = mockServerInstance.addTool.mock.calls.find((call: any) => call[0].name === "tasks.status.set")?.[0];
-      expect(setStatusToolCallArgs).toBeDefined();
-      expect(setStatusToolCallArgs.name).toBe("tasks.status.set");
+      // execSyncMock is already set up in beforeEach
+      // execSyncMock.mockImplementation(() => "Status updated" as any);
 
-      const addToolCalls = mockServerInstance.addTool.mock.calls;
-      const setStatusToolCall = addToolCalls.find((call: any) => call[0].name === "tasks.status.set");
-      expect(setStatusToolCall).toBeDefined();
-      const setStatusToolDefinition = setStatusToolCall![0];
+      // Get the tasks.status.set tool
+      const setStatusTool = mockCommandMapper.server.tools.find(
+        /** @param {any} tool */
+        (tool) => tool.name === "tasks.status.set"
+      );
 
-      const result = await setStatusToolDefinition.execute({ taskId: "001", status: "IN_PROGRESS" });
-      expect(result).toEqual({
+      // Execute the MCP tool
+      const result = await setStatusTool.execute({ taskId: "001", status: "IN_PROGRESS" });
+      const parsedResult = JSON.parse(result);
+
+      // Verify the result format
+      expect(parsedResult).toEqual({
         success: true,
         taskId: "001",
         status: "IN_PROGRESS",
       });
+
+      // Verify execSync was called correctly
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status set 001 IN_PROGRESS");
     });
   });

@@ -1,11 +1,10 @@
 /**
  * Tests for interface-agnostic session functions
  */
-import { describe, test, expect, beforeEach, mock, jest } from "bun:test";
-import { startSessionFromParams, updateSessionFromParams } from "../session.js";
+import { describe, test, expect, beforeEach, mock, jest, spyOn } from "bun:test";
 import { ResourceNotFoundError } from "../../errors/index.js";
 
-// Mock dependencies
+// Mock dependencies from HEAD/origin/main - they are similar
 const mockSessionRecord = {
   session: "test-session",
   repoUrl: "/mock/repo/url",
@@ -21,15 +20,15 @@ const mockTask = {
   description: "This is a test task",
 };
 
-// Mock GitService
+// Mock GitService - combine and use jest.fn
 const mockGitService = {
-  clone: jest.fn(() => ({ repoPath: "/mock/repo/path", success: true })),
-  branch: jest.fn(() => ({ success: true })),
+  clone: jest.fn(() => Promise.resolve({ workdir: "/mock/repo/path", session: "test-session" })),
+  branch: jest.fn(() => Promise.resolve({ workdir: "/mock/repo/path", branch: "test-branch" })),
   stashChanges: jest.fn(() => Promise.resolve()),
   popStash: jest.fn(() => Promise.resolve()),
   pullLatest: jest.fn(() => Promise.resolve()),
-  mergeBranch: jest.fn(() => ({ conflicts: false })),
-  pushBranch: jest.fn(() => Promise.resolve()),
+  mergeBranch: jest.fn(() => Promise.resolve({ conflicts: false })),
+  push: jest.fn(() => Promise.resolve({ pushed: true, workdir: "/mock/repo/path"})), // changed from pushBranch
   getSessionWorkdir: jest.fn(() => "/mock/session/workdir"),
 };
 
@@ -37,7 +36,7 @@ const mockGitService = {
 const mockSessionDB = {
   getSession: jest.fn((name: string) => (name === "test-session" ? mockSessionRecord : null)),
   addSession: jest.fn(() => Promise.resolve()),
-  listSessions: jest.fn(() => [mockSessionRecord]),
+  listSessions: jest.fn(() => Promise.resolve([mockSessionRecord])),
   getSessionByTaskId: jest.fn((taskId: string) => (taskId === "#123" ? mockSessionRecord : null)),
   updateSession: jest.fn(() => Promise.resolve()),
 };
@@ -51,10 +50,8 @@ const mockTaskService = {
 
 // Mock resolveRepoPath
 const mockResolveRepoPath = jest.fn(() => Promise.resolve("/mock/repo/path"));
-
 // Mock isSessionRepository
 const mockIsSessionRepository = jest.fn(() => Promise.resolve(false));
-
 // Mock getCurrentSession
 const mockGetCurrentSession = jest.fn(() => Promise.resolve("test-session"));
 
@@ -67,7 +64,7 @@ describe("interface-agnostic session functions", () => {
     mockGitService.popStash.mockClear();
     mockGitService.pullLatest.mockClear();
     mockGitService.mergeBranch.mockClear();
-    mockGitService.pushBranch.mockClear();
+    mockGitService.push.mockClear();
     mockGitService.getSessionWorkdir.mockClear();
 
     mockSessionDB.getSession.mockClear();
@@ -84,15 +81,15 @@ describe("interface-agnostic session functions", () => {
     mockIsSessionRepository.mockClear();
     mockGetCurrentSession.mockClear();
 
-    // Reset mock implementations to default
-    mockGitService.clone.mockImplementation(() => ({ repoPath: "/mock/repo/path", success: true }));
-    mockGitService.branch.mockImplementation(() => ({ success: true }));
-    mockGitService.mergeBranch.mockImplementation(() => ({ conflicts: false }));
+    // Reset mock implementations to default (favoring origin/main for consistency)
+    mockGitService.clone.mockImplementation(() => Promise.resolve({ workdir: "/mock/repo/path", session: "test-session" }));
+    mockGitService.branch.mockImplementation(() => Promise.resolve({ workdir: "/mock/repo/path", branch: "test-branch" }));
+    mockGitService.mergeBranch.mockImplementation(() => Promise.resolve({ conflicts: false }));
 
     mockSessionDB.getSession.mockImplementation((name: string) =>
       name === "test-session" ? mockSessionRecord : null
     );
-    mockSessionDB.listSessions.mockImplementation(() => [mockSessionRecord]);
+    mockSessionDB.listSessions.mockImplementation(() => Promise.resolve([mockSessionRecord]));
     mockSessionDB.getSessionByTaskId.mockImplementation((taskId: string) =>
       taskId === "#123" ? mockSessionRecord : null
     );
@@ -101,60 +98,28 @@ describe("interface-agnostic session functions", () => {
     mockTaskService.getTaskStatus.mockImplementation((id: string) =>
       id === "#123" ? "TODO" : null
     );
-
     mockIsSessionRepository.mockImplementation(() => Promise.resolve(false));
   });
 
   describe("startSessionFromParams", () => {
     test("should start a session with valid parameters", async () => {
-      // Locally override getSession for this test to simulate session not existing initially
       mockSessionDB.getSession.mockImplementationOnce(() => null);
 
-      // Mock the required dependencies
-      const GitService = class {
-        clone = mockGitService.clone;
-        branch = mockGitService.branch;
-      };
-
-      const SessionDB = class {
-        getSession = mockSessionDB.getSession;
-        addSession = mockSessionDB.addSession;
-        listSessions = mockSessionDB.listSessions;
-      };
-
-      const TaskService = class {
-        constructor() {
-          /* mock constructor */
-        }
-        getTask = mockTaskService.getTask;
-        getTaskStatus = mockTaskService.getTaskStatus;
-        setTaskStatus = mockTaskService.setTaskStatus;
-      };
-
-      // Setup module mocks
-      mock.module("../git.js", () => ({
-        GitService,
+      // Using mock.module as per origin/main for dynamic imports
+      mock.module("../../domain/git.js", () => ({
+        GitService: jest.fn(() => mockGitService),
       }));
-
-      mock.module("../session.js", () => ({
-        SessionDB,
+      mock.module("../../domain/session.js", () => ({
+        SessionDB: jest.fn(() => mockSessionDB),
       }));
-
-      mock.module("../tasks.js", () => ({
-        TaskService,
-        TASK_STATUS: {
-          TODO: "TODO",
-          DONE: "DONE",
-          IN_PROGRESS: "IN-PROGRESS",
-          IN_REVIEW: "IN-REVIEW",
-        },
+      mock.module("../../domain/tasks.js", () => ({
+        TaskService: jest.fn(() => mockTaskService),
+        TASK_STATUS: { TODO: "TODO", DONE: "DONE", IN_PROGRESS: "IN-PROGRESS", IN_REVIEW: "IN-REVIEW" },
       }));
-
-      mock.module("../workspace.js", () => ({
+      mock.module("../../domain/workspace.js", () => ({
         isSessionRepository: mockIsSessionRepository,
       }));
-
-      mock.module("../repo-utils.js", () => ({
+      mock.module("../../domain/repo-utils.js", () => ({
         resolveRepoPath: mockResolveRepoPath,
         normalizeRepoName: () => "mock-repo",
       }));
@@ -162,42 +127,40 @@ describe("interface-agnostic session functions", () => {
       const params = {
         name: "test-session",
         repo: "/mock/repo/url",
-        quiet: true,
+        quiet: false,
         noStatusUpdate: false,
+        backend: "markdown" as const,
+        remote: { authMethod: "ssh" as const, depth: 1 },
       };
 
-      // Reimport to use mocked modules
       const { startSessionFromParams: mockedStartSessionFromParams } = await import(
-        "../session.js"
+        "../../domain/session.js"
       );
 
-      try {
-        const result = await mockedStartSessionFromParams(params);
-
-        expect(result).toBeDefined();
-        expect(result.session).toBe("test-session");
-        expect(result.repoUrl).toBe("/mock/repo/url");
-        expect(mockSessionDB.addSession.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.clone.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.branch.mock.calls.length > 0).toBe(true);
-      } catch (error) {
-        console.error("Test error:", error);
-        throw error;
-      }
+      const result = await mockedStartSessionFromParams(params as any);
+      expect(result).toBeDefined();
+      expect(result.session).toBe("test-session");
+      expect(result.repoUrl).toBe("/mock/repo/url");
+      expect(mockSessionDB.addSession.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.clone.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.branch.mock.calls.length).toBeGreaterThan(0);
     });
 
     test("should throw ValidationError when session name and task ID are missing", async () => {
       const params = {
         repo: "/mock/repo/url",
-        quiet: true,
+        quiet: false,
         noStatusUpdate: false,
+        backend: "markdown" as const,
+        remote: { authMethod: "ssh" as const, depth: 1 },
       };
-      // Using try/catch for robust error assertion with specific error types if needed
+      const { startSessionFromParams: mockedStartSessionFromParams } = await import(
+        "../../domain/session.js"
+      );
       try {
-        await startSessionFromParams(params);
-        expect(true).toBe(false); // Should not reach here
+        await mockedStartSessionFromParams(params as any);
+        expect(true).toBe(false); 
       } catch (e) {
-        // Check for a generic error or a specific ValidationError if applicable
         expect(e instanceof Error).toBe(true); 
       }
     });
@@ -205,30 +168,13 @@ describe("interface-agnostic session functions", () => {
 
   describe("updateSessionFromParams", () => {
     test("should update a session with valid parameters", async () => {
-      // Mock the required dependencies
-      const GitService = class {
-        getSessionWorkdir = mockGitService.getSessionWorkdir;
-        stashChanges = mockGitService.stashChanges;
-        popStash = mockGitService.popStash;
-        pullLatest = mockGitService.pullLatest;
-        mergeBranch = mockGitService.mergeBranch;
-        pushBranch = mockGitService.pushBranch;
-      };
-
-      const SessionDB = class {
-        getSession = mockSessionDB.getSession;
-      };
-
-      // Setup module mocks
-      mock.module("../git.js", () => ({
-        GitService,
+      mock.module("../../domain/git.js", () => ({
+        GitService: jest.fn(() => mockGitService),
       }));
-
-      mock.module("../session.js", () => ({
-        SessionDB,
+      mock.module("../../domain/session.js", () => ({
+        SessionDB: jest.fn(() => mockSessionDB),
       }));
-
-      mock.module("../workspace.js", () => ({
+      mock.module("../../domain/workspace.js", () => ({
         getCurrentSession: mockGetCurrentSession,
       }));
 
@@ -239,70 +185,41 @@ describe("interface-agnostic session functions", () => {
         noStash: false,
         noPush: false,
       };
-
-      // Reimport to use mocked modules
       const { updateSessionFromParams: mockedUpdateSessionFromParams } = await import(
-        "../session.js"
+        "../../domain/session.js"
       );
-
-      try {
-        await mockedUpdateSessionFromParams(params);
-
-        expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-        expect(mockGitService.getSessionWorkdir.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.stashChanges.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.pullLatest.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.mergeBranch).toHaveBeenCalledWith("/mock/session/workdir", "main");
-        expect(mockGitService.pushBranch.mock.calls.length > 0).toBe(true);
-        expect(mockGitService.popStash.mock.calls.length > 0).toBe(true);
-      } catch (error) {
-        console.error("Test error:", error);
-        throw error;
-      }
+      await mockedUpdateSessionFromParams(params as any);
+      expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
+      expect(mockGitService.getSessionWorkdir.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.stashChanges.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.pullLatest.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.mergeBranch).toHaveBeenCalledWith("/mock/session/workdir", "main");
+      expect(mockGitService.push.mock.calls.length).toBeGreaterThan(0);
+      expect(mockGitService.popStash.mock.calls.length).toBeGreaterThan(0);
     });
 
     test("should throw ResourceNotFoundError when session is not found", async () => {
       mockSessionDB.getSession.mockImplementation(() => null);
-
       const params = {
         name: "non-existent-session",
         branch: "main",
         noStash: false,
         noPush: false,
       };
-      try {
-        await updateSessionFromParams(params);
-        expect(true).toBe(false); // Should not reach here
-      } catch (e) {
-        expect(e instanceof ResourceNotFoundError).toBe(true);
-      }
+       const { updateSessionFromParams: mockedUpdateSessionFromParams } = await import(
+        "../../domain/session.js"
+      );
+      await expect(mockedUpdateSessionFromParams(params as any)).rejects.toThrow("not found");
     });
 
     test("should not stash or pop when noStash is true", async () => {
-      // Same mocking as before but with noStash option
-      const GitService = class {
-        getSessionWorkdir = mockGitService.getSessionWorkdir;
-        stashChanges = mockGitService.stashChanges;
-        popStash = mockGitService.popStash;
-        pullLatest = mockGitService.pullLatest;
-        mergeBranch = mockGitService.mergeBranch;
-        pushBranch = mockGitService.pushBranch;
-      };
-
-      const SessionDB = class {
-        getSession = mockSessionDB.getSession;
-      };
-
-      // Setup module mocks
-      mock.module("../git.js", () => ({
-        GitService,
+      mock.module("../../domain/git.js", () => ({
+        GitService: jest.fn(() => mockGitService),
       }));
-
-      mock.module("../session.js", () => ({
-        SessionDB,
+      mock.module("../../domain/session.js", () => ({
+        SessionDB: jest.fn(() => mockSessionDB),
       }));
-
-      mock.module("../workspace.js", () => ({
+      mock.module("../../domain/workspace.js", () => ({
         getCurrentSession: mockGetCurrentSession,
       }));
 
@@ -312,16 +229,12 @@ describe("interface-agnostic session functions", () => {
         noStash: true,
         noPush: false,
       };
-
-      // Reimport to use mocked modules
       const { updateSessionFromParams: mockedUpdateSessionFromParams } = await import(
-        "../session.js"
+        "../../domain/session.js"
       );
-
-      await mockedUpdateSessionFromParams(params);
-
-      expect(mockGitService.stashChanges.mock.calls.length).toBe(0);
-      expect(mockGitService.popStash.mock.calls.length).toBe(0);
+      await mockedUpdateSessionFromParams(params as any);
+      expect(mockGitService.stashChanges.mock.calls.length).toEqual(0);
+      expect(mockGitService.popStash.mock.calls.length).toEqual(0);
     });
   });
 });
