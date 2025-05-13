@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
+import { normalizeTaskId } from "../../domain/tasks";
 import { join } from "path";
 import { promises as fs } from "fs";
 import { createInterface } from "readline";
@@ -24,12 +25,9 @@ export function createDeleteCommand(): Command {
           let sessionToQuery: string | null = null;
 
           if (options.task) {
-            const normalizedTaskId = options.task.startsWith("#")
-              ? options.task.substring(1)
-              : options.task;
-            // Basic validation for task ID format (e.g., should be a number)
-            if (!/^\d+$/.test(normalizedTaskId)) {
-              const errorMessage = `Invalid task ID format: '${options.task}'. Task ID should be a number.`;
+            const internalTaskId = normalizeTaskId(options.task);
+            if (!internalTaskId) {
+              const errorMessage = `Error: Invalid Task ID format provided: "${options.task}"`;
               if (options.json) {
                 console.log(JSON.stringify({ success: false, error: errorMessage }));
               } else {
@@ -37,12 +35,13 @@ export function createDeleteCommand(): Command {
               }
               exit(1);
             }
-            const sessionByTask = await db.getSessionByTaskId(normalizedTaskId);
+            
+            const sessionByTask = await db.getSessionByTaskId(internalTaskId);
             if (sessionByTask) {
               sessionToDeleteName = sessionByTask.session;
               sessionToQuery = sessionToDeleteName; // Use the found session name for querying
             } else {
-              const errorMessage = `No session found for task ID '${options.task}'.`;
+              const errorMessage = `No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`;
               if (options.json) {
                 console.log(JSON.stringify({ success: false, error: errorMessage }));
               } else {

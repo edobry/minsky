@@ -387,6 +387,80 @@ describe("minsky tasks get CLI", () => {
   });
 });
 
+describe("minsky tasks get CLI - Task ID Formats", () => {
+  beforeEach(() => {
+    if (SKIP_CLI_TESTS) return;
+    cleanupTestDir(TEST_DIR);
+    setupMinskyWorkspace();
+  });
+
+  afterEach(() => {
+    if (SKIP_CLI_TESTS) return;
+    cleanupTestDir(TEST_DIR);
+  });
+
+  const validIdFormats = [
+    { format: "001", note: "with leading zeros, no #" },
+    { format: "1", note: "without leading zeros, no #" },
+    { format: "#001", note: "with leading zeros, with #" },
+    { format: "#1", note: "without leading zeros, with #" },
+    { format: "task#001", note: "with task# prefix and leading zeros" },
+    { format: "task#1", note: "with task# prefix, no leading zeros" },
+  ];
+
+  for (const { format, note } of validIdFormats) {
+    test(`displays task details for ID format: "${format}" (${note})`, () => {
+      if (SKIP_CLI_TESTS) return;
+
+      const { stdout, stderr, status } = runCliCommand(["tasks", "get", format, "--workspace", TEST_DIR]);
+      
+      expect(stderr).toBe("");
+      expect(status).toBe(0);
+
+      expect(stdout).toContain("Task ID: #001"); // Assuming the output canonicalizes to #001
+      expect(stdout).toContain("Title: First Task");
+      expect(stdout).toContain("Status: TODO");
+    });
+
+    test(`displays task details as JSON for ID format: "${format}" (${note})`, () => {
+      if (SKIP_CLI_TESTS) return;
+
+      const { stdout, stderr, status } = runCliCommand(["tasks", "get", format, "--workspace", TEST_DIR, "--json"]);
+      
+      expect(stderr).toBe("");
+      expect(status).toBe(0);
+
+      try {
+        const task = JSON.parse(stdout);
+        expect(task.id).toBe("#001");
+        expect(task.title).toBe("First Task");
+        expect(task.status).toBe("TODO");
+      } catch (e) {
+        expect(false).toBe(true); // Fail test if JSON parsing fails
+      }
+    });
+  }
+
+  test("returns error for invalid task ID format like 'abc'", () => {
+    if (SKIP_CLI_TESTS) return;
+
+    const { stdout, stderr, status } = runCliCommand(["tasks", "get", "abc", "--workspace", TEST_DIR]);
+    expect(status === 0).toBe(false);
+    expect(stderr).toContain('Error: Invalid Task ID format provided: "abc"');
+    expect(stdout).toBe("");
+  });
+
+  test("returns error for non-existent but valid-format task ID like '999'", () => {
+    if (SKIP_CLI_TESTS) return;
+
+    const { stdout, stderr, status } = runCliCommand(["tasks", "get", "999", "--workspace", TEST_DIR]);
+    expect(status === 0).toBe(false);
+    // The error message now includes the original and normalized ID
+    expect(stderr).toContain('Task with ID originating from "999" (normalized to "999") not found');
+    expect(stdout).toBe("");
+  });
+});
+
 describe("minsky tasks get integration", () => {
   test("handles SessionDB.getSessionByTaskId correctly", async () => {
     // Mock implementation of getSessionByTaskId

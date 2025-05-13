@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
+import { normalizeTaskId } from "../../domain/tasks";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { join } from "path";
@@ -23,8 +24,14 @@ export function createGetCommand(): Command {
     .option("--backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output task as JSON")
     .option("--config", "Include task configuration in output")
-    .action(async (taskId: string, options: GetOptions) => {
+    .action(async (taskIdArgument: string, options: GetOptions) => {
       try {
+        const normalizedId = normalizeTaskId(taskIdArgument);
+        if (!normalizedId) {
+          console.error(`Error: Invalid Task ID format provided: "${taskIdArgument}"`);
+          process.exit(1);
+        }
+
         // Resolve repository path
         let workspacePath = options.repo;
         if (!workspacePath && options.session) {
@@ -51,10 +58,10 @@ export function createGetCommand(): Command {
         });
 
         // Get task details
-        const task = await taskService.getTask(taskId);
+        const task = await taskService.getTask(normalizedId);
 
         if (!task) {
-          console.error(`Task ${taskId} not found.`);
+          console.error(`Task with ID originating from "${taskIdArgument}" (normalized to "${normalizedId}") not found.`);
           process.exit(1);
         }
 

@@ -6,7 +6,7 @@ import { RepositoryBackendType } from "../../domain/repository.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks"; // Corrected import path
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -90,15 +90,21 @@ export async function startSession({
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
     // Normalize the task ID format
-    taskId = normalizeTaskId(taskId);
+    const normalizedTaskInput = taskId; // Keep original for error messages
+    const internalTaskId = normalizeTaskId(normalizedTaskInput);
 
-    // Verify the task exists
-    const task = await taskService.getTask(taskId);
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`);
+    if (!internalTaskId) {
+      throw new Error(`Invalid Task ID format provided: "${normalizedTaskInput}"`);
     }
 
-    session = `task${taskId}`;
+    // Verify the task exists
+    const task = await taskService.getTask(internalTaskId);
+    if (!task) {
+      throw new Error(`Task with ID originating from "${normalizedTaskInput}" (normalized to "${internalTaskId}") not found`);
+    }
+
+    taskId = internalTaskId; // This taskId variable is now the pure number, e.g., "069"
+    session = `task#${internalTaskId}`; // Session name becomes e.g. "task#069"
   }
 
   if (!session) {
@@ -156,7 +162,7 @@ export async function startSession({
     repoUrl,
     repoName,
     createdAt: new Date().toISOString(),
-    taskId,
+    taskId, // This should be the pure ID, e.g. "069"
     backendType: backendType,
     github,
     remote,

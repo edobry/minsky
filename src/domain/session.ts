@@ -37,6 +37,7 @@ export interface SessionRecord {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
+  branch?: string; // Added branch to session record
 }
 
 export interface Session {
@@ -57,6 +58,7 @@ export interface Session {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
+  branch?: string; // Added branch to session record
 }
 
 // Interface for GitService.clone result
