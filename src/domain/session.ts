@@ -172,13 +172,13 @@ export class SessionDB {
       if (!taskId) {
         return null;
       }
-      
+
       // Normalize the input task ID
       const normalizedInputId = normalizeTaskId(taskId);
       if (!normalizedInputId) {
         return null; // Invalid task ID format
       }
-      
+
       const sessions = await this.readDb();
       // Find a session with a matching task ID (also normalize stored task IDs)
       const found = sessions.find((s) => {
@@ -186,7 +186,7 @@ export class SessionDB {
         const normalizedStoredId = normalizeTaskId(s.taskId);
         return normalizedStoredId === normalizedInputId;
       });
-      
+
       return found || null; // Ensure we return null, not undefined
     } catch (error) {
       console.error(
@@ -427,17 +427,17 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
 
     // Normalize the repository name (for filesystem-safe naming)
     const repoName = normalizeRepoName(repoUrl);
-    
+
     // Clone the repository
     const cloneResult = await deps.gitService.clone({
       repoUrl: repoUrl,
       destination: deps.sessionDB.getNewSessionRepoPath(repoName, sessionName),
       branch,
     });
-    
+
     // Get the repository path from the clone result
     const repoPath = cloneResult.workdir;
-    
+
     // Create a session record
     const sessionRecord: SessionRecord = {
       session: sessionName,
@@ -448,7 +448,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       repoPath,
       branch,
     };
-    
+
     // Add the session to the database
     await deps.sessionDB.addSession(sessionRecord);
 
@@ -459,6 +459,109 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     if (error instanceof MinskyError) {
       throw error;
     }
-    throw new MinskyError(`Failed to start session: ${error instanceof Error ? error.message : String(error)}`);
+    throw new MinskyError(
+      `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
+}
+
+/**
+ * Updates an existing session based on parameters
+ */
+export async function updateSessionFromParams(
+  params: SessionUpdateParams
+): Promise<Session | null> {
+  const { name, task } = params;
+  const sessionDB = new SessionDB();
+
+  let sessionName = name;
+
+  // If task is provided but no name, find session by task ID
+  if (task && !name) {
+    const normalizedTaskId = taskIdSchema.parse(task);
+    const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
+    if (!session) {
+      throw new ResourceNotFoundError(
+        `No session found for task ${normalizedTaskId}`,
+        "task",
+        normalizedTaskId
+      );
+    }
+    sessionName = session.session;
+  }
+
+  if (!sessionName) {
+    throw new ValidationError("Either session name or task ID must be provided");
+  }
+
+  // Verify the session exists
+  const existingSession = await sessionDB.getSession(sessionName);
+  if (!existingSession) {
+    throw new ResourceNotFoundError(`Session "${sessionName}" not found`, "session", sessionName);
+  }
+
+  // Extract updatable properties from params
+  const { name: _, task: __, ...updates } = params;
+
+  // Update the session
+  await sessionDB.updateSession(sessionName, updates as Partial<Omit<SessionRecord, "session">>);
+
+  // Return the updated session
+  return sessionDB.getSession(sessionName);
+}
+
+/**
+ * Gets the directory path for a session based on parameters
+ */
+export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
+  const { name, task } = params;
+  const sessionDB = new SessionDB();
+
+  let session: SessionRecord | null = null;
+
+  // If task is provided but no name, find session by task ID
+  if (task && !name) {
+    const normalizedTaskId = taskIdSchema.parse(task);
+    session = await sessionDB.getSessionByTaskId(normalizedTaskId);
+    if (!session) {
+      throw new ResourceNotFoundError(
+        `No session found for task ${normalizedTaskId}`,
+        "task",
+        normalizedTaskId
+      );
+    }
+  } else if (name) {
+    // If name is provided, get by name
+    session = await sessionDB.getSession(name);
+    if (!session) {
+      throw new ResourceNotFoundError(`Session "${name}" not found`, "session", name);
+    }
+  } else {
+    // No name or task - error case
+    throw new ResourceNotFoundError("You must provide either a session name or task ID");
+  }
+
+  // Get the repository path for the session
+  return sessionDB.getRepoPath(session);
+}
+
+/**
+ * Deletes a session based on parameters
+ */
+export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
+  const { name, force } = params;
+  const sessionDB = new SessionDB();
+
+  if (!name) {
+    throw new ValidationError("Session name must be provided");
+  }
+
+  // Verify the session exists
+  const existingSession = await sessionDB.getSession(name);
+  if (!existingSession) {
+    throw new ResourceNotFoundError(`Session "${name}" not found`, "session", name);
+  }
+
+  // Delete the session from the database
+  return sessionDB.deleteSession(name);
 }

@@ -26,6 +26,8 @@ export interface PrDependencies extends PrTestDependencies {}
 export interface CloneOptions {
   repoUrl: string;
   session?: string;
+  destination?: string;
+  branch?: string;
 }
 
 export interface CloneResult {
