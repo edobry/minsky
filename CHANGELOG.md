@@ -270,8 +270,17 @@ _See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/hi
 - Fixed SessionDB to properly handle null/undefined values in getSessionByTaskId
 - Fixed Session test database isolation to ensure tests don't interfere with each other
 - Fixed Error handling in repository operations with proper cleaning and recovery
+<<<<<<< HEAD
+- Replaced placeholder tests in `tasks status` command with proper functional tests
+- Fixed interface-agnostic git functions and their tests with proper manual mocks
+- Fixed regression in git.ts by updating variable declarations to use `let` instead of `const` when values are reassigned
 
 _See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
+_See: SpecStory history [2025-05-13_task-status-command-tests-fix](.specstory/history/2025-05-13_task-status-command-tests-fix.md) for task status tests fixes._
+=======
+
+_See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
+>>>>>>> origin/main
 
 ## [0.39.0] - 2025-04-29
 
