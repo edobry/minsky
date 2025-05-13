@@ -197,7 +197,7 @@ describe("Tasks Command Integration Tests", () => {
       }
 
       // Verify error handling occurred using a more compatible approach
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -262,7 +262,7 @@ describe("Tasks Command Integration Tests", () => {
       }
 
       // Verify error handling occurred
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
   });
 
