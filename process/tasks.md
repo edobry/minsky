@@ -72,3 +72,11 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Implement TypeScript-based Rule Authoring System [#057](process/tasks/057-implement-typescript-based-rule-authoring-system.md)
 
 - [ ] Evaluate zod-matter and Zod for Rule Metadata and Validation [#058](process/tasks/058-evaluate-zod-matter-and-zod-for-rule-metadata-and-validation.md)
+
+- [ ] Improve Task ID Permissiveness in Minsky CLI Commands [#059](process/tasks/059-improve-task-id-permissiveness-in-minsky-cli-commands.md)
+
+- [ ] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#060](process/tasks/060-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
+
+- [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#061](process/tasks/061-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
+
+- [x] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
