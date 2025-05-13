@@ -5,6 +5,7 @@ import type { GitService } from "../../domain/git";
 import type { TaskService, Task } from "../../domain/tasks";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as repoUtilsMocks from "../../domain/repo-utils.js";
 
 // Mock implementations for instances
 const mockGitServiceInstance = {
@@ -20,8 +21,11 @@ const mockTaskServiceInstance = {
   getTask: mock.fn((taskId: string): Promise<Task | null> => {
     if (taskId === "1" || taskId === "001") {
       return Promise.resolve({
-        id: "#001", title: "Test Task 1", status: "TODO",
-        specPath: "process/tasks/001-test-task.md", description: "Mock description"
+        id: "#001",
+        title: "Test Task 1",
+        status: "TODO",
+        specPath: "process/tasks/001-test-task.md",
+        description: "Mock description",
       } as Task);
     }
     return Promise.resolve(null);
@@ -32,20 +36,31 @@ const mockTaskServiceInstance = {
 
 // Mock modules to return constructors that yield our mock instances
 mock.module("../../domain/git.js", () => ({
-  GitService: class { constructor() { return mockGitServiceInstance; } }
+  GitService: class {
+    constructor() {
+      return mockGitServiceInstance;
+    }
+  },
 }));
 mock.module("../../domain/session.js", () => ({
-  SessionDB: class { constructor() { return mockSessionDBInstance; } }
+  SessionDB: class {
+    constructor() {
+      return mockSessionDBInstance;
+    }
+  },
 }));
 mock.module("../../domain/tasks.js", () => ({
-  TaskService: class { constructor() { return mockTaskServiceInstance; } },
+  TaskService: class {
+    constructor() {
+      return mockTaskServiceInstance;
+    }
+  },
   TASK_STATUS: { TODO: "TODO", IN_PROGRESS: "IN-PROGRESS" },
 }));
 mock.module("../../domain/repo-utils.js", () => ({
   resolveRepoPath: mock.fn(() => Promise.resolve("/test/repo")),
-  normalizeRepoName: mock.fn((name: string) => name.split('/').pop() || name),
+  normalizeRepoName: mock.fn((name: string) => name.split("/").pop() || name),
 }));
-
 
 describe("startSession - Task ID Normalization", () => {
   const baseOptions: Partial<StartSessionOptions> = {
@@ -62,7 +77,6 @@ describe("startSession - Task ID Normalization", () => {
     mockTaskServiceInstance.getTask.mockClear();
     mockTaskServiceInstance.getTaskStatus.mockClear();
     mockTaskServiceInstance.setTaskStatus.mockClear();
-    const repoUtilsMocks = require("../../domain/repo-utils.js");
     repoUtilsMocks.resolveRepoPath.mockClear();
     repoUtilsMocks.normalizeRepoName.mockClear();
   });
@@ -112,7 +126,7 @@ describe("startSession - Task ID Normalization", () => {
   test("should throw error if task not found after normalization", async () => {
     const options: StartSessionOptions = {
       ...baseOptions,
-      taskId: "#999", 
+      taskId: "#999",
     } as StartSessionOptions;
     await expect(startSession(options)).rejects.toThrow(
       'Task with ID originating from "#999" (normalized to "999") not found'

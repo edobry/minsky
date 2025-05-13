@@ -1,14 +1,10 @@
-const { describe, it, expect, mock, beforeEach, afterEach } = require("bun:test");
-const {
-  mockDateFunctions,
-  setupConsoleSpy,
-  createTempTestDir,
-} = require("../../../utils/test-utils");
-const { execSync } = require("child_process");
-const { registerSessionTools } = require("../../../mcp/tools/session");
-const { CommandMapper } = require("../../../mcp/command-mapper");
-const fs = require("fs");
-const path = require("path");
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import * as testUtils from "../../../utils/test-utils";
+import { execSync } from "child_process";
+import { registerSessionTools } from "../../../mcp/tools/session";
+import { CommandMapper } from "../../../mcp/command-mapper";
+import fs from "fs";
+import path from "path";
 
 /**
  * Integration tests for session commands.
