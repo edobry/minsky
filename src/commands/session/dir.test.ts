@@ -101,8 +101,10 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
 
     // Get the session name if it's provided (not a flag and not a flag argument)
     for (let i = 2; i < args.length; i++) {
-      if (!args[i].startsWith("--") && (i === 2 || args[i - 1] !== "--task")) {
-        sessionName = args[i];
+      const currentArg = args[i];
+      const prevArg = args[i-1]; // Safe due to i >= 2
+      if (currentArg && !currentArg.startsWith("--") && (i === 2 || (prevArg && prevArg !== "--task"))) {
+        sessionName = currentArg;
         hasSessionName = true;
         break;
       }

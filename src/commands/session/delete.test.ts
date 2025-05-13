@@ -91,7 +91,7 @@ function runCliCommand(args: string[]) {
     // Extract session name or task ID based on command format
     if (hasTaskFlag > -1 && args.length > hasTaskFlag + 1) {
       taskId = args[hasTaskFlag + 1];
-    } else if (args.length > 2 && !args[2].startsWith("--")) {
+    } else if (args.length > 2 && args[2] && !args[2].startsWith("--")) {
       sessionName = args[2];
     }
 
