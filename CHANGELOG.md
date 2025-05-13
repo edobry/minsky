@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Task ID normalization now consistently handles task IDs with or without the `#` prefix. This fixes issues with commands like `minsky tasks get 071` and `minsky session start --task 071` where tasks couldn't be found if the ID was provided without the leading `#`.
+- Improved `normalizeTaskId` function to handle multiple leading `#` characters and validate that task IDs contain only numeric characters.
+
 ### Added
 
 - Initial Bun+TypeScript project setup for the minsky CLI tool
@@ -344,5 +349,15 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 
 ### Changed
 
+- Improved test environment setup to create more complete Minsky workspace structure
+- Enhanced error handling and debugging output in test environment setup
+
+## [0.52.0] - 2024-04-09
+
+### Fixed
+
+- Task ID normalization now consistently handles task IDs with or without the `#` prefix. This fixes issues with commands like `minsky tasks get 071` and `minsky session start --task 071` where tasks couldn't be found if the ID was provided without the leading `#`.
+- Improved `normalizeTaskId` function to handle multiple leading `#` characters and validate that task IDs contain only numeric characters.
+- Task creation handles spec file with missing type
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
