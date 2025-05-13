@@ -1,28 +1,31 @@
-import { beforeEach, describe, expect, it, mock } from "bun:test";
+import { beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { createPrCommand } from "../pr.js";
-import { GitService } from "../../../domain/git.js";
-import fs from "fs";
-import path from "path";
+import * as fsNamespace from "fs";
+import * as path from "path";
 import { setupConsoleSpy } from "../../../utils/test-utils.js";
 
 // Create mock functions
-const mockPrFn = mock(function () {
+const mockPrFn = jest.fn(function () {
   return { markdown: "mock PR markdown" };
 });
 
-// Mock the GitService constructor
+// Mock the GitService constructor and fs.existsSync using jest.mock
+// jest.mock is hoisted, so it needs to be at the top level.
+const mockExistsSync = jest.fn(function (p: string) {
+  return p.includes(".git");
+});
+
+// Mock entire modules using mock.module()
+// Note: jest.mock is hoisted. mock.module from bun:test might have different hoisting, 
+// but should be fine at top level.
 mock.module("../../../domain/git", () => ({
-  GitService: mock(() => ({
+  GitService: jest.fn(() => ({
     pr: mockPrFn,
   })),
 }));
 
-// Mock fs.existsSync
-const mockExistsSync = mock(function (p: string) {
-  return p.includes(".git");
-});
 mock.module("fs", () => ({
-  ...fs,
+  ...fsNamespace, // Spread the original fs namespace to keep other functions
   existsSync: mockExistsSync,
 }));
 
@@ -66,14 +69,16 @@ describe("git pr command", () => {
       let repoPath: string | undefined;
       if (options.path && !options.session) {
         repoPath = path.resolve(options.path);
-        // Check if it's a git repository
-        if (!mockExistsSync(path.join(repoPath, ".git"))) {
+        // Check if it's a git repository - uses the mocked fs.existsSync
+        if (!fsNamespace.existsSync(path.join(repoPath, ".git"))) {
           consoleErrorSpy(`Error: ${repoPath} is not a git repository`);
           return { success: false, error: `${repoPath} is not a git repository` };
         }
       }
 
-      // Create a new instance of GitService - this will use our mocked function
+      // Create a new instance of GitService - this will use our mocked constructor from mock.module
+      // Need to dynamically import it here AFTER mocks are set up if jest.mock hoisting isn't perfect for mock.module
+      const { GitService } = await import("../../../domain/git.js");
       const gitService = new GitService();
 
       // Set up the options object
@@ -103,7 +108,7 @@ describe("git pr command", () => {
   // Test the inner implementation directly rather than trying to use Commander's parsing
   it("should require either session or path", async () => {
     const command = createPrCommand();
-    const actionFunction = command.opts().session; // This is just a dummy to get TypeScript to compile
+    // const actionFunction = command.opts().session; // This was a dummy, not needed for direct testing
 
     // Get the implementation details - directly test our code inside createPrCommand
     const result = await testActionWithOptions({});

@@ -54,7 +54,6 @@ export function createStartCommand(): Command {
         }
       ) => {
         try {
-          // Check if current directory is already within a session workspace
           const currentDir = globalThis.process.env.PWD || globalThis.process.cwd();
           const isInSession = await isSessionRepository(currentDir);
           if (isInSession) {
@@ -63,53 +62,39 @@ export function createStartCommand(): Command {
             );
           }
 
-          // Default to repo-url if specified for remote/github backends
-          let repoPath = options.repo;
-          if (
-            !repoPath &&
-            options.repoUrl &&
-            (options.backend === "remote" || options.backend === "github")
-          ) {
-            repoPath = options.repoUrl;
-          }
-
-          // Otherwise try to resolve from current directory
-          if (!repoPath) {
+          let determinedRepoPath: string;
+          if (options.repo) {
+            determinedRepoPath = options.repo;
+          } else if (options.repoUrl && (options.backend === "remote" || options.backend === "github")) {
+            determinedRepoPath = options.repoUrl;
+          } else {
             try {
-              repoPath = await resolveRepoPath({});
+              determinedRepoPath = await resolveRepoPath({});
             } catch (err) {
-              throw new Error(
-                `--repo or --repo-url is required: ${err instanceof Error ? err.message : String(err)}`
-              );
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              console.error("Error starting session:", `Failed to resolve repository path: ${errorMsg}`);
+              globalThis.process.exit(1);
+              return; // Should be unreachable, for TSC
             }
           }
+          // At this point, determinedRepoPath is guaranteed to be a string.
 
-          // Handle the task ID if provided
           let session = sessionArg;
           let taskId: string | undefined = undefined;
 
           if (options.task) {
-            // Normalize the task ID format
             taskId = normalizeTaskId(options.task);
-
-            // Verify the task exists
             const taskService = new TaskService({
-              workspacePath: repoPath,
-              backend: "markdown", // Default to markdown backend
+              workspacePath: determinedRepoPath!, // Add non-null assertion
+              backend: "markdown",
             });
-
-            const task = await taskService.getTask(taskId);
+            const task = await taskService.getTask(taskId!); // Add non-null assertion
             if (!task) {
               throw new Error(`Task ${taskId} not found`);
             }
-
-            // Use the task ID as the session name
             session = `task${taskId}`;
-
-            // Check if a session already exists for this task
             const existingSessions = await sessionDB.listSessions();
             const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
-
             if (taskSession) {
               throw new Error(
                 `A session for task ${taskId} already exists: '${taskSession.session}'`
@@ -117,47 +102,37 @@ export function createStartCommand(): Command {
             }
           }
 
-          // Configure GitHub options if backend is github
-          const github =
-            options.backend === "github"
-              ? {
-                token: options.githubToken,
-                owner: options.githubOwner,
-                repo: options.githubRepo,
-              }
-              : undefined;
+          const githubOptions = options.backend === "github" ? {
+            token: options.githubToken,
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+          } : undefined;
 
-          // Configure remote options
-          const remoteOptions = {
+          const remoteOpts = {
             authMethod: options.authMethod,
             depth: options.depth ? parseInt(options.depth, 10) : 1,
           };
 
           const result = await startSession({
             session,
-            repo: repoPath,
+            repo: determinedRepoPath, // Use the guaranteed string path
             taskId,
             backend: options.backend as "local" | "remote" | "github" | "auto",
-            github,
+            github: githubOptions,
             branch: options.branch,
-            remote: remoteOptions,
+            remote: remoteOpts,
             noStatusUpdate: options.statusUpdate === false,
           });
 
           if (options.quiet) {
-            // In quiet mode, output only the session directory path
             console.log(result.cloneResult.workdir);
           } else {
-            // Standard verbose output for interactive use
             console.log(`Session '${result.sessionRecord.session}' started.`);
             console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
             console.log(`Branch '${result.branchResult.branch}' created.`);
             console.log(`Backend: ${result.sessionRecord.backendType || "local"}`);
-
             if (taskId) {
               console.log(`Associated with task: ${taskId}`);
-
-              // Show status update information if applicable
               if (result.statusUpdateResult) {
                 const { previousStatus, newStatus } = result.statusUpdateResult;
                 console.log(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
@@ -165,7 +140,6 @@ export function createStartCommand(): Command {
                 console.log("Task status update skipped (--no-status-update)");
               }
             }
-
             console.log("\nTo navigate to this session's directory, run:");
             console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
             console.log("");
