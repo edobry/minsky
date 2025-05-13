@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
+import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
