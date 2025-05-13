@@ -27,14 +27,14 @@ export interface SessionRecord {
   createdAt: string;
   taskId?: string;
   repoPath?: string; // Add repoPath to the interface
-  backendType?: 'local' | 'remote' | 'github'; // Added for repository backend support
+  backendType?: "local" | "remote" | "github"; // Added for repository backend support
   github?: {
     owner?: string;
     repo?: string;
     token?: string;
   };
   remote?: {
-    authMethod?: 'ssh' | 'https' | 'token';
+    authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
 }
@@ -47,14 +47,14 @@ export interface Session {
   createdAt?: string;
   taskId?: string;
   repoPath?: string;
-  backendType?: 'local' | 'remote' | 'github';
+  backendType?: "local" | "remote" | "github";
   github?: {
     owner?: string;
     repo?: string;
     token?: string;
   };
   remote?: {
-    authMethod?: 'ssh' | 'https' | 'token';
+    authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
 }

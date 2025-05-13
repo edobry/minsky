@@ -7,9 +7,9 @@
  * Repository backend types supported by the system.
  */
 export enum RepositoryBackendType {
-  LOCAL = 'local',
-  REMOTE = 'remote',
-  GITHUB = 'github',
+  LOCAL = "local",
+  REMOTE = "remote",
+  GITHUB = "github",
 }
 
 /**
@@ -44,7 +44,7 @@ export interface RemoteGitConfig extends RepositoryConfig {
 /**
  * GitHub repository configuration.
  */
-export interface GitHubConfig extends Omit<RemoteGitConfig, 'type'> {
+export interface GitHubConfig extends Omit<RemoteGitConfig, "type"> {
   type: RepositoryBackendType.GITHUB;
   owner?: string;       // GitHub repository owner
   repo?: string;        // GitHub repository name
@@ -154,16 +154,16 @@ export type RepositoryBackendConfig = RepositoryConfig;
  */
 export async function createRepositoryBackend(config: RepositoryConfig): Promise<RepositoryBackend> {
   switch (config.type) {
-    case RepositoryBackendType.LOCAL:
-      const { LocalGitBackend } = await import('./localGitBackend.js');
-      return new LocalGitBackend(config);
-    case RepositoryBackendType.REMOTE:
-      const { RemoteGitBackend } = await import('./remoteGitBackend.js');
-      return new RemoteGitBackend(config);
-    case RepositoryBackendType.GITHUB:
-      // Will be implemented in later phase
-      throw new Error('GitHub backend not implemented yet');
-    default:
-      throw new Error(`Unsupported repository backend type: ${config.type}`);
+  case RepositoryBackendType.LOCAL:
+    const { LocalGitBackend } = await import("./localGitBackend.js");
+    return new LocalGitBackend(config);
+  case RepositoryBackendType.REMOTE:
+    const { RemoteGitBackend } = await import("./remoteGitBackend.js");
+    return new RemoteGitBackend(config);
+  case RepositoryBackendType.GITHUB:
+    // Will be implemented in later phase
+    throw new Error("GitHub backend not implemented yet");
+  default:
+    throw new Error(`Unsupported repository backend type: ${config.type}`);
   }
 } 

@@ -1,12 +1,12 @@
-import { GitService } from '../../domain/git.js';
-import { SessionDB } from '../../domain/session.js';
-import type { SessionRecord } from '../../domain/session.js';
-import { TaskService, TASK_STATUS } from '../../domain/tasks.js';
-import { RepositoryBackendType } from '../../domain/repository.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from '../../domain/repo-utils.js';
-import { normalizeTaskId } from '../../utils/task-utils.js';
+import { GitService } from "../../domain/git.js";
+import { SessionDB } from "../../domain/session.js";
+import type { SessionRecord } from "../../domain/session.js";
+import { TaskService, TASK_STATUS } from "../../domain/tasks.js";
+import { RepositoryBackendType } from "../../domain/repository.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { resolveRepoPath as resolveRepoPathDefault, normalizeRepoName } from "../../domain/repo-utils.js";
+import { normalizeTaskId } from "../../utils/task-utils.js";
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -16,7 +16,7 @@ export interface StartSessionOptions {
   session?: string;
   repo?: string;
   taskId?: string;
-  backend?: 'local' | 'remote' | 'github' | 'auto';
+  backend?: "local" | "remote" | "github" | "auto";
   branch?: string;
   github?: {
     token?: string;
@@ -24,7 +24,7 @@ export interface StartSessionOptions {
     repo?: string;
   };
   remote?: {
-    authMethod?: 'ssh' | 'https' | 'token';
+    authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
   noStatusUpdate?: boolean;
@@ -51,7 +51,7 @@ export async function startSession({
   session,
   repo,
   taskId,
-  backend = 'auto',
+  backend = "auto",
   branch,
   github,
   remote,
@@ -122,24 +122,24 @@ export async function startSession({
   }
 
   // Auto-detect repository backend type if 'auto' is specified
-  let backendType: 'local' | 'remote' | 'github' = 'local'; // Default to local
-  if (backend === 'auto') {
+  let backendType: "local" | "remote" | "github" = "local"; // Default to local
+  if (backend === "auto") {
     // Determine backend type based on URL format
-    if (repoUrl.startsWith('http://') || 
-        repoUrl.startsWith('https://') || 
-        repoUrl.startsWith('git@')) {
+    if (repoUrl.startsWith("http://") || 
+        repoUrl.startsWith("https://") || 
+        repoUrl.startsWith("git@")) {
       
       // Further detect GitHub repositories
-      if (repoUrl.includes('github.com')) {
-        backendType = 'github';
+      if (repoUrl.includes("github.com")) {
+        backendType = "github";
       } else {
-        backendType = 'remote';
+        backendType = "remote";
       }
     } else {
-      backendType = 'local';
+      backendType = "local";
     }
   } else if (backend) {
-    backendType = backend as 'local' | 'remote' | 'github';
+    backendType = backend as "local" | "remote" | "github";
   }
 
   // The session creation approach follows these steps:

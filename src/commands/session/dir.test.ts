@@ -186,7 +186,7 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
       }
     } else if (sessionName === "--ignore-workspace") {
       // Special case: If the session name is "--ignore-workspace", treat it as an error
-      mockResult.stderr = 'Session "--ignore-workspace" not found.';
+      mockResult.stderr = "Session \"--ignore-workspace\" not found.";
       mockResult.status = 1;
       return mockResult;
     } else {

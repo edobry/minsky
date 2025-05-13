@@ -205,14 +205,14 @@ describe("Task Create Command", () => {
     expect(output.title).toBe("Test Task");
   });
 
-  it('should support spec file with "# Task: Title" format', async () => {
+  it("should support spec file with \"# Task: Title\" format", async () => {
     await createTaskAction("no-id-spec.md", {});
 
     expect(consoleOutput.length).toBeGreaterThan(0);
     expect(consoleOutput[0]).toContain("Task #003 created");
   });
 
-  it('should support spec file with "# Task #XXX: Title" format', async () => {
+  it("should support spec file with \"# Task #XXX: Title\" format", async () => {
     await createTaskAction("with-id-spec.md", {});
 
     expect(consoleOutput.length).toBeGreaterThan(0);

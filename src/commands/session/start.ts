@@ -13,32 +13,32 @@ export function createStartCommand(): Command {
   const gitService = new GitService();
   const sessionDB = new SessionDB();
 
-  return new Command('start')
-    .description('Start a new session with a cloned repository')
-    .argument('[session]', 'Session identifier (optional if --task is provided)')
-    .option('-r, --repo <repo>', 'Repository URL or local path to clone (optional)')
-    .option('-t, --task <taskId>', 'Task ID to associate with the session (uses task ID as session name if provided)')
-    .option('-q, --quiet', 'Output only the session directory path (for programmatic use)')
-    .option('-b, --backend <type>', 'Repository backend type (local, remote, github)', 'auto')
-    .option('--github-token <token>', 'GitHub access token for authentication')
-    .option('--github-owner <owner>', 'GitHub repository owner (for github backend)')
-    .option('--github-repo <repoName>', 'GitHub repository name (for github backend)')
-    .option('--branch <branch>', 'Branch to checkout (for remote repositories)')
-    .option('--repo-url <url>', 'Remote repository URL (for remote and GitHub backends)')
-    .option('--auth-method <method>', 'Authentication method for remote repositories (ssh, https, token)', 'ssh')
-    .option('--depth <depth>', 'Clone depth for remote repositories (shallow clone)', '1')
-    .option('--no-status-update', "Skip automatic task status update to IN-PROGRESS")
+  return new Command("start")
+    .description("Start a new session with a cloned repository")
+    .argument("[session]", "Session identifier (optional if --task is provided)")
+    .option("-r, --repo <repo>", "Repository URL or local path to clone (optional)")
+    .option("-t, --task <taskId>", "Task ID to associate with the session (uses task ID as session name if provided)")
+    .option("-q, --quiet", "Output only the session directory path (for programmatic use)")
+    .option("-b, --backend <type>", "Repository backend type (local, remote, github)", "auto")
+    .option("--github-token <token>", "GitHub access token for authentication")
+    .option("--github-owner <owner>", "GitHub repository owner (for github backend)")
+    .option("--github-repo <repoName>", "GitHub repository name (for github backend)")
+    .option("--branch <branch>", "Branch to checkout (for remote repositories)")
+    .option("--repo-url <url>", "Remote repository URL (for remote and GitHub backends)")
+    .option("--auth-method <method>", "Authentication method for remote repositories (ssh, https, token)", "ssh")
+    .option("--depth <depth>", "Clone depth for remote repositories (shallow clone)", "1")
+    .option("--no-status-update", "Skip automatic task status update to IN-PROGRESS")
     .action(async (sessionArg: string | undefined, options: {
       repo?: string;
       task?: string;
       quiet?: boolean;
-      backend?: 'local' | 'remote' | 'github' | 'auto';
+      backend?: "local" | "remote" | "github" | "auto";
       githubToken?: string;
       githubOwner?: string;
       githubRepo?: string;
       branch?: string;
       repoUrl?: string;
-      authMethod?: 'ssh' | 'https' | 'token';
+      authMethod?: "ssh" | "https" | "token";
       depth?: string;
       statusUpdate?: boolean;
     }) => {
@@ -52,7 +52,7 @@ export function createStartCommand(): Command {
 
         // Default to repo-url if specified for remote/github backends
         let repoPath = options.repo;
-        if (!repoPath && options.repoUrl && (options.backend === 'remote' || options.backend === 'github')) {
+        if (!repoPath && options.repoUrl && (options.backend === "remote" || options.backend === "github")) {
           repoPath = options.repoUrl;
         }
 
@@ -97,7 +97,7 @@ export function createStartCommand(): Command {
         }
 
         // Configure GitHub options if backend is github
-        const github = options.backend === 'github' ? {
+        const github = options.backend === "github" ? {
           token: options.githubToken,
           owner: options.githubOwner,
           repo: options.githubRepo
@@ -113,7 +113,7 @@ export function createStartCommand(): Command {
           session, 
           repo: repoPath,
           taskId,
-          backend: options.backend as 'local' | 'remote' | 'github' | 'auto',
+          backend: options.backend as "local" | "remote" | "github" | "auto",
           github,
           branch: options.branch,
           remote: remoteOptions,
@@ -128,7 +128,7 @@ export function createStartCommand(): Command {
           console.log(`Session '${result.sessionRecord.session}' started.`);
           console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
           console.log(`Branch '${result.branchResult.branch}' created.`);
-          console.log(`Backend: ${result.sessionRecord.backendType || 'local'}`);
+          console.log(`Backend: ${result.sessionRecord.backendType || "local"}`);
           
           if (taskId) {
             console.log(`Associated with task: ${taskId}`);
