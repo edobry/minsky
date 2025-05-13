@@ -138,14 +138,18 @@ export class SessionDB {
   }
 
   async updateSession(
-    session: string,
+    sessionNameArg: string, // Renamed to avoid conflict with session property
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
     const sessions = await this.readDb();
-    const index = sessions.findIndex((s) => s.session === session);
+    const index = sessions.findIndex((s) => s.session === sessionNameArg); // Use renamed arg
     if (index !== -1) {
-      // Omit session property to avoid conflicts
-      sessions[index] = { ...sessions[index], ...updates };
+      const { session, ...restOfOldRecord } = sessions[index]!; // Add non-null assertion
+      sessions[index] = { 
+        session, // Explicitly keep the original session string
+        ...restOfOldRecord, 
+        ...updates 
+      };
       await this.writeDb(sessions);
     }
   }
