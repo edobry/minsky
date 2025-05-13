@@ -254,7 +254,24 @@ describe("git commit command", () => {
     ]);
 
     if (typeof mockConsoleError === "function")
-      mockConsoleError(expect.stringContaining("Session \"nonexistent\" not found"));
+      mockConsoleError(expect.stringContaining('Session "nonexistent" not found'));
     if (typeof mockProcessExit === "function") mockProcessExit(1);
+  });
+
+  test("should correctly skip staging files if --no-stage option is present", async () => {
+    const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    if (
+      mockGitService.getStatus &&
+      typeof mockGitService.getStatus.mockResolvedValue === "function"
+    )
+      mockGitService.getStatus.mockResolvedValue(mockStatusNoStage);
+    if (resolveRepoPath && typeof resolveRepoPath.mockResolvedValue === "function")
+      resolveRepoPath.mockResolvedValue("/path/to/repo");
+
+    await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
+
+    // Check that neither stageAll nor stageModified were called
+    expect(mockGitService.stageAll.calls.length).toBe(0);
+    expect(mockGitService.stageModified.calls.length).toBe(0);
   });
 });

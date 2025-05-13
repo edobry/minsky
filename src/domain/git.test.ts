@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe } from "bun:test";
 import { GitService } from "./git";
 
 describe("GitService", () => {

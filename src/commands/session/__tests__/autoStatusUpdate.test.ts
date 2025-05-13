@@ -45,6 +45,18 @@ describe("Session start auto status update", () => {
     expect(result.updated).toBe(false);
     expect(result.status).toBeUndefined();
   });
+
+  test("should correctly skip status update if skipStatusUpdate is true", () => {
+    // Act
+    const result = updateTaskStatus({
+      taskId: "123",
+      skipStatusUpdate: true,
+    });
+
+    // Assert
+    expect(result.updated).toBe(false);
+    expect(result.status).toBeUndefined();
+  });
 });
 
 describe("Auto status update", () => {

@@ -268,7 +268,7 @@ describe("minsky session get CLI", () => {
     setupSessionDb([]); // Empty DB
     const { stdout, stderr, status } = runCliCommand(["session", "get", "nonexistent"]);
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain('Session "nonexistent" not found.');
+    expect(stderr).toContain("Session \"nonexistent\" not found.");
     expect(stdout).toBe("");
   });
 
@@ -316,7 +316,7 @@ describe("minsky session get CLI", () => {
       "nonexistent-task",
     ]);
     expect(status !== 0).toBe(true);
-    expect(stderr).toContain('No session found for task ID "#nonexistent-task".');
+    expect(stderr).toContain("No session found for task ID \"#nonexistent-task\".");
     expect(stdout).toBe("");
   });
 
