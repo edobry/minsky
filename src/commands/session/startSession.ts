@@ -9,7 +9,7 @@ import {
   resolveRepoPath as resolveRepoPathDefault,
   normalizeRepoName,
 } from "../../domain/repo-utils.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks";
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -98,7 +98,11 @@ export async function startSession({
   // If taskId is provided but no session name, use the task ID to generate the session name
   if (taskId && !session) {
     // Normalize the task ID format
-    taskId = normalizeTaskId(taskId);
+    const normalizedTaskId = normalizeTaskId(taskId);
+    if (!normalizedTaskId) {
+      throw new Error(`Invalid task ID format: ${taskId}`);
+    }
+    taskId = normalizedTaskId;
 
     // Verify the task exists
     const task = await taskService.getTask(taskId);
@@ -169,7 +173,7 @@ export async function startSession({
     backendType: backendType,
     github,
     remote,
-    branch,
+    ...(branch ? { branch } as any : {}),
   };
   await sessionDB.addSession(sessionRecordData);
 

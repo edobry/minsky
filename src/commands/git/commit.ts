@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { GitService } from "../../domain/git";
 import { resolveRepoPath } from "../../domain/repo-utils";
-import { normalizeTaskId } from "../../utils/task-utils";
+import { normalizeTaskId } from "../../domain/tasks";
 import { SessionDB } from "../../domain/session";
 
 export function createGitCommitCommand(): Command {

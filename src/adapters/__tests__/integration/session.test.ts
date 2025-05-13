@@ -1,11 +1,9 @@
-const { describe, it, expect, mock, beforeEach, afterEach } = require("bun:test");
+const { describe, it, expect, mock, beforeEach, afterEach, jest } = require("bun:test");
 const {
   mockDateFunctions,
   setupConsoleSpy,
   createTempTestDir,
 } = require("../../../utils/test-utils");
-const { execSync } = require("child_process");
-const { registerSessionTools } = require("../../../mcp/tools/session");
 const { CommandMapper } = require("../../../mcp/command-mapper");
 const fs = require("fs");
 const path = require("path");
@@ -19,8 +17,7 @@ describe("Session Command Integration Tests", () => {
   // Mock dependencies
   let execSyncMock;
 
-  // Store original execSync
-  const originalExecSync = execSync;
+  // Store original console.error so we can restore it in afterEach.
   const originalConsoleError = console.error;
 
   // Create a fake session list response for mocking
@@ -54,9 +51,13 @@ describe("Session Command Integration Tests", () => {
   /** @type {any} */
   let mockCommandMapper;
 
-  beforeEach(() => {
-    // Set up mock function
-    execSyncMock = mock(execSync);
+  beforeEach(async () => {
+    // Obtain mocked execSync reference after mock.module patch.
+    const { execSync } = await import("child_process");
+    execSyncMock = execSync;
+
+    // Provide default behaviour; individual tests will override as needed.
+    execSyncMock.mockImplementation(() => "");
 
     // Mock console.error
     console.error = mock(() => {});
@@ -78,13 +79,16 @@ describe("Session Command Integration Tests", () => {
       mockCommandMapper.server.tools.push(tool);
     };
 
+    // Dynamically import *after* mocks are established
+    const { registerSessionTools } = await import("../../../mcp/tools/session");
+
     // Register session tools with mock command mapper
     registerSessionTools(mockCommandMapper);
   });
 
   afterEach(() => {
-    // Restore original functions
     console.error = originalConsoleError;
+    execSyncMock.mockReset();
     mock.restore();
   });
 

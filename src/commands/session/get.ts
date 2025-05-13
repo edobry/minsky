@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import type { SessionCommandDependencies } from "./index.js";
 
@@ -40,6 +40,15 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
           if (options.task) {
             // Normalize the task ID format
             const normalizedTaskId = normalizeTaskId(options.task);
+            if (!normalizedTaskId) {
+              const msg = `Invalid Task ID format provided: "${options.task}"`;
+              if (options.json) {
+                console.log(JSON.stringify({ error: msg }));
+              } else {
+                console.error(msg);
+              }
+              process.exit(1);
+            }
 
             record = await db.getSessionByTaskId(normalizedTaskId);
             if (!record) {
