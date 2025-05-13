@@ -103,7 +103,7 @@ export function createListCommand(): Command {
           console.error("Error listing tasks:", error);
           // Use Bun.exit if available, otherwise fallback to process.exit
           if (typeof Bun !== "undefined") {
-            Bun.exit(1);
+            process.exit(1);
           } else {
             process.exit(1);
           }
@@ -229,7 +229,7 @@ export function createStatusCommand(): Command {
           // Use Bun.exit if available, otherwise fallback to process.exit
           if (typeof Bun !== "undefined") {
             // eslint-disable-next-line no-restricted-globals
-            Bun.exit(1);
+            process.exit(1);
           } else {
             // eslint-disable-next-line no-restricted-globals
             process.exit(1);
@@ -264,7 +264,7 @@ export function createStatusCommand(): Command {
             console.error("Error: Status is required");
             if (typeof Bun !== "undefined") {
               // eslint-disable-next-line no-restricted-globals
-              Bun.exit(1);
+              process.exit(1);
             } else {
               // eslint-disable-next-line no-restricted-globals
               process.exit(1);
@@ -297,7 +297,7 @@ export function createStatusCommand(): Command {
           // Use Bun.exit if available, otherwise fallback to process.exit
           if (typeof Bun !== "undefined") {
             // eslint-disable-next-line no-restricted-globals
-            Bun.exit(1);
+            process.exit(1);
           } else {
             // eslint-disable-next-line no-restricted-globals
             process.exit(1);
