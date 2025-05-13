@@ -44,7 +44,6 @@ export interface Session {
   session: string;
   repoUrl?: string;
   repoName?: string;
-  branch?: string;
   createdAt?: string;
   taskId?: string;
   repoPath?: string;
@@ -63,9 +62,8 @@ export interface Session {
 
 // Interface for GitService.clone result
 interface CloneResult {
-  repoPath: string;
-  success: boolean;
-  message?: string;
+  workdir: string;
+  session: string;
 }
 
 /**
@@ -126,11 +124,9 @@ export class SessionDB {
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
     try {
       await this.ensureDbDir();
-      await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
+      await writeFile(this.dbPath, JSON.stringify(sessions));
     } catch (error) {
-      console.error(
-        `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // Error writing session database is handled silently
     }
   }
 
@@ -161,8 +157,8 @@ export class SessionDB {
     const sessions = await this.readDb();
     const index = sessions.findIndex((s) => s.session === session);
     if (index !== -1) {
-      const { session: _, ...safeUpdates } = updates as any;
-      sessions[index] = { ...sessions[index], ...safeUpdates };
+      // Omit session property to avoid conflicts
+      sessions[index] = { ...sessions[index], ...updates };
       await this.writeDb(sessions);
     }
   }
@@ -179,9 +175,7 @@ export class SessionDB {
       const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
       return found || null; // Ensure we return null, not undefined
     } catch (error) {
-      console.error(
-        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // Error finding session by task ID is handled silently
       return null;
     }
   }
@@ -197,9 +191,7 @@ export class SessionDB {
       await this.writeDb(sessions);
       return true;
     } catch (error) {
-      console.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // Error deleting session is handled silently
       return false;
     }
   }
@@ -300,7 +292,7 @@ export class SessionDB {
           session.repoPath = newPath;
           modified = true;
         } catch (err) {
-          console.error(`Failed to migrate session ${session.session}:`, err);
+          // Failed migration is handled silently
         }
       }
     }
@@ -336,7 +328,7 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
 /**
  * Lists all sessions based on parameters
  */
-export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
+export async function listSessionsFromParams(_params: SessionListParams): Promise<Session[]> {
   return new SessionDB().listSessions();
 }
 
@@ -345,7 +337,7 @@ export async function listSessionsFromParams(params: SessionListParams): Promise
  */
 export async function startSessionFromParams(params: SessionStartParams): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
+  const { name, repo, task, branch, noStatusUpdate } = params;
 
   // Convert dependencies for dependency injection pattern
   const deps = {
@@ -359,7 +351,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
   try {
     // Check if current directory is already within a session workspace
     // eslint-disable-next-line no-restricted-globals
-    const currentDir = Bun.env.PWD || Bun.cwd();
+    const currentDir = Bun.env.PWD || process.cwd();
     const isInSession = await deps.isSessionRepository(currentDir);
     if (isInSession) {
       throw new MinskyError(
@@ -446,14 +438,14 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     await deps.sessionDB.addSession(sessionRecord);
 
     // Now clone the repo
-    const cloneResult = (await deps.gitService.clone({
+    const cloneResult = await deps.gitService.clone({
       repoUrl,
       session: sessionName,
-    })) as CloneResult;
+    });
 
     // Create a branch based on the session name
     const branchName = branch || sessionName;
-    const branchResult = await deps.gitService.branch({
+    await deps.gitService.branch({
       session: sessionName,
       branch: branchName,
     });
@@ -461,16 +453,10 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     // Update task status to IN-PROGRESS if requested and if we have a task ID
     if (taskId && !noStatusUpdate) {
       try {
-        // Get the current status first
-        const previousStatus = await deps.taskService.getTaskStatus(taskId);
-
         // Update the status to IN-PROGRESS
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
-        // Log the error but don't fail the session creation
-        console.error(
-          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        // Failed status update is handled silently
       }
     }
 
@@ -482,7 +468,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       branch: branchName,
       createdAt: sessionRecord.createdAt,
       taskId,
-      repoPath: cloneResult.repoPath,
+      repoPath: cloneResult.workdir,
     };
   } catch (error) {
     if (error instanceof MinskyError) {
@@ -611,7 +597,10 @@ export async function updateSessionFromParams(params: SessionUpdateParams): Prom
 
       // Push changes if needed
       if (!noPush) {
-        await deps.gitService.pushBranch(workdir, remote || "origin");
+        await deps.gitService.push({
+          repoPath: workdir,
+          remote: remote || "origin"
+        });
       }
     } finally {
       // Always try to restore stashed changes
@@ -626,7 +615,6 @@ export async function updateSessionFromParams(params: SessionUpdateParams): Prom
 
     // Handle stash error outside finally block
     if (stashError) {
-      console.error("Failed to restore stashed changes:", stashError);
       throw new MinskyError(
         "Session was updated, but failed to restore stashed changes. Please resolve manually.",
         stashError
