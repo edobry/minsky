@@ -407,40 +407,32 @@ describe("getCurrentSessionContext", () => {
 
   test("should return null if getCurrentSession returns null", async () => {
     mockCurrentSessionReturnValue = null;
-    const originalGetCurrentSession = getCurrentSession;
-    (getCurrentSession as any) = mockInternalGetCurrentSession;
 
-    const result = await getCurrentSessionContext(
-      "dummy/path",
-      mockExecAsync,
-      mockSessionDbOverride
-    );
+    const result = await getCurrentSessionContext("dummy/path", {
+      execAsyncFn: mockExecAsync,
+      sessionDbOverride: mockSessionDbOverride,
+      getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
+    });
 
     expect(result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(0);
-
-    (getCurrentSession as any) = originalGetCurrentSession;
   });
 
   test("should return null if session record not found in DB (and would have warned)", async () => {
     mockCurrentSessionReturnValue = "testSession";
     mockSessionRecord = null;
-    const originalGetCurrentSession = getCurrentSession;
-    (getCurrentSession as any) = mockInternalGetCurrentSession;
 
-    const result = await getCurrentSessionContext(
-      "dummy/path",
-      mockExecAsync,
-      mockSessionDbOverride
-    );
+    const result = await getCurrentSessionContext("dummy/path", {
+      execAsyncFn: mockExecAsync,
+      sessionDbOverride: mockSessionDbOverride,
+      getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
+    });
 
     expect(result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
     expect(mockGetSession.calls[0][0]).toBe("testSession");
-
-    (getCurrentSession as any) = originalGetCurrentSession;
   });
 
   test("should return session and taskId if session record found with taskId", async () => {
@@ -452,14 +444,12 @@ describe("getCurrentSessionContext", () => {
       createdAt: "2024-01-01T00:00:00Z",
       taskId: "#001",
     };
-    const originalGetCurrentSession = getCurrentSession;
-    (getCurrentSession as any) = mockInternalGetCurrentSession;
 
-    const result = await getCurrentSessionContext(
-      "dummy/path",
-      mockExecAsync,
-      mockSessionDbOverride
-    );
+    const result = await getCurrentSessionContext("dummy/path", {
+      execAsyncFn: mockExecAsync,
+      sessionDbOverride: mockSessionDbOverride,
+      getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
+    });
 
     expect(result).toEqual({
       sessionId: "sessionWithTask",
@@ -468,8 +458,6 @@ describe("getCurrentSessionContext", () => {
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
     expect(mockGetSession.calls[0][0]).toBe("sessionWithTask");
-
-    (getCurrentSession as any) = originalGetCurrentSession;
   });
 
   test("should return session and undefined taskId if session record found without taskId", async () => {
@@ -480,14 +468,12 @@ describe("getCurrentSessionContext", () => {
       repoName: "repo",
       createdAt: "2024-01-01T00:00:00Z",
     };
-    const originalGetCurrentSession = getCurrentSession;
-    (getCurrentSession as any) = mockInternalGetCurrentSession;
 
-    const result = await getCurrentSessionContext(
-      "dummy/path",
-      mockExecAsync,
-      mockSessionDbOverride
-    );
+    const result = await getCurrentSessionContext("dummy/path", {
+      execAsyncFn: mockExecAsync,
+      sessionDbOverride: mockSessionDbOverride,
+      getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
+    });
 
     expect(result).toEqual({
       sessionId: "sessionWithoutTask",
@@ -495,26 +481,20 @@ describe("getCurrentSessionContext", () => {
     });
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
-
-    (getCurrentSession as any) = originalGetCurrentSession;
   });
 
   test("should return null if SessionDB.getSession throws (and would have errored)", async () => {
     mockCurrentSessionReturnValue = "errorSession";
     mockSessionDBError = new Error("DB fail");
-    const originalGetCurrentSession = getCurrentSession;
-    (getCurrentSession as any) = mockInternalGetCurrentSession;
 
-    const result = await getCurrentSessionContext(
-      "dummy/path",
-      mockExecAsync,
-      mockSessionDbOverride
-    );
+    const result = await getCurrentSessionContext("dummy/path", {
+      execAsyncFn: mockExecAsync,
+      sessionDbOverride: mockSessionDbOverride,
+      getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
+    });
 
     expect(result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
-
-    (getCurrentSession as any) = originalGetCurrentSession;
   });
 });
