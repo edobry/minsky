@@ -134,4 +134,29 @@ describe("startSession - Task ID Normalization", () => {
   });
 });
 
+test("should handle git clone and checkout errors", async () => {
+  // Setup
+  const repoUrl = "https://example.com/repo.git";
+  mockResolveRepoPath.mockReturnValue(Promise.resolve(path.resolve("/path/to/repo")));
+  mockGitService.clone.mockRejectedValue(new Error("Git clone failed"));
+
+  // Act & Assert
+  await expect(
+    startSession({
+      sessionName: "test-session",
+      repoUrl,
+      deps: mockDeps,
+    })
+  ).rejects.toThrow("Git clone failed");
+
+  expect(mockGitService.clone).toHaveBeenCalledWith(
+    repoUrl,
+    expect.stringContaining("test-session")
+  );
+});
+
+test("should use resolveRepoPath when repoUrl is not provided", async () => {
+  // ... existing code ...
+});
+
 // Comments for old placeholders can be removed entirely as we have new tests now.
