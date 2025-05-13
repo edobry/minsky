@@ -5,14 +5,23 @@ import { promisify } from "node:util";
 import type { ExecException } from "node:child_process";
 import { normalizeRepoName } from "./repo-utils.js";
 import { SessionDB } from "./session.js";
-import { createRepositoryBackend, RepositoryBackendType } from "./repository/index.js";
-import type { RepositoryBackendConfig } from "./repository/index.js";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index.js";
 
 const execAsync = promisify(childExec);
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
+
+// Define PrTestDependencies first so PrDependencies can extend it
+export interface PrTestDependencies {
+  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (name: string) => Promise<any>;
+  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionByTaskId?: (taskId: string) => Promise<any>;
+}
+
+// PrDependencies now extends the proper interface
+export interface PrDependencies extends PrTestDependencies {}
 
 export interface CloneOptions {
   repoUrl: string;
@@ -76,10 +85,6 @@ export interface PushOptions {
 export interface PushResult {
   workdir: string;
   pushed: boolean;
-}
-
-export interface PrDependencies extends PrTestDependencies {
-  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
 }
 
 export interface PrResult {
@@ -161,9 +166,10 @@ export class GitService {
 
     const deps: PrDependencies = {
       execAsync,
-      getSession: async (name) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (repoName, session) => this.getSessionWorkdir(repoName, session),
-      getSessionByTaskId: async (taskId) => this.sessionDb.getSessionByTaskId?.(taskId),
+      getSession: async (name: string) => this.sessionDb.getSession(name),
+      getSessionWorkdir: (repoName: string, session: string) =>
+        this.getSessionWorkdir(repoName, session),
+      getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
     const result = await this.prWithDependencies(options, deps);
