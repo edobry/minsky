@@ -1,9 +1,5 @@
 {
-  "*.{ts,js}": ["eslint --fix", "prettier --write"],
-  "*.test.{ts,js}": [
-    "node -e \"if (process.env.CI !== 'true' && /expect\\s*\\(\\s*true\\s*\\)\\s*\\.toBe\\s*\\(\\s*true\\s*\\)/.test(require('fs').readFileSync(process.argv[1], 'utf-8'))) { console.error('Placeholder test detected in ' + process.argv[1]); process.exit(1); }\"",
-    "eslint --fix",
-    "prettier --write"
-  ],
-  "*.{json,md}": ["prettier --write"]
+  "*.{ts,js}": ["eslint --fix", "bun node_modules/.bin/prettier --write"],
+  "*.test.{ts,js}": ["eslint --fix", "bun node_modules/.bin/prettier --write"],
+  "*.{json,md}": ["bun node_modules/.bin/prettier --write"]
 }

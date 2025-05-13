@@ -1,8 +1,5 @@
-#!/usr/bin/env sh
-. "$(dirname "$0")/_/husky.sh"
-
 # Run lint-staged to handle formatting, linting, etc.
-npx lint-staged
+bun node_modules/.bin/lint-staged
 
 # Prevent placeholder tests from being committed
 echo "Running test quality checks..."
