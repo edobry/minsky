@@ -20,18 +20,16 @@ export function normalizeTaskId(userInput: string): string | null {
     normalizedInput = normalizedInput.substring(5);
   }
 
-  // Handle formats like "#064" or "#64"
-  if (normalizedInput.startsWith("#")) {
+  // Remove all leading '#' characters to avoid multiple hashes
+  while (normalizedInput.startsWith("#")) {
     normalizedInput = normalizedInput.substring(1);
   }
 
   // Check if the result is a valid number (integer)
-  if (!/^[0-9]+$/.test(normalizedInput)) {
+  if (!/^[0-9]+$/.test(normalizedInput) || normalizedInput.length === 0) {
     return null;
   }
 
-  // At this point, normalizedInput is a string of digits, e.g., "064" or "64"
-  // The system seems to expect the number, possibly with leading zeros if provided.
-  // No further normalization like stripping leading zeros unless specified.
-  return normalizedInput;
+  // Add the '#' prefix to ensure canonical format
+  return `#${normalizedInput}`;
 }
