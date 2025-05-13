@@ -8,17 +8,30 @@
  * @param taskId The task ID to normalize (can be with or without leading hash)
  * @returns The normalized task ID with leading hash, or null if the input is invalid.
  */
-export function normalizeTaskId(taskId: string | undefined | null): string | null {
-  if (!taskId || typeof taskId !== "string" || taskId.trim() === "") {
+export function normalizeTaskId(userInput: string): string | null {
+  if (!userInput || typeof userInput !== "string") {
     return null;
   }
 
-  // Remove existing '#' prefix if present, then add it back to ensure only one.
-  // Also, ensure it's not just '#'
-  const cleanedId = taskId.trim().replace(/^#+/, "");
-  if (cleanedId === "") {
+  let normalizedInput = userInput.trim();
+
+  // Handle formats like "task#064" or "task#64"
+  if (normalizedInput.toLowerCase().startsWith("task#")) {
+    normalizedInput = normalizedInput.substring(5);
+  }
+
+  // Handle formats like "#064" or "#64"
+  if (normalizedInput.startsWith("#")) {
+    normalizedInput = normalizedInput.substring(1);
+  }
+
+  // Check if the result is a valid number (integer)
+  if (!/^[0-9]+$/.test(normalizedInput)) {
     return null;
   }
 
-  return `#${cleanedId}`;
+  // At this point, normalizedInput is a string of digits, e.g., "064" or "64"
+  // The system seems to expect the number, possibly with leading zeros if provided.
+  // No further normalization like stripping leading zeros unless specified.
+  return normalizedInput;
 }

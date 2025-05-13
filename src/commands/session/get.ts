@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../domain/tasks";
+import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import type { SessionCommandDependencies } from "./index.js";
 
@@ -16,7 +16,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
     .option("--ignore-workspace", "Ignore auto-detection from workspace")
     .action(
       async (
-        session: string | undefined,
+        sessionName: string | undefined,
         options: {
           json?: boolean;
           task?: string;
@@ -25,8 +25,7 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
       ) => {
         try {
           const db = new SessionDB();
-          // Error if both session and --task are provided
-          if (session && options.task) {
+          if (sessionName && options.task) {
             const msg = "Provide either a session name or --task, not both.";
             if (options.json) {
               console.log(JSON.stringify({ error: msg }));
@@ -38,21 +37,20 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
 
           let record;
           if (options.task) {
-            // Normalize the task ID format
-            const normalizedTaskId = normalizeTaskId(options.task);
-            if (!normalizedTaskId) {
-              const msg = `Invalid Task ID format provided: "${options.task}"`;
+            const internalTaskId = normalizeTaskId(options.task);
+            if (!internalTaskId) {
+              const msg = `Error: Invalid Task ID format provided: "${options.task}"`;
               if (options.json) {
                 console.log(JSON.stringify({ error: msg }));
               } else {
                 console.error(msg);
               }
               process.exit(1);
+              return;
             }
-
-            record = await db.getSessionByTaskId(normalizedTaskId);
+            record = await db.getSessionByTaskId(internalTaskId);
             if (!record) {
-              const msg = `No session found for task ID "${normalizedTaskId}".`;
+              const msg = `No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`;
               if (options.json) {
                 console.log(JSON.stringify(null));
               } else {
@@ -60,23 +58,22 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
               }
               process.exit(1);
             }
-          } else if (session) {
-            record = await db.getSession(session);
+          } else if (sessionName) {
+            record = await db.getSession(sessionName);
             if (!record) {
               if (options.json) {
                 console.log(JSON.stringify(null));
               } else {
-                console.error(`Session "${session}" not found.`);
+                console.error(`Session "${sessionName}" not found.`);
               }
               process.exit(1);
             }
           } else if (!options.ignoreWorkspace) {
-            // Auto-detect current session from workspace
-            const currentSession = await getCurrentSession();
-            if (currentSession) {
-              record = await db.getSession(currentSession);
+            const currentSessionName = await getCurrentSession();
+            if (currentSessionName) {
+              record = await db.getSession(currentSessionName);
               if (!record) {
-                const msg = `Current session "${currentSession}" not found in session database.`;
+                const msg = `Current session "${currentSessionName}" not found in session database.`;
                 if (options.json) {
                   console.log(JSON.stringify({ error: msg }));
                 } else {
