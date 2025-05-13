@@ -64,7 +64,7 @@ mock.module("../../domain/session", () => ({
 
 // Mock resolveRepoPath function
 const resolveRepoPath = createMockFn<(path: string) => Promise<string>>();
-mock.module("../../utils/repo", () => ({
+mock.module("../../domain/repo-utils", () => ({
   resolveRepoPath,
 }));
 
@@ -81,6 +81,15 @@ describe("git commit command", () => {
   beforeEach(() => {
     command = createGitCommitCommand();
     mockGitService = mockGitServiceInstance;
+
+    // Reset calls for mockGitServiceInstance methods
+    mockGitServiceInstance.getStatus.mockReset?.();
+    mockGitServiceInstance.stageAll.mockReset?.();
+    mockGitServiceInstance.stageModified.mockReset?.();
+    mockGitServiceInstance.commit.mockReset?.();
+
+    // Reset calls for resolveRepoPath if it's stateful across tests in this suite
+    resolveRepoPath.mockReset?.();
 
     // Save original console methods
     originalConsoleLog = console.log;
@@ -172,13 +181,9 @@ describe("git commit command", () => {
 
   test("uses --all flag to stage all changes", async () => {
     const mockStatusAll: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
-    if (
-      mockGitService.getStatus &&
-      typeof mockGitService.getStatus.mockResolvedValue === "function"
-    )
-      mockGitService.getStatus.mockResolvedValue(mockStatusAll);
-    if (resolveRepoPath && typeof resolveRepoPath.mockResolvedValue === "function")
-      resolveRepoPath.mockResolvedValue("/path/to/repo");
+    // Ensure getStatus is mocked for this specific test path *after* reset
+    mockGitServiceInstance.getStatus.mockResolvedValue?.(mockStatusAll);
+    resolveRepoPath.mockResolvedValue?.("/path/to/repo");
 
     await command.parseAsync(["node", "minsky", "commit", "-a", "-m", "test commit"]);
 
@@ -189,13 +194,9 @@ describe("git commit command", () => {
 
   test("skips staging with --no-stage", async () => {
     const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
-    if (
-      mockGitService.getStatus &&
-      typeof mockGitService.getStatus.mockResolvedValue === "function"
-    )
-      mockGitService.getStatus.mockResolvedValue(mockStatusNoStage);
-    if (resolveRepoPath && typeof resolveRepoPath.mockResolvedValue === "function")
-      resolveRepoPath.mockResolvedValue("/path/to/repo");
+    // Ensure getStatus is mocked for this specific test path *after* reset
+    mockGitServiceInstance.getStatus.mockResolvedValue?.(mockStatusNoStage);
+    resolveRepoPath.mockResolvedValue?.("/path/to/repo");
 
     await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
 
@@ -221,13 +222,8 @@ describe("git commit command", () => {
 
   test("errors when no changes to commit", async () => {
     const mockStatusEmpty: GitStatus = { modified: [], untracked: [], deleted: [] };
-    if (
-      mockGitService.getStatus &&
-      typeof mockGitService.getStatus.mockResolvedValue === "function"
-    )
-      mockGitService.getStatus.mockResolvedValue(mockStatusEmpty);
-    if (resolveRepoPath && typeof resolveRepoPath.mockResolvedValue === "function")
-      resolveRepoPath.mockResolvedValue("/path/to/repo");
+    mockGitServiceInstance.getStatus.mockResolvedValue?.(mockStatusEmpty);
+    resolveRepoPath.mockResolvedValue?.("/path/to/repo");
 
     await command.parseAsync(["node", "minsky", "commit", "-m", "test commit"]);
 
@@ -237,11 +233,18 @@ describe("git commit command", () => {
   });
 
   test("errors when session not found", async () => {
-    if (
-      mockGitService.getSession &&
-      typeof mockGitService.getSession.mockResolvedValue === "function"
-    )
-      mockGitService.getSession.mockResolvedValue(null);
+    // mockGitServiceInstance.getSession is not a thing, SessionDB is mocked separately
+    // Need to mock the SessionDB getSession used by the command
+    const getSessionMock = createMockFn<() => Promise<SessionRecord | null>>();
+    getSessionMock.mockResolvedValue?.(null);
+    mock.module("../../domain/session", () => ({
+      SessionDB: function () {
+        return { getSession: getSessionMock };
+      },
+      // getSession: getSessionMock, // This was for a different getSession import pattern
+    }));
+    // Re-create command so it picks up the new SessionDB mock for this test
+    command = createGitCommitCommand();
 
     await command.parseAsync([
       "node",
@@ -260,13 +263,9 @@ describe("git commit command", () => {
 
   test("should correctly skip staging files if --no-stage option is present", async () => {
     const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
-    if (
-      mockGitService.getStatus &&
-      typeof mockGitService.getStatus.mockResolvedValue === "function"
-    )
-      mockGitService.getStatus.mockResolvedValue(mockStatusNoStage);
-    if (resolveRepoPath && typeof resolveRepoPath.mockResolvedValue === "function")
-      resolveRepoPath.mockResolvedValue("/path/to/repo");
+    // Ensure getStatus is mocked for this specific test path *after* reset
+    mockGitServiceInstance.getStatus.mockResolvedValue?.(mockStatusNoStage);
+    resolveRepoPath.mockResolvedValue?.("/path/to/repo");
 
     await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
 

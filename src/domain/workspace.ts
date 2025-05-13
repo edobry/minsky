@@ -205,10 +205,20 @@ export async function getCurrentSession(
  */
 export async function getCurrentSessionContext(
   cwd: string = process.cwd(),
-  execAsyncFn: typeof execAsync = execAsync,
-  sessionDbOverride?: { getSession: SessionDB["getSession"] }
+  // Added getCurrentSessionFn dependency for better testability
+  dependencies: {
+    execAsyncFn?: typeof execAsync;
+    sessionDbOverride?: { getSession: SessionDB["getSession"] };
+    getCurrentSessionFn?: typeof getCurrentSession;
+  } = {}
 ): Promise<{ sessionId: string; taskId?: string } | null> {
-  const currentSessionName = await getCurrentSession(cwd, execAsyncFn, sessionDbOverride);
+  const {
+    execAsyncFn = execAsync,
+    sessionDbOverride,
+    getCurrentSessionFn = getCurrentSession, // Default to actual implementation
+  } = dependencies;
+
+  const currentSessionName = await getCurrentSessionFn(cwd, execAsyncFn, sessionDbOverride);
 
   if (!currentSessionName) {
     return null;
@@ -217,17 +227,10 @@ export async function getCurrentSessionContext(
   const db = sessionDbOverride
     ? ({ getSession: sessionDbOverride.getSession } as SessionDB)
     : new SessionDB();
-  // Type assertion for db.getSession as SessionDB may not be directly instantiable with only getSession
-  // This will likely need adjustment based on how SessionDB is structured for DI.
-  // For now, assuming direct usage or that the DI pattern supports this.
-  // A more robust DI would pass the db instance itself.
 
   try {
     const sessionRecord = await db.getSession(currentSessionName);
     if (!sessionRecord) {
-      // This case should ideally not happen if getCurrentSession found a name
-      // that originated from getSessionFromRepo which itself queries the DB.
-      // However, keeping it for robustness.
       console.warn(
         `Session name ${currentSessionName} found by getCurrentSession, but no record in DB.`
       );
@@ -235,10 +238,9 @@ export async function getCurrentSessionContext(
     }
     return {
       sessionId: currentSessionName,
-      taskId: sessionRecord.taskId, // Assuming taskId is a property on SessionRecord
+      taskId: sessionRecord.taskId,
     };
   } catch (error) {
-    // Log error or handle as appropriate
     const err = error instanceof Error ? error : new Error(String(error));
     console.error(`Error fetching session record for ${currentSessionName}: ${err.message}`);
     return null;
