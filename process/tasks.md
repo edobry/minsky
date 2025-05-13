@@ -98,3 +98,5 @@ This file tracks work items for the project. Each task follows this format:
 - [-] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#070](process/tasks/070-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
 
 - [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
+
+- [ ] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
