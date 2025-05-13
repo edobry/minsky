@@ -91,10 +91,3 @@ export const commonRepoSchema = z.object({
   workspace: z.string().optional().describe("Path to main workspace"),
   json: z.boolean().optional().describe("Return output as JSON"),
 });
-
-/**
- * Utility function to normalize task IDs
- */
-export function normalizeTaskId(taskId: string): string {
-  return taskIdSchema.parse(taskId);
-}

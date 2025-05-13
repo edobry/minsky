@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveRepoPath } from "../../domain/repo-utils.js";
 import { startSession } from "./startSession.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks";
 import { isSessionRepository } from "../../domain/workspace.js";
 
 export function createStartCommand(): Command {
@@ -90,7 +90,11 @@ export function createStartCommand(): Command {
 
           if (options.task) {
             // Normalize the task ID format
-            taskId = normalizeTaskId(options.task);
+            const normalized = normalizeTaskId(options.task);
+            if (!normalized) {
+              throw new Error(`Invalid task ID format: ${options.task}`);
+            }
+            taskId = normalized;
 
             // Verify the task exists
             const taskService = new TaskService({

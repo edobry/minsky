@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../domain/tasks";
+import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import type { SessionCommandDependencies } from "./index.js";
 

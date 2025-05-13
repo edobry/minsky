@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks";
 import { getCurrentSession as importedGetCurrentSession } from "../../domain/workspace.js";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -38,6 +38,11 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           if (options.task) {
             // Normalize the task ID format
             const normalizedTaskId = normalizeTaskId(options.task);
+            if (!normalizedTaskId) {
+              console.error(`Error: Invalid Task ID format provided: "${options.task}"`);
+              process.exit(1);
+              return;
+            }
 
             session = await db.getSessionByTaskId(normalizedTaskId);
             if (!session) {

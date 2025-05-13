@@ -1,8 +1,16 @@
+<<<<<<< HEAD
+import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
+=======
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+>>>>>>> origin/main
 import * as testUtils from "../../../utils/test-utils";
 import { execSync } from "child_process";
 import { registerSessionTools } from "../../../mcp/tools/session";
 import { CommandMapper } from "../../../mcp/command-mapper";
+<<<<<<< HEAD
+import type { FastMCP } from "fastmcp"; // Import FastMCP type if available, otherwise use any
+=======
+>>>>>>> origin/main
 import fs from "fs";
 import path from "path";
 
@@ -13,10 +21,11 @@ import path from "path";
  */
 describe("Session Command Integration Tests", () => {
   // Mock dependencies
-  let execSyncMock;
+  let execSyncMock: jest.Mock;
+  let mockCommandMapper: CommandMapper;
+  let mockServerTools: any[]; // To store tools for assertion
 
-  // Store original execSync
-  const originalExecSync = execSync;
+  // Store original console.error so we can restore it in afterEach.
   const originalConsoleError = console.error;
 
   // Create a fake session list response for mocking
@@ -46,56 +55,43 @@ describe("Session Command Integration Tests", () => {
     createdAt: "2025-05-01T12:00:00.000Z",
   });
 
-  // Set up mock FastMCP server for testing
-  /** @type {any} */
-  let mockCommandMapper;
+  beforeEach(async () => {
+    execSyncMock = jest.fn();
+    execSyncMock.mockImplementation(() => ""); // Default implementation
 
-  beforeEach(() => {
-    // Set up mock function
-    execSyncMock = mock(execSync);
+    spyOn(console, "error").mockImplementation(() => {});
 
-    // Mock console.error
-    console.error = mock(() => {});
-
-    // Set up FastMCP mock
-    const mockServer = {
-      addTool: mock(() => {}),
-      tools: [],
+    // Set up FastMCP mock server and CommandMapper
+    mockServerTools = [];
+    const mockServerInstance: any = {
+      addTool: jest.fn((tool: any) => {
+        mockServerTools.push(tool);
+      }),
+      // Add other FastMCP properties/methods if CommandMapper uses them directly
     };
-    mockCommandMapper = new CommandMapper(mockServer);
+    mockCommandMapper = new CommandMapper(mockServerInstance as FastMCP);
 
-    // For testing, manually add tools array that we can access
-    mockCommandMapper.server = {
-      tools: [],
-    };
-
-    // Mock the addTool method
-    mockCommandMapper.server.addTool = (tool) => {
-      mockCommandMapper.server.tools.push(tool);
-    };
+    // Dynamically import *after* mocks are established
+    const { registerSessionTools: dynamicRegisterSessionTools } = await import("../../../mcp/tools/session");
 
     // Register session tools with mock command mapper
-    registerSessionTools(mockCommandMapper);
+    dynamicRegisterSessionTools(mockCommandMapper);
   });
 
   afterEach(() => {
-    // Restore original functions
     console.error = originalConsoleError;
-    mock.restore();
+    execSyncMock.mockReset(); // Changed from mockRestore to mockReset for jest.fn
+    // mock.restore(); // This was for bun's module mocking, may not be needed if not using mock.module
+    jest.clearAllMocks(); // Clear all jest mocks
   });
 
   describe("session.list command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response
       execSyncMock.mockImplementation(() => mockSessionListResponse);
 
-      // Get the session.list tool from the mockCommandMapper
-      const listSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.list"
+      const listSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.list"
       );
-
-      // Check that the tool was registered
       expect(listSessionTool).toBeDefined();
 
       // Execute the MCP tool
@@ -115,18 +111,12 @@ describe("Session Command Integration Tests", () => {
     });
 
     it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
       const testError = new Error("Command failed");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
+      execSyncMock.mockImplementation(() => { throw testError; });
 
-      // Get the session.list tool
-      const listSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.list"
+      const listSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.list"
       );
-
       // Expect the MCP tool to propagate the error
       try {
         await listSessionTool.execute({});
@@ -137,22 +127,16 @@ describe("Session Command Integration Tests", () => {
       }
 
       // Verify error handling occurred
-      expect(console.error).toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("session.get command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response
       execSyncMock.mockImplementation(() => mockSessionGetResponse);
-
-      // Get the session.get tool
-      const getSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.get"
+      const getSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.get"
       );
-
-      // Check that the tool was registered
       expect(getSessionTool).toBeDefined();
 
       // Execute the MCP tool
@@ -172,18 +156,11 @@ describe("Session Command Integration Tests", () => {
     });
 
     it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
       const testError = new Error("Session not found");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
-
-      // Get the session.get tool
-      const getSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.get"
+      execSyncMock.mockImplementation(() => { throw testError; });
+      const getSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.get"
       );
-
       // Expect the MCP tool to propagate the error
       try {
         await getSessionTool.execute({ session: "non-existent" });
@@ -194,21 +171,16 @@ describe("Session Command Integration Tests", () => {
       }
 
       // Verify error handling occurred
-      expect(console.error).toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("session.start command", () => {
     it("should start a session correctly", async () => {
-      // Mock execSync to return success
       execSyncMock.mockImplementation(() => "Session 'test-session' started");
-
-      // Get the session.start tool
-      const startSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.start"
+      const startSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.start"
       );
-
       // Execute the MCP tool
       const result = await startSessionTool.execute({ name: "test-session" });
       const parsedResult = JSON.parse(result);
@@ -225,15 +197,10 @@ describe("Session Command Integration Tests", () => {
     });
 
     it("should handle task-associated sessions", async () => {
-      // Mock execSync to return success
       execSyncMock.mockImplementation(() => "Session 'task#123' started");
-
-      // Get the session.start tool
-      const startSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.start"
+      const startSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.start"
       );
-
       // Execute the MCP tool with task parameter
       const result = await startSessionTool.execute({ task: "123" });
       const parsedResult = JSON.parse(result);

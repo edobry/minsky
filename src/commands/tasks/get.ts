@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { TaskService, resolveRepoPath, resolveWorkspacePath, SessionDB } from "../../domain";
-import { normalizeTaskId } from "../../domain/tasks";
+import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
@@ -45,9 +45,9 @@ export function createGetCommand(): Command {
             taskIdToUse = normalizeTaskId(contextTaskId);
             originalInputForError = contextTaskId;
             if (!taskIdToUse) {
-                console.error(`Error: Invalid Task ID format from session context: "${contextTaskId}"`);
-                process.exit(1);
-                return;
+              console.error(`Error: Invalid Task ID format from session context: "${contextTaskId}"`);
+              process.exit(1);
+              return;
             }
             if (!options.json) {
               console.info(`Auto-detected task ID: ${taskIdToUse} (from current session)`);
