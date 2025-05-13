@@ -369,7 +369,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
   try {
     // Check if current directory is already within a session workspace
     // eslint-disable-next-line no-restricted-globals
-    const currentDir = Bun.env.PWD || Bun.cwd();
+    const currentDir = Bun.env.PWD || process.cwd();
     const isInSession = await deps.isSessionRepository(currentDir);
     if (isInSession) {
       throw new MinskyError(
@@ -422,4 +422,43 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     // Check if session already exists
     const existingSession = await deps.sessionDB.getSession(sessionName);
     if (existingSession) {
-      throw new MinskyError(`
+      throw new MinskyError(`Session "${sessionName}" already exists.`);
+    }
+
+    // Normalize the repository name (for filesystem-safe naming)
+    const repoName = normalizeRepoName(repoUrl);
+    
+    // Clone the repository
+    const cloneResult = await deps.gitService.clone({
+      repoUrl: repoUrl,
+      destination: deps.sessionDB.getNewSessionRepoPath(repoName, sessionName),
+      branch,
+    });
+    
+    // Get the repository path from the clone result
+    const repoPath = cloneResult.workdir;
+    
+    // Create a session record
+    const sessionRecord: SessionRecord = {
+      session: sessionName,
+      repoName,
+      repoUrl,
+      createdAt: new Date().toISOString(),
+      taskId,
+      repoPath,
+      branch,
+    };
+    
+    // Add the session to the database
+    await deps.sessionDB.addSession(sessionRecord);
+
+    // Return the created session
+    return sessionRecord;
+  } catch (error) {
+    // Re-throw as MinskyError with appropriate message
+    if (error instanceof MinskyError) {
+      throw error;
+    }
+    throw new MinskyError(`Failed to start session: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
