@@ -3,6 +3,7 @@ import { RuleService, type RuleMeta } from "../../domain/index.js";
 import { promises as fs } from "fs";
 import * as prompts from "@clack/prompts";
 import { exit } from "../../utils/process.js";
+import { validateSingleLineDescription } from "../../domain/validationUtils.js";
 
 export const createCommand = new Command("create")
   .description("Create a new Minsky rule")
@@ -41,6 +42,12 @@ export const createCommand = new Command("create")
         exit(1);
       }
 
+      // Validate description for newlines
+      if (!validateSingleLineDescription.isValid(options.description)) {
+        prompts.log.error(validateSingleLineDescription.errorMessage);
+        exit(1);
+      }
+
       // Get the rule content
       let content = "";
       if (options.content) {
@@ -54,20 +61,7 @@ export const createCommand = new Command("create")
         }
       } else {
         // Default content template
-        content = `# ${options.name || ruleId}
-
-${options.description || "No description provided."}
-
-## Usage
-
-Describe how and when to use this rule.
-
-## Examples
-
-\`\`\`typescript
-// Example of code the rule applies to
-\`\`\`
-`;
+        content = `# ${options.name || ruleId}\n\n${options.description || "No description provided."}\n\n## Usage\n\nDescribe how and when to use this rule.\n\n## Examples\n\n\`\`\`typescript\n// Example of code the rule applies to\n\`\`\`\n`;
       }
 
       // Prepare the metadata
@@ -131,6 +125,7 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   const description = await prompts.text({
     message: "Rule description",
     placeholder: "What does this rule do?",
+    validate: validateSingleLineDescription.forPrompt,
   });
 
   const globsInput = await prompts.text({
@@ -171,20 +166,7 @@ async function interactiveCreate(ruleService: RuleService): Promise<void> {
   let content = "";
 
   if (useTemplate === "template") {
-    content = `# ${String(name) || String(ruleId)}
-
-${String(description) || "No description provided."}
-
-## Usage
-
-Describe how and when to use this rule.
-
-## Examples
-
-\`\`\`typescript
-// Example of code the rule applies to
-\`\`\`
-`;
+    content = `# ${String(name) || String(ruleId)}\n\n${String(description) || "No description provided."}\n\n## Usage\n\nDescribe how and when to use this rule.\n\n## Examples\n\n\`\`\`typescript\n// Example of code the rule applies to\n\`\`\`\n`;
   } else if (useTemplate === "stdin") {
     prompts.log.info("\nEnter rule content (press Ctrl+D when finished):");
     const { readFromStdin } = await import("./stdin-helpers.js");

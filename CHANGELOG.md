@@ -160,6 +160,8 @@
   - Added createTaskFromParams domain function to complete the task command set
   - All functions follow consistent interface patterns with dependency injection for testing
   - Merged latest changes from main branch and resolved conflicts in git.ts
+- Single-line description validation to interactive mode of `minsky rules create` command to ensure rule descriptions don't contain newlines
+- Shared validation utility `validateSingleLineDescription` in `src/domain/validationUtils.ts` and refactored `minsky rules create` to use it.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
