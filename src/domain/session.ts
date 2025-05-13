@@ -2,8 +2,6 @@ import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
-import { existsSync as syncExists, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -59,17 +57,6 @@ export interface Session {
   };
   branch?: string; // Added branch to session record
 }
-
-// Interface for GitService.clone result
-interface CloneResult {
-  workdir: string;
-  session: string;
-}
-
-/**
- * In-memory cache of session database
- */
-const sessionDbCache: Session[] | null = null;
 
 /**
  * Session database operations
