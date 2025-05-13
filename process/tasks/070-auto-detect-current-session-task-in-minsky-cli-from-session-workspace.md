@@ -25,7 +25,7 @@ Enhance Minsky CLI commands to automatically detect the current session and/or a
     - If run outside a session workspace and no ID is provided, the command should behave as it currently does (e.g., list all, or error if ID is mandatory).
 4.  **Override Capability:** Users should still be able to provide an explicit session/task ID to override the auto-detection if they need to operate on a different session/task from within a session workspace.
 5.  **Clear Feedback:**
-    - When auto-detection is used, commands could provide a subtle indication (e.g., "Operating on current session: task#064").
+    - When auto-detection is used, commands could provide a subtle indication (e.g., "Operating on current session: task#064", "Auto-detected task ID: ...").
     - If auto-detection fails (e.g., run outside a workspace and ID is needed), the error message should be clear.
 6.  **Consistency:** The auto-detection logic should be centralized (e.g., in a utility function or as part of the session/task resolution in the domain layer) and applied consistently.
 7.  **Testing:**
@@ -34,17 +34,33 @@ Enhance Minsky CLI commands to automatically detect the current session and/or a
 
 ## Implementation Steps
 
-- [ ] Investigate the current auto-detection mechanism used by `minsky session dir`.
-- [ ] Develop or refine a utility function `getCurrentSessionContext(): { sessionId: string, taskId?: string } | null` that determines the session/task from CWD.
-- [ ] Refactor relevant CLI commands (e.g., in `src/commands/tasks/*`, `src/commands/session/*`) to use this utility when an explicit ID is not provided.
-- [ ] Update command argument/option parsing to make IDs optional where appropriate if auto-detection can be a fallback.
-- [ ] Add comprehensive unit and integration tests.
-- [ ] Update CLI help messages where behavior changes (e.g., if an ID argument becomes optional).
+- [x] Investigate the current auto-detection mechanism used by `minsky session dir`.
+- [x] Develop or refine a utility function `getCurrentSessionContext(): { sessionId: string, taskId?: string } | null` that determines the session/task from CWD. (Added to `src/domain/workspace.ts`)
+- [x] Refactor relevant CLI commands (e.g., in `src/commands/tasks/*`, `src/commands/session/*`) to use this utility when an explicit ID is not provided. (Done for `tasks get`, `tasks list`; `session get` already had suitable auto-detection).
+- [x] Update command argument/option parsing to make IDs optional where appropriate if auto-detection can be a fallback. (Done for `tasks get`).
+- [x] Add comprehensive unit and integration tests. (Unit tests for `getCurrentSessionContext` added; CLI integration tests for `tasks get` auto-detection added/updated. Addressed several pre-existing test issues in other files to stabilize test runs).
+- [x] Update CLI help messages where behavior changes (e.g., if an ID argument becomes optional). (Done for `tasks get`).
+- [ ] Address remaining integration test failures in `src/adapters/__tests__/integration/` (Covered by new Task #073).
+- [ ] Consider refactoring other commands (e.g., `tasks status set`, `git pr`) to use `getCurrentSessionContext` where applicable.
+
+## Work Log
+
+- Investigated `minsky session dir` and `src/domain/workspace.ts` to understand existing auto-detection.
+- Designed and implemented `getCurrentSessionContext` in `src/domain/workspace.ts` to return both session and associated task ID.
+- Refactored `getCurrentSessionContext` to accept `getCurrentSessionFn` as a dependency for better testability.
+- Added unit tests for `getCurrentSessionContext` in `src/domain/workspace.test.ts`, including fixes for mock DI.
+- Modified `src/commands/tasks/get.ts` to make `task-id` optional and use `getCurrentSessionContext` for auto-detection. Added CLI feedback for auto-detection.
+- Updated `src/commands/tasks/list.ts` to use `getCurrentSessionContext` to highlight the current task.
+- Updated CLI integration tests in `src/commands/tasks/get.test.ts` for auto-detection scenarios.
+- Debugged and fixed multiple issues in other test files (`domain/__tests__/session.test.ts`, `domain/__tests__/tasks.test.ts`, `commands/git/commit.test.ts`) related to mock syntax, type errors, and test logic to ensure a stable testing environment for the primary changes.
+- Addressed process errors by ensuring work was performed in the session workspace and dependencies were installed there.
+- Created follow-up task #073 for remaining adapter integration test failures.
 
 ## Verification
 
-- [ ] Running `minsky tasks get` from within `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#064` correctly retrieves details for task #064.
-- [ ] Running `minsky tasks list` from a session workspace highlights or indicates the current task.
-- [ ] Running these commands with an explicit different task ID (e.g., `minsky tasks get #001`) from within `task#064`'s workspace still works for #001.
-- [ ] Running commands outside a session workspace without an ID behaves as before (e.g., errors or lists all).
-- [ ] All new tests pass.
+- [x] Running `minsky tasks get` from within a session workspace linked to a task (e.g., `task#003`) correctly retrieves details for that task and prints an "Auto-detected" message.
+- [x] Running `minsky tasks list` from a session workspace linked to a task highlights that task (e.g., with a `*` prefix).
+- [x] Running these commands with an explicit different task ID (e.g., `minsky tasks get #001`) from within another task's workspace still works for the explicit ID.
+- [x] Running commands outside a session workspace without an ID behaves as before (e.g., `tasks get` errors, `tasks list` lists all applicable).
+- [x] All new and modified unit tests for `getCurrentSessionContext` and `tasks get` pass.
+- [ ] All integration tests in `src/adapters/__tests__/integration/` pass (Covered by Task #073).
