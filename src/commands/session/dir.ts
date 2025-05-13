@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../utils/task-utils.js";
+import { normalizeTaskId } from "../../domain/tasks";
 import { getCurrentSession as importedGetCurrentSession } from "../../domain/workspace.js";
 import { join } from "path";
 import { existsSync } from "fs";
@@ -26,22 +26,27 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           // Initialize the session DB and Git service for getting session workspace path
           const db = new SessionDB();
           let session;
-
+          
           // Error if both session and --task are provided
           if (sessionName && options.task) {
             console.error("Provide either a session name or --task, not both.");
             process.exit(1);
             return;
           }
-
+          
           // If task ID is provided, find the session by task ID
           if (options.task) {
             // Normalize the task ID format
-            const normalizedTaskId = normalizeTaskId(options.task);
-
-            session = await db.getSessionByTaskId(normalizedTaskId);
+            const internalTaskId = normalizeTaskId(options.task);
+            if (!internalTaskId) {
+              console.error(`Error: Invalid Task ID format provided: "${options.task}"`);
+              process.exit(1);
+              return;
+            }
+            
+            session = await db.getSessionByTaskId(internalTaskId);
             if (!session) {
-              console.error(`No session found for task ID "${normalizedTaskId}".`);
+              console.error(`No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`);
               process.exit(1);
               return;
             }
