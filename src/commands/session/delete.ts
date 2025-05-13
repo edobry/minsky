@@ -10,7 +10,7 @@ export function createDeleteCommand(db: SessionDB): Command {
     .option("-f, --force", "Force deletion without confirmation", false)
     .option("--json", "Output in JSON format")
     .action(async (sessionName, options) => {
-        try {
+      try {
         let sessionToDelete: string | undefined = sessionName;
 
         if (options.task && sessionName) {
@@ -21,7 +21,7 @@ export function createDeleteCommand(db: SessionDB): Command {
             if (options.json) {
               console.log(JSON.stringify({ session: sessionToDelete, status: "resolved by task ID" }));
             }
-            } else {
+          } else {
             if (!sessionName) {
               throw new Error(`No session found for task ID "${internalTaskId}", and no session name provided.`);
             }
@@ -41,7 +41,7 @@ export function createDeleteCommand(db: SessionDB): Command {
         if (!sessionToDelete) {
           throw new Error(
             "Session name or task ID must be provided, or run from within a session workspace."
-                );
+          );
         }
 
         const success = await db.deleteSession(sessionToDelete);
@@ -53,13 +53,13 @@ export function createDeleteCommand(db: SessionDB): Command {
           }
         } else {
           throw new Error(`Session "${sessionToDelete}" not found or could not be deleted.`);
-          }
-        } catch (error) {
-          if (options.json) {
+        }
+      } catch (error) {
+        if (options.json) {
           console.error(JSON.stringify({ error: (error instanceof Error ? error.message : String(error))}));
-          } else {
+        } else {
           console.error(error instanceof Error ? error.message : String(error));
-}
+        }
         process.exit(1);
       }
     });
