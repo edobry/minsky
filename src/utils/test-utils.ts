@@ -2,9 +2,9 @@
  * Test utilities for standardizing test setup, cleanup, and common functions
  */
 import { afterEach, beforeEach, mock, spyOn } from "bun:test";
-import path from "path";
-import fs from "fs";
-import os from "os";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
 
 // Make TypeScript happy with Node.js global objects
 declare const global: {
