@@ -12,6 +12,7 @@
 - Improved `normalizeTaskId` function to handle multiple leading `#` characters and validate that task IDs contain only numeric characters.
 - Fixed `minsky session delete` command to properly remove both the session repository directory and database record. The command now correctly identifies the repository location regardless of directory structure (legacy or with sessions subdirectory) and properly handles errors during database operations, clearly reporting failures rather than falsely reporting success.
 - Removed console.error mocking from integration tests to focus on testing behavior rather than implementation details of error reporting, following the new testing-boundaries guidelines.
+- Fixed issue with `minsky rules get --format generic` command where requesting a rule in a format it doesn't exist in would return "Rule not found" error instead of finding the rule in its available format. The command now searches in all formats if a rule isn't found in the requested format and provides a clear message when returning a rule in a different format than requested.
 
 ### Added
 
