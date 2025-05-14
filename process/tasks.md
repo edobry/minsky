@@ -104,3 +104,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
 - [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+
+- [ ] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
