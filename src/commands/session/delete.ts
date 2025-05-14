@@ -106,8 +106,20 @@ export function createDeleteCommand(): Command {
             }
           }
 
-          // Check for uncommitted changes
-          const repoPath = getSessionRepoPath(session);
+          // Determine the repository path - use stored path or fallback to getRepoPath if available
+          let repoPath: string;
+          
+          // If session has repoPath property, use it directly
+          if (session.repoPath) {
+            repoPath = session.repoPath;
+          } else if (typeof db.getRepoPath === "function") {
+            // If db.getRepoPath exists, use it (newer versions)
+            repoPath = await db.getRepoPath(session);
+          } else {
+            // Legacy fallback - construct path manually
+            const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+            repoPath = join(xdgStateHome, "minsky", "git", session.repoName, session.session);
+          }
 
           // Try to delete the session repository
           let repoDeleted = false;
@@ -138,32 +150,27 @@ export function createDeleteCommand(): Command {
             recordDeleted = await db.deleteSession(sessionToDeleteName);
 
             if (!recordDeleted) {
-              throw new Error("Failed to delete session record from database");
+              throw new Error(`Failed to delete session record from database for '${sessionToDeleteName}'.`);
             }
           } catch (error) {
             const errorMessage = `Error removing session record: ${error instanceof Error ? error.message : String(error)}`;
+            const finalMessage = repoDeleted 
+              ? `${errorMessage}\nWARNING: Repository was deleted but session record remains. Database might be in an inconsistent state.`
+              : errorMessage;
 
-            // If we deleted the repo but failed to update the DB, this is a critical error
-            if (repoDeleted) {
-              if (options.json) {
-                console.log(
-                  JSON.stringify({
-                    success: false,
-                    error: errorMessage,
-                    repoDeleted: true,
-                    recordDeleted: false,
-                    warning:
-                      "Repository was deleted but session record remains. Database might be in an inconsistent state.",
-                  })
-                );
-              } else {
-                console.error(errorMessage);
-                console.error(
-                  "WARNING: Repository was deleted but session record remains. Database might be in an inconsistent state."
-                );
-              }
-              exit(1);
+            if (options.json) {
+              console.log(
+                JSON.stringify({
+                  success: false,
+                  error: finalMessage,
+                  repoDeleted,
+                  recordDeleted: false,
+                })
+              );
+            } else {
+              console.error(finalMessage);
             }
+            exit(1); // Always exit if record deletion fails
           }
 
           // Success case
@@ -192,12 +199,6 @@ export function createDeleteCommand(): Command {
         }
       }
     );
-}
-
-// Helper function to get session repository path
-function getSessionRepoPath(session: { repoName: string; session: string }): string {
-  const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
-  return join(xdgStateHome, "minsky", "git", session.repoName, session.session);
 }
 
 // Helper function to prompt for confirmation

@@ -1,7 +1,2 @@
----
-description: null
-globs: null
-alwaysApply: true
----
 
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
