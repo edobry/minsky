@@ -32,7 +32,6 @@ export function createGetCommand(): Command {
         // Get the rule
         const rule = await ruleService.getRule(ruleId, {
           format: options.format,
-          debug: options.debug,
         });
 
         if (options.json) {
@@ -65,6 +64,11 @@ export function createGetCommand(): Command {
           }
 
           prompts.log.info(`Always Apply: ${rule.alwaysApply ? "Yes" : "No"}`);
+
+          // Display format conversion notice if present
+          if (rule.formatNote) {
+            prompts.log.warn(`Format Notice: ${rule.formatNote}`);
+          }
 
           // If we don't want to see the content, stop here
           if (options.metaOnly) {

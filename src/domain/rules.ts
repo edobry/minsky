@@ -13,6 +13,7 @@ export interface Rule {
   content: string; // The rule content (without frontmatter)
   format: RuleFormat; // cursor or generic
   path: string; // Full path to the rule file
+  formatNote?: string; // Optional format conversion notice
 }
 
 export interface RuleMeta {
@@ -113,17 +114,46 @@ export class RuleService {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
-    // Try to find in specified format, or search in both formats
-    const formats: RuleFormat[] = options.format ? [options.format] : ["cursor", "generic"];
-
-    for (const format of formats) {
-      const dirPath = this.getRuleDirPath(format);
+    // If a specific format is requested, try that first 
+    if (options.format) {
+      const requestedFormat = options.format;
+      const dirPath = this.getRuleDirPath(requestedFormat);
       const filePath = join(dirPath, `${bareId}.mdc`);
 
-      if (options.debug) {
-        console.log(`[DEBUG] Attempting to read rule from: ${filePath}`);
-        console.log(`[DEBUG] File exists check: ${existsSync(filePath)}`);
+      try {
+        // Check if file exists in the requested format
+        await fs.access(filePath);
+
+        // File exists in requested format, read and parse it
+        const content = await fs.readFile(filePath, "utf-8");
+        const { data, content: ruleContent } = matter(content);
+
+        return {
+          id: bareId,
+          name: data.name,
+          description: data.description,
+          globs: data.globs,
+          alwaysApply: data.alwaysApply,
+          tags: data.tags,
+          content: ruleContent.trim(),
+          format: requestedFormat,
+          path: filePath,
+        };
+      } catch (error) {
+        // Rule not found in the requested format
+        // Instead of failing immediately, try other formats below
       }
+    }
+
+    // Try to find in all formats if not found in the requested format or if no format was specified
+    const formatsToSearch: RuleFormat[] = ["cursor", "generic"];
+
+    for (const format of formatsToSearch) {
+      // Skip if we already checked this format above
+      if (options.format === format) continue;
+
+      const dirPath = this.getRuleDirPath(format);
+      const filePath = join(dirPath, `${bareId}.mdc`);
 
       try {
         // Check if file exists
@@ -131,14 +161,30 @@ export class RuleService {
 
         // File exists, read and parse it
         const content = await fs.readFile(filePath, "utf-8");
-        
-        if (options.debug) {
-          console.log(`[DEBUG] Successfully read file: ${filePath}`);
-          console.log(`[DEBUG] Content length: ${content.length} bytes`);
-        }
-        
         const { data, content: ruleContent } = matter(content);
 
+        // If we found the rule in a different format than requested, return with appropriate notice
+        if (options.format && format !== options.format) {
+          const originalFormat = format;
+          const requestedFormat = options.format;
+          
+          // Return the rule in its original format, but with a notice that format conversion was requested
+          // Future enhancement: We could implement actual format conversion here
+          return {
+            id: bareId,
+            name: data.name,
+            description: data.description,
+            globs: data.globs,
+            alwaysApply: data.alwaysApply,
+            tags: data.tags,
+            content: ruleContent.trim(),
+            format: originalFormat, // Return actual format, not requested format
+            path: filePath,
+            formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`
+          };
+        }
+
+        // Otherwise just return the rule as found
         return {
           id: bareId,
           name: data.name,
@@ -151,18 +197,17 @@ export class RuleService {
           path: filePath,
         };
       } catch (error) {
-        if (options.debug) {
-          console.error(`[DEBUG] Error accessing rule file: ${filePath}`, error);
-        }
-        
         // File doesn't exist in this format, try the next one
-        if (format === formats[formats.length - 1]) {
-          throw new Error(`Rule not found: ${id}`);
-        }
+        continue;
       }
     }
 
-    throw new Error(`Rule not found: ${id}`);
+    // If we reach here, the rule was not found in any format
+    if (options.format) {
+      throw new Error(`Rule '${id}' not found in '${options.format}' format or any other available format`);
+    } else {
+      throw new Error(`Rule not found: ${id}`);
+    }
   }
 
   /**

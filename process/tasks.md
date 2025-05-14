@@ -87,7 +87,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
 
-- [ ] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
+- [x] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
 
 - [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
 
