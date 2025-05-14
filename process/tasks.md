@@ -91,7 +91,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
 
-- [ ] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
+- [x] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
 
 - [x] Improve Task ID Permissiveness in Minsky CLI Commands [#069](process/tasks/069-improve-task-id-permissiveness-in-minsky-cli-commands.md)
 

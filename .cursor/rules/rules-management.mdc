@@ -1,5 +1,5 @@
 ---
-description:
+description: Use this when working with rules
 globs:
 alwaysApply: false
 ---

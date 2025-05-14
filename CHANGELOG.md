@@ -167,6 +167,7 @@
   - Merged latest changes from main branch and resolved conflicts in git.ts
 - Single-line description validation to interactive mode of `minsky rules create` command to ensure rule descriptions don't contain newlines
 - Shared validation utility `validateSingleLineDescription` in `src/domain/validationUtils.ts` and refactored `minsky rules create` to use it.
+- New AI guideline rule (`.cursor/rules/ai-linter-autofix-guideline.mdc`) to instruct AI not to over-optimize linter-autofixable formatting, relying on linters instead.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -183,6 +184,7 @@ _See: SpecStory history [2024-05-16_remote-repository-support](.specstory/histor
 _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
 _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
 _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
+_See: Task Specification [068-ai-guideline-do-not-over-optimize-indentation](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md) for the AI linter autofix guideline rule (originally indentation, now generalized)._
 
 ### Changed
 
@@ -232,6 +234,8 @@ _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.sp
     - `getChangeStats`
   - Improved error handling in all extracted methods
   - Reduced cognitive complexity while maintaining full test coverage
+- Generalized the AI indentation guideline to cover all linter-autofixable formatting issues. Renamed rule file from `ai-indentation-guideline.mdc` to `ai-linter-autofix-guideline.mdc` and ensured correct location in `.cursor/rules/`.
+- Updated `lint-staged` configuration (`.lintstagedrc.json`) to allow commits even if `eslint --fix` has non-autofixable errors. Autofixes are applied, but the commit is not blocked. Documented this behavior in `README.md`.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

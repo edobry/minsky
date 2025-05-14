@@ -1,6 +1,6 @@
 ---
 description: Guidelines for creating or updating .mdc rule files. REQUIRED when writing, modifying, or reviewing any cursor rule.
-globs: ["**/*.mdc"]
+globs: **/*.mdc
 alwaysApply: false
 ---
 # Cursor Rule Creation Guidelines
@@ -23,7 +23,7 @@ Rules are read by AI assistants with limited attention spans and context windows
    ```markdown
    ---
    description: Brief, actionable summary triggering rule application
-   globs: ["file/patterns/*.ts"] 
+   globs: "file/patterns/*.ts"
    alwaysApply: false
    ---
    ```
@@ -38,7 +38,7 @@ Rules are read by AI assistants with limited attention spans and context windows
    ```
    // AVOID
    badExample();
-   
+
    // PREFER
    goodExample();
    ```

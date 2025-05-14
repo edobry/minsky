@@ -1,0 +1,30 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# AI Guideline: Linter Autofixable Formatting
+
+## Rule Name: ai-linter-autofixable-formatting
+
+## Description
+
+This guideline directs AI behavior regarding code formatting issues that are automatically correctable by project linters. The aim is to improve AI efficiency by avoiding redundant effort on trivial formatting.
+
+## Guideline
+
+1.  **Prioritize Core Logic and Non-Autofixable Standards:** The AI's primary focus during code generation or modification should be on correct logic, architectural soundness, adherence to coding standards not covered by linter autofix, and overall functionality. Formatting that will be automatically corrected by linters is a secondary concern.
+
+2.  **Avoid Excessive Adjustments for Autofixable Issues:** The AI should refrain from making multiple iterative attempts to fix minor formatting discrepancies (e.g., spacing, trailing commas, import sorting, indentation) if these are known to be handled by the project's linter autofix capabilities and the code is otherwise syntactically correct and functionally sound.
+
+3.  **Acknowledge Linter's Role:** The AI should operate with the understanding that project-configured linters (e.g., Prettier, ESLint with autofix) will handle the final standardization of stylistic formatting post-generation.
+
+## Rationale
+
+-   **Efficiency:** Spending AI cycles on perfecting formatting that is automatically handled by linters is redundant. This effort is better allocated to more complex problem-solving, code quality aspects, and adherence to non-autofixable standards.
+-   **Consistency:** Linters enforce a consistent style across the codebase, which is more reliable than manual or AI-driven formatting adjustments for these types of issues.
+
+## Behavior Expectation
+
+-   AI should produce code that is reasonably formatted and readable but is not expected to perfectly match the linter's output for autofixable rules at the generation stage.
+-   When reviewing or suggesting changes, AI should not flag minor, linter-autofixable formatting issues as critical if they are resolvable by the project's linting process.
