@@ -29,6 +29,7 @@ export type RuleFormat = "cursor" | "generic";
 export interface RuleOptions {
   format?: RuleFormat;
   tag?: string;
+  debug?: boolean; // Add debug option
 }
 
 export interface CreateRuleOptions {
@@ -52,10 +53,13 @@ export class RuleService {
 
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
+    // Log workspace path on initialization for debugging
+    console.log(`[DEBUG] RuleService initialized with workspace path: ${workspacePath}`);
   }
 
   private getRuleDirPath(format: RuleFormat): string {
-    return join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    const dirPath = join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    return dirPath;
   }
 
   /**
@@ -67,6 +71,10 @@ export class RuleService {
 
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);
+      
+      if (options.debug) {
+        console.log(`[DEBUG] Listing rules from directory: ${dirPath}`);
+      }
 
       try {
         const files = await fs.readdir(dirPath);
@@ -75,7 +83,7 @@ export class RuleService {
           if (!file.endsWith(".mdc")) continue;
 
           try {
-            const rule = await this.getRule(file.replace(/\.mdc$/, ""), { format });
+            const rule = await this.getRule(file.replace(/\.mdc$/, ""), { format, debug: options.debug });
 
             // Filter by tag if specified
             if (options.tag && (!rule.tags || !rule.tags.includes(options.tag))) {
@@ -112,12 +120,23 @@ export class RuleService {
       const dirPath = this.getRuleDirPath(format);
       const filePath = join(dirPath, `${bareId}.mdc`);
 
+      if (options.debug) {
+        console.log(`[DEBUG] Attempting to read rule from: ${filePath}`);
+        console.log(`[DEBUG] File exists check: ${existsSync(filePath)}`);
+      }
+
       try {
         // Check if file exists
         await fs.access(filePath);
 
         // File exists, read and parse it
         const content = await fs.readFile(filePath, "utf-8");
+        
+        if (options.debug) {
+          console.log(`[DEBUG] Successfully read file: ${filePath}`);
+          console.log(`[DEBUG] Content length: ${content.length} bytes`);
+        }
+        
         const { data, content: ruleContent } = matter(content);
 
         return {
@@ -132,6 +151,10 @@ export class RuleService {
           path: filePath,
         };
       } catch (error) {
+        if (options.debug) {
+          console.error(`[DEBUG] Error accessing rule file: ${filePath}`, error);
+        }
+        
         // File doesn't exist in this format, try the next one
         if (format === formats[formats.length - 1]) {
           throw new Error(`Rule not found: ${id}`);
@@ -176,6 +199,8 @@ export class RuleService {
 
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
+
+    console.log(`[DEBUG] Rule created/updated at path: ${filePath}`);
 
     // Return the created rule
     return {
@@ -233,6 +258,7 @@ export class RuleService {
 
     // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
+    console.log(`[DEBUG] Rule updated at path: ${rule.path}`);
 
     // Return the updated rule
     return {

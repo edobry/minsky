@@ -12,6 +12,7 @@ export function createGetCommand(): Command {
     .option("--format <format>", "Format of the rule (cursor or generic)")
     .option("--repo <path>", "Path to repository (default: current directory)")
     .option("--session <n>", "Use session for repo resolution")
+    .option("--debug", "Display debug information about rule loading")
     .action(async (ruleId, options) => {
       try {
         // Resolve the repo path - reuse the function from domain index
@@ -21,12 +22,17 @@ export function createGetCommand(): Command {
           session: options.session,
         });
 
+        if (options.debug) {
+          console.log(`[DEBUG] Resolved repo path: ${repoPath}`);
+        }
+
         // Initialize the rule service
         const ruleService = new RuleService(repoPath);
 
         // Get the rule
         const rule = await ruleService.getRule(ruleId, {
           format: options.format,
+          debug: options.debug,
         });
 
         if (options.json) {

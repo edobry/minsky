@@ -1,18 +1,20 @@
 import { Command } from "commander";
-import { createListCommand } from "./list.js";
 import { createGetCommand } from "./get.js";
-import { createCreateCommand } from "./create.js";
-import { createUpdateCommand } from "./update.js";
+import { createListCommand } from "./list.js";
 import { createSearchCommand } from "./search.js";
+import { createCommand as createCreateCommand } from "./create.js";
+import { createUpdateCommand } from "./update.js";
+import { createSyncCommand } from "./sync.js";
 
 export function createRulesCommand(): Command {
-  const rules = new Command("rules").description("Minsky rule management operations");
+  const rulesCommand = new Command("rules")
+    .description("Manage Minsky rules")
+    .addCommand(createGetCommand())
+    .addCommand(createListCommand())
+    .addCommand(createSearchCommand())
+    .addCommand(createCreateCommand)
+    .addCommand(createUpdateCommand())
+    .addCommand(createSyncCommand());
 
-  rules.addCommand(createListCommand());
-  rules.addCommand(createGetCommand());
-  rules.addCommand(createCreateCommand());
-  rules.addCommand(createUpdateCommand());
-  rules.addCommand(createSearchCommand());
-
-  return rules;
+  return rulesCommand;
 }
