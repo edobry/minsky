@@ -1,18 +1,23 @@
-<<<<<<< HEAD
 import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
-=======
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
->>>>>>> origin/main
 import * as testUtils from "../../../utils/test-utils";
-import { execSync } from "child_process";
+import { execSync as originalExecSync } from "child_process";
 import { registerSessionTools } from "../../../mcp/tools/session";
 import { CommandMapper } from "../../../mcp/command-mapper";
-<<<<<<< HEAD
 import type { FastMCP } from "fastmcp"; // Import FastMCP type if available, otherwise use any
-=======
->>>>>>> origin/main
 import fs from "fs";
 import path from "path";
+
+// Mock child_process module
+let execSyncMock: jest.Mock = jest.fn(); // Initialize at declaration
+
+mock.module("child_process", () => {
+  // This instance of execSyncMock will be configured by tests and used by the mocked execSync
+  execSyncMock = jest.fn(); 
+  return {
+    __esModule: true, // Important for ES modules
+    execSync: (...args: any[]) => execSyncMock(...args), // Ensure the test-configured mock is called
+  };
+});
 
 /**
  * Integration tests for session commands.
@@ -21,7 +26,6 @@ import path from "path";
  */
 describe("Session Command Integration Tests", () => {
   // Mock dependencies
-  let execSyncMock: jest.Mock;
   let mockCommandMapper: CommandMapper;
   let mockServerTools: any[]; // To store tools for assertion
 
@@ -56,8 +60,9 @@ describe("Session Command Integration Tests", () => {
   });
 
   beforeEach(async () => {
-    execSyncMock = jest.fn();
-    execSyncMock.mockImplementation(() => ""); // Default implementation
+    // execSyncMock is the instance from the module mock closure, clear and set implementation
+    execSyncMock.mockClear();
+    execSyncMock.mockImplementation(() => ""); // Default implementation for each test
 
     spyOn(console, "error").mockImplementation(() => {});
 
@@ -80,9 +85,9 @@ describe("Session Command Integration Tests", () => {
 
   afterEach(() => {
     console.error = originalConsoleError;
-    execSyncMock.mockReset(); // Changed from mockRestore to mockReset for jest.fn
-    // mock.restore(); // This was for bun's module mocking, may not be needed if not using mock.module
-    jest.clearAllMocks(); // Clear all jest mocks
+    // execSyncMock.mockReset(); // mockClear() in beforeEach is usually sufficient
+    // mock.restore(); 
+    jest.clearAllMocks(); // This will clear execSyncMock as well if it's a jest.fn()
   });
 
   describe("session.list command", () => {
@@ -127,7 +132,7 @@ describe("Session Command Integration Tests", () => {
       }
 
       // Verify error handling occurred
-      expect(console.error).toHaveBeenCalledTimes(1);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Failed to list sessions"));
     });
   });
 
@@ -171,7 +176,7 @@ describe("Session Command Integration Tests", () => {
       }
 
       // Verify error handling occurred
-      expect(console.error).toHaveBeenCalledTimes(1);
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Failed to get session non-existent"));
     });
   });
 

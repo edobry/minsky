@@ -1,0 +1,110 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Rule: Testing Boundaries
+
+## Goal
+
+This rule establishes clear principles for testing within the Minsky project, ensuring that tests are valuable, maintainable, and focused on the project's domain logic rather than framework internals or brittle interactive CLI simulations.
+
+## Core Principles
+
+1.  **Test Domain Logic, Not Frameworks:**
+    *   Tests SHOULD focus on validating the correctness of business logic, algorithms, and core functionalities developed within the Minsky codebase.
+    *   Tests MUST NOT attempt to validate the internal workings of third-party libraries, frameworks (e.g., Commander.js, Bun's test runner), or the operating system. Assume these components function as documented.
+    *   For example, do not write tests to confirm that a CLI framework correctly parses arguments if that's its core documented feature; instead, test that your command's *action handler* behaves correctly given those parsed arguments.
+
+2.  **Prohibit Interactive CLI Simulation:**
+    *   Tests MUST NOT simulate detailed user input for interactive CLI prompts (e.g., those provided by libraries like `@clack/prompts` or `inquirer`).
+    *   Mocking interactive prompt libraries to simulate a sequence of user keystrokes, selections, or cancellations is FORBIDDEN. These tests are inherently brittle, difficult to maintain, and often test the prompt library's behavior more than the application's logic.
+    *   If a command's logic changes based on what would have been an interactive input, test that logic by directly calling the responsible function with the various inputs it might receive, rather than simulating the interaction itself.
+
+3.  **Focus on Observable Outcomes and State Changes:**
+    *   Tests SHOULD verify the observable outcomes of an operation. This includes:
+        *   Return values of functions.
+        *   State changes in services or domain objects (where applicable and testable).
+        *   Output to `stdout` or `stderr` for CLI commands, *when this output is a direct, stable, and specified part of the command's contract* (e.g., JSON output, specific status messages). This does NOT include the specifics of interactive prompt rendering.
+        *   Files created, modified, or deleted (where file system interaction is a core part of the tested logic).
+
+4.  **Service and Dependency Mocking:**
+    *   External services or complex internal dependencies (e.g., file system, network calls, database interactions) SHOULD be mocked or stubbed to isolate the unit under test and ensure test determinism.
+    *   Mocks should be focused on the *contract* of the dependency, not its internal implementation.
+
+## Examples
+
+### Allowed: Testing CLI Command Logic (Non-Interactive Aspects)
+
+```typescript
+// src/commands/my-command.ts
+export async function myCommandHandler(options: { data: string; transform?: boolean }) {
+  let result = options.data;
+  if (options.transform) {
+    result = result.toUpperCase();
+  }
+  if (options.json) {
+    console.log(JSON.stringify({ output: result }));
+  } else {
+    console.log(result);
+  }
+}
+
+// src/commands/my-command.test.ts
+describe('myCommandHandler', () => {
+  it('should process data without transformation', () => {
+    const consoleSpy = mock(console, 'log');
+    myCommandHandler({ data: 'hello' });
+    expect(consoleSpy).toHaveBeenCalledWith('hello');
+    consoleSpy.mockRestore();
+  });
+
+  it('should transform data when option is true', () => {
+    const consoleSpy = mock(console, 'log');
+    myCommandHandler({ data: 'hello', transform: true });
+    expect(consoleSpy).toHaveBeenCalledWith('HELLO');
+    consoleSpy.mockRestore();
+  });
+
+  it('should output JSON when option is true', () => {
+    const consoleSpy = mock(console, 'log');
+    myCommandHandler({ data: 'hello', json: true });
+    expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify({ output: 'hello' }));
+    consoleSpy.mockRestore();
+  });
+});
+```
+This test focuses on the logic of `myCommandHandler` based on its options and its direct console output, not on simulating how those options might have been gathered interactively.
+
+### Forbidden: Simulating Interactive Prompts
+
+```typescript
+// Example of what NOT to do:
+// This kind of test, which mocks '@clack/prompts' to simulate user choices, is forbidden.
+
+mock.module('@clack/prompts', () => ({
+  select: mock(async (options) => {
+    if (options.message.includes('Choose operation')) return 'add';
+    return Symbol.for('clack.cancel');
+  }),
+  text: mock(async (options) => {
+    if (options.message.includes('Enter value')) return 'myValue';
+    return Symbol.for('clack.cancel');
+  }),
+  isCancel: mock((val) => typeof val === 'symbol'),
+  // ... other @clack/prompts mocks
+}));
+
+it('should perform ADD when user selects "add" and provides value', async () => {
+  // Test logic that invokes a command that internally uses the mocked prompts...
+  // This is brittle and tests the mocking setup more than the core logic.
+});
+```
+
+## Rationale
+
+-   **Maintainability:** Tests that simulate complex interactions are hard to read, write, and maintain. They break easily with minor UI or prompt library changes.
+-   **Focus:** Keeps test efforts on the unique business logic of Minsky, not on re-testing third-party tools.
+-   **Stability:** Reduces test flakiness often associated with complex UI/interaction mocking.
+
+By adhering to these boundaries, we can build a more robust, reliable, and maintainable test suite.

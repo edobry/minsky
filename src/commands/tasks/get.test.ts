@@ -154,7 +154,7 @@ describe("minsky tasks get CLI", () => {
     const { stdout, stderr, status } = runCliCommand(["tasks", "get", "#999", "--workspace", TEST_DIR]);
     expect(status === 0).toBe(false);
     // Updated error message to reflect changes from my new normalization logic in get.ts
-    expect(stderr).toContain('Task with ID originating from "#999" (normalized to "999") not found');
+    expect(stderr).toContain("Task with ID originating from \"#999\" (normalized to \"999\") not found");
     expect(stdout).toBe("");
   });
 
@@ -243,7 +243,7 @@ describe("minsky tasks get CLI - Task ID Formats", () => {
     if (SKIP_CLI_TESTS) return;
     const { stdout, stderr, status } = runCliCommand(["tasks", "get", "abc", "--workspace", TEST_DIR]);
     expect(status === 0).toBe(false);
-    expect(stderr).toContain('Error: Invalid Task ID format provided: "abc"');
+    expect(stderr).toContain("Error: Invalid Task ID format provided: \"abc\"");
     expect(stdout).toBe("");
   });
 
@@ -251,7 +251,7 @@ describe("minsky tasks get CLI - Task ID Formats", () => {
     if (SKIP_CLI_TESTS) return;
     const { stdout, stderr, status } = runCliCommand(["tasks", "get", "999", "--workspace", TEST_DIR]);
     expect(status === 0).toBe(false);
-    expect(stderr).toContain('Task with ID originating from "999" (normalized to "999") not found');
+    expect(stderr).toContain("Task with ID originating from \"999\" (normalized to \"999\") not found");
     expect(stdout).toBe("");
   });
 });
