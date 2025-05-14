@@ -97,7 +97,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#070](process/tasks/070-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
 
-- [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
+- [-] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
 
 - [-] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
 
@@ -105,4 +105,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
-- [ ] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
+- [-] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
