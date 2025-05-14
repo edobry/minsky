@@ -1,6 +1,6 @@
 ---
 description: REQUIRED to use this rule whenever you're authoring or modifying tests
-globs: 
+globs:
 alwaysApply: false
 ---
 # Test Infrastructure Patterns
@@ -21,7 +21,7 @@ Standardize testing approaches for CLI applications with file system operations 
     cleanupTestDir(TEST_DIR);
     setupTestEnvironment();
   });
-  
+
   afterEach(() => {
     cleanupTestDir(TEST_DIR);
   });
@@ -33,7 +33,7 @@ Standardize testing approaches for CLI applications with file system operations 
   const mockGitService = {
     clone: async () => ({ workdir: "/test/workdir" }),
   };
-  
+
   // Pass mocks to function under test
   const result = await startSession({
     session: "test-session",
@@ -53,7 +53,7 @@ Standardize testing approaches for CLI applications with file system operations 
     mkdirSync(dir, { recursive: true });
     return dir;
   }
-  
+
   export function cleanupTestDir(dir: string): void {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
@@ -70,19 +70,19 @@ Standardize testing approaches for CLI applications with file system operations 
       ...additionalEnv
     };
   }
-  
+
   export function setupMinskyTestEnv(testDir: string): MinskyTestEnv {
     // Create standard directories
     const minskyDir = join(testDir, '.local', 'state', 'minsky');
     const gitDir = join(minskyDir, 'git');
     const sessionDbPath = join(minskyDir, 'session-db.json');
-    
+
     // Create directory structure
     mkdirSync(gitDir, { recursive: true });
-    
+
     // Initialize session DB with empty array
     writeFileSync(sessionDbPath, JSON.stringify([]));
-    
+
     return { minskyDir, gitDir, sessionDbPath };
   }
   ```
@@ -98,7 +98,7 @@ Standardize testing approaches for CLI applications with file system operations 
       stdio: 'pipe'
     };
   }
-  
+
   export function ensureValidCommandResult(result: SpawnSyncReturns<string>) {
     if (result.status !== 0) {
       console.error(`Command failed with status ${result.status}`);
@@ -117,13 +117,13 @@ Standardize testing approaches for CLI applications with file system operations 
       ...standardSpawnOptions(),
       env
     };
-    
+
     const result = spawnSync("bun", ["run", CLI, ...args], options);
-    
+
     // Log output for debugging
     console.log(`Command stdout: ${result.stdout}`);
     console.log(`Command stderr: ${result.stderr}`);
-    
+
     return {
       stdout: result.stdout as string,
       stderr: result.stderr as string,
@@ -140,14 +140,14 @@ Standardize testing approaches for CLI applications with file system operations 
     // Setup the test environment
     testEnv = setupMinskyTestEnv(TEST_DIR);
     sessionDbPath = testEnv.sessionDbPath;
-    
+
     // Normalize data structure
     const normalizedSessions = sessions.map(session => ({
       ...session,
       repoName: session.repoName || session.repoUrl.replace(/[^\w-]/g, "_"),
       createdAt: session.createdAt || new Date().toISOString()
     }));
-    
+
     // Write to the database file
     writeFileSync(sessionDbPath, JSON.stringify(normalizedSessions, null, 2));
   }
@@ -158,14 +158,14 @@ Standardize testing approaches for CLI applications with file system operations 
   function setupTestRepository() {
     const repoDir = join(TEST_DIR, 'repo');
     const gitDir = join(repoDir, '.git');
-    
+
     // Create minimal git-like structure
     mkdirSync(gitDir, { recursive: true });
     writeFileSync(join(gitDir, 'HEAD'), 'ref: refs/heads/main');
-    
+
     // Create test files
     writeFileSync(join(repoDir, 'test.txt'), 'Test content');
-    
+
     return repoDir;
   }
   ```
@@ -176,7 +176,7 @@ Standardize testing approaches for CLI applications with file system operations 
   ```typescript
   console.log(`Test setup: Created session DB at ${sessionDbPath}`);
   console.log(`Environment variables: XDG_STATE_HOME=${process.env.XDG_STATE_HOME}`);
-  
+
   const { stdout, stderr } = runCliCommand(["session", "list"]);
   console.log(`Command stdout: ${stdout}`);
   console.log(`Command stderr: ${stderr}`);
@@ -213,7 +213,7 @@ Standardize testing approaches for CLI applications with file system operations 
       // Mock all dependencies
     });
   });
-  
+
   // Integration test with real file system
   describe("integration: startSession", () => {
     test("creates session directory", async () => {
@@ -223,3 +223,5 @@ Standardize testing approaches for CLI applications with file system operations 
   ```
 
 These patterns improve test reliability, isolation, and maintainability in applications that interact with the file system, environment variables, and external processes.
+
+See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.

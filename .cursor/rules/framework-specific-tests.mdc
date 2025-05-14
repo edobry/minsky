@@ -1,11 +1,9 @@
 ---
 name: Framework-Specific Testing
 description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
-globs:
-  - '**/*.test.ts'
-  - '**/*.spec.ts'
-alwaysApply: false
+globs: **/*.test.ts'
 ---
+
 # Framework-Specific Testing
 
 ## Bun.js Testing Standards
@@ -26,22 +24,22 @@ alwaysApply: false
 describe("Feature under test", () => {
   // Define mock functions
   const mockDependency = jest.fn();
-  
+
   // Mock modules
   mock.module("../path/to/module", () => ({
     exportedFunction: mockDependency,
   }));
-  
+
   beforeEach(() => {
     // Reset mock state
     mockDependency.mockClear();
   });
-  
+
   afterEach(() => {
     // Restore all mocks
     mock.restore();
   });
-  
+
   test("specific behavior", () => {
     // Test implementation
     mockDependency.mockReturnValue("expected");
@@ -89,3 +87,5 @@ describe("Feature under test", () => {
      await expect(functionUnderTest()).rejects.toThrow("test error");
    });
    ```
+
+See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.

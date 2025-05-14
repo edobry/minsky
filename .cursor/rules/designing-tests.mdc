@@ -108,6 +108,8 @@ Write comprehensive, maintainable tests following these principles:
 - When refactoring code, update tests to match the new structure, but do not overfit tests to the implementation.
 - Remove or rewrite tests that are no longer relevant or that test implementation details.
 
+See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.
+
 ---
 
 _This rule was updated after task#022 to reflect the insight that maintainable tests should focus on core functionality, use dependency injection, avoid complex mocking, and minimize reliance on file system operations or process state. See the completion log for task#022 for details._
