@@ -5,106 +5,65 @@ alwaysApply: false
 ---
 # Rule: Testing Boundaries
 
-## Goal
+## Description
 
-This rule establishes clear principles for testing within the Minsky project, ensuring that tests are valuable, maintainable, and focused on the project's domain logic rather than framework internals or brittle interactive CLI simulations.
+This rule defines the principles for what should and should not be tested within this project, particularly concerning command-line interface (CLI) interactions and framework internals. The primary goal is to ensure testing efforts are focused on robust, maintainable tests that verify core domain logic rather than brittle tests for UI/framework behavior.
 
 ## Core Principles
 
-1.  **Test Domain Logic, Not Frameworks:**
-    *   Tests SHOULD focus on validating the correctness of business logic, algorithms, and core functionalities developed within the Minsky codebase.
-    *   Tests MUST NOT attempt to validate the internal workings of third-party libraries, frameworks (e.g., Commander.js, Bun's test runner), or the operating system. Assume these components function as documented.
-    *   For example, do not write tests to confirm that a CLI framework correctly parses arguments if that's its core documented feature; instead, test that your command's *action handler* behaves correctly given those parsed arguments.
+1.  **Focus on Domain Logic:**
+    *   Tests SHOULD primarily verify the correctness of the application's domain logic, business rules, and core algorithms.
+    *   Given an input, does the domain logic produce the expected output or state change?
+    *   **Example:** For a command that processes a file and generates output, tests should mock the file system interaction and verify that the processing logic transforms input data correctly.
 
-2.  **Prohibit Interactive CLI Simulation:**
-    *   Tests MUST NOT simulate detailed user input for interactive CLI prompts (e.g., those provided by libraries like `@clack/prompts` or `inquirer`).
-    *   Mocking interactive prompt libraries to simulate a sequence of user keystrokes, selections, or cancellations is FORBIDDEN. These tests are inherently brittle, difficult to maintain, and often test the prompt library's behavior more than the application's logic.
-    *   If a command's logic changes based on what would have been an interactive input, test that logic by directly calling the responsible function with the various inputs it might receive, rather than simulating the interaction itself.
+2.  **Do NOT Test Interactive CLI Prompts:**
+    *   Tests MUST NOT attempt to directly test interactive CLI features, such as those provided by libraries like `@clack/prompts` or `inquirer`.
+    *   This means avoiding:
+        *   Simulating TTY input (e.g., sending keystrokes to a prompt).
+        *   Deeply mocking interactive prompt libraries to assert on specific UI calls (e.g., "was `p.text()` called?").
+        *   Snapshotting terminal output that includes interactive prompt UIs.
+    *   **Rationale:**
+        *   Interactive CLI tests are inherently brittle and prone to breaking with minor UI or library updates.
+        *   They often test the behavior of the prompt library itself, not our application logic.
+        *   They are complex to write and maintain.
+    *   **Alternative for Commands with Prompts:**
+        *   If a command can receive all its inputs via non-interactive means (e.g., command-line flags or arguments), test it this way. Add flags if necessary to make it testable.
+        *   If a prompt is unavoidable for a piece of logic, extract the logic that *follows* the prompt into a separate, testable function that accepts the (previously prompted) value as an argument.
+        *   Mock the prompt function at a high level if absolutely necessary, making it return a predefined value, to test the subsequent logic. Do *not* test the prompt interaction itself.
+        *   **Example:** If a command `my-cmd` prompts for a commit message:
+            *   **AVOID:** Testing the sequence of `@clack/prompts` calls.
+            *   **PREFER:**
+                *   Test `my-cmd --message "Test message"` if a non-interactive option exists.
+                *   If not, and `my-cmd` calls `getCommitMessage()` (which prompts) then `performCommit(message)`, test `performCommit(message)` directly.
+                *   Or, mock `getCommitMessage()` to return `"Test message"` and verify `performCommit` is called correctly.
 
-3.  **Focus on Observable Outcomes and State Changes:**
-    *   Tests SHOULD verify the observable outcomes of an operation. This includes:
-        *   Return values of functions.
-        *   State changes in services or domain objects (where applicable and testable).
-        *   Output to `stdout` or `stderr` for CLI commands, *when this output is a direct, stable, and specified part of the command's contract* (e.g., JSON output, specific status messages). This does NOT include the specifics of interactive prompt rendering.
-        *   Files created, modified, or deleted (where file system interaction is a core part of the tested logic).
+3.  **Do NOT Test Framework Internals or Third-Party Library Behavior:**
+    *   Tests MUST NOT rely on or assert against the internal implementation details of frameworks (e.g., Commander.js, Fastify) or third-party libraries.
+    *   Assume that well-maintained third-party libraries are already tested by their maintainers.
+    *   **Example:**
+        *   When testing a command built with Commander.js, do not test that Commander.js correctly parses arguments or calls the action handler. Instead, test the action handler's logic directly, perhaps by invoking it with mocked/simulated arguments.
+        *   Do not test if a specific ORM method generates the correct SQL (unless you are writing the ORM). Test that your data access layer, using the ORM, retrieves or saves data as expected.
 
-4.  **Service and Dependency Mocking:**
-    *   External services or complex internal dependencies (e.g., file system, network calls, database interactions) SHOULD be mocked or stubbed to isolate the unit under test and ensure test determinism.
-    *   Mocks should be focused on the *contract* of the dependency, not its internal implementation.
+4.  **CLI Command Testing Strategy:**
+    *   **Unit/Integration Tests for Command Logic:**
+        *   The primary way to test CLI commands SHOULD be by unit/integration testing the command's action handler or the core logic it orchestrates.
+        *   Mock external dependencies (file system, network, services, underlying CLI calls if wrapping another tool) to isolate the logic under test.
+        *   For commands built with libraries like Commander.js, you can often invoke the command's action handler programmatically with parsed options.
+    *   **Limited End-to-End (E2E) CLI Tests (Non-Interactive):**
+        *   A small number of E2E tests that execute the compiled CLI (e.g., via `spawnSync`) MAY be used for critical, non-interactive user flows.
+        *   These tests MUST provide all inputs via command-line arguments/flags and verify `stdout`, `stderr`, and exit codes.
+        *   They MUST NOT involve interactive prompts.
+        *   These tests are more about ensuring the CLI executable runs, basic argument parsing works at a high level, and it integrates with the OS environment correctly, rather than detailed logic testing.
+        *   **Example:** For a command `minsky tasks list --json`:
+            *   An E2E test could run `bun src/cli.ts tasks list --json` and verify the exit code is 0 and `stdout` is valid JSON.
+            *   The detailed logic of fetching and formatting tasks would be covered by unit/integration tests of the underlying services and command action handler, with dependencies mocked.
 
-## Examples
+## Relationship to Other Testing Rules
 
-### Allowed: Testing CLI Command Logic (Non-Interactive Aspects)
+*   This rule provides specific prohibitions and guidance for CLI and framework testing, complementing general rules like `designing-tests`, `testable-design`, and `tests`.
+*   Where the `cli-testing` rule suggests simulating TTY input for interactive features, this rule (`testing-boundaries`) takes precedence for this project and **prohibits** that approach. The project prefers making commands testable non-interactively or testing the logic separate from the interactive prompt.
 
-```typescript
-// src/commands/my-command.ts
-export async function myCommandHandler(options: { data: string; transform?: boolean }) {
-  let result = options.data;
-  if (options.transform) {
-    result = result.toUpperCase();
-  }
-  if (options.json) {
-    console.log(JSON.stringify({ output: result }));
-  } else {
-    console.log(result);
-  }
-}
+## Enforcement
 
-// src/commands/my-command.test.ts
-describe('myCommandHandler', () => {
-  it('should process data without transformation', () => {
-    const consoleSpy = mock(console, 'log');
-    myCommandHandler({ data: 'hello' });
-    expect(consoleSpy).toHaveBeenCalledWith('hello');
-    consoleSpy.mockRestore();
-  });
-
-  it('should transform data when option is true', () => {
-    const consoleSpy = mock(console, 'log');
-    myCommandHandler({ data: 'hello', transform: true });
-    expect(consoleSpy).toHaveBeenCalledWith('HELLO');
-    consoleSpy.mockRestore();
-  });
-
-  it('should output JSON when option is true', () => {
-    const consoleSpy = mock(console, 'log');
-    myCommandHandler({ data: 'hello', json: true });
-    expect(consoleSpy).toHaveBeenCalledWith(JSON.stringify({ output: 'hello' }));
-    consoleSpy.mockRestore();
-  });
-});
-```
-This test focuses on the logic of `myCommandHandler` based on its options and its direct console output, not on simulating how those options might have been gathered interactively.
-
-### Forbidden: Simulating Interactive Prompts
-
-```typescript
-// Example of what NOT to do:
-// This kind of test, which mocks '@clack/prompts' to simulate user choices, is forbidden.
-
-mock.module('@clack/prompts', () => ({
-  select: mock(async (options) => {
-    if (options.message.includes('Choose operation')) return 'add';
-    return Symbol.for('clack.cancel');
-  }),
-  text: mock(async (options) => {
-    if (options.message.includes('Enter value')) return 'myValue';
-    return Symbol.for('clack.cancel');
-  }),
-  isCancel: mock((val) => typeof val === 'symbol'),
-  // ... other @clack/prompts mocks
-}));
-
-it('should perform ADD when user selects "add" and provides value', async () => {
-  // Test logic that invokes a command that internally uses the mocked prompts...
-  // This is brittle and tests the mocking setup more than the core logic.
-});
-```
-
-## Rationale
-
--   **Maintainability:** Tests that simulate complex interactions are hard to read, write, and maintain. They break easily with minor UI or prompt library changes.
--   **Focus:** Keeps test efforts on the unique business logic of Minsky, not on re-testing third-party tools.
--   **Stability:** Reduces test flakiness often associated with complex UI/interaction mocking.
-
-By adhering to these boundaries, we can build a more robust, reliable, and maintainable test suite.
+*   Code reviews SHOULD check for adherence to these principles.
+*   New tests for CLI commands involving prompts MUST demonstrate how they avoid testing the interactive part directly.

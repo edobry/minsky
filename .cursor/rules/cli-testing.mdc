@@ -71,11 +71,7 @@ expect(status).toBe(1); // Error exit code
 
 ## Testing Interactive CLI Features
 
-**IMPORTANT**: Testing of detailed interactive CLI features (e.g., simulating user input for prompts from libraries like `@clack/prompts`) is generally discouraged due to brittleness and focus on framework internals over domain logic.
-
--   **Refer to the `@testing-boundaries.mdc` rule for comprehensive guidelines on what should and should not be tested regarding interactive CLI behavior.**
--   Instead of simulating interactive prompts, focus on testing the underlying command logic or action handlers by directly providing them with the data that an interactive prompt would have gathered.
--   If a command's behavior changes based on interactive input, test the functions responsible for that logic with various inputs, rather than testing the interactive sequence itself.
+> **Project-Specific Note:** For this project, the `testing-boundaries.mdc` rule takes precedence over the general advice here regarding direct testing of interactive features. This project prohibits simulating TTY input or deeply mocking prompt libraries. Refer to `testing-boundaries.mdc` for the approved strategies for handling commands with interactive prompts.
 
 ## Environment Testing
 - Test with different environment variables

@@ -3,9 +3,11 @@ name: Framework-Specific Testing
 description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
 globs:
   - '**/*.test.ts'
-  - '**/*.spec.ts'
-alwaysApply: false
 ---
+name: Framework-Specific Testing
+description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
+globs:
+  - '**/*.test.ts'
 # Framework-Specific Testing
 
 ## Bun.js Testing Standards
@@ -89,3 +91,5 @@ describe("Feature under test", () => {
      await expect(functionUnderTest()).rejects.toThrow("test error");
    });
    ```
+
+See also: `.cursor/rules/testing-boundaries.mdc` for specific guidance on CLI and framework testing boundaries.

@@ -93,7 +93,7 @@ This is a zero-tolerance policy. Any violation will require immediate remediatio
 # Tests
 
 ## Best Practices Cross-Reference
-- See also: dont-ignore-errors, designing-tests, minsky-workflow, rule-map.mdc
+- See also: dont-ignore-errors, designing-tests, minsky-workflow, rule-map.mdc, .cursor/rules/testing-boundaries.mdc
 - This rule governs: batch verification, verification checkpoints, and test pass/fail gating.
 
 ## Requirements (Revised)
