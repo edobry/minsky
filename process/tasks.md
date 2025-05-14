@@ -65,7 +65,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
 
-- [ ] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
+- [x] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
 
 - [ ] Explore OCI Artifacts for Rule Distribution [#056](process/tasks/056-explore-oci-artifacts-for-rule-distribution.md)
 

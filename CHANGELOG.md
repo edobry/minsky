@@ -173,6 +173,9 @@
 - Shared validation utility `validateSingleLineDescription` in `src/domain/validationUtils.ts` and refactored `minsky rules create` to use it.
 - New AI guideline rule (`.cursor/rules/ai-linter-autofix-guideline.mdc`) to instruct AI not to over-optimize linter-autofixable formatting, relying on linters instead.
 - Updated testing-boundaries rule with clear guidelines on what should and should not be tested, particularly regarding CLI interactive features and implementation details.
+- New `minsky rules sync` command to synchronize rule files between main workspace and session workspaces
+- Debug mode for rules commands to help troubleshoot rule loading issues
+- Documentation in `.cursor/rules/README.md` explaining workspace isolation and rule management
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -242,6 +245,8 @@ _See: SpecStory history [2025-05-14_task-071-remove-interactive-cli-tests](.spec
   - Reduced cognitive complexity while maintaining full test coverage
 - Generalized the AI indentation guideline to cover all linter-autofixable formatting issues. Renamed rule file from `ai-indentation-guideline.mdc` to `ai-linter-autofix-guideline.mdc` and ensured correct location in `.cursor/rules/`.
 - Updated `lint-staged` configuration (`.lintstagedrc.json`) to allow commits even if `eslint --fix` has non-autofixable errors. Autofixes are applied, but the commit is not blocked. Documented this behavior in `README.md`.
+- Removed incorrect "bug note" from task-status-verification rule
+- Improved error handling and diagnostics in rule loading
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -260,23 +265,10 @@ _See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specsto
 _See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
 _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
 _See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/history/2025-05-22_task-021-refactor-git-service.md) for implementation details._
+_See: SpecStory history [2024-07-01_rule-sync-bug-diagnostics](.specstory/history/2024-07-01_rule-sync-bug-diagnostics.md) for rule sync bug investigation._
 
 ### Fixed
 
-- Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
-- Fixed linter/type errors in session DB and domain modules
-- Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
-- Fixed test reliability and linter errors in domain logic tests
-- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
-- Fixed bug in `session dir` command where it returned the wrong path for session repositories, not accounting for the per-repo directory structure
-- Fixed failing tests for `session dir`, `session get`, and `session delete` commands
-- Fixed tasks command tests by creating proper test environment setup for workspace-based tests
-- Windows-specific path edge cases in several modules
-- Better error messages for failed command execution
-- Various UI text improvements for clarity and consistency
-- Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
-- Fixed issues with `mock` module references in test files
-- Enhanced test documentation with clear TODO markers for proper test mocking
 - Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
 - Fixed issues with session-related tests by enhancing error handling and directory creation
 - Fixed task list tests by ensuring tasks.md is created in the proper process directory
@@ -284,17 +276,9 @@ _See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/hi
 - Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
 - Updated mock CLI command implementations to handle task ID operations consistently
 - Ensured proper type safety in test mocks
-- Fixed SessionDB to properly handle null/undefined values in getSessionByTaskId
-- Fixed Session test database isolation to ensure tests don't interfere with each other
-- Fixed Error handling in repository operations with proper cleaning and recovery
-- Replaced placeholder tests in `tasks status` command with proper functional tests
-- Fixed interface-agnostic git functions and their tests with proper manual mocks
-- Fixed regression in git.ts by updating variable declarations to use `let` instead of `const` when values are reassigned
-
-_See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
-_See: SpecStory history [2025-05-13_task-status-command-tests-fix](.specstory/history/2025-05-13_task-status-command-tests-fix.md) for task status tests fixes._
-
-_See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
+- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
+- Improved test environment setup to create more complete Minsky workspace structure
+- Enhanced error handling and debugging output in test environment setup
 
 ## [0.39.0] - 2025-04-29
 
