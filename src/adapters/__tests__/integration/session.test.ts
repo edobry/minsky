@@ -1,16 +1,9 @@
-<<<<<<< HEAD
 import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
-=======
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
->>>>>>> origin/main
 import * as testUtils from "../../../utils/test-utils";
 import { execSync } from "child_process";
 import { registerSessionTools } from "../../../mcp/tools/session";
 import { CommandMapper } from "../../../mcp/command-mapper";
-<<<<<<< HEAD
 import type { FastMCP } from "fastmcp"; // Import FastMCP type if available, otherwise use any
-=======
->>>>>>> origin/main
 import fs from "fs";
 import path from "path";
 
@@ -57,9 +50,11 @@ describe("Session Command Integration Tests", () => {
 
   beforeEach(async () => {
     execSyncMock = jest.fn();
-    execSyncMock.mockImplementation(() => ""); // Default implementation
+    // Default to valid empty JSON to avoid parse errors if not overridden
+    execSyncMock.mockImplementation(() => "{}"); 
 
-    spyOn(console, "error").mockImplementation(() => {});
+    // Use jest.spyOn for console.error and keep the assertion for length
+    jest.spyOn(console, "error").mockImplementation(() => {});
 
     // Set up FastMCP mock server and CommandMapper
     mockServerTools = [];
@@ -112,6 +107,7 @@ describe("Session Command Integration Tests", () => {
 
     it("should handle error conditions consistently", async () => {
       const testError = new Error("Command failed");
+      let actualError: Error | null = null;
       execSyncMock.mockImplementation(() => { throw testError; });
 
       const listSessionTool = mockServerTools.find(
@@ -121,13 +117,14 @@ describe("Session Command Integration Tests", () => {
       try {
         await listSessionTool.execute({});
         // Should not reach here
-        expect(true).toBe(false);
+        expect(true).toBe(false); // Force failure if no error thrown
       } catch (error) {
+        actualError = error as Error;
         expect(String(error)).toContain("Failed to list sessions");
       }
-
-      // Verify error handling occurred
-      expect(console.error).toHaveBeenCalledTimes(1);
+      expect(actualError).not.toBeNull(); // Ensure an error was caught
+      // Check calls *after* potential error logging from the tool itself
+      expect(console.error.mock.calls.length).toBe(1);
     });
   });
 
@@ -157,6 +154,7 @@ describe("Session Command Integration Tests", () => {
 
     it("should handle error conditions consistently", async () => {
       const testError = new Error("Session not found");
+      let actualError: Error | null = null;
       execSyncMock.mockImplementation(() => { throw testError; });
       const getSessionTool = mockServerTools.find(
         (tool: any) => tool.name === "session.get"
@@ -165,13 +163,14 @@ describe("Session Command Integration Tests", () => {
       try {
         await getSessionTool.execute({ session: "non-existent" });
         // Should not reach here
-        expect(true).toBe(false);
+        expect(true).toBe(false); // Force failure if no error thrown
       } catch (error) {
+        actualError = error as Error;
         expect(String(error)).toContain("Failed to get session non-existent");
       }
-
-      // Verify error handling occurred
-      expect(console.error).toHaveBeenCalledTimes(1);
+      expect(actualError).not.toBeNull(); // Ensure an error was caught
+      // Check calls *after* potential error logging from the tool itself
+      expect(console.error.mock.calls.length).toBe(1);
     });
   });
 

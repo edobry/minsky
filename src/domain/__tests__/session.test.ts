@@ -4,6 +4,10 @@
 import { describe, test, expect, beforeEach, mock, jest } from "bun:test";
 import { startSessionFromParams, updateSessionFromParams } from "../session.js";
 import { ResourceNotFoundError } from "../../errors/index.js";
+import type { SessionRecord, Session, SessionDeps } from "../session.js";
+import type { Task } from "../tasks.js";
+import type { SessionUpdateParams } from "../../schemas/session.js";
+import * as WorkspaceUtilsFns from "../../utils/workspace.js";
 
 // Mock dependencies
 const mockSessionRecord = {
@@ -40,6 +44,8 @@ const mockSessionDB = {
   listSessions: jest.fn(() => [mockSessionRecord]),
   getSessionByTaskId: jest.fn((taskId: string) => (taskId === "#123" ? mockSessionRecord : null)),
   updateSession: jest.fn(() => Promise.resolve()),
+  getNewSessionRepoPath: jest.fn((repoName: string, sessionId: string) => `/mock/repo/${repoName}/sessions/${sessionId}`),
+  getSessionWorkdir: jest.fn((sessionName: string) => Promise.resolve(`/mocked/workdir/${sessionName}`)),
 };
 
 // Mock TaskService
@@ -58,6 +64,12 @@ const mockIsSessionRepository = jest.fn(() => Promise.resolve(false));
 // Mock getCurrentSession
 const mockGetCurrentSession = jest.fn(() => Promise.resolve("test-session"));
 
+// Create a mock for WorkspaceUtils if needed by SessionDeps
+const mockWorkspaceUtils = {
+  ...WorkspaceUtilsFns, // Spread actual functions, can override specific ones with mocks if needed
+  // Example: getCurrentSession: jest.fn(),
+};
+
 describe("interface-agnostic session functions", () => {
   beforeEach(() => {
     // Reset mocks between tests
@@ -75,6 +87,8 @@ describe("interface-agnostic session functions", () => {
     mockSessionDB.listSessions.mockClear();
     mockSessionDB.getSessionByTaskId.mockClear();
     mockSessionDB.updateSession.mockClear();
+    mockSessionDB.getNewSessionRepoPath.mockClear();
+    mockSessionDB.getSessionWorkdir.mockClear();
 
     mockTaskService.getTask.mockClear();
     mockTaskService.getTaskStatus.mockClear();
@@ -96,6 +110,8 @@ describe("interface-agnostic session functions", () => {
     mockSessionDB.getSessionByTaskId.mockImplementation((taskId: string) =>
       taskId === "#123" ? mockSessionRecord : null
     );
+    mockSessionDB.getNewSessionRepoPath.mockImplementation((repoName: string, sessionId: string) => `/mock/repo/${repoName}/sessions/${sessionId}`);
+    mockSessionDB.getSessionWorkdir.mockImplementation((sessionName: string) => Promise.resolve(`/mocked/workdir/${sessionName}`));
 
     mockTaskService.getTask.mockImplementation((id: string) => (id === "#123" ? mockTask : null));
     mockTaskService.getTaskStatus.mockImplementation((id: string) =>
@@ -109,14 +125,19 @@ describe("interface-agnostic session functions", () => {
     test("should start a session with valid parameters", async () => {
       // Mock the required dependencies
       const GitService = class {
-        clone = mockGitService.clone;
-        branch = mockGitService.branch;
+        constructor() {
+          return mockGitService;
+        }
       };
 
       const SessionDB = class {
         getSession = mockSessionDB.getSession;
         addSession = mockSessionDB.addSession;
         listSessions = mockSessionDB.listSessions;
+        getSessionByTaskId = mockSessionDB.getSessionByTaskId;
+        updateSession = mockSessionDB.updateSession;
+        getNewSessionRepoPath = mockSessionDB.getNewSessionRepoPath;
+        getSessionWorkdir = mockSessionDB.getSessionWorkdir;
       };
 
       const TaskService = class {
@@ -180,7 +201,7 @@ describe("interface-agnostic session functions", () => {
         expect(result.repoUrl).toBe("/mock/repo/url");
         expect(mockSessionDB.addSession.mock.calls.length).toBeGreaterThan(0);
         expect(mockGitService.clone.mock.calls.length).toBeGreaterThan(0);
-        expect(mockGitService.branch.mock.calls.length).toBeGreaterThan(0);
+        // expect(mockGitService.branch.mock.calls.length).toBeGreaterThan(0); // Removed, branch is part of clone
       } catch (error) {
         console.error("Test error:", error);
         throw error;
@@ -206,34 +227,18 @@ describe("interface-agnostic session functions", () => {
 
   describe("updateSessionFromParams", () => {
     test("should update a session with valid parameters", async () => {
-      // Mock the required dependencies
-      const GitService = class {
-        getSessionWorkdir = mockGitService.getSessionWorkdir;
-        stashChanges = mockGitService.stashChanges;
-        popStash = mockGitService.popStash;
-        pullLatest = mockGitService.pullLatest;
-        mergeBranch = mockGitService.mergeBranch;
-        pushBranch = mockGitService.pushBranch;
+      // mock.module calls removed for this test
+
+      const { updateSessionFromParams, createSessionDeps } = await import("../session.js"); // Get the real function and default deps creator
+
+      const deps: SessionDeps = {
+        sessionDB: mockSessionDB as any, 
+        gitService: mockGitService as any, 
+        taskService: mockTaskService as any, 
+        workspaceUtils: mockWorkspaceUtils, // Use the defined mock
       };
 
-      const SessionDB = class {
-        getSession = mockSessionDB.getSession;
-      };
-
-      // Setup module mocks
-      mock.module("../git.js", () => ({
-        GitService,
-      }));
-
-      mock.module("../session.js", () => ({
-        SessionDB,
-      }));
-
-      mock.module("../workspace.js", () => ({
-        getCurrentSession: mockGetCurrentSession,
-      }));
-
-      const params = {
+      const params: SessionUpdateParams = {
         name: "test-session",
         branch: "main",
         remote: "origin",
@@ -241,18 +246,13 @@ describe("interface-agnostic session functions", () => {
         noPush: false,
       };
 
-      // Reimport to use mocked modules
-      const { updateSessionFromParams: mockedUpdateSessionFromParams } = await import(
-        "../session.js"
-      );
-
       try {
-        await mockedUpdateSessionFromParams(params);
+        await updateSessionFromParams(params, deps); // Pass mocked dependencies
 
         expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-        expect(mockGitService.getSessionWorkdir.mock.calls.length).toBeGreaterThan(0);
-        expect(mockGitService.stashChanges.mock.calls.length).toBeGreaterThan(0);
-        expect(mockGitService.pullLatest.mock.calls.length).toBeGreaterThan(0);
+        // expect(mockGitService.getSessionWorkdir.mock.calls.length).toBeGreaterThan(0); // Removed, not called by updateSessionFromParams
+        expect(mockGitService.stashChanges).toHaveBeenCalledWith();
+        expect(mockGitService.pullLatest).toHaveBeenCalledWith();
         expect(mockGitService.mergeBranch).toHaveBeenCalledWith("/mock/session/workdir", "main");
         expect(mockGitService.pushBranch.mock.calls.length).toBeGreaterThan(0);
         expect(mockGitService.popStash.mock.calls.length).toBeGreaterThan(0);
@@ -289,6 +289,12 @@ describe("interface-agnostic session functions", () => {
 
       const SessionDB = class {
         getSession = mockSessionDB.getSession;
+        addSession = mockSessionDB.addSession;
+        listSessions = mockSessionDB.listSessions;
+        getSessionByTaskId = mockSessionDB.getSessionByTaskId;
+        updateSession = mockSessionDB.updateSession;
+        getNewSessionRepoPath = mockSessionDB.getNewSessionRepoPath;
+        getSessionWorkdir = mockSessionDB.getSessionWorkdir;
       };
 
       // Setup module mocks
