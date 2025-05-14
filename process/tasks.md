@@ -108,3 +108,5 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
 - [ ] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
+
+- [ ] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
