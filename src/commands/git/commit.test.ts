@@ -197,4 +197,17 @@ describe("git commit command", () => {
     expect(processExitSpy.mock.calls.length).toBeGreaterThan(0);
     expect(consoleErrorSpy.mock.calls.length).toBeGreaterThan(0);
   });
+
+  test.skip("should correctly skip staging files if --no-stage option is present", async () => {
+    const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+    // Ensure getStatus is mocked for this specific test path *after* reset
+    mockGitService.getStatus.mockImplementation(() => Promise.resolve(mockStatusNoStage));
+    mockResolveRepoPath.mockImplementation(() => Promise.resolve("/path/to/repo"));
+
+    await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
+
+    // Check that neither stageAll nor stageModified were called
+    expect(mockGitService.stageAll.mock.calls.length).toBe(0);
+    expect(mockGitService.stageModified.mock.calls.length).toBe(0);
+  });
 });

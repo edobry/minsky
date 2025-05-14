@@ -18,6 +18,13 @@ import {
   setTaskStatusFromParams,
 } from "../../domain/index.js";
 import { MinskyError } from "../../errors/index.js";
+import { TASK_STATUS } from "../../domain/tasks.js";
+import * as p from "@clack/prompts";
+
+// Helper for exiting process consistently
+function exit(code: number): never {
+  process.exit(code);
+}
 
 /**
  * Creates the task list command
@@ -101,12 +108,7 @@ export function createListCommand(): Command {
           }
         } catch (error) {
           console.error("Error listing tasks:", error);
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            process.exit(1);
-          } else {
-            process.exit(1);
-          }
+          exit(1);
         }
       }
     );
@@ -166,7 +168,7 @@ export function createGetCommand(): Command {
           }
         } catch (error) {
           console.error("Error getting task:", error);
-          process.exit(1);
+          exit(1);
         }
       }
     );
@@ -225,15 +227,7 @@ export function createStatusCommand(): Command {
           } else {
             console.error(`Unexpected error: ${error}`);
           }
-
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          } else {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          }
+          exit(1);
         }
       }
     );
@@ -260,16 +254,33 @@ export function createStatusCommand(): Command {
         }
       ) => {
         try {
+          // If status is not provided, try to prompt interactively
           if (!status) {
-            console.error("Error: Status is required");
-            if (typeof Bun !== "undefined") {
-              // eslint-disable-next-line no-restricted-globals
-              process.exit(1);
-            } else {
-              // eslint-disable-next-line no-restricted-globals
-              process.exit(1);
+            // Check if we're in an interactive environment
+            if (!process.stdout.isTTY) {
+              console.error("Error: Status is required in non-interactive environments");
+              exit(1);
+              return;
             }
-            return;
+
+            // Show interactive prompt for status
+            p.intro("Task Status Update");
+
+            const selectedStatus = await p.select({
+              message: `Select a status for task ${taskId}:`,
+              options: Object.values(TASK_STATUS).map((s) => ({ value: s, label: s })),
+            });
+
+            // Handle cancellation
+            if (p.isCancel(selectedStatus)) {
+              p.cancel("Status update cancelled");
+              exit(0);
+              return;
+            }
+
+            status = selectedStatus as string;
+            p.log.success(`Selected status: ${status}`);
+            p.outro("Updating task status...");
           }
 
           // Convert CLI options to domain parameters
@@ -293,15 +304,7 @@ export function createStatusCommand(): Command {
           } else {
             console.error(`Unexpected error: ${error}`);
           }
-
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          } else {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          }
+          exit(1);
         }
       }
     );
@@ -362,7 +365,7 @@ export function createCreateCommand(): Command {
           console.log(output);
         } catch (error) {
           console.error("Error creating task:", error);
-          process.exit(1);
+          exit(1);
         }
       }
     );

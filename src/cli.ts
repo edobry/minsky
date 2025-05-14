@@ -2,7 +2,8 @@
 /* eslint-disable no-restricted-imports */
 import { Command } from "commander";
 import { createSessionCommand } from "./commands/session/index.js";
-import { createTasksCommand } from "./commands/tasks/index.js";
+import { createTasksCommand as createOldTasksCommand } from "./commands/tasks/index.js";
+import { createTasksCommand } from "./adapters/cli/tasks.js";
 import { createGitCommand } from "./commands/git/index.js";
 import { createInitCommand } from "./commands/init/index.js";
 import { createMCPCommand } from "./commands/mcp/index.js";

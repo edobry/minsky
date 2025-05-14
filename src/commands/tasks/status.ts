@@ -135,7 +135,7 @@ export function createStatusCommand(): Command {
     .command("set")
     .description("Set status for a task")
     .argument("<task-id>", "Task ID to set status for")
-    .argument("<status>", "New status value (TODO, IN_PROGRESS, DONE, etc.)")
+    .argument("[status]", "New status (TODO, IN_PROGRESS, DONE, etc.)")
     .option("--session <session>", "Session to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
     .option("--json", "Output as JSON")
@@ -156,6 +156,49 @@ export function createStatusCommand(): Command {
 
         // Create task service with resolved workspace path
         const taskService = new TaskService({ workspacePath });
+
+        // If status is not provided, prompt for it in interactive mode
+        if (!status) {
+          // Check if we're in a non-interactive environment
+          if (!process.stdout.isTTY) {
+            console.error(
+              `\nStatus is required in non-interactive mode.\nValid options are: ${Object.values(
+                TASK_STATUS
+              ).join(", ")}\nExample: minsky tasks status set #071 DONE\n`
+            );
+            exit(1);
+          }
+
+          // Get current status for the task
+          const task = await taskService.getTask(taskId);
+          if (!task) {
+            console.error(`Task ${taskId} not found.`);
+            exit(1);
+          }
+
+          const currentStatus = task.status;
+
+          // Prompt for status using @clack/prompts
+          const statusOptions = Object.entries(TASK_STATUS).map(([key, value]) => ({
+            value: value,
+            label: value,
+          }));
+
+          const statusChoice = await p.select({
+            message: `Select new status for task ${taskId}:`,
+            options: statusOptions,
+            initialValue: currentStatus || TASK_STATUS.TODO,
+          });
+
+          // Handle cancellation
+          if (p.isCancel(statusChoice)) {
+            p.cancel("Operation cancelled");
+            exit(0);
+          }
+
+          // Set the chosen status
+          status = statusChoice as string;
+        }
 
         // Update the task status
         await taskService.setTaskStatus(taskId, status);

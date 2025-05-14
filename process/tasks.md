@@ -65,7 +65,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
 
-- [ ] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
+- [x] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
 
 - [ ] Explore OCI Artifacts for Rule Distribution [#056](process/tasks/056-explore-oci-artifacts-for-rule-distribution.md)
 
@@ -91,14 +91,22 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
 
-- [ ] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
+- [x] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
 
 - [x] Improve Task ID Permissiveness in Minsky CLI Commands [#069](process/tasks/069-improve-task-id-permissiveness-in-minsky-cli-commands.md)
 
 - [x] Auto-Detect Current Session/Task in Minsky CLI from Session Workspace [#070](process/tasks/070-auto-detect-current-session-task-in-minsky-cli-from-session-workspace.md)
 
-- [ ] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
+- [x] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
 
 - [-] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
 
 - [ ] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
+
+- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+
+- [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
+
+- [ ] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
+
+- [ ] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)

@@ -104,8 +104,9 @@ export async function startSession({
     if (!task) {
       throw new Error(`Task with ID originating from "${normalizedTaskInput}" (normalized to "${internalTaskId}") not found`);
     }
-    taskId = internalTaskId; // Update taskId to the normalized (numeric) version
-    session = `task#${internalTaskId}`; // Update session name based on normalized (numeric) ID
+    taskId = internalTaskId; // Update taskId to the normalized (with #) version
+    // The session name should use the numeric part without the # prefix
+    session = `task${internalTaskId}`; // This will create names like task#123
   }
 
   if (!session) {
@@ -119,7 +120,12 @@ export async function startSession({
 
   if (taskId) {
     const existingSessions = await sessionDB.listSessions();
-    const taskSession = existingSessions.find((s: SessionRecord) => s.taskId === taskId);
+    const taskSession = existingSessions.find((s: SessionRecord) => {
+      if (!s.taskId) return false;
+      const normalizedSessionTaskId = normalizeTaskId(s.taskId);
+      const normalizedInputTaskId = normalizeTaskId(taskId);
+      return normalizedSessionTaskId === normalizedInputTaskId;
+    });
     if (taskSession) {
       throw new Error(`A session for task ${taskId} already exists: '${taskSession.session}'`);
     }

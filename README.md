@@ -252,6 +252,22 @@ Each agent works in its own isolated environment and can generate PR documents t
 
 This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
 
+## Linting and Pre-commit Hooks
+
+This project uses ESLint for identifying and reporting on patterns in JavaScript and TypeScript code, and Prettier for code formatting. To help maintain code quality and consistency, these tools are configured to run automatically before commits using Husky and lint-staged.
+
+### Pre-commit Behavior
+
+When you make a commit:
+
+1.  **ESLint (`eslint --fix`)**: Automatically fixes fixable linting issues in staged `.ts` and `.js` files.
+    - **Important Note**: If ESLint encounters errors it cannot automatically fix, it will still allow the commit to proceed. The autofixed changes will be part of the commit, but any remaining non-autofixable lint errors will persist. These should be addressed manually or will be caught by more stringent checks in the CI pipeline.
+2.  **Prettier (`prettier --write`)**: Automatically formats staged `.ts`, `.js`, `.json`, and `.md` files.
+
+This setup ensures that common formatting and simple lint issues are handled automatically without strictly blocking commits for all lint errors. However, developers are encouraged to run `bun run lint` manually to check for and resolve any outstanding lint issues before pushing.
+
+The pre-commit hooks themselves (e.g., `.husky/pre-commit`) need to be active (i.e., not have a `.disabled` suffix) for this automation to run.
+
 ## License
 
 MIT
