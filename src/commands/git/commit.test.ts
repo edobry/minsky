@@ -257,7 +257,7 @@ describe("git commit command", () => {
     ]);
 
     if (typeof mockConsoleError === "function")
-      mockConsoleError(expect.stringContaining('Session "nonexistent" not found'));
+      mockConsoleError(expect.stringContaining("Session \"nonexistent\" not found"));
     if (typeof mockProcessExit === "function") mockProcessExit(1);
   });
 

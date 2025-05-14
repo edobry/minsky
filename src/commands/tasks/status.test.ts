@@ -1,8 +1,7 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { Command } from "commander";
 import { createStatusCommand } from "./status";
 import { TaskService, TASK_STATUS } from "../../domain/tasks";
-import * as p from "@clack/prompts";
 
 // Manual mocks for tracking call history
 interface CallRecord {
@@ -101,7 +100,7 @@ describe("Status Command - Set", () => {
     console.error = originalError;
   });
 
-  it("should set task status successfully", async () => {
+  test("should set task status successfully", async () => {
     // Setup a task set mock that works correctly with the command
     mock.module("../../domain/tasks", () => {
       return {
@@ -149,7 +148,7 @@ describe("Status Command - Set", () => {
     expect(consoleOutput[0]).toBe("Updated task #001 status to DONE");
   });
 
-  it("should validate status and report error for invalid status", async () => {
+  test("should validate status and report error for invalid status", async () => {
     // Setup a task set mock that throws for invalid status
     let exitCalled = false;
     let exitCode: number | null = null;
@@ -216,12 +215,12 @@ describe("Status Command - Set", () => {
     expect(exitCode).toBe(1);
   });
 
-  it("requires status parameter in command line", () => {
+  test("requires status parameter in command line", () => {
     // This test verifies that commander requires the status parameter
 
     // Create a test command to check the commander arguments
     const cmd = createStatusCommand();
-    const setCmd = cmd.commands.find((c) => c.name() === "set");
+    const setCmd = cmd.commands.find((c: Command) => c.name() === "set");
 
     if (!setCmd) {
       throw new Error("Could not find set command");

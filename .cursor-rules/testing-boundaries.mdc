@@ -1,5 +1,5 @@
 ---
-description: Use this whenever working on tests
+description:
 globs:
 alwaysApply: false
 ---
@@ -67,4 +67,3 @@ This rule defines the principles for what should and should not be tested within
 
 *   Code reviews SHOULD check for adherence to these principles.
 *   New tests for CLI commands involving prompts MUST demonstrate how they avoid testing the interactive part directly.
-*   Test files SHOULD be reviewed specifically for dependency on implementation details versus behavior testing. 

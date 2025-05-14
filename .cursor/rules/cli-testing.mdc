@@ -70,11 +70,8 @@ expect(status).toBe(1); // Error exit code
 ```
 
 ## Testing Interactive CLI Features
-- Mock TTY input to simulate user interaction
-- Test prompts, confirmations, and interactive menus
-- Verify default selections and validation
-- Test cancellation and interruption handling
-- Validate help text and instructions during interaction
+
+> **Project-Specific Note:** For this project, the `testing-boundaries.mdc` rule takes precedence over the general advice here regarding direct testing of interactive features. This project prohibits simulating TTY input or deeply mocking prompt libraries. Refer to `testing-boundaries.mdc` for the approved strategies for handling commands with interactive prompts.
 
 > **Project-Specific Note:** For this project, the `testing-boundaries.mdc` rule takes precedence over the general advice here regarding direct testing of interactive features. This project prohibits simulating TTY input or deeply mocking prompt libraries. Refer to `testing-boundaries.mdc` for the approved strategies for handling commands with interactive prompts.
 

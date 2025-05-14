@@ -7,9 +7,11 @@
 ### Fixed
 
 - Fixed incorrect import path in session.ts that was causing "Cannot find module '../utils/workspace.js'" error in `minsky tasks status get` command
+- Fixed interactive status selection in `minsky tasks status set` command so it properly prompts for status when not provided as a command-line argument
 - Task ID normalization now consistently handles task IDs with or without the `#` prefix. This fixes issues with commands like `minsky tasks get 071` and `minsky session start --task 071` where tasks couldn't be found if the ID was provided without the leading `#`.
 - Improved `normalizeTaskId` function to handle multiple leading `#` characters and validate that task IDs contain only numeric characters.
 - Fixed `minsky session delete` command to properly remove both the session repository directory and database record. The command now correctly identifies the repository location regardless of directory structure (legacy or with sessions subdirectory) and properly handles errors during database operations, clearly reporting failures rather than falsely reporting success.
+- Removed console.error mocking from integration tests to focus on testing behavior rather than implementation details of error reporting, following the new testing-boundaries guidelines.
 
 ### Added
 
@@ -170,6 +172,7 @@
 - Single-line description validation to interactive mode of `minsky rules create` command to ensure rule descriptions don't contain newlines
 - Shared validation utility `validateSingleLineDescription` in `src/domain/validationUtils.ts` and refactored `minsky rules create` to use it.
 - New AI guideline rule (`.cursor/rules/ai-linter-autofix-guideline.mdc`) to instruct AI not to over-optimize linter-autofixable formatting, relying on linters instead.
+- Updated testing-boundaries rule with clear guidelines on what should and should not be tested, particularly regarding CLI interactive features and implementation details.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -187,8 +190,9 @@ _See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history
 _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
 _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
 _See: Task Specification [068-ai-guideline-do-not-over-optimize-indentation](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md) for the AI linter autofix guideline rule (originally indentation, now generalized)._
+_See: SpecStory history [2025-05-14_task-071-remove-interactive-cli-tests](.specstory/history/2025-05-14_task-071-remove-interactive-cli-tests.md) for task#071 implementation._
 
-### Changed
+### Changed 
 
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
 - PR output now includes both committed and uncommitted (working directory) changes
