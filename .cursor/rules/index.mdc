@@ -13,7 +13,12 @@ These rules define the fundamental workflow and processes for using Minsky:
 
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
-| **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
+| **minsky-workflow-orchestrator** | Entry point for the Minsky workflow system with links to specific rules | **Always required**. Provides an overview and links to specific workflow rules |
+| **minsky-cli-usage** | CLI command reference and verification protocol | When using ANY Minsky CLI command |
+| **minsky-session-management** | Session creation, navigation, and management | When creating, navigating, or managing sessions |
+| **task-implementation-workflow** | Task implementation process | When implementing task requirements |
+| **task-status-protocol** | Status checking, updating, and verification | When checking or updating task status |
+| **pr-preparation-workflow** | PR creation and submission | When preparing and submitting PRs |
 | **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |

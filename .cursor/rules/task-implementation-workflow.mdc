@@ -3,7 +3,6 @@ name: Task Implementation Workflow
 description: REQUIRED workflow for implementing tasks from start to completion
 globs:
   - "**/*"
----
 description:
 globs:
 alwaysApply: false
@@ -32,7 +31,7 @@ When asked to work on a task (by name, description, or ID):
      ```bash
      minsky tasks status get '#<task-id>'
      ```
-   - For verification of implementation state versus tracked status, refer to [mdc:task-status-protocol.mdc]
+   - For verification of implementation state versus tracked status, refer to task-status-protocol
    - Task status meanings:
      - `TODO`: Not started, available to work on
      - `IN-PROGRESS`: Work has begun but is not complete
@@ -47,7 +46,7 @@ When asked to work on a task (by name, description, or ID):
    - Note any dependencies or blocking issues
 
 4. **Start a Session**
-   - Follow [mdc:minsky-session-management.mdc] to create and enter a session
+   - Follow minsky-session-management to create and enter a session
    - Mark the task as in progress:
      ```bash
      minsky tasks status set '#<task-id>' IN-PROGRESS
@@ -106,7 +105,7 @@ When asked to work on a task (by name, description, or ID):
    - Update any relevant project documentation
 
 3. **Changelog**
-   - Follow the instructions in [mdc:changelog.mdc] for updating the appropriate CHANGELOG.md
+   - Follow the instructions in changelog for updating the appropriate CHANGELOG.md
    - Use the Work Log from the task document as the basis for changelog entries
    - Reference the task ID in the changelog entry
 
@@ -134,7 +133,7 @@ Task implementation is not complete until ALL these steps are performed, in orde
 ## Request Interpretation and Workflow Priority
 
 1. **Always interpret requests based on their literal meaning in the project context.**
-   - For detailed guidance on interpreting requests related to task creation, including the distinction between task specification and implementation, refer to [mdc:creating-tasks.mdc].
+   - For detailed guidance on interpreting requests related to task creation, including the distinction between task specification and implementation, refer to creating-tasks.
    - "Implement" or "code" generally refers to writing the actual implementation for an existing, specified task.
 
 2. **Request Type Recognition**
@@ -161,13 +160,8 @@ Task implementation is not complete until ALL these steps are performed, in orde
      → Default to creating a task specification unless context clearly indicates implementation
 
 ## See Also
-- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:minsky-session-management.mdc] for session management
-- See [mdc:task-status-protocol.mdc] for status update procedures
-- See [mdc:pr-preparation-workflow.mdc] for PR creation and submission
-
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:minsky-session-management.mdc] for session management
-- See [mdc:task-status-protocol.mdc] for status update procedures
-- See [mdc:pr-preparation-workflow.mdc] for PR creation and submission
+- See minsky-workflow-orchestrator for workflow overview
+- See minsky-cli-usage for CLI command reference
+- See minsky-session-management for session management
+- See task-status-protocol for status update procedures
+- See pr-preparation-workflow for PR creation and submission

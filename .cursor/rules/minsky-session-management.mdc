@@ -3,7 +3,6 @@ name: Minsky Session Management Protocol
 description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
 globs:
   - "**/*"
----
 description:
 globs:
 alwaysApply: false
@@ -179,15 +178,10 @@ When a task is completed and merged into the main branch:
 
 ## Integration with Existing Workflows
 
-For comprehensive rules on how to correctly work with files (including path resolution, `edit_file` tool usage, and maintaining isolation) once inside the session workspace, see [mdc:session-first-workflow.mdc].
+For comprehensive rules on how to correctly work with files (including path resolution, `edit_file` tool usage, and maintaining isolation) once inside the session workspace, see session-first-workflow.
 
 ## See Also
-- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:task-implementation-workflow.mdc] for implementing tasks
-- See [mdc:session-first-workflow.mdc] for detailed file handling in sessions
-
-- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:task-implementation-workflow.mdc] for implementing tasks
-- See [mdc:session-first-workflow.mdc] for detailed file handling in sessions
+- See minsky-workflow-orchestrator for workflow overview
+- See minsky-cli-usage for CLI command reference
+- See task-implementation-workflow for implementing tasks
+- See session-first-workflow for detailed file handling in sessions

@@ -3,7 +3,6 @@ name: PR Preparation Workflow
 description: REQUIRED protocol for preparing, creating, and submitting PRs for implemented tasks
 globs:
   - "**/*"
----
 description:
 globs:
 alwaysApply: false
@@ -33,7 +32,7 @@ Before generating a PR, ensure:
      ```
      process/tasks/<task-id>/pr.md
      ```
-   - **For guidelines on the content and formatting of the PR description itself, refer to [mdc:pr-description-guidelines.mdc].**
+   - **For guidelines on the content and formatting of the PR description itself, refer to pr-description-guidelines.**
    - Commit this PR description file:
      ```bash
      minsky session commit -m "task#<id>: Generate PR description" 
@@ -68,6 +67,8 @@ Before marking a task as complete (IN-REVIEW), ensure the following steps have b
 6. ✓ PR description is committed
 7. ✓ Changes are pushed to remote with `minsky session commit`
 8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+9. ✓ Changelog is updated appropriately (see changelog)
+10. ✓ PR description is prepared (see pr-preparation-workflow)
 
 ## Commit Guidelines
 
@@ -116,7 +117,7 @@ A good PR description should include:
    - Verification that all tests pass
    - Indication that documentation has been updated
 
-For more detailed guidelines, see [mdc:pr-description-guidelines.mdc].
+For more detailed guidelines, see pr-description-guidelines.
 
 ## After PR Creation
 
@@ -143,11 +144,11 @@ For more detailed guidelines, see [mdc:pr-description-guidelines.mdc].
      ```
 
 ## See Also
-- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:task-implementation-workflow.mdc] for implementing tasks
-- See [mdc:task-status-protocol.mdc] for status update procedures
-- See [mdc:pr-description-guidelines.mdc] for PR content guidelines
+- See minsky-workflow-orchestrator for workflow overview
+- See minsky-cli-usage for CLI command reference
+- See task-implementation-workflow for implementing tasks
+- See task-status-protocol for status update procedures
+- See pr-description-guidelines for PR content guidelines
 
 ---
 description:

@@ -3,7 +3,6 @@ name: Task Status Protocol
 description: Protocol for checking, updating, and verifying task status via Minsky CLI
 globs:
   - "**/*"
----
 description:
 globs:
 alwaysApply: false
@@ -161,12 +160,12 @@ Before marking any task as DONE, do a final verification:
 
 ## See Also
 
-For more comprehensive verification of task status, especially when there might be discrepancies between tracked status and actual implementation state, see [mdc:task-status-verification.mdc].
+For more comprehensive verification of task status, especially when there might be discrepancies between tracked status and actual implementation state, see task-status-verification.
 
-- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
-- See [mdc:minsky-cli-usage.mdc] for CLI command reference
-- See [mdc:task-implementation-workflow.mdc] for implementing tasks
-- See [mdc:task-status-verification.mdc] for detailed verification procedures
+- See minsky-workflow-orchestrator for workflow overview
+- See minsky-cli-usage for CLI command reference
+- See task-implementation-workflow for implementing tasks
+- See task-status-verification for detailed verification procedures
 
 ---
 description:
