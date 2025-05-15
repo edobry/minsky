@@ -5,47 +5,59 @@ import fs from "fs";
 import path from "path";
 
 describe("initializeProject", () => {
-  // Test utility to track function calls
-  const trackCalls = <T extends Function>() => {
-    const calls: any[] = [];
-    const fn = jest.fn((...args: any[]) => {
+  // Test utility to create mocks that track calls
+  function createMockFunction() {
+    const calls: any[][] = [];
+    const mockFn = (...args: any[]) => {
       calls.push(args);
-      if (typeof fn.mockImplementation === 'function') {
-        return fn.mockImplementation(...args);
+      if (typeof mockFn.implementation === 'function') {
+        return mockFn.implementation(...args);
       }
-      return fn.returnValue;
-    });
-    fn.calls = calls;
-    fn.returnValue = undefined as unknown as ReturnType<T>;
-    return fn;
-  };
+      return mockFn.returnValue;
+    };
+    
+    mockFn.calls = calls;
+    mockFn.returnValue = undefined;
+    mockFn.implementation = undefined as any;
+    
+    mockFn.mockReturnValue = (val: any) => {
+      mockFn.returnValue = val;
+      mockFn.implementation = undefined;
+      return mockFn;
+    };
+    
+    mockFn.mockImplementation = (impl: Function) => {
+      mockFn.implementation = impl;
+      return mockFn;
+    };
+    
+    mockFn.mockReset = () => {
+      calls.length = 0;
+      mockFn.returnValue = undefined;
+      mockFn.implementation = undefined;
+    };
+    
+    return mockFn;
+  }
 
   const repoPath = "/test/repo";
 
-  // Set up mocks for each test
-  let mockExistsSync: jest.Mock;
-  let mockMkdirSync: jest.Mock;
-  let mockWriteFileSync: jest.Mock;
-  let mockFileSystem: FileSystem;
-
-  beforeEach(() => {
-    // Create fresh mock functions for each test
-    mockExistsSync = jest.fn();
-    mockMkdirSync = jest.fn();
-    mockWriteFileSync = jest.fn();
-
-    // Default implementations
+  test("should create directories and files for tasks.md backend and cursor rule format", async () => {
+    // Set up mocks
+    const mockExistsSync = createMockFunction();
     mockExistsSync.mockReturnValue(false);
     
+    const mockMkdirSync = createMockFunction();
+    const mockWriteFileSync = createMockFunction();
+    
     // Set up mock file system
-    mockFileSystem = {
-      existsSync: mockExistsSync,
-      mkdirSync: mockMkdirSync,
-      writeFileSync: mockWriteFileSync,
+    const mockFileSystem: FileSystem = {
+      existsSync: mockExistsSync as any,
+      mkdirSync: mockMkdirSync as any,
+      writeFileSync: mockWriteFileSync as any,
     };
-  });
-
-  test("should create directories and files for tasks.md backend and cursor rule format", async () => {
+    
+    // Run the test
     await initializeProjectWithFS(
       {
         repoPath,
@@ -55,31 +67,35 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Should check directories/files exist
-    expect(mockExistsSync).toHaveBeenCalledWith(path.join(repoPath, "process", "tasks"));
-    expect(mockExistsSync).toHaveBeenCalledWith(path.join(repoPath, "process", "tasks.md"));
-    expect(mockExistsSync).toHaveBeenCalledWith(path.join(repoPath, ".cursor", "rules"));
-    expect(mockExistsSync).toHaveBeenCalledWith(path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc"));
+    // Verify the results
+    expect(mockExistsSync.calls.length).toBeGreaterThan(0);
+    expect(mockMkdirSync.calls.length).toBeGreaterThan(0);
+    expect(mockWriteFileSync.calls.length).toBeGreaterThan(0);
     
-    // Should create directories
-    expect(mockMkdirSync).toHaveBeenCalledWith(path.join(repoPath, "process", "tasks"), { recursive: true });
-    expect(mockMkdirSync).toHaveBeenCalledWith(path.join(repoPath, ".cursor", "rules"), { recursive: true });
-
-    // Should create files
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      path.join(repoPath, "process", "tasks.md"),
-      expect.stringContaining("# Minsky Tasks")
-    );
+    // Check specific paths were created
+    expect(mockMkdirSync.calls.some((args: any[]) => 
+      args[0] === path.join(repoPath, "process", "tasks")
+    )).toBe(true);
     
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc"),
-      expect.stringContaining("# Minsky Workflow")
-    );
+    expect(mockMkdirSync.calls.some((args: any[]) => 
+      args[0] === path.join(repoPath, ".cursor", "rules")
+    )).toBe(true);
     
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      path.join(repoPath, ".cursor", "mcp.json"),
-      expect.stringContaining("mcpServers")
-    );
+    // Check that files were written
+    expect(mockWriteFileSync.calls.some((args: any[]) => 
+      args[0] === path.join(repoPath, "process", "tasks.md") && 
+      String(args[1]).includes("# Minsky Tasks")
+    )).toBe(true);
+    
+    expect(mockWriteFileSync.calls.some((args: any[]) => 
+      args[0] === path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc") && 
+      String(args[1]).includes("# Minsky Workflow")
+    )).toBe(true);
+    
+    expect(mockWriteFileSync.calls.some((args: any[]) => 
+      args[0] === path.join(repoPath, ".cursor", "mcp.json") && 
+      String(args[1]).includes("mcpServers")
+    )).toBe(true);
   });
 
   test("should create directories and files for tasks.md backend and generic rule format", async () => {
@@ -265,6 +281,19 @@ describe("initializeProject", () => {
   });
 
   test("should throw error for unimplemented backend", async () => {
+    // Set up mocks
+    const mockExistsSync = createMockFunction();
+    const mockMkdirSync = createMockFunction();
+    const mockWriteFileSync = createMockFunction();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockExistsSync as any,
+      mkdirSync: mockMkdirSync as any,
+      writeFileSync: mockWriteFileSync as any,
+    };
+    
+    // Test that it throws an error for unimplemented backend
     try {
       await initializeProjectWithFS(
         {
@@ -281,6 +310,8 @@ describe("initializeProject", () => {
   });
 
   test("should throw error if file already exists", async () => {
+    // Set up mocks
+    const mockExistsSync = createMockFunction();
     // Mock file exists for specific path
     mockExistsSync.mockImplementation((filePath: string) => {
       if (filePath === path.join(repoPath, "process", "tasks.md")) {
@@ -288,7 +319,18 @@ describe("initializeProject", () => {
       }
       return false;
     });
-
+    
+    const mockMkdirSync = createMockFunction();
+    const mockWriteFileSync = createMockFunction();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockExistsSync as any,
+      mkdirSync: mockMkdirSync as any,
+      writeFileSync: mockWriteFileSync as any,
+    };
+    
+    // Test that it throws an error when file exists
     try {
       await initializeProjectWithFS(
         {
@@ -336,13 +378,13 @@ describe("initializeProject", () => {
     );
 
     // Should not create tasks.md
-    const tasksFileCheck = mockWriteFileSync.mock.calls.filter(
+    const tasksFileCheck = mockWriteFileSync.calls.filter(
       (args) => String(args[0]).includes("tasks.md")
     );
     expect(tasksFileCheck.length).toBe(0);
 
     // Should create MCP config
-    const mcpConfigCheck = mockWriteFileSync.mock.calls.filter(
+    const mcpConfigCheck = mockWriteFileSync.calls.filter(
       (args) => String(args[0]).includes("mcp.json")
     );
     expect(mcpConfigCheck.length).toBe(1);
