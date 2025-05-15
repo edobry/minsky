@@ -6,7 +6,7 @@ import { ResourceNotFoundError } from "../../errors/index.js";
 import type { SessionRecord, Session, SessionDeps } from "../session.js";
 import type { Task } from "../tasks.js";
 import type { SessionUpdateParams } from "../../schemas/session.js";
-import * as WorkspaceUtilsFns from "../../utils/workspace.js";
+import * as WorkspaceUtilsFns from "../workspace.js";
 
 // Mock dependencies from HEAD/origin/main - they are similar
 const mockSessionRecord = {
@@ -160,16 +160,16 @@ describe("interface-agnostic session functions", () => {
         normalizeRepoName: () => "mock-repo",
       }));
 
-      const params = {
-        name: "test-session",
-        repo: "/mock/repo/url",
-        remote: { authMethod: "ssh" as const, depth: 1 },
-      };
-
       // Import the startSessionFromParams function from the mocked module
       const { startSessionFromParams } = await import("../session.js");
 
-      mockSessionDB.getSession.mockImplementationOnce(() => null);
+      const params = {
+        quiet: false,
+        noStatusUpdate: false,
+        name: "test-session",
+        repo: "/mock/repo/url",
+        remote: { authMethod: "ssh" as const, depth: 1 }
+      };
 
       try {
         const result = await startSessionFromParams(params);
@@ -203,7 +203,27 @@ describe("interface-agnostic session functions", () => {
     });
 
     test("should throw ResourceNotFoundError when task ID is not found", async () => {
-      // implementation remains the same
+      // Import the startSessionFromParams function
+      const { startSessionFromParams } = await import("../session.js");
+
+      const params = {
+        quiet: false,
+        noStatusUpdate: false,
+        task: "999", // Non-existent task ID
+        repo: "/mock/repo/url",
+      };
+
+      // Mock that the task does not exist
+      mockTaskService.getTask.mockImplementationOnce(() => null);
+
+      try {
+        await startSessionFromParams(params);
+        // Should not reach this line
+        expect(true).toBe(false); // This should not happen
+      } catch (error) {
+        expect(error instanceof ResourceNotFoundError).toBe(true);
+        expect((error as Error).message).toContain("999");
+      }
     });
 
     test("should throw error when session already exists", async () => {
