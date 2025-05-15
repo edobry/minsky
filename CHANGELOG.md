@@ -19,6 +19,8 @@
 - Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
 - Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
 - Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
+- Fixed placeholder tests in list.test.ts and get.test.ts with proper implementation notes (#072)
+- Added TestSessionParams type to fix type errors in get.test.ts (#072)
 
 ### Added
 
