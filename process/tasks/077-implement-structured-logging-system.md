@@ -224,12 +224,15 @@ The logging implementation will prioritize:
    - Replaced console logging in core domain modules:
      - `src/domain/tasks.ts`: Converted logging to structured format with proper context
      - `src/domain/session.ts`: Updated debug and error logging with improved metadata
+   - Fixed the CLI task adapter (`src/adapters/cli/tasks.ts`) to use the new logger
+   - Added missing `sessionRecordSchema` in the session schema file
+   - Updated JSON output handling to properly use stdout for structured data
 
 ### Remaining Work
 
 1. **Continue Migration**
-   - Replace all remaining `console.log`, `console.error`, and `console.warn` calls (approximately 330 instances)
-   - Focus on remaining core modules like `src/adapters/cli/tasks.ts`
+   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 300 remaining instances)
+   - Focus on remaining core modules and adapters
    - Ensure proper categorization of logs (program/CLI messages vs agent/system events)
 
 2. **Refine Context Objects**
@@ -239,3 +242,6 @@ The logging implementation will prioritize:
 3. **Documentation**
    - Add documentation about the logging system and how to use it
    - Provide examples of proper logging usage
+
+4. **Session Domain Fixes**
+   - Fix the remaining linter errors in `src/domain/session.ts` related to method signatures and type compatibility
