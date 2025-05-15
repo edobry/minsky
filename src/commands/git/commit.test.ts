@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, jest } from "bun:test";
 import type { SessionDB, SessionRecord } from "../../domain/session";
 import { createGitCommitCommand } from "./commit";
 import type { GitStatus } from "../../domain/git";
@@ -6,10 +6,10 @@ import { setupConsoleSpy } from "../../utils/test-utils.js";
 
 // Mock GitService functions
 const mockGitService = {
-  getStatus: mock(() => Promise.resolve({ modified: ["file1"], untracked: [], deleted: [] })),
-  stageAll: mock(() => Promise.resolve()),
-  stageModified: mock(() => Promise.resolve()),
-  commit: mock((message, amend) => Promise.resolve("abc123")),
+  getStatus: jest.fn(() => Promise.resolve({ modified: ["file1"], untracked: [], deleted: [] })),
+  stageAll: jest.fn(() => Promise.resolve()),
+  stageModified: jest.fn(() => Promise.resolve()),
+  commit: jest.fn((message: string, amend: boolean) => Promise.resolve("abc123")),
 };
 
 // Provide a constructible mock GitService class
@@ -27,7 +27,7 @@ mock.module("../../domain/git.js", () => {
 });
 
 // Mock SessionDB getSession
-const mockGetSession = mock((name) => 
+const mockGetSession = jest.fn((name: string) => 
   name === "test-session" 
     ? Promise.resolve({
       session: "test-session",
@@ -47,7 +47,7 @@ mock.module("../../domain/session.js", () => ({
 }));
 
 // Mock resolveRepoPath
-const mockResolveRepoPath = mock(() => Promise.resolve("/path/to/repo"));
+const mockResolveRepoPath = jest.fn(() => Promise.resolve("/path/to/repo"));
 mock.module("../../utils/repo.js", () => ({
   resolveRepoPath: mockResolveRepoPath
 }));
