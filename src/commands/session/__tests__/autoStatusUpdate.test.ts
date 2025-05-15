@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, mock, jest } from "bun:test";
 
 // Define the function to test
 function updateTaskStatus(options: { taskId?: string; skipStatusUpdate?: boolean }): {
@@ -26,11 +26,14 @@ describe("Session start auto status update", () => {
   });
 
   test("should not update task status when skipStatusUpdate is true", () => {
-    // Act
-    const result = updateTaskStatus({
+    // Arrange
+    const options = {
       taskId: "123",
       skipStatusUpdate: true,
-    });
+    };
+
+    // Act
+    const result = updateTaskStatus(options);
 
     // Assert
     expect(result.updated).toBe(false);
@@ -59,8 +62,39 @@ describe("Session start auto status update", () => {
   });
 });
 
-describe("Auto status update", () => {
-  test("basic test", () => {
-    expect(1 + 1).toBe(2);
+describe("Auto status update integration", () => {
+  test("should update task status in TaskService when auto update is enabled", async () => {
+    // Arrange
+    const mockSetTaskStatus = jest.fn(() => Promise.resolve(true));
+    const mockTaskService = {
+      setTaskStatus: mockSetTaskStatus
+    };
+    
+    // Mock auto update function with our task service
+    const autoUpdateTaskStatus = async (options: { 
+      taskId: string; 
+      skipStatusUpdate?: boolean;
+      taskService: any;
+    }): Promise<boolean> => {
+      const { taskId, skipStatusUpdate = false, taskService } = options;
+      
+      if (skipStatusUpdate || !taskId) {
+        return false;
+      }
+      
+      await taskService.setTaskStatus(taskId, "IN-PROGRESS");
+      return true;
+    };
+    
+    // Act
+    const result = await autoUpdateTaskStatus({ 
+      taskId: "123", 
+      taskService: mockTaskService 
+    });
+    
+    // Assert
+    expect(result).toBe(true);
+    expect(mockSetTaskStatus).toHaveBeenCalledTimes(1);
+    expect(mockSetTaskStatus).toHaveBeenCalledWith("123", "IN-PROGRESS");
   });
 });

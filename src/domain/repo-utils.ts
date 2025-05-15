@@ -25,8 +25,9 @@ export function normalizeRepoName(repoUrl: string): string {
   if (repoUrl.includes("://") || repoUrl.includes("@")) {
     // Extract org and project from remote URL
     const match = repoUrl.match(/[:/]([^/]+)\/([^/]+?)(\.git)?$/);
-    if (match) {
-      const [, org, project] = match;
+    if (match && match[1] && match[2]) {
+      const org = match[1];
+      const project = match[2].replace(/\.git$/, "");
       return `${org}/${project}`;
     }
   }

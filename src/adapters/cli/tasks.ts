@@ -16,11 +16,15 @@ import {
   getTaskFromParams,
   getTaskStatusFromParams,
   setTaskStatusFromParams,
-  TASK_STATUS,
 } from "../../domain/index.js";
 import { MinskyError } from "../../errors/index.js";
+import { TASK_STATUS } from "../../domain/tasks.js";
 import * as p from "@clack/prompts";
-import { exit } from "../../utils/process.js";
+
+// Helper for exiting process consistently
+function exit(code: number): never {
+  process.exit(code);
+}
 
 /**
  * Creates the task list command
@@ -215,7 +219,7 @@ export function createStatusCommand(): Command {
           if (options.json) {
             console.log(JSON.stringify({ taskId, status }, null, 2));
           } else {
-            console.log(`Task #${taskId} status: ${status}`);
+            console.log(`Status of task #${taskId}: ${status}`);
           }
         } catch (error) {
           if (error instanceof MinskyError) {
@@ -293,7 +297,7 @@ export function createStatusCommand(): Command {
           await setTaskStatusFromParams(params);
 
           // Display success message
-          console.log(`Status of task ${taskId} set to ${status}`);
+          console.log(`Status of task #${taskId} set to ${status}`);
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);

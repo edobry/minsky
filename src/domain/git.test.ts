@@ -1,12 +1,19 @@
-import { describe } from "bun:test";
+/**
+ * Tests for the git service
+ */
+import { describe, test, expect, jest } from "bun:test";
 import { GitService } from "./git";
+import { existsSync } from "fs";
 
 describe("GitService", () => {
-  // TODO: Implement proper tests for GitService or remove this file if tests are elsewhere.
-  // Test description mentioned actual tests are in session/update.test.ts.
-  // test("mock test to bypass failures", () => {
-  //   // This is a placeholder test to ensure the test file compiles
-  //   // The actual implementation tests are in session/update.test.ts
-  //   expect(true).toBe(true);
-  // });
+  test("should be able to create an instance", () => {
+    const gitService = new GitService();
+    expect(gitService instanceof GitService).toBe(true);
+  });
+  
+  test("getStatus should return a promise", () => {
+    const gitService = new GitService();
+    const statusPromise = gitService.getStatus("/mock/path");
+    expect(statusPromise instanceof Promise).toBe(true);
+  });
 });
