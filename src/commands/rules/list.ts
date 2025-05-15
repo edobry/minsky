@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import type { RuleFormat } from "../../domain/rules.js";
 import { exit } from "../../utils/process.js";
+import { log } from "../../utils/logger.js";
 
 export function createListCommand(): Command {
   return new Command("list")
@@ -41,30 +42,30 @@ export function createListCommand(): Command {
 
         if (options.json) {
           // Output as JSON
-          console.log(JSON.stringify(rules, null, 2));
+          log.cli(JSON.stringify(rules, null, 2));
         } else {
           // Output in a human-readable format
           if (rules.length === 0) {
-            console.log("No rules found.");
+            log.cli("No rules found.");
             return;
           }
 
-          console.log(`Found ${rules.length} rules:`);
-          console.log();
+          log.cli(`Found ${rules.length} rules:`);
+          log.cli("");
 
           for (const rule of rules) {
             const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
             const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
 
-            console.log(`${rule.id} (${formatLabel})${tags}`);
+            log.cli(`${rule.id} (${formatLabel})${tags}`);
             if (rule.description) {
-              console.log(`  ${rule.description}`);
+              log.cli(`  ${rule.description}`);
             }
-            console.log();
+            log.cli("");
           }
         }
       } catch (error) {
-        console.error(
+        log.cliError(
           `Error listing rules: ${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
@@ -78,7 +79,7 @@ async function resolveRepoPath(options: { repo?: string; session?: string }): Pr
     const { resolveRepoPath: resolve } = await import("../../domain/index.js");
     return await resolve(options);
   } catch (error) {
-    console.error(
+    log.cliError(
       `Error resolving repository path: ${error instanceof Error ? error.message : String(error)}`
     );
     exit(1);

@@ -3,12 +3,13 @@ import { RuleService } from "../../domain/index.js";
 import type { RuleMeta } from "../../domain/rules.js";
 import { promises as fs } from "fs";
 import { exit } from "../../utils/process.js";
+import { log } from "../../utils/logger.js";
 
 export function createUpdateCommand(): Command {
   return new Command("update")
     .description("Update an existing Minsky rule")
     .argument("<ruleId>", "ID of the rule to update (without .mdc extension)")
-    .option("--name <name>", "New name for the rule")
+    .option("--name <n>", "New name for the rule")
     .option("--description <description>", "New description of what the rule does")
     .option("--globs <globs...>", "New file patterns this rule applies to")
     .option(
@@ -72,7 +73,7 @@ export function createUpdateCommand(): Command {
 
         // Ensure we have something to update
         if (!updateOptions.meta && !updateOptions.content) {
-          console.error(
+          log.cliError(
             "Error: No updates specified. Use --name, --description, --globs, --always-apply, --tags, or --content."
           );
           exit(1);
@@ -83,21 +84,21 @@ export function createUpdateCommand(): Command {
           format: options.format,
         });
 
-        console.log(`Rule '${rule.id}' updated successfully.`);
+        log.cli(`Rule '${rule.id}' updated successfully.`);
 
         // Show what was updated
         if (updateOptions.meta) {
-          console.log("Updated metadata:");
+          log.cli("Updated metadata:");
           Object.entries(updateOptions.meta).forEach(([key, value]) => {
-            console.log(`  ${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
+            log.cli(`  ${key}: ${Array.isArray(value) ? value.join(", ") : value}`);
           });
         }
 
         if (updateOptions.content) {
-          console.log("Content was updated.");
+          log.cli("Content was updated.");
         }
       } catch (error) {
-        console.error(
+        log.cliError(
           `Error updating rule: ${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);

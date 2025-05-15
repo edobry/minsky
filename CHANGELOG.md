@@ -212,6 +212,16 @@ function customMatterStringify(content: string, data: any): string {
 - Documentation in `.cursor/rules/README.md` explaining workspace isolation and rule management
 - Centralized test mock utilities in `src/utils/test-utils/mocking.ts` with functions like `createMock`, `mockModule`, `setupTestMocks`, `createMockObject`, `createMockExecSync`, and `createMockFileSystem` that encapsulate correct bun:test mocking patterns. These utilities improve test reliability, maintainability, and consistency across the codebase.
 - Comprehensive test suite for the mocking utilities in `src/utils/test-utils/mocking.test.ts` that verifies all functionality and provides usage examples.
+- Implemented structured logging system with Winston for consistent log handling:
+  - Created centralized logger module in `src/utils/logger.ts` with separate loggers for different purposes
+  - Added agent logger for structured JSON output to stdout (internal system events)
+  - Added program logger for human-readable text output to stderr (user-facing messages)
+  - Implemented log levels (debug, info, warn, error) for better log filtering
+  - Added proper error handling with stack trace preservation
+  - Added structured metadata support for enhanced debugging
+  - Implemented global error handlers for uncaught exceptions and rejections
+  - Migrated CLI commands and domain modules to use structured logging
+  - Improved error reporting with consistent formatting across the codebase
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

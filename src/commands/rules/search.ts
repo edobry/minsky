@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import { exit } from "../../utils/process.js";
+import { log } from "../../utils/logger.js";
 
 export function createSearchCommand(): Command {
   return new Command("search")
@@ -32,30 +33,30 @@ export function createSearchCommand(): Command {
 
         if (options.json) {
           // Output as JSON
-          console.log(JSON.stringify(rules, null, 2));
+          log.cli(JSON.stringify(rules, null, 2));
         } else {
           // Output in a human-readable format
           if (rules.length === 0) {
-            console.log(`No rules found matching query: "${query}"`);
+            log.cli(`No rules found matching query: "${query}"`);
             return;
           }
 
-          console.log(`Found ${rules.length} rules matching query: "${query}"`);
-          console.log();
+          log.cli(`Found ${rules.length} rules matching query: "${query}"`);
+          log.cli("");
 
           for (const rule of rules) {
             const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
             const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
 
-            console.log(`${rule.id} (${formatLabel})${tags}`);
+            log.cli(`${rule.id} (${formatLabel})${tags}`);
             if (rule.description) {
-              console.log(`  ${rule.description}`);
+              log.cli(`  ${rule.description}`);
             }
-            console.log();
+            log.cli("");
           }
         }
       } catch (error) {
-        console.error(
+        log.cliError(
           `Error searching rules: ${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
