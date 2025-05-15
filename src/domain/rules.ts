@@ -59,7 +59,7 @@ export class RuleService {
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     // Log workspace path on initialization for debugging
-    log.debug(`RuleService initialized with workspace path: ${workspacePath}`);
+    log.debug("RuleService initialized", { workspacePath });
   }
 
   private getRuleDirPath(format: RuleFormat): string {
@@ -78,7 +78,7 @@ export class RuleService {
       const dirPath = this.getRuleDirPath(format);
       
       if (options.debug) {
-        log.debug(`Listing rules from directory: ${dirPath}`);
+        log.debug("Listing rules", { directory: dirPath, format });
       }
 
       try {
@@ -107,7 +107,8 @@ export class RuleService {
       } catch (error) {
         // Directory might not exist, which is fine
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          log.error(`Error reading rules directory for ${format}`, {
+          log.error("Error reading rules directory", {
+            format,
             originalError: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
@@ -256,7 +257,12 @@ export class RuleService {
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
 
-    log.debug(`Rule created/updated at path: ${filePath}`);
+    log.debug("Rule created/updated", { 
+      path: filePath, 
+      id, 
+      format,
+      globs: cleanMeta.globs
+    });
 
     // Return the created rule
     return {
@@ -301,19 +307,22 @@ export class RuleService {
       }
     }
 
-    const newContent = options.content ?? rule.content;
-    const fileContent = matter.stringify(newContent, metaForFrontmatter);
-
     // Content to use
     const updatedContent = options.content || rule.content;
 
     // Create frontmatter content
-    const fileContent = matterStringify(updatedContent, cleanMeta);
+    const fileContent = matterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
 
-    log.debug(`Rule updated at path: ${rule.path}`);
+    log.debug("Rule updated", { 
+      path: rule.path, 
+      id,
+      format: rule.format,
+      contentChanged: !!options.content,
+      metaChanged: !!options.meta
+    });
 
     return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
   }
