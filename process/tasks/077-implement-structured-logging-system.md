@@ -88,3 +88,113 @@ A proper logging system would provide:
 - [ ] Tests pass and properly capture logs
 - [ ] Documentation is complete
 - [ ] Both "program messages" and "agent events" are correctly handled
+
+## Implementation Plan (Comprehensive)
+
+**Phase 1: Foundation & Library Selection**
+
+1.  **Research & Decision (Estimate: 2 hours)**
+
+    - Investigate popular TypeScript-friendly logging libraries:
+      - Pino: Known for high performance, JSON-first.
+      - Winston: Mature, flexible, multiple transports.
+      - Bunyan: JSON-based, good for server-side.
+      - Consider `roarr` or other modern lightweight options.
+    - Criteria:
+      - Performance impact (especially with Bun).
+      - Ease of use and TypeScript integration.
+      - Flexibility in transports and formatting.
+      - Community support and maintenance.
+      - Compatibility with structured logging (JSON or similar).
+      - Ability to handle distinct streams for "program messages" vs. "agent events".
+      - Strong Bun.js compatibility and performance within the Bun runtime.
+    - **Decision Point:** Select one library. _Initial preference: Pino due to performance and JSON focus, but will confirm after research._
+
+2.  **Basic Logger Setup (Estimate: 3 hours)**
+
+    - Install the chosen library.
+    - Create `src/utils/logger.ts`. This module will export the configured logger instance(s) (e.g., `programLogger`, `agentLogger`).
+    - Initialize the logger with basic configuration:
+      - Default level: `info` for production, `debug` for development (configurable via environment variable `LOG_LEVEL`).
+      - Timestamp, Process ID.
+      - Consider `LOG_FORMAT` (e.g., `json`, `pretty`, `text`) for `agentLogger` output, defaulting to `pretty` in dev and `json` in prod.
+      - If file output is chosen for `agentLogger` in production, consider env vars like `AGENT_LOG_PATH`, `AGENT_LOG_MAX_SIZE`, `AGENT_LOG_MAX_FILES`.
+      - Hostname (optional, for distributed context).
+    - Implement wrapper functions for standard levels: `logger.debug()`, `logger.info()`, `logger.warn()`, `logger.error()`. These wrappers should be resilient and not crash the application if the logging mechanism itself encounters an issue.
+    - Initial formatter for `agentLogger`: Human-readable/pretty-printed structured logs for console in development, JSON for production (typically to `stdout` or a file, if configured).
+
+3.  **Distinguishing Program Messages vs. Agent Events (Estimate: 2 hours)**
+    - Define "Program Messages":
+      - Handled by `programLogger`.
+      - Intended for human-readable, non-structured messages directly to `stderr` (e.g., brief status updates for non-JSON command output, interactive prompt text, non-critical errors or warnings meant for immediate user attention without breaking structured output).
+      - If a CLI command produces primary structured output (via `agentLogger` to `stdout`), `programLogger` (to `stderr`) can still be used for essential out-of-band status or error messages.
+    - Define "Agent Events":
+      - Handled by `agentLogger`.
+      - Intended for structured (JSON by default in production, pretty-printed structured logs in development) internal system events, debug information, and critical errors.
+      - Prioritized for `stdout`. This means if a command outputs primary data (especially JSON), it will be via this logger.
+    - Configure the logger (or use two logger instances if necessary, e.g. `programLogger` and `agentLogger`) to handle these two distinct streams.
+    - Ensure `agentLogger.error()` includes stack traces and that custom error properties (e.g., from `MinskyError`) are logged.
+    - Suggest consistently including a `context` field (e.g., module name, function name, or a specific operation like `MinskyCLI:session_start`) in structured logs from `agentLogger`.
+
+**Phase 2: Integration & Testing**
+
+4.  **Testing Infrastructure for Logger -- REMOVED AS PER USER REQUEST**
+
+    - (Helper functions for capturing general stdout/stderr in existing tests will still be necessary as `console.*` calls are migrated, but dedicated logger tests are removed.)
+
+5.  **Initial Codebase Migration (Targeted) (Estimate: 4 hours)**
+    - Identify a small, representative module or command (e.g., one CLI command and its associated domain logic).
+    - Replace `console.*` calls with the new `programLogger` and `agentLogger` as appropriate.
+    - Focus on differentiating user-facing output vs. internal logging.
+    - Run existing tests for this module and update them to use the new log capturing mechanism. Add new tests for logging behavior if needed.
+    - Manually test some CLI commands to observe log output in dev and simulated prod environments.
+    - Ensure no sensitive information is logged by default at `info` level or above.
+    - (Redaction considerations removed as per user request)
+
+**Phase 3: Full Migration & Refinement**
+
+6.  **Full Codebase Migration (Iterative) (Estimate: 8-12 hours, spread over multiple sessions if large)**
+
+    - Systematically go through the codebase (`src/` directory).
+    - Replace all `console.log`, `console.info`, `console.warn`, `console.error` calls.
+    - Apply critical thinking to each call:
+      - Is this a program message or an agent event?
+      - What is the appropriate log level? (e.g., errors should be `logger.error`, verbose info `logger.debug`).
+      - What metadata would be useful (e.g., function name, relevant IDs, input parameters)?
+    - Update tests as migration progresses. This is a good opportunity to improve test coverage around error conditions and output.
+
+7.  **Configuration Refinement (Estimate: 2 hours)**
+    - Based on migration experience, refine logger configurations.
+    - Finalize production vs. development settings (e.g., log level, output format, sampling for high-volume logs if applicable).
+    - Consider adding a mechanism to enable/disable specific debug namespaces if the chosen library supports it (like `debug` npm package).
+
+**Phase 4: Documentation & Review**
+
+8.  **Documentation (Estimate: 2 hours)**
+
+    - Update/create developer documentation (`docs/` or a dedicated `LOGGING.md`).
+    - Explain:
+      - The chosen logging library and why.
+      - How to use `programLogger` vs. `agentLogger`.
+      - Standard log levels and when to use them.
+      - How to add structured metadata.
+      - How logging works in development vs. production.
+      - How to test code that uses the logger.
+    - Provide clear examples.
+
+9.  **Self-Review & Final Testing (Estimate: 2 hours)**
+    - Review all changes against task requirements.
+    - Run all tests, linters.
+    - Manually test some CLI commands to observe log output in dev and simulated prod environments.
+    - Ensure no sensitive information is logged by default at `info` level or above.
+    - Review logged data, especially when logging complex objects, for any inadvertently included sensitive information (secrets, PII). Implement or plan for redaction mechanisms if necessary, particularly if logging full request/response objects in the future.
+
+**Total Estimated Time: 28-32 hours** -- (Adjusted due to removal of dedicated logger testing; actual time may vary)
+
+**Potential Challenges & Considerations:**
+
+- **Performance:** Ensure the chosen library and configuration don't introduce significant performance overhead, especially for high-frequency CLI commands.
+- **Async Logging:** If transports involve async operations (e.g., writing to a remote service later), ensure proper handling of application exit and buffer flushing. (Initially, focus on sync console transports).
+- **Verbosity Control:** Provide ways to easily control log verbosity for debugging specific modules without flooding the console.
+- **Circular Dependencies:** Ensure the logger module itself doesn't create circular dependencies.
+- **Global Error Handling:** Integrate with global error handlers (e.g., `process.on('uncaughtException')`) to ensure unhandled errors are logged correctly.
