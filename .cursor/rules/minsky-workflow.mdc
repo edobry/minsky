@@ -153,7 +153,14 @@ minsky session delete <session-name> [options]
 minsky git pr [options]
   --path <path>    # Path to repository
 
+# Stage, commit, and optionally push all changes for a session
+minsky session commit [session] [options]
+  --message <msg>  # Commit message
+  --no-push        # Skip pushing changes after commit
+  --repo <path>    # Repository path (if not in a session or to override)
+
 # Push changes to remote
+# DEPRECATED: Prefer `minsky session commit` which includes push functionality
 minsky git push
 ```
 
@@ -546,5 +553,34 @@ Using any other approach for capturing the session path after creation is prone 
 - You MUST use batch verification (lint, type check, test) after each set of related changes.
 - You MUST confirm all changes are present in the session workspace and not the main workspace before merging or marking a task complete.
 - You MUST reference this rule when planning, logging, or verifying workflow steps.
+
+## Task Implementation and Committing
+
+5.  **Implement and Commit**
+    - Work on the task within the session directory.
+    - Commit changes at logical intervals using `minsky session commit`.
+      ```bash
+      # Example:
+      minsky session commit -m "Implement feature X for task #XXX"
+      # Or, if you want to commit without pushing yet:
+      minsky session commit -m "Partial implementation of Y" --no-push
+      ```
+    - This command will stage all changes, commit them with your message (prefixed with the task ID if available), and push by default.
+    - **Verify changes with `git status` and `git diff` before committing.**
+
+6.  **Prepare PR Description**
+    - Once implementation is complete and all changes are committed (and pushed, unless intentionally deferred):
+    - Generate a PR description:
+      ```bash
+      minsky git pr
+      ```
+
+7.  **Push and Mark In Review**
+    - Ensure all changes are pushed. If you used `--no-push` with `minsky session commit` for intermediate commits, run it one last time without `--no-push` or use `git push origin <branch-name>`.
+    - A simple `minsky session commit` (if you have a final commit to make) or `git push origin <branch-name>` will suffice.
+    - Set the task status to in review:
+      ```bash
+      minsky task status set <task-id> IN-REVIEW
+      ```
 
 ---

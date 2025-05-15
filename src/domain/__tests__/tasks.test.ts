@@ -68,8 +68,8 @@ describe("interface-agnostic task functions", () => {
       const result = await listTasksFromParams(params, mockDeps);
 
       expect(result).toEqual([mockTask]);
-      expect(mockResolveRepoPath.mock.calls.length).toBeGreaterThan(0);
-      expect(mockResolveWorkspacePath.mock.calls.length).toBeGreaterThan(0);
+      expect(mockResolveRepoPath.mock.calls.length > 0).toBe(true);
+      expect(mockResolveWorkspacePath.mock.calls.length > 0).toBe(true);
       expect(mockCreateTaskService).toHaveBeenCalledWith({
         workspacePath: "/mock/workspace/path",
         backend: "markdown",
@@ -91,7 +91,7 @@ describe("interface-agnostic task functions", () => {
 
       const result = await listTasksFromParams(params, mockDeps);
 
-      expect(result.length).toEqual(1);
+      expect(result.length).toBe(1);
       expect(result[0]?.status === TASK_STATUS.DONE).toBe(false);
     });
   });
@@ -117,7 +117,7 @@ describe("interface-agnostic task functions", () => {
 
       try {
         await getTaskFromParams(params, mockDeps);
-        throw new Error("Should have thrown ResourceNotFoundError");
+        expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expect(e instanceof ResourceNotFoundError).toBe(true);
       }
@@ -145,7 +145,7 @@ describe("interface-agnostic task functions", () => {
 
       try {
         await getTaskStatusFromParams(params, mockDeps);
-        throw new Error("Should have thrown ResourceNotFoundError");
+        expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expect(e instanceof ResourceNotFoundError).toBe(true);
       }
@@ -174,7 +174,7 @@ describe("interface-agnostic task functions", () => {
 
       try {
         await setTaskStatusFromParams(params, mockDeps);
-        throw new Error("Should have thrown ValidationError");
+        expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expect(e instanceof ValidationError).toBe(true);
       }

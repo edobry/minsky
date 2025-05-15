@@ -99,7 +99,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Remove Interactive CLI Tests and Establish Core Testing Principles [#071](process/tasks/071-remove-interactive-cli-tests-and-establish-core-testing-principles.md)
 
-- [-] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
+- [x] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
 
 - [ ] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
@@ -109,4 +109,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
 
-- [ ] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
+- [-] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)

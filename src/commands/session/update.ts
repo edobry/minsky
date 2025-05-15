@@ -60,7 +60,7 @@ export function createUpdateCommand(gitService: GitService, sessionDb: SessionDB
 
           // Push changes if needed
           if (options.push) {
-            await gitService.pushBranch(workdir, options.remote);
+            await gitService.push({ repoPath: workdir, remote: options.remote });
           }
         } finally {
           // Always try to restore stashed changes

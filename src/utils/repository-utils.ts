@@ -89,7 +89,7 @@ export class RepositoryMetadataCache {
    * @param prefix Cache key prefix to match
    */
   invalidateByPrefix(prefix: string): void {
-    for (const key of this.cache.keys()) {
+    for (const key of Array.from(this.cache.keys())) {
       if (key.startsWith(prefix)) {
         this.cache.delete(key);
       }

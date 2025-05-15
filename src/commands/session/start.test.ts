@@ -1,18 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock, jest } from "bun:test";
 import { createStartCommand } from "./start.js";
 
 // Mock the startSession module
-const mockStartSession = mock(() => ({
+const mockStartSession = jest.fn(() => ({
   sessionRecord: { session: "test-session" },
   cloneResult: { workdir: "/path/to/test-workdir" },
   branchResult: { branch: "test-branch" },
 }));
 
 // Mock the repo-utils module
-const mockResolveRepoPath = mock(() => "/path/to/repo");
+const mockResolveRepoPath = jest.fn(() => "/path/to/repo");
 
 // Mock isSessionRepository function
-const mockIsSessionRepository = mock(() => false);
+const mockIsSessionRepository = jest.fn(() => false);
 
 // Setup mocks before importing the actual modules
 mock.module("./startSession.js", () => ({
@@ -57,9 +57,9 @@ describe("createStartCommand", () => {
     };
 
     // Mock process.exit
-    process.exit = mock((code = 0) => {
+    process.exit = jest.fn((code = 0) => {
       throw new Error(`Exit with code: ${code}`);
-    });
+    }) as any;
 
     // Clear log and error calls
     logCalls.length = 0;
@@ -129,11 +129,11 @@ describe("createStartCommand", () => {
     });
 
     // Track process.exit calls
-    let exitCode = 0;
-    process.exit = (code = 0) => {
-      exitCode = code;
+    let exitCode: number | undefined = 0;
+    process.exit = jest.fn((code?: number) => {
+      exitCode = code === undefined ? 1 : code;
       return undefined as never;
-    };
+    }) as any;
 
     // Act - execute the command with --quiet
     await command.parseAsync([
@@ -163,11 +163,11 @@ describe("createStartCommand", () => {
     mockIsSessionRepository.mockImplementationOnce(() => true);
 
     // Track process.exit calls
-    let exitCode = 0;
-    process.exit = (code = 0) => {
-      exitCode = code;
+    let exitCode: number | undefined = 0;
+    process.exit = jest.fn((code?: number) => {
+      exitCode = code === undefined ? 1 : code;
       return undefined as never;
-    };
+    }) as any;
 
     // Act - execute the command
     await command.parseAsync(["node", "test", "test-session", "--repo", "/path/to/repo"]);
