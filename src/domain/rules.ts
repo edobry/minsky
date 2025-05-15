@@ -2,9 +2,22 @@ import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
+import * as jsYaml from "js-yaml";
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
-const matterStringify = (grayMatterNamespace as any).stringify || (matter as any).stringify;
+
+// Create a custom stringify function that doesn't add unnecessary quotes
+function customMatterStringify(content: string, data: any): string {
+  // Use js-yaml's dump function directly with options to control quoting behavior
+  const yamlStr = jsYaml.dump(data, {
+    lineWidth: -1,      // Don't wrap lines
+    noCompatMode: true, // Use YAML 1.2
+    quotingType: '"',   // Use double quotes when necessary
+    forceQuotes: false  // Don't force quotes on all strings
+  });
+  
+  return `---\n${yamlStr}---\n${content}`;
+}
 
 export interface Rule {
   id: string; // Filename without extension
@@ -242,8 +255,8 @@ export class RuleService {
       }
     });
 
-    // Create frontmatter content
-    const fileContent = matterStringify(content, cleanMeta);
+    // Use custom stringify function instead of matterStringify
+    const fileContent = customMatterStringify(content, cleanMeta);
 
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
@@ -301,8 +314,8 @@ export class RuleService {
     // Content to use
     const updatedContent = options.content || rule.content;
 
-    // Create frontmatter content
-    const fileContent = matterStringify(updatedContent, cleanMeta);
+    // Use custom stringify function instead of matterStringify
+    const fileContent = customMatterStringify(updatedContent, cleanMeta);
 
     // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
