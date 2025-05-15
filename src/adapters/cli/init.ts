@@ -1,11 +1,16 @@
+/**
+ * CLI adapter for init commands
+ */
 import { Command } from "commander";
-import { resolveRepoPath, type RepoResolutionOptions } from "../../utils/repo";
-import { initializeProject } from "../../domain/index";
-import { exit } from "../../utils/process";
+import { MinskyError } from "../../errors/index.js";
+import { initializeProjectFromParams } from "../../domain/index.js";
 import * as p from "@clack/prompts";
-import fs from "fs";
-import path from "path";
+import { exit } from "../../utils/process.js";
+import type { InitParams } from "../../schemas/init.js";
 
+/**
+ * Creates the init command
+ */
 export function createInitCommand(): Command {
   return new Command("init")
     .description("Initialize a project for Minsky")
@@ -35,31 +40,16 @@ export function createInitCommand(): Command {
         try {
           p.intro("Initialize Minsky in your project");
 
-          // Resolve repo path
-          let repoPath: string;
-          try {
-            repoPath = await resolveRepoPath({
-              repo: options.repo,
-              session: options.session,
-            });
-          } catch (error) {
-            console.error(
-              "Error resolving repository path:",
-              error instanceof Error ? error.message : String(error)
-            );
-            exit(1);
-          }
-
           // MCP-only mode doesn't need most of the interactive prompts
           let backend = options.backend || "tasks.md";
           let ruleFormat = options.ruleFormat || "cursor";
 
           // Only need interactive prompts if not in MCP-only mode
           if (!options.mcpOnly) {
-            // If repo path was resolved without explicit flags, confirm with user
+            // If repo path was provided but not session, give a warning
             if (!options.repo && !options.session) {
               const confirm = await p.confirm({
-                message: `Using current directory: ${repoPath}\nContinue?`,
+                message: `Using current directory: ${process.cwd()}\nContinue?`,
                 initialValue: true,
               });
 
@@ -112,7 +102,7 @@ export function createInitCommand(): Command {
           // Handle MCP configuration options
           let mcpEnabled = options.mcp !== "false"; // Default to true unless explicitly disabled
           let mcpTransport = options.mcpTransport;
-          let mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined;
+          let mcpPort = options.mcpPort;
           let mcpHost = options.mcpHost;
 
           // Interactive MCP configuration if not provided via options
@@ -176,7 +166,7 @@ export function createInitCommand(): Command {
                   exit(0);
                 }
 
-                mcpPort = parseInt(String(portText), 10);
+                mcpPort = String(portText);
               }
 
               // Get host if not provided and using network transport
@@ -196,35 +186,33 @@ export function createInitCommand(): Command {
             }
           }
 
-          // Init project
-          await initializeProject({
-            repoPath,
-            backend: backend as "tasks.md" | "tasks.csv",
-            ruleFormat: ruleFormat as "cursor" | "generic",
-            mcp: mcpEnabled
-              ? {
-                enabled: mcpEnabled,
-                transport: (mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
-                port: mcpPort,
-                host: mcpHost,
-              }
-              : { enabled: false, transport: "stdio" },
+          // Convert CLI options to domain parameters
+          const params: InitParams = {
+            repo: options.repo,
+            session: options.session,
+            backend,
+            ruleFormat,
+            mcp: mcpEnabled,
+            mcpTransport,
+            mcpPort,
+            mcpHost,
             mcpOnly: options.mcpOnly,
             overwrite: options.overwrite,
-          });
+          };
 
-          if (options.mcpOnly) {
-            p.outro("MCP configuration added successfully!");
-          } else {
-            p.outro("Project initialized successfully!");
-          }
+          // Call the domain function
+          const result = await initializeProjectFromParams(params);
+
+          // Display the result
+          p.outro(result.message);
         } catch (error) {
-          console.error(
-            "Error initializing project:",
-            error instanceof Error ? error.message : String(error)
-          );
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
+          } else {
+            console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+          }
           exit(1);
         }
       }
     );
-}
+} 
