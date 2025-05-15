@@ -1,8 +1,8 @@
 import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
-import * as grayMatterNamespace from "gray-matter";
+import _ as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import * as jsYaml from "js-yaml";
+import _ as jsYaml from "js-yaml";
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
@@ -27,6 +27,7 @@ function customMatterStringify(content: string, data: any): string {
 
 ### Fixed
 
+- Fixed session.test.ts to use Bun test mocking utilities instead of Jest-specific functions, which were causing test failures
 - Fixed incorrect import path in session.ts that was causing "Cannot find module '../utils/workspace.js'" error in `minsky tasks status get` command
 - Fixed interactive status selection in `minsky tasks status set` command so it properly prompts for status when not provided as a command-line argument
 - Task ID normalization now consistently handles task IDs with or without the `#` prefix. This fixes issues with commands like `minsky tasks get 071` and `minsky session start --task 071` where tasks couldn't be found if the ID was provided without the leading `#`.
@@ -40,7 +41,7 @@ function customMatterStringify(content: string, data: any): string {
 - Fixed session merging with main branch to resolve conflicts (#072)
 - Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
 - Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
-- Fixed type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
+- Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
 - Fixed placeholder tests in list.test.ts and get.test.ts with proper implementation notes (#072)
 - Added TestSessionParams type to fix type errors in get.test.ts (#072)
 - Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
