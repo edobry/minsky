@@ -263,6 +263,23 @@ The logging implementation will prioritize:
    - Ensured stack traces are preserved and properly formatted
    - Implemented standardized error reporting patterns for both CLI and programmatic usage
 
+7. **Command Module Migration Continued**
+   - Migrated all rules command modules:
+     - `src/commands/rules/list.ts` - Replaced console.log calls with log.cli and console.error with log.cliError
+     - `src/commands/rules/search.ts` - Updated to use structured logging for output and error handling
+     - `src/commands/rules/update.ts` - Converted to structured logging with proper context data
+   - Updated git command modules to use structured logging:
+     - `src/commands/git/clone.ts` - Fixed imports and ensured structured error handling
+     - `src/commands/git/branch.ts` - Updated imports and maintained consistent logging
+     - `src/commands/git/commit.ts` - Fixed import paths and enhanced error logging
+   - Applied consistent patterns across all migrated modules:
+     - Using log.agent for JSON output (with the --json option)
+     - Using log.cli family for user-facing messages
+     - Enhanced error logging with proper context and stack traces
+     - Added debug logs with relevant context data
+   - Fixed import paths to use proper .js extensions for ESM compatibility
+   - Updated CHANGELOG.md with detailed description of the structured logging system
+
 ### Remaining Work
 
 1. **Complete Codebase Migration**
@@ -279,6 +296,10 @@ The logging implementation will prioritize:
        - `src/mcp/tools/tasks.ts` (error logs)
        - `src/mcp/tools/session.ts` (error logs)
        - `src/mcp/command-mapper.ts` (error execution logs)
+     - Remaining command modules:
+       - `src/commands/init/index.ts`
+       - `src/commands/tasks/*.ts` 
+       - `src/commands/session/*.ts`
    - Standardize error handling patterns across all modules
    - Add appropriate context objects to all log messages
    - Update all JSON output to use `log.agent` for consistent formatting
