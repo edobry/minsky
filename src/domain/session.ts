@@ -20,7 +20,7 @@ import { resolveRepoPath } from "./repo-utils.js";
 import { getCurrentSession } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
 import { z } from "zod";
-import * as WorkspaceUtils from "./workspace.js"; // Changed from "../utils/workspace.js"
+import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
@@ -41,9 +41,10 @@ export class SessionDB {
   private readonly baseDir: string;
 
   constructor(options?: { baseDir?: string }) {
-    const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
-    this.baseDir = options?.baseDir || join(xdgStateHome, "minsky");
-    this.dbPath = join(this.baseDir, "minsky", "session-db.json");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const minskyStateDir = join(xdgStateHome, "minsky");
+    this.dbPath = join(minskyStateDir, "session-db.json");
+    this.baseDir = options?.baseDir || join(minskyStateDir, "git");
   }
 
   private async ensureDbDir(): Promise<void> {
@@ -239,20 +240,11 @@ export type SessionDeps = {
   workspaceUtils: typeof WorkspaceUtils;
 };
 
-const defaultDeps = {
-  SessionDB,
-  GitService,
-  TaskService,
-  WorkspaceUtils,
-};
-
 export const createSessionDeps = (options?: { workspacePath?: string }): SessionDeps => {
-  const baseDir = options?.workspacePath || WorkspaceUtils.resolveWorkspacePath(options || {});
-  const sessionDBInstance = new defaultDeps.SessionDB({ baseDir });
-
-  const gitServiceInstance = new defaultDeps.GitService(baseDir);
-
-  const taskServiceInstance = new defaultDeps.TaskService({
+  const baseDir = options?.workspacePath || WorkspaceUtils.resolveWorkspacePath({});
+  const sessionDBInstance = new SessionDB({ baseDir });
+  const gitServiceInstance = new GitService(baseDir);
+  const taskServiceInstance = new TaskService({
     workspacePath: baseDir,
     backend: "markdown",
   });
@@ -261,7 +253,7 @@ export const createSessionDeps = (options?: { workspacePath?: string }): Session
     sessionDB: sessionDBInstance,
     gitService: gitServiceInstance,
     taskService: taskServiceInstance,
-    workspaceUtils: defaultDeps.WorkspaceUtils,
+    workspaceUtils: WorkspaceUtils,
   };
 };
 
