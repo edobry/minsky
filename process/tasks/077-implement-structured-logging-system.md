@@ -244,9 +244,10 @@ The logging implementation will prioritize:
 5. **Module Migration**
    - Updated key command modules to use structured logging:
      - Git command modules (`src/commands/git/pr.ts`, `src/commands/git/commit.ts`)
+     - Rules command modules (`src/commands/rules/list.ts`, `src/commands/rules/search.ts`, `src/commands/rules/update.ts`)
      - MCP command modules (`src/commands/mcp/index.ts`)
-     - Rules system modules (`src/commands/rules/get.ts`)
-     - Session command modules
+     - All task command modules (`src/commands/tasks/list.ts`, `src/commands/tasks/get.ts`, `src/commands/tasks/status.ts`, `src/commands/tasks/create.ts`)
+     - Init command module (`src/commands/init/index.ts`)
    - Enhanced CLI adapters with structured logging:
      - Git CLI adapter (`src/adapters/cli/git.ts`)
      - Tasks CLI adapter
@@ -263,7 +264,7 @@ The logging implementation will prioritize:
    - Ensured stack traces are preserved and properly formatted
    - Implemented standardized error reporting patterns for both CLI and programmatic usage
 
-7. **Command Module Migration Continued**
+7. **Command Module Migration**
    - Migrated all rules command modules:
      - `src/commands/rules/list.ts` - Replaced console.log calls with log.cli and console.error with log.cliError
      - `src/commands/rules/search.ts` - Updated to use structured logging for output and error handling
@@ -272,6 +273,13 @@ The logging implementation will prioritize:
      - `src/commands/git/clone.ts` - Fixed imports and ensured structured error handling
      - `src/commands/git/branch.ts` - Updated imports and maintained consistent logging
      - `src/commands/git/commit.ts` - Fixed import paths and enhanced error logging
+   - Migrated all task command modules:
+     - `src/commands/tasks/list.ts` - Updated to use proper log.cli for user output and log.agent for JSON
+     - `src/commands/tasks/get.ts` - Enhanced with better error handling and structured JSON output
+     - `src/commands/tasks/status.ts` - Fixed to maintain interactive prompts while using structured logging 
+     - `src/commands/tasks/create.ts` - Updated for consistent error handling and better output formatting
+   - Updated init command:
+     - `src/commands/init/index.ts` - Fixed imports and ensured proper error handling with context
    - Applied consistent patterns across all migrated modules:
      - Using log.agent for JSON output (with the --json option)
      - Using log.cli family for user-facing messages
@@ -296,9 +304,7 @@ The logging implementation will prioritize:
        - `src/mcp/tools/tasks.ts` (error logs)
        - `src/mcp/tools/session.ts` (error logs)
        - `src/mcp/command-mapper.ts` (error execution logs)
-     - Remaining command modules:
-       - `src/commands/init/index.ts`
-       - `src/commands/tasks/*.ts` 
+     - Remaining session command modules:
        - `src/commands/session/*.ts`
    - Standardize error handling patterns across all modules
    - Add appropriate context objects to all log messages

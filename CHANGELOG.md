@@ -222,6 +222,10 @@ function customMatterStringify(content: string, data: any): string {
   - Implemented global error handlers for uncaught exceptions and rejections
   - Migrated CLI commands and domain modules to use structured logging
   - Improved error reporting with consistent formatting across the codebase
+  - Migrated rules commands with improved error handling and JSON formatting
+  - Migrated git commands with proper structured logging for agent and user interactions 
+  - Migrated task commands with enhanced error reporting and standardized output formats
+  - Updated init command to use structured logging for better interactive output
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
