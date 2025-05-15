@@ -253,16 +253,28 @@ The logging implementation will prioritize:
      - Added context about the Git commands being executed
      - Enhanced error reporting with stack traces
 
+7. **Session Command Modules**
+   - Updated all session command modules to use structured logging:
+     - `src/commands/session/list.ts`: Changed JSON output to use `log.agent` for structured data
+     - `src/commands/session/delete.ts`: Added comprehensive error handling with context
+     - `src/commands/session/cd.ts`: Fixed error messages and added debug logging
+     - `src/commands/session/commit.ts`: Enhanced with progress messages and detailed debug logs
+     - `src/commands/session/update.ts`: Added progress logging and better error context
+   - Standardized error handling patterns:
+     - Used `log.cli` for user-facing messages
+     - Used `log.agent` for structured JSON responses
+     - Used `log.error` for error logging with proper stack traces
+     - Added context objects with relevant metadata for better debugging
+
 ### Remaining Work
 
 1. **Continue Migration**
-   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 200 remaining instances)
+   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 150 remaining instances)
    - Priority files to update:
      - **Core Domain Modules:**
        - Any remaining warnings/errors in domain modules
      
      - **CLI Command Modules:**
-       - `src/commands/session/*.ts` - Multiple files with direct console output
        - `src/commands/git/*.ts` - Git operation output and errors
        - `src/adapters/cli/session.ts` - Session CLI adapter
    
