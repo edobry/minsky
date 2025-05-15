@@ -303,6 +303,11 @@ _See: SpecStory history [2024-07-01_rule-sync-bug-diagnostics](.specstory/histor
 
 ### Added
 
+- Completed interface-agnostic architecture migration (Task #076)
+  - All command modules now use the new adapter implementations
+  - Removed all old implementation files from src/commands
+  - All domain tests are passing with the new architecture
+  - Each domain module now has a clean interface-agnostic function API with Zod schema validation
 - Interface-agnostic architecture implementation with domain functions and adapters
 - CLI adapters for session commands
 - CLI adapters for rules commands
