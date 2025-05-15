@@ -1,38 +1,21 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Command } from "commander";
 import { createStatusCommand } from "./status";
 import { TaskService, TASK_STATUS } from "../../domain/tasks";
+import { createMock, mockModule, setupTestMocks, createMockObject } from "../../utils/test-utils/mocking";
 
-// Manual mocks for tracking call history
-interface CallRecord {
-  args: any[];
-}
+// Set up auto-cleanup of mocks after each test
+setupTestMocks();
 
-class ManualMock {
-  calls: CallRecord[] = [];
-
-  constructor() {
-    this.clear();
-  }
-
-  call(...args: any[]): void {
-    this.calls.push({ args });
-  }
-
-  clear(): void {
-    this.calls = [];
-  }
-}
-
-// Create manual mocks for TaskService methods
+// Create mock functions for TaskService methods
 const taskMocks = {
-  setTaskStatus: new ManualMock(),
-  getTaskStatus: new ManualMock(),
-  getTask: new ManualMock(),
+  setTaskStatus: createMockObject(["call", "clear"]),
+  getTaskStatus: createMockObject(["call", "clear"]),
+  getTask: createMockObject(["call", "clear"]),
 };
 
 // Setup mocks for external dependencies
-mock.module("../../domain/tasks", () => {
+mockModule("../../domain/tasks", () => {
   return {
     TaskService: class MockTaskService {
       constructor() {}
@@ -102,7 +85,7 @@ describe("Status Command - Set", () => {
 
   test("should set task status successfully", async () => {
     // Setup a task set mock that works correctly with the command
-    mock.module("../../domain/tasks", () => {
+    mockModule("../../domain/tasks", () => {
       return {
         TaskService: class MockTaskService {
           constructor() {}
@@ -154,7 +137,7 @@ describe("Status Command - Set", () => {
     let exitCode: number | null = null;
 
     // Mock process.exit
-    mock.module("../../utils/process", () => {
+    mockModule("../../utils/process", () => {
       return {
         exit: (code: number) => {
           exitCalled = true;
@@ -165,7 +148,7 @@ describe("Status Command - Set", () => {
     });
 
     // Setup a mock that throws for invalid status
-    mock.module("../../domain/tasks", () => {
+    mockModule("../../domain/tasks", () => {
       return {
         TaskService: class MockTaskService {
           constructor() {}
@@ -215,31 +198,78 @@ describe("Status Command - Set", () => {
     expect(exitCode).toBe(1);
   });
 
-  test("requires status parameter in command line", () => {
-    // This test verifies that commander requires the status parameter
+  test("should handle missing status parameter in non-interactive mode", async () => {
+    // This test verifies behavior of missing status parameter
+    
+    // Create mocks
+    let exitCalled = false;
+    let exitCode: number | null = null;
+    const isTTYOriginal = process.stdout.isTTY;
+    
+    // Force non-interactive mode
+    Object.defineProperty(process.stdout, 'isTTY', { value: false });
+    
+    // Mock process.exit
+    mockModule("../../utils/process", () => {
+      return {
+        exit: (code: number) => {
+          exitCalled = true;
+          exitCode = code;
+          return undefined as never;
+        },
+      };
+    });
 
-    // Create a test command to check the commander arguments
-    const cmd = createStatusCommand();
-    const setCmd = cmd.commands.find((c: Command) => c.name() === "set");
+    // Set up the task mock
+    mockModule("../../domain/tasks", () => {
+      return {
+        TaskService: class MockTaskService {
+          constructor() {}
 
-    if (!setCmd) {
-      throw new Error("Could not find set command");
+          async getTaskStatus(id: string) {
+            return "TODO";
+          }
+
+          async setTaskStatus(id: string, newStatus: string) {
+            status = newStatus;
+            return;
+          }
+
+          async getTask(id: string) {
+            return {
+              id: "#001",
+              title: "Task #001",
+              status: "TODO",
+              description: "This is task #001",
+            };
+          }
+        },
+        TASK_STATUS: {
+          TODO: "TODO",
+          DONE: "DONE",
+          IN_PROGRESS: "IN-PROGRESS",
+          IN_REVIEW: "IN-REVIEW",
+        },
+      };
+    });
+
+    try {
+      // Create command
+      const statusCommand = createStatusCommand();
+
+      // Execute command without status parameter
+      await statusCommand.parseAsync(["node", "status", "set", "001"]);
+
+      // Verify error output for non-interactive mode
+      expect(errorOutput.length).toBeGreaterThan(0);
+      expect(errorOutput[0]).toContain("Status is required in non-interactive mode");
+
+      // Verify exit was called with code 1
+      expect(exitCalled).toBe(true);
+      expect(exitCode).toBe(1);
+    } finally {
+      // Restore TTY state
+      Object.defineProperty(process.stdout, 'isTTY', { value: isTTYOriginal });
     }
-
-    // Verify command has required arguments
-    // Commander marks required arguments with the property ._required = true
-    const commandArgs = (setCmd as any)._args;
-
-    // Expect the status argument to exist
-    const statusArg = commandArgs.find((arg: any) => arg.name() === "status");
-    expect(statusArg).toBeDefined();
-
-    // Expect the task-id argument to exist
-    const taskIdArg = commandArgs.find((arg: any) => arg.name() === "task-id");
-    expect(taskIdArg).toBeDefined();
-
-    // Both arguments should be required
-    expect(statusArg.required).toBe(true);
-    expect(taskIdArg.required).toBe(true);
   });
 });

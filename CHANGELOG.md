@@ -210,6 +210,8 @@ function customMatterStringify(content: string, data: any): string {
 - New `minsky rules sync` command to synchronize rule files between main workspace and session workspaces
 - Debug mode for rules commands to help troubleshoot rule loading issues
 - Documentation in `.cursor/rules/README.md` explaining workspace isolation and rule management
+- Centralized test mock utilities in `src/utils/test-utils/mocking.ts` with functions like `createMock`, `mockModule`, `setupTestMocks`, `createMockObject`, `createMockExecSync`, and `createMockFileSystem` that encapsulate correct bun:test mocking patterns. These utilities improve test reliability, maintainability, and consistency across the codebase.
+- Comprehensive test suite for the mocking utilities in `src/utils/test-utils/mocking.test.ts` that verifies all functionality and provides usage examples.
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -228,6 +230,7 @@ _See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/
 _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
 _See: Task Specification [068-ai-guideline-do-not-over-optimize-indentation](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md) for the AI linter autofix guideline rule (originally indentation, now generalized)._
 _See: SpecStory history [2025-05-14_task-071-remove-interactive-cli-tests](.specstory/history/2025-05-14_task-071-remove-interactive-cli-tests.md) for task#071 implementation._
+_See: SpecStory history [2024-07-17_task-059-add-centralized-test-mock-utilities](.specstory/history/2024-07-17_task-059-add-centralized-test-mock-utilities.md) for task#059 implementation of centralized test mock utilities._
 
 ### Changed 
 

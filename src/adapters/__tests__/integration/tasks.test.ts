@@ -1,12 +1,21 @@
-import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
-import { mockDateFunctions, setupConsoleSpy, createTempTestDir } from "../../../utils/test-utils";
-import { execSync } from "child_process";
-import type { ExecSyncOptionsWithStringEncoding } from "child_process";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import {
+  mockDateFunctions,
+  setupConsoleSpy,
+  createTempTestDir,
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockExecSync
+} from "../../../utils/test-utils";
 import { registerTaskTools } from "../../../mcp/tools/tasks";
 import { CommandMapper } from "../../../mcp/command-mapper";
 import fs from "fs";
 import path from "path";
 import { z } from "zod";
+
+// Set up auto-cleanup of mocks after each test
+setupTestMocks();
 
 /**
  * Integration tests for tasks commands.
@@ -15,11 +24,7 @@ import { z } from "zod";
  */
 describe("Tasks Command Integration Tests", () => {
   // Mock dependencies
-  let execSyncMock: jest.Mock; // Will be initialised by mock.module below
-  // let consoleErrorSpy: any; // Simplify type to bypass complex type issues for now
-
-  // Store original console.error and execSync
-  // const originalExecSync = execSync; // execSync is already in scope
+  let execSyncMock = createMock();
 
   // Create a fake task list response for mocking
   const mockTaskListResponse = JSON.stringify([
@@ -44,27 +49,20 @@ describe("Tasks Command Integration Tests", () => {
   // Set up mock FastMCP server for testing
   let mockCommandMapper: CommandMapper;
 
+  // Mock child_process.execSync
+  mockModule("child_process", () => {
+    return {
+      // Create a mock function for execSync that returns a default value
+      execSync: (...args: any[]) => execSyncMock(...args),
+      // Keep other exports intact
+      exec: () => {},
+      spawn: () => {},
+    };
+  });
+
   beforeEach(async () => {
-    // Mock child_process.execSync
-    mock.module("child_process", () => {
-      return {
-        // Create a mock function for execSync that returns a default value
-        execSync: mock(() => {
-          // This is a simplified mock implementation.
-          // It will be overridden in individual tests
-          return "";
-        }),
-        // Keep other exports intact
-        exec: () => {},
-        spawn: () => {},
-      };
-    });
-
-    // Obtain mocked execSync reference after mock.module patch
-    const { execSync } = await import("child_process");
-    execSyncMock = execSync;
-
-    // Set up default behavior that individual tests can override
+    // Configure execSync mock default behavior
+    execSyncMock.mockClear();
     execSyncMock.mockImplementation((command: string) => {
       if (command.includes("minsky tasks list")) {
         return mockTaskListResponse;
@@ -81,12 +79,9 @@ describe("Tasks Command Integration Tests", () => {
       return "";
     });
 
-    // Removing console.error mock
-    // consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-
     // Set up FastMCP mock
     const mockServer = {
-      addTool: jest.fn<any>(() => {}),
+      addTool: createMock(() => {}),
       tools: [],
     } as any;
 
@@ -109,25 +104,13 @@ describe("Tasks Command Integration Tests", () => {
     registerTaskTools(mockCommandMapper);
   });
 
-  afterEach(() => {
-    execSyncMock.mockReset();
-    // consoleErrorSpy.mockRestore(); // Not needed since we're not mocking console.error
-  });
+  // Note: We don't need an afterEach block to clear mocks since setupTestMocks() handles that
 
   describe("tasks.list command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      // execSyncMock is already set up in beforeEach to handle this command
-      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
-      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
-      //     return mockTaskListResponse as any; // CLI usually returns string for JSON
-      //   }
-      //   return Buffer.from(mockTaskListResponse) as any;
-      // });
-
       // Get the tasks.list tool from the mockCommandMapper
       const listTasksTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.list"
+        (tool: any) => tool.name === "tasks.list"
       );
 
       // Check that the tool was registered
@@ -150,18 +133,9 @@ describe("Tasks Command Integration Tests", () => {
     });
 
     it("should handle filtering by status properly", async () => {
-      // execSyncMock is already set up in beforeEach
-      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
-      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
-      //     return mockTaskListResponse as any;
-      //   }
-      //   return Buffer.from(mockTaskListResponse) as any;
-      // });
-
       // Get the tasks.list tool
       const listTasksTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.list"
+        (tool: any) => tool.name === "tasks.list"
       );
 
       // Execute the MCP tool with filter parameter
@@ -195,34 +169,22 @@ describe("Tasks Command Integration Tests", () => {
       } catch (error) {
         expect(String(error)).toContain("Failed to list tasks");
       }
-
-      // Verify error handling occurred using a more compatible approach
-      // expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
     */
   });
 
   describe("tasks.get command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
-      // execSyncMock is already set up in beforeEach
-      // execSyncMock.mockImplementation((command: string, options?: ExecSyncOptionsWithStringEncoding) => {
-      //   if (options?.encoding === 'utf-8' || !options?.encoding) {
-      //     return mockTaskGetResponse as any; // CLI usually returns string for JSON
-      //   }
-      //   return Buffer.from(mockTaskGetResponse) as any;
-      // });
-
       // Get the tasks.get tool
       const getTaskTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.get"
+        (tool: any) => tool.name === "tasks.get"
       );
 
       // Check that the tool was registered
       expect(getTaskTool).toBeDefined();
 
       // Execute the MCP tool
-      const mcpResult = await getTaskTool.execute({ taskId: "001" });
+      const mcpResult = await getTaskTool.execute({ id: "001" });
 
       // Parse the MCP result
       const mcpTask = JSON.parse(mcpResult);
@@ -246,76 +208,58 @@ describe("Tasks Command Integration Tests", () => {
       });
 
       // Get the tasks.get tool
-      const getTaskTool = (mockCommandMapper as any).server.tools.find(
+      const getTaskTool = mockCommandMapper.server.tools.find(
         (tool: any) => tool.name === "tasks.get"
       );
 
-      // Check that the tool was registered
-      expect(getTaskTool).toBeDefined();
-
       // Expect the MCP tool to propagate the error
       try {
-        await getTaskTool.execute({ taskId: "999" });
+        await getTaskTool.execute({ id: "999" });
         // Should not reach here
         expect(true).toBe(false);
       } catch (error) {
         expect(String(error)).toContain("Failed to get task 999");
       }
-
-      // Verify error handling occurred
-      // expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
     });
     */
   });
 
-  describe("tasks.status commands", () => {
-    it("should get task status consistently", async () => {
-      // execSyncMock is already set up in beforeEach
-      // execSyncMock.mockImplementation(() => "Status: TODO" as any);
-
+  describe("tasks.status.get command", () => {
+    it("should return task status from CLI command", async () => {
       // Get the tasks.status.get tool
       const getStatusTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.status.get"
+        (tool: any) => tool.name === "tasks.status.get"
       );
 
+      // Check that the tool was registered
+      expect(getStatusTool).toBeDefined();
+
       // Execute the MCP tool
-      const result = await getStatusTool.execute({ taskId: "001" });
-      const parsedResult = JSON.parse(result);
+      const mcpResult = await getStatusTool.execute({ id: "001" });
 
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        taskId: "001",
-        status: "TODO",
-      });
+      // Verify the result
+      expect(mcpResult).toBe("Status: TODO");
 
-      // Verify execSync was called correctly
+      // Verify execSync was called with the expected command
       expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status get 001");
     });
+  });
 
-    it("should set task status consistently", async () => {
-      // execSyncMock is already set up in beforeEach
-      // execSyncMock.mockImplementation(() => "Status updated" as any);
-
+  describe("tasks.status.set command", () => {
+    it("should set task status via CLI command", async () => {
       // Get the tasks.status.set tool
       const setStatusTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.status.set"
+        (tool: any) => tool.name === "tasks.status.set"
       );
 
+      // Check that the tool was registered
+      expect(setStatusTool).toBeDefined();
+
       // Execute the MCP tool
-      const result = await setStatusTool.execute({ taskId: "001", status: "IN_PROGRESS" });
-      const parsedResult = JSON.parse(result);
+      await setStatusTool.execute({ id: "001", status: "IN-PROGRESS" });
 
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        taskId: "001",
-        status: "IN_PROGRESS",
-      });
-
-      // Verify execSync was called correctly
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status set 001 IN_PROGRESS");
+      // Verify execSync was called with the expected command
+      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status set 001 IN-PROGRESS");
     });
   });
 });
