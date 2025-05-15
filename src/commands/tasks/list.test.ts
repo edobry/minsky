@@ -402,12 +402,23 @@ describe("minsky tasks list CLI", () => {
 
     // Should be valid JSON
     try {
-      JSON.parse(stdout);
-      // If we reach here, it's valid JSON
-      // TODO: Implement proper assertion for valid JSON (original placeholder at line 407 was an expect(true).toBe(true))
+      const parsedTasks = JSON.parse(stdout) as Task[];
+      
+      // Validate the structure of the parsed JSON
+      expect(Array.isArray(parsedTasks)).toBe(true);
+      
+      // If we have tasks, verify they have the expected structure
+      if (parsedTasks.length > 0) {
+        const firstTask = parsedTasks[0];
+        if (firstTask) {
+          expect(firstTask.id).toBeDefined();
+          expect(firstTask.status).toBeDefined();
+          expect(firstTask.title).toBeDefined();
+        }
+      }
     } catch (e) {
-      // This should not happen if the JSON is valid
-      expect(false).toBe(true);
+      // If JSON.parse fails, the test should fail
+      expect(`Invalid JSON: ${stdout}`).toBe("Valid JSON expected");
     }
   });
 
