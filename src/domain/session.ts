@@ -1,4 +1,3 @@
-/// <reference types="@bun-types" />
 import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
@@ -144,8 +143,11 @@ export class SessionDB {
       });
       return found || null;
     } catch (error) {
-      console.error(
-        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
+      log.error(
+        "Error finding session by task ID", { 
+          error: error instanceof Error ? error.message : String(error),
+          taskId
+        }
       );
       return null;
     }
@@ -243,8 +245,8 @@ export type SessionDeps = {
   workspaceUtils: typeof WorkspaceUtils;
 };
 
-export const createSessionDeps = (options?: { workspacePath?: string }): SessionDeps => {
-  const baseDir = options?.workspacePath || WorkspaceUtils.resolveWorkspacePath({});
+export function createSessionDeps(options?: { workspacePath?: string }): SessionDeps {
+  const baseDir = options?.workspacePath || process.cwd();
   const sessionDBInstance = new SessionDB({ baseDir });
   const gitServiceInstance = new GitService(baseDir);
   const taskServiceInstance = new TaskService({
@@ -258,14 +260,14 @@ export const createSessionDeps = (options?: { workspacePath?: string }): Session
     taskService: taskServiceInstance,
     workspaceUtils: WorkspaceUtils,
   };
-};
+}
 
 /**
  * Gets session details based on parameters
  */
 export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
   const { name, task } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath });
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
   if (task && !name) {
     const normalizedTaskId = taskIdSchema.parse(task);
     return sessionDB.getSessionByTaskId(normalizedTaskId);
@@ -280,7 +282,7 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
  * Lists all sessions based on parameters
  */
 export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath });
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
   return sessionDB.listSessions();
 }
 
@@ -289,13 +291,13 @@ export async function listSessionsFromParams(params: SessionListParams): Promise
  */
 export async function startSessionFromParams(
   params: SessionStartParams,
-  deps: SessionDeps = createSessionDeps({ workspacePath: params.repo })
+  deps = createSessionDeps({ workspacePath: params.repo })
 ): Promise<SessionResult> {
   const { name, repo, task, branch: inputBranch, noStatusUpdate, quiet, json } = params;
   let repoUrl = repo;
 
   try {
-    const currentDir = Bun.env.PWD || process.cwd();
+    const currentDir = process.env.PWD || process.cwd();
     const isInSession = await deps.workspaceUtils.isSessionRepository(currentDir);
     if (isInSession) {
       throw new MinskyError(
@@ -305,7 +307,7 @@ export async function startSessionFromParams(
 
     if (!repoUrl) {
       try {
-        repoUrl = await WorkspaceUtils.resolveRepoPath({ repo: currentDir });
+        repoUrl = await resolveRepoPath({ repo: currentDir });
       } catch (error) {
         if (!name && !task) {
           throw new ValidationError(
@@ -374,7 +376,7 @@ export async function startSessionFromParams(
 
     await deps.sessionDB.addSession(sessionRecord);
 
-    const cloneOptions: GitOptions = {
+    const cloneOptions = {
       repoUrl,
       sessionName,
       workdir: repoPath,
@@ -389,7 +391,11 @@ export async function startSessionFromParams(
       try {
         statusUpdateResult = await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
-        console.warn(`Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn("Warning: Failed to update task status", { 
+          error: error instanceof Error ? error.message : String(error),
+          taskId,
+          targetStatus: TASK_STATUS.IN_PROGRESS
+        });
       }
     }
 
@@ -416,9 +422,7 @@ export async function startSessionFromParams(
  */
 export async function updateSessionFromParams(
   params: SessionUpdateParams,
-  deps: SessionDeps = createSessionDeps({
-    workspacePath: params.workspacePath || params.repo || WorkspaceUtils.resolveWorkspacePath({}),
-  })
+  deps = createSessionDeps({ workspacePath: params.repo })
 ): Promise<SessionRecord | null> {
   const { name, task, branch: inputBranch, remote: inputRemote } = params;
   const sessionDB = deps.sessionDB;
@@ -451,21 +455,21 @@ export async function updateSessionFromParams(
   const currentBranch = inputBranch || existingSession.branch || "main";
 
   if (!params.noStash) {
-    await deps.gitService.stashChanges({ sessionWorkDir });
+    await deps.gitService.stashChanges(sessionWorkDir);
   }
 
-  await deps.gitService.pullLatest({ sessionWorkDir, remote: inputRemote, branch: currentBranch });
-  await deps.gitService.mergeBranch({ sessionWorkDir, branchToMerge: currentBranch });
+  // Adjust method calls to match the expected signatures
+  await deps.gitService.pullLatest(sessionWorkDir, inputRemote);
+  await deps.gitService.mergeBranch(sessionWorkDir, currentBranch);
 
   if (!params.noStash) {
-    await deps.gitService.popStash({ sessionWorkDir });
+    await deps.gitService.popStash(sessionWorkDir);
   }
 
   if (!params.noPush) {
-    await deps.gitService.pushBranch({
-      sessionWorkDir,
-      remote: inputRemote,
-      branch: currentBranch,
+    await deps.gitService.push({
+      repoPath: sessionWorkDir,
+      remote: inputRemote
     });
   }
 
@@ -474,7 +478,6 @@ export async function updateSessionFromParams(
     task: _t,
     noStash,
     noPush,
-    workspacePath,
     repo,
     branch,
     remote,
@@ -494,7 +497,7 @@ export async function updateSessionFromParams(
  */
 export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
   const { name, task } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath });
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
 
   let session: SessionRecord | null = null;
 
@@ -525,7 +528,7 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
  */
 export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
   const { name, force } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath });
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
 
   if (!name) {
     throw new ValidationError("Session name must be provided");
