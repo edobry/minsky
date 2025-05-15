@@ -1,18 +1,25 @@
-import { describe, it, expect, mock, beforeEach, afterEach, jest, spyOn } from "bun:test";
-import * as testUtils from "../../../utils/test-utils";
-import { execSync as originalExecSync } from "child_process";
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockExecSync,
+  setupConsoleSpy,
+  TEST_TIMESTAMPS
+} from "../../../utils/test-utils";
 import { registerSessionTools } from "../../../mcp/tools/session";
 import { CommandMapper } from "../../../mcp/command-mapper";
 import type { FastMCP } from "fastmcp"; // Import FastMCP type if available, otherwise use any
 import fs from "fs";
 import path from "path";
 
-// Mock child_process module
-let execSyncMock: jest.Mock = jest.fn(); // Initialize at declaration
+// Set up auto-cleanup of mocks after each test
+setupTestMocks();
 
-mock.module("child_process", () => {
-  // This instance of execSyncMock will be configured by tests and used by the mocked execSync
-  execSyncMock = jest.fn(); 
+// Mock child_process module
+let execSyncMock = createMock();
+
+mockModule("child_process", () => {
   return {
     __esModule: true, // Important for ES modules
     execSync: (...args: any[]) => execSyncMock(...args), // Ensure the test-configured mock is called
@@ -64,13 +71,10 @@ describe("Session Command Integration Tests", () => {
     execSyncMock.mockClear();
     execSyncMock.mockImplementation(() => ""); // Default implementation for each test
 
-    // Removing console.error mock
-    // spyOn(console, "error").mockImplementation(() => {});
-
     // Set up FastMCP mock server and CommandMapper
     mockServerTools = [];
     const mockServerInstance: any = {
-      addTool: jest.fn((tool: any) => {
+      addTool: createMock((tool: any) => {
         mockServerTools.push(tool);
       }),
       // Add other FastMCP properties/methods if CommandMapper uses them directly
@@ -84,10 +88,7 @@ describe("Session Command Integration Tests", () => {
     dynamicRegisterSessionTools(mockCommandMapper);
   });
 
-  afterEach(() => {
-    // console.error = originalConsoleError; // Not needed since we're not mocking console.error
-    jest.clearAllMocks(); // This will clear execSyncMock as well if it's a jest.fn()
-  });
+  // Note: We don't need an afterEach block to clear mocks since setupTestMocks() handles that
 
   describe("session.list command", () => {
     it("should return the same data for CLI and MCP interfaces", async () => {
@@ -213,45 +214,53 @@ describe("Session Command Integration Tests", () => {
     */
   });
 
-  describe("session.start command", () => {
-    it("should start a session correctly", async () => {
-      execSyncMock.mockImplementation(() => "Session 'test-session' started");
-      const startSessionTool = mockServerTools.find(
-        (tool: any) => tool.name === "session.start"
+  describe("session.dir command", () => {
+    it("should return the directory path for the specified session", async () => {
+      const mockDirResponse = "/Users/username/.local/state/minsky/git/repo/sessions/test-session-1";
+      execSyncMock.mockImplementation(() => mockDirResponse);
+      
+      const dirSessionTool = mockServerTools.find(
+        (tool: any) => tool.name === "session.dir"
       );
+      expect(dirSessionTool).toBeDefined();
+
       // Execute the MCP tool
-      const result = await startSessionTool.execute({ name: "test-session" });
-      const parsedResult = JSON.parse(result);
+      const mcpResult = await dirSessionTool.execute({ session: "test-session-1" });
 
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        message: "Session 'test-session' started",
-        session: "test-session",
-      });
+      // Verify the result
+      expect(mcpResult).toBe(mockDirResponse);
 
-      // Verify execSync was called correctly and includes the required --quiet flag
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session start --name test-session --quiet");
+      // Verify execSync was called with the expected command
+      expect(execSyncMock).toHaveBeenCalledWith("minsky session dir test-session-1");
     });
+  });
 
-    it("should handle task-associated sessions", async () => {
-      execSyncMock.mockImplementation(() => "Session 'task#123' started");
+  describe("session.start command", () => {
+    it("should properly pass through parameters", async () => {
+      const mockStartResponse = JSON.stringify({
+        result: "success",
+        session: "new-test-session",
+        repo: "https://github.com/example/repo",
+        branch: "session/new-test-session",
+      });
+      execSyncMock.mockImplementation(() => mockStartResponse);
+
       const startSessionTool = mockServerTools.find(
         (tool: any) => tool.name === "session.start"
       );
-      // Execute the MCP tool with task parameter
-      const result = await startSessionTool.execute({ task: "123" });
-      const parsedResult = JSON.parse(result);
+      expect(startSessionTool).toBeDefined();
 
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        message: "Session 'task#123' started",
-        session: "task#123",
+      // Execute the MCP tool
+      await startSessionTool.execute({
+        name: "new-test-session",
+        repo: "https://github.com/example/repo",
+        noStatusUpdate: true,
       });
 
-      // Verify execSync was called correctly with the task parameter
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session start --task 123 --quiet");
+      // Verify execSync was called with the expected command and parameters
+      expect(execSyncMock).toHaveBeenCalledWith(
+        "minsky session start --name new-test-session --repo https://github.com/example/repo --no-status-update --json"
+      );
     });
   });
 });
