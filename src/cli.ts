@@ -8,6 +8,7 @@ import { createGitCommand } from "./commands/git/index.js";
 import { createInitCommand } from "./commands/init/index.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
 import { createRulesCommand } from "./commands/rules/index.js";
+import { log } from "./utils/logger";
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
