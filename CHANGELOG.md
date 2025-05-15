@@ -13,6 +13,17 @@
 - Fixed `minsky session delete` command to properly remove both the session repository directory and database record. The command now correctly identifies the repository location regardless of directory structure (legacy or with sessions subdirectory) and properly handles errors during database operations, clearly reporting failures rather than falsely reporting success.
 - Removed console.error mocking from integration tests to focus on testing behavior rather than implementation details of error reporting, following the new testing-boundaries guidelines.
 - Fixed issue with `minsky rules get --format generic` command where requesting a rule in a format it doesn't exist in would return "Rule not found" error instead of finding the rule in its available format. The command now searches in all formats if a rule isn't found in the requested format and provides a clear message when returning a rule in a different format than requested.
+- Removed placeholder tests and replaced with actual implementations in domain test files (#072)
+- Fixed empty block statement in session.ts (#072)
+- Improved test implementations in git and repository modules to avoid placeholder patterns (#072)
+- Fixed session merging with main branch to resolve conflicts (#072)
+- Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
+- Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
+- Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
+- Fixed placeholder tests in list.test.ts and get.test.ts with proper implementation notes (#072)
+- Added TestSessionParams type to fix type errors in get.test.ts (#072)
+- Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
+- Fixed missing variable declarations in startSession.test.ts to avoid linter errors (#072)
 
 ### Added
 

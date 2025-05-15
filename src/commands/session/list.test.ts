@@ -8,9 +8,9 @@ import {
   setupMinskyTestEnv,
   createTestEnv,
   standardSpawnOptions,
-} from "../../utils/test-helpers.ts";
-import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
-import type { SessionRecord } from "../../domain/session.ts";
+} from "../../utils/test-helpers";
+import type { MinskyTestEnv } from "../../utils/test-helpers";
+import type { SessionRecord } from "../../domain/session";
 
 // Define interface for test data that includes the branch property
 interface TestSessionRecord extends SessionRecord {

@@ -1,16 +1,24 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+} from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
-import type { SessionRecord } from "../../domain/session.ts";
+import type { SessionRecord } from "../../domain/session";
 import {
   createUniqueTestDir,
   cleanupTestDir,
   setupMinskyTestEnv,
   createTestEnv,
   standardSpawnOptions,
-} from "../../utils/test-helpers.ts";
-import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
+} from "../../utils/test-helpers";
+import type { MinskyTestEnv } from "../../utils/test-helpers";
 import { mock } from "bun:test";
 import { SessionDB } from "../../domain/session";
 
@@ -94,7 +102,7 @@ function runCliCommand(args: string[]) {
     // Extract session name or task ID based on command format
     if (hasTaskFlag > -1 && args.length > hasTaskFlag + 1) {
       taskId = args[hasTaskFlag + 1];
-    } else if (args.length > 2 && !args[2].startsWith("--")) {
+    } else if (args.length > 2 && args[2] && !args[2].startsWith("--")) {
       sessionName = args[2];
     }
 
@@ -139,12 +147,12 @@ function runCliCommand(args: string[]) {
       if (hasJsonFlag) {
         mockResult.stdout = JSON.stringify({
           success: true,
-          message: `Session 'custom-path-session' successfully deleted.`,
+          message: "Session 'custom-path-session' successfully deleted.",
           repoDeleted: true,
           recordDeleted: true,
         });
       } else {
-        mockResult.stdout = `Session "custom-path-session" successfully deleted`;
+        mockResult.stdout = "Session \"custom-path-session\" successfully deleted";
       }
       return mockResult;
     }

@@ -17,13 +17,10 @@ import {
   getTaskFromParams,
   getTaskStatusFromParams,
   setTaskStatusFromParams,
-  createTaskFromParams, // Corrected import
 } from "../../domain/index.js";
 import { MinskyError } from "../../errors/index.js";
-import { TASK_STATUS } from "../../domain/tasks.js"; // TASK_STATUS is the object with values
+import { TASK_STATUS } from "../../domain/tasks.js";
 import * as p from "@clack/prompts";
-import { log } from "../../utils/logger";
-import { z } from "zod"; // Import z for type inference if needed
 
 // Helper for exiting process consistently
 function exit(code: number): never {
@@ -229,7 +226,7 @@ export function createStatusCommand(): Command {
             // For JSON output, ensure it is raw JSON to stdout, not through logger
             console.log(JSON.stringify({ taskId, status }, null, 2));
           } else {
-            log.cli(`Status for task ${taskId}: ${status}`);
+            console.log(`Status of task #${taskId}: ${status}`);
           }
         } catch (error) {
           log.cliError("Error getting task status:");
@@ -286,10 +283,11 @@ export function createStatusCommand(): Command {
           // Call the domain function
           await setTaskStatusFromParams(params);
 
-          // Format and display the result
-          if (options.json) {
-            // For JSON output, ensure it is raw JSON to stdout, not through logger
-            console.log(JSON.stringify({ taskId, status, success: true }, null, 2));
+          // Display success message
+          console.log(`Status of task #${taskId} set to ${status}`);
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
           } else {
             log.cli(`Status for task ${taskId} set to ${status}`);
           }

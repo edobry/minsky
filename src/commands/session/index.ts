@@ -39,7 +39,7 @@ export function createSessionCommand(dependencies: SessionCommandDependencies = 
   session.addCommand(createGetCommand(commandDeps));
   session.addCommand(createDirCommand(commandDeps));
   session.addCommand(createStartCommand());
-  session.addCommand(createDeleteCommand());
+  session.addCommand(createDeleteCommand(sessionDb));
   session.addCommand(createUpdateCommand(gitService, sessionDb));
   session.addCommand(createCommitCommand(commitCommandDeps));
 

@@ -6,7 +6,7 @@
  * without changing the core session management logic.
  */
 
-export * from "./RepositoryBackend.ts";
+export * from "./RepositoryBackend";
 
 /**
  * Configuration for repository backends

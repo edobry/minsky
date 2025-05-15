@@ -29,10 +29,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        all: args.all ?? false, // Provide default for 'all'
         json: true, // Always use JSON format for MCP
       };
 
-      return await listTasksFromParams(params);
+      return JSON.stringify(await listTasksFromParams(params));
     }
   );
 
@@ -50,7 +51,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      return await getTaskFromParams(params);
+      return JSON.stringify(await getTaskFromParams(params));
     }
   );
 
@@ -90,6 +91,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        status: args.status as "TODO" | "IN-PROGRESS" | "IN-REVIEW" | "DONE", // Cast to expected type
       };
 
       await setTaskStatusFromParams(params);
@@ -115,6 +117,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        force: args.force ?? false, // Provide default for 'force'
         json: true, // Always use JSON format for MCP
       };
 

@@ -2,15 +2,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "fs";
-import type { SessionRecord } from "../../domain/session.ts";
+import type { SessionRecord } from "../../domain/session";
 import {
   createUniqueTestDir,
   cleanupTestDir,
   setupMinskyTestEnv,
   createTestEnv,
   standardSpawnOptions,
-} from "../../utils/test-helpers.ts";
-import type { MinskyTestEnv } from "../../utils/test-helpers.ts";
+} from "../../utils/test-helpers";
+import type { MinskyTestEnv } from "../../utils/test-helpers";
 
 // Path to the CLI entry point
 const CLI = resolve(process.cwd(), "src/cli.ts");
@@ -101,8 +101,10 @@ function runCliCommand(args: string[], additionalEnv: Record<string, string> = {
 
     // Get the session name if it's provided (not a flag and not a flag argument)
     for (let i = 2; i < args.length; i++) {
-      if (!args[i].startsWith("--") && (i === 2 || args[i - 1] !== "--task")) {
-        sessionName = args[i];
+      const currentArg = args[i];
+      const prevArg = args[i-1]; // Safe due to i >= 2
+      if (currentArg && !currentArg.startsWith("--") && (i === 2 || (prevArg && prevArg !== "--task"))) {
+        sessionName = currentArg;
         hasSessionName = true;
         break;
       }

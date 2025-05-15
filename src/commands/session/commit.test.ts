@@ -112,7 +112,8 @@ describe("session commit command", () => {
     expect(pushCalls).toBe(true);
   });
 
-  test("skips push with --no-push flag", async () => {
+  test("verifies push is skipped when --no-push flag is provided", async () => {
+    // Arrange
     const command = createCommitCommand({
       gitService: mockGitService as unknown as GitService,
       sessionDb: mockSessionDb as unknown as SessionDB,
@@ -124,9 +125,10 @@ describe("session commit command", () => {
     const program = new Command();
     program.addCommand(command);
 
+    // Act
     await program.parseAsync(["node", "test", "commit", "-m", "test commit", "--no-push"]);
 
-    // Verify stageAll and commit were called, but push was not
+    // Assert - Verify stageAll and commit were called, but push was not
     expect(stageAllCalls).toBe(true);
     expect(commitCalls.length).toBeGreaterThan(0);
     expect(pushCalls).toBe(false);

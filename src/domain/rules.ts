@@ -1,8 +1,11 @@
 import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
-import matter from "gray-matter";
+import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
 import { log } from "../utils/logger"; // Added logger import
+
+const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
+const matterStringify = (grayMatterNamespace as any).stringify || (matter as any).stringify;
 
 export interface Rule {
   id: string; // Filename without extension
@@ -248,7 +251,7 @@ export class RuleService {
     });
 
     // Create frontmatter content
-    const fileContent = matter.stringify(content, cleanMeta);
+    const fileContent = matterStringify(content, cleanMeta);
 
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
@@ -301,6 +304,13 @@ export class RuleService {
     const newContent = options.content ?? rule.content;
     const fileContent = matter.stringify(newContent, metaForFrontmatter);
 
+    // Content to use
+    const updatedContent = options.content || rule.content;
+
+    // Create frontmatter content
+    const fileContent = matterStringify(updatedContent, cleanMeta);
+
+    // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug(`Rule updated at path: ${rule.path}`);

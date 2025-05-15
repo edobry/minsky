@@ -1,10 +1,9 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session.js";
-import { normalizeTaskId } from "../../domain/tasks";
+import { normalizeTaskId } from "../../domain/tasks.js";
 import { join } from "path";
 import { promises as fs } from "fs";
-import { createInterface } from "readline";
-import { exit } from "../../utils/process";
+import { exit } from "../../utils/process.js";
 import * as p from "@clack/prompts";
 
 export function createDeleteCommand(): Command {
