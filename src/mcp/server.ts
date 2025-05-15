@@ -1,4 +1,5 @@
 import { FastMCP } from "fastmcp";
+import { log } from "../utils/logger";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -110,13 +111,17 @@ export class MinskyMCPServer {
     });
 
     // Listen for client connections
-    this.server.on("connect", (event) => {
-      console.log("Client connected to Minsky MCP Server");
+    this.server.on("connect", () => {
+      log.agent("Client connected to Minsky MCP Server", {
+        transport: this.options.transportType
+      });
     });
 
     // Listen for client disconnections
-    this.server.on("disconnect", (event) => {
-      console.log("Client disconnected from Minsky MCP Server");
+    this.server.on("disconnect", () => {
+      log.agent("Client disconnected from Minsky MCP Server", {
+        transport: this.options.transportType
+      });
     });
   }
 
@@ -151,9 +156,17 @@ export class MinskyMCPServer {
         // Default to stdio if transport type is invalid
         await this.server.start({ transportType: "stdio" });
       }
-      console.log(`Minsky MCP Server started with ${this.options.transportType} transport`);
+      log.agent("Minsky MCP Server started", {
+        transport: this.options.transportType,
+        serverName: this.options.name,
+        version: this.options.version
+      });
     } catch (error) {
-      console.error("Failed to start Minsky MCP Server:", error);
+      log.error("Failed to start Minsky MCP Server", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        transport: this.options.transportType
+      });
       throw error;
     }
   }
