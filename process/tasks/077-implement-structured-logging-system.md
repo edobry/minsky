@@ -266,33 +266,45 @@ The logging implementation will prioritize:
      - Used `log.error` for error logging with proper stack traces
      - Added context objects with relevant metadata for better debugging
 
+8. **Git Command Modules (Partial)**
+   - Updated several Git command modules to use the new logging system:
+     - `src/commands/git/clone.ts`: Converted to use structured logging with context
+     - `src/commands/git/branch.ts`: Added context objects and proper error handling
+     - `src/commands/git/commit.ts`: Added debug logging with commit details
+   - Added support for JSON format output via `log.agent`
+   - Enhanced error logging with stack traces and context objects
+
+9. **VS Code Configuration**
+   - Enhanced VS Code workspace settings for improved developer experience
+   - Added debugging configurations specifically for the Minsky CLI
+   - Configured editor settings to support the project's coding standards
+
 ### Remaining Work
 
-1. **Continue Migration**
-   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 150 remaining instances)
-   - Priority files to update:
-     - **Core Domain Modules:**
-       - Any remaining warnings/errors in domain modules
-     
-     - **CLI Command Modules:**
-       - `src/commands/git/*.ts` - Git operation output and errors
-       - `src/adapters/cli/session.ts` - Session CLI adapter
-   
-   - Ensure proper categorization of logs (program/CLI messages vs agent/system events)
-   - Handle test files separately - many have mocked console methods
+1. **Complete Git Command Modules Migration**
+   - Update remaining Git command modules:
+     - `src/commands/git/pr.ts`: Convert to use structured logging
+     - `src/commands/git/approve.ts`: Implement consistent error handling with context
 
-2. **Refine Context Objects**
-   - Implement consistent metadata for structured logging
-   - Ensure proper error formatting and stack trace capture
-   - Add standard context fields for different log types:
-     - Domain operations: Include operation name, input params (sanitized)
-     - CLI commands: Include command name, relevant options
-     - Errors: Capture cause chain, relevant object IDs
-   
-3. **Documentation**
-   - Add documentation about the logging system and how to use it
+2. **CLI Adapters Migration**
+   - Update CLI adapters to use the new logging system:
+     - `src/adapters/cli/session.ts`: Convert all output to use appropriate loggers
+     - `src/adapters/cli/git.ts`: Add structured error handling
+     - `src/adapters/cli/rules.ts`: Update with context objects for better debugging
+
+3. **Test Files Handling**
+   - Handle test files differently since many have mocked console methods
+   - Create appropriate test utilities for capturing and verifying logs
+
+4. **Documentation**
+   - Add documentation about the logging system in a new file: `docs/logging.md`
+   - Document standard log levels and when to use each type of logger
    - Provide examples of proper logging usage
-   - Add guidelines for different log levels:
-     - When to use debug vs info vs warn vs error
-     - When to use programLogger vs agentLogger
-     - How to structure context objects
+   - Include guidelines for creating useful context objects
+
+5. **Final Review & Testing**
+   - Run all tests to ensure they still pass with the new logging system
+   - Verify that all console output has been replaced with the appropriate logger calls
+   - Check for consistent formatting across all log messages
+   - Ensure proper error handling with stack traces for all error scenarios
+   - Verify that the separation between user-facing output and system logs is maintained
