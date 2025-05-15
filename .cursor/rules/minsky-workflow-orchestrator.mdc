@@ -1,4 +1,11 @@
 ---
 name: Minsky Workflow Overview
 description: REQUIRED entry point for understanding the Minsky workflow system
+globs:
+  - \"**/*\"
 alwaysApply: false
+---
+
+# Minsky Workflow System
+
+This rule provides an overview of the Minsky workflow system.

@@ -1,4 +1,11 @@
 ---
-name: Minsky Session Management Protocol
-description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
+name: Minsky Session Management
+description: REQUIRED procedures for creating, navigating, and managing sessions
+globs:
+  - \"**/*\"
 alwaysApply: false
+---
+
+# Minsky Session Management
+
+This rule provides detailed procedures for creating, navigating, and managing sessions in the Minsky workflow.

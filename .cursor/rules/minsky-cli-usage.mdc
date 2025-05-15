@@ -1,4 +1,11 @@
 ---
 name: Minsky CLI Usage Protocol
 description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
+globs:
+  - \"**/*\"
 alwaysApply: false
+---
+
+# Minsky CLI Usage Protocol
+
+This rule provides guidelines for using the Minsky Command Line Interface (CLI) for all task and session operations.

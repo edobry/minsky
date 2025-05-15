@@ -1,4 +1,11 @@
 ---
 name: Task Status Protocol
-description: Protocol for checking, updating, and verifying task status via Minsky CLI
+description: Status checking, updating, and verification procedures
+globs:
+  - \"**/*\"
 alwaysApply: false
+---
+
+# Task Status Protocol
+
+This rule defines the procedures for checking, updating, and verifying task status in the Minsky workflow.
