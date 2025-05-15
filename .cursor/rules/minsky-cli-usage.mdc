@@ -1,0 +1,172 @@
+---
+name: Minsky CLI Usage Protocol
+description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
+globs:
+  - "**/*"
+---
+description:
+globs:
+alwaysApply: false
+---
+# Minsky CLI Usage Protocol
+
+⛔️ **CRITICAL: ALL TASK AND SESSION OPERATIONS MUST USE THE MINSKY CLI**
+
+## Core Principles
+
+1. **Always Use Minsky CLI for Task/Session Data**
+   - NEVER use file listings or static documentation for task/session data
+   - NEVER directly manipulate Minsky's state files or databases
+   - NEVER delete or modify files in `~/.local/state/minsky/`
+   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
+   - ALWAYS use appropriate minsky commands (see Command Reference section below)
+
+2. **Use Official Global Installation**
+   - Use the globally installed `minsky` CLI (available on your PATH, typically via `bun link`)
+   - **Do NOT use `bun run ...` for task/session operations**
+   - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself
+
+3. **Data Integrity is Critical**
+   - Minsky maintains critical state in `~/.local/state/minsky/`
+   - Direct manipulation of these files will corrupt the system
+   - NEVER attempt to "fix" issues by deleting state files
+   - Deleting state files is STRICTLY FORBIDDEN as it:
+     - Corrupts Minsky's understanding of tasks and sessions
+     - Makes session management impossible
+     - May lead to lost work or inconsistent state
+     - Violates the core principle of CLI-based management
+
+4. **Real-Time Data Over Static Files**
+   - Task information comes from the live system, not static files
+   - Session state must be queried through CLI, not assumed
+   - File system should never be used as a primary data source
+
+## Command Verification Protocol
+
+**VERIFICATION CHECKPOINT: Before running ANY minsky CLI command, you MUST:**
+
+1. **Verify Command Syntax**
+   - Explicitly check the subcommand spelling against the documented reference
+   - Run `minsky --help` or `minsky <command> --help` to confirm command options
+   - NEVER guess subcommand names or options
+   - If unsure about syntax, ALWAYS run the relevant `--help` command FIRST
+
+2. **Handle Command Errors**
+   - If you use the wrong subcommand, treat this as a process error and immediately correct it
+   - For permission or access errors, verify you're using the correct approach (not filesystem)
+   - For "command not found" errors, verify Minsky CLI is properly installed and on PATH
+
+3. **Automation Directive**
+   - Whenever asked about the current state of tasks, sessions, or any live project data, always run the appropriate `minsky` CLI command
+   - Do not rely solely on static documentation, code, or cached data for these queries
+   - Examples: `minsky tasks list --json`, `minsky tasks status get <id>`, etc.
+
+## Command Reference
+
+**⚠️ IMPORTANT: NEVER GUESS COMMAND NAMES OR OPTIONS**
+
+Always use `minsky <command> --help` when uncertain about any command or its options.
+
+### Task Commands
+
+```bash
+# List all tasks
+minsky tasks list [options]
+  --all            # Include completed tasks (default: only active tasks)
+  --json           # Output in JSON format
+
+# Get details about a specific task
+minsky tasks get <task-id> [options]
+  --json           # Output in JSON format
+
+# Task status operations
+minsky tasks status
+  get <task-id>    # Get the status of a task
+  set <task-id> <status>  # Set task status (TODO, IN-PROGRESS, IN-REVIEW, DONE)
+    --session <session>   # Session name to use for repo resolution
+    --repo <repoPath>     # Path to a git repository (overrides session)
+
+# Create a new task from a specification document
+minsky tasks create <spec-path> [options]
+```
+
+### Session Commands
+
+```bash
+# List all sessions
+minsky session list [options]
+  --json           # Output in JSON format
+
+# Get session details
+minsky session get <session-name> [options]
+  --task <task-id> # Get session by task ID instead of name
+  --json           # Output in JSON format
+
+# Start a new session (ALWAYS use with --quiet)
+minsky session start [name] [options]
+  --task <task-id> # Associate session with a task
+  --repo <repo>    # Path or URL to repository
+  --quiet          # MANDATORY: Only output session directory path
+
+# Get session directory path
+minsky session dir <session-name-or-task#id>
+
+# Delete a session
+minsky session delete <session-name> [options]
+  --force          # Skip confirmation prompt
+  --task <task-id> # Delete session by task ID
+```
+
+### Git Commands
+
+```bash
+# Create a PR from current branch
+minsky git pr [options]
+  --path <path>    # Path to repository
+
+# Stage, commit, and optionally push all changes for a session
+minsky session commit [session] [options]
+  --message <msg>  # Commit message
+  --no-push        # Skip pushing changes after commit
+  --repo <path>    # Repository path (if not in a session or to override)
+
+# Push changes to remote
+# DEPRECATED: Prefer `minsky session commit` which includes push functionality
+minsky git push
+```
+
+### Common Parameters
+
+Several commands accept these common parameters:
+- `--repo <path>`: Specify repository path (overrides session)
+- `--session <n>`: Use specific session for repo resolution
+- `--workspace <path>`: Specify workspace path (overrides repo and session)
+- `--backend <type>`: Specify task backend (markdown, github)
+
+Always check specific command help with `minsky <command> --help` for the most accurate and up-to-date information.
+
+## Response Examples
+
+// AVOID
+"Let me check the `process/tasks` directory to see available tasks."
+
+// PREFER
+"Let me use the Minsky CLI to check available tasks: `minsky tasks list --json`"
+
+// AVOID
+"Your session folder is probably at ~/.local/state/minsky/git/local/minsky/sessions/task#067"
+
+// PREFER
+"Let me get the exact session directory: `minsky session dir task#067`"
+
+## See Also
+- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
+- See [mdc:minsky-session-management.mdc] for session-specific operations 
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:task-status-protocol.mdc] for status update procedures
+- See [mdc:pr-preparation-workflow.mdc] for PR creation procedures
+
+- See [mdc:minsky-session-management.mdc] for session-specific operations 
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:task-status-protocol.mdc] for status update procedures
+- See [mdc:pr-preparation-workflow.mdc] for PR creation procedures

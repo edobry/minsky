@@ -1,0 +1,193 @@
+---
+name: Minsky Session Management Protocol
+description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
+globs:
+  - "**/*"
+---
+description:
+globs:
+alwaysApply: false
+---
+# Minsky Session Management Protocol
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+This rule defines the procedures for creating, navigating, and managing Minsky sessions, which provide isolated workspaces for task implementation.
+
+## Mandatory Session Creation
+
+Before implementing ANY task or making ANY code changes, you MUST:
+
+```bash
+# 1. Check task status
+minsky tasks status get '#XXX'
+
+# 2. Create or verify session exists
+minsky session start --task XXX
+
+# 3. Enter session directory
+cd $(minsky session dir task#XXX)
+```
+
+❌ If these steps are not completed:
+- DO NOT make any code changes
+- DO NOT commit any files
+- DO NOT proceed with implementation
+
+✅ These activities are allowed without a session:
+- Reading code
+- Searching the codebase
+- Investigating issues
+- Planning implementation
+- Creating new task specifications
+
+This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
+
+## Session Creation Options
+
+- **Session creation is flexible**
+  - Sessions can be created with just a name: `minsky session start <n>`
+  - Sessions can be created with a task association: `minsky session start --task <id>`
+  - Task association is optional and depends on the work context
+
+- **When to use each option**
+  - Use named sessions (without tasks) for:
+    - General testing/fixes
+    - Exploratory work
+    - Temporary changes
+    - Work not associated with a specific task
+  - Use task-associated sessions for:
+    - Implementing a specific task
+    - Work that will be tracked in the task system
+
+- **Verification step**
+  - Always verify the appropriate session creation approach based on the work context
+  - Never assume a task ID is required when a simple named session would suffice
+
+## Starting a New Session
+
+1. **Create a Task Session (Using --quiet is MANDATORY)**
+   - The `minsky session start` command **MUST ALWAYS** be used with the `--quiet` option
+   - The `--quiet` option ensures consistent output of only the session directory path, critical for scripting and clear output
+   - **Capturing the Session Path:** The standard and correct way to start a session and navigate into its directory is:
+     ```bash
+     # STANDARD USAGE: Capture path and navigate
+     SESSION_DIR=$(minsky session start --task 001 --quiet)
+     cd "$SESSION_DIR"
+     echo "Working in session directory: $SESSION_DIR"
+     ```
+   - For detailed information about a session after creation, use `minsky session get`
+
+2. **Enter the Session Directory**
+   - After creating a session, navigate to the session directory (e.g., `cd "$SESSION_DIR"`)
+
+## Re-entering an Existing Session
+
+When asked to continue working on a task:
+
+1. **Find Existing Session**
+   - Look up the session associated with the task:
+     ```bash
+     minsky session get --task <id>
+     ```
+   - If needed, list all sessions:
+     ```bash
+     minsky session list --json
+     ```
+
+2. **Enter Existing Session**
+   - Navigate to the session directory:
+     ```bash
+     cd $(minsky session dir <session-or-task-id>)
+     ```
+   - If no session exists, create one as described in "Starting a New Session"
+
+## Repository Isolation Warning
+
+**The session directory contains a COMPLETELY SEPARATE CLONE of the repository.**
+
+- Changes made to files in the main workspace WILL NOT appear in the session branch
+- Changes made to files in the session directory DO NOT affect the main workspace
+- Always confirm your current working directory with `pwd` before making any changes
+- Session isolation is fundamental to the Minsky model and must be preserved
+
+## File Change Verification
+
+After every file edit in a session directory, verify the changes are actually present by:
+
+1. Running `git status` to confirm the file appears as modified
+2. Running `git diff <filename>` to confirm the expected changes exist
+3. Never assuming an edit succeeded without verification
+
+## Standard Session Navigation Pattern
+
+**ALWAYS use this exact pattern for starting sessions and navigating to them, adhering to the mandatory `--quiet` rule for `minsky session start`:**
+
+```bash
+# REQUIRED pattern for ALL session navigation
+# This relies on `minsky session start --task <id> --quiet` outputting ONLY the path.
+SESSION_DIR=$(minsky session start --task <id> --quiet)
+cd "$SESSION_DIR"
+```
+
+This pattern **MUST** be used for reliable session creation and navigation because:
+- It correctly applies the **mandatory `--quiet` flag** for `minsky session start`.
+- It ensures `SESSION_DIR` accurately captures only the directory path.
+
+Using any other approach for capturing the session path after creation is prone to errors if the `--quiet` flag is inadvertently omitted.
+
+## Session Cleanup Procedures
+
+When a task is completed and merged into the main branch:
+
+1. **Update Task Status**
+   - Always mark the task as completed:
+     ```bash
+     minsky tasks status set '#001' DONE
+     ```
+   - Verify the status update was successful:
+     ```bash
+     minsky tasks status get '#001'
+     ```
+
+2. **Delete the Session**
+   - Always use the Minsky CLI to delete the session:
+     ```bash
+     minsky session delete task#001
+     ```
+   - If confirmation is required and you're in a script, use the `--force` flag:
+     ```bash
+     minsky session delete task#001 --force
+     ```
+   - Verify the session was deleted:
+     ```bash
+     minsky session get task#001
+     # Should return an error if deletion was successful
+     ```
+
+3. **NEVER Manually Delete Session Data**
+   - NEVER manually delete session directories
+   - NEVER directly manipulate files in `~/.local/state/minsky/`
+   - NEVER use `rm -rf` or similar commands to delete session data
+   - Always rely on the Minsky CLI for session management
+
+4. **Cleanup Verification**
+   - After session deletion, verify:
+     - The session no longer appears in `minsky session list`
+     - The task is marked as DONE in `minsky tasks status get '#001'`
+     - Any associated branches have been deleted or merged
+
+## Integration with Existing Workflows
+
+For comprehensive rules on how to correctly work with files (including path resolution, `edit_file` tool usage, and maintaining isolation) once inside the session workspace, see [mdc:session-first-workflow.mdc].
+
+## See Also
+- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
+- See [mdc:minsky-cli-usage.mdc] for CLI command reference
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:session-first-workflow.mdc] for detailed file handling in sessions
+
+- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
+- See [mdc:minsky-cli-usage.mdc] for CLI command reference
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:session-first-workflow.mdc] for detailed file handling in sessions
