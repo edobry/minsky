@@ -5,6 +5,7 @@ import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { join } from "path";
+import { log } from "../../utils/logger.js";
 
 const execAsync = promisify(exec);
 
@@ -34,7 +35,7 @@ export function createGetCommand(): Command {
           originalInputForError = taskIdArgument;
           taskIdToUse = normalizeTaskId(taskIdArgument);
           if (!taskIdToUse) {
-            console.error(`Error: Invalid Task ID format provided: "${taskIdArgument}"`);
+            log.cliError(`Error: Invalid Task ID format provided: "${taskIdArgument}"`);
             process.exit(1);
             return;
           }
@@ -45,15 +46,15 @@ export function createGetCommand(): Command {
             taskIdToUse = normalizeTaskId(contextTaskId);
             originalInputForError = contextTaskId;
             if (!taskIdToUse) {
-              console.error(`Error: Invalid Task ID format from session context: "${contextTaskId}"`);
+              log.cliError(`Error: Invalid Task ID format from session context: "${contextTaskId}"`);
               process.exit(1);
               return;
             }
             if (!options.json) {
-              console.info(`Auto-detected task ID: ${taskIdToUse} (from current session)`);
+              log.cli(`Auto-detected task ID: ${taskIdToUse} (from current session)`);
             }
           } else {
-            console.error(
+            log.cliError(
               "Task ID not provided and could not auto-detect from the current session. " +
                 "Please provide a task ID or run this command from within a session associated with a task."
             );
@@ -88,7 +89,7 @@ export function createGetCommand(): Command {
         const task = await taskService.getTask(taskIdToUse);
 
         if (!task) {
-          console.error(`Task with ID originating from "${originalInputForError}" (normalized to "${taskIdToUse}") not found.`);
+          log.cliError(`Task with ID originating from "${originalInputForError}" (normalized to "${taskIdToUse}") not found.`);
           process.exit(1);
         }
 
@@ -100,20 +101,20 @@ export function createGetCommand(): Command {
         }
 
         if (options.json) {
-          console.log(JSON.stringify({ ...task, config }, null, 2));
+          log.agent(JSON.stringify({ ...task, config }, null, 2));
         } else {
-          console.log(`Task ${task.id}: ${task.title}`);
-          console.log(`Status: ${task.status}`);
-          console.log(`Spec: ${task.specPath}`);
+          log.cli(`Task ${task.id}: ${task.title}`);
+          log.cli(`Status: ${task.status}`);
+          log.cli(`Spec: ${task.specPath}`);
 
           if (options.config && Object.keys(config).length > 0) {
-            console.log("\nConfiguration:");
-            console.log(`  Spec file: ${config.specPath}`);
+            log.cli("\nConfiguration:");
+            log.cli(`  Spec file: ${config.specPath}`);
           }
 
           if (task.worklog && task.worklog.length > 0) {
-            console.log("\nWorklog:");
-            console.log(
+            log.cli("\nWorklog:");
+            log.cli(
               task.worklog
                 .map(
                   (entry: { timestamp: string; message: string }) =>
@@ -124,7 +125,7 @@ export function createGetCommand(): Command {
           }
         }
       } catch (error) {
-        console.error("Error:", error instanceof Error ? error.message : String(error));
+        log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
     });

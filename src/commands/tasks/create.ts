@@ -3,6 +3,7 @@ import { TaskService, resolveRepoPath, SessionDB } from "../../domain";
 import * as fs from "fs/promises";
 import { join } from "path";
 import { exit } from "../../utils/process";
+import { log } from "../../utils/logger.js";
 
 interface CreateOptions {
   session?: string;
@@ -94,7 +95,7 @@ export function createCommand(): Command {
             // Verify the task ID doesn't already exist
             const existingTask = await taskService.getTask(existingId);
             if (existingTask) {
-              console.log(
+              log.cli(
                 `Warning: Task ${existingId} already exists. Will use --force when creating.`
               );
             }
@@ -116,7 +117,7 @@ export function createCommand(): Command {
           const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
 
           if (options.json) {
-            console.log(
+            log.agent(
               JSON.stringify(
                 {
                   id: taskId,
@@ -130,16 +131,16 @@ export function createCommand(): Command {
               )
             );
           } else {
-            console.log(`Would create task ${taskId}: ${title}`);
-            console.log("Would update spec file:");
+            log.cli(`Would create task ${taskId}: ${title}`);
+            log.cli("Would update spec file:");
 
             if (!hasTaskId) {
-              console.log(
+              log.cli(
                 `  - Would change title from "${titleLine}" to "# Task ${taskId}: ${title}"`
               );
             }
 
-            console.log(`  - Would rename file from "${specPath}" to "${newSpecPath}"`);
+            log.cli(`  - Would rename file from "${specPath}" to "${newSpecPath}"`);
           }
 
           return;
@@ -158,21 +159,21 @@ export function createCommand(): Command {
 
         // Output the result
         if (options.json) {
-          console.log(JSON.stringify(task, null, 2));
+          log.agent(JSON.stringify(task, null, 2));
         } else {
-          console.log(`Task ${task.id} created: ${task.title}`);
-          console.log("Spec file updated:");
+          log.cli(`Task ${task.id} created: ${task.title}`);
+          log.cli("Spec file updated:");
 
           // Check if file was renamed by comparing paths
           const originalPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
           const newPath = join(workspacePath, task.specPath || "");
 
           if (originalPath !== newPath) {
-            console.log(`  - File renamed from "${specPath}" to "${task.specPath}"`);
+            log.cli(`  - File renamed from "${specPath}" to "${task.specPath}"`);
           }
         }
       } catch (error) {
-        console.error("Error:", error instanceof Error ? error.message : String(error));
+        log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
         exit(1);
       }
     });

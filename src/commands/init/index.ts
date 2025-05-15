@@ -5,7 +5,7 @@ import { exit } from "../../utils/process";
 import * as p from "@clack/prompts";
 import fs from "fs";
 import path from "path";
-import { log } from "../../utils/logger";
+import { log } from "../../utils/logger.js";
 
 export function createInitCommand(): Command {
   return new Command("init")

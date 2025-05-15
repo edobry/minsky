@@ -9,6 +9,7 @@ import * as p from "@clack/prompts";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { exit } from "../../utils/process";
+import { log } from "../../utils/logger.js";
 
 const execAsync = promisify(exec);
 
@@ -50,7 +51,7 @@ export function createStatusCommand(): Command {
         });
 
         if (!workspacePath) {
-          console.error(
+          log.cliError(
             "Could not determine repository path. Please provide --repo or --session option."
           );
           exit(1);
@@ -63,12 +64,12 @@ export function createStatusCommand(): Command {
         if (!taskId && options.session) {
           // Logic to get task ID from session would go here
           // For now, just error
-          console.error("No task ID provided. Please specify a task ID.");
+          log.cliError("No task ID provided. Please specify a task ID.");
           exit(1);
         }
 
         if (!taskId) {
-          console.error("No task ID provided. Please specify a task ID.");
+          log.cliError("No task ID provided. Please specify a task ID.");
           exit(1);
         }
 
@@ -76,7 +77,7 @@ export function createStatusCommand(): Command {
         const task = await taskService.getTask(taskId);
 
         if (!task) {
-          console.error(`Task ${taskId} not found.`);
+          log.cliError(`Task ${taskId} not found.`);
           exit(1);
         }
 
@@ -84,7 +85,7 @@ export function createStatusCommand(): Command {
         if (options.check) {
           if (task.status !== options.check) {
             if (options.json) {
-              console.log(
+              log.agent(
                 JSON.stringify({
                   task: task.id,
                   status: task.status,
@@ -93,12 +94,12 @@ export function createStatusCommand(): Command {
                 })
               );
             } else {
-              console.error(`Task ${task.id} status is ${task.status}, expected ${options.check}`);
+              log.cliError(`Task ${task.id} status is ${task.status}, expected ${options.check}`);
             }
             exit(1);
           } else {
             if (options.json) {
-              console.log(
+              log.agent(
                 JSON.stringify({
                   task: task.id,
                   status: task.status,
@@ -107,7 +108,7 @@ export function createStatusCommand(): Command {
                 })
               );
             } else {
-              console.log(`Task ${task.id} status is ${options.check} (expected)`);
+              log.cli(`Task ${task.id} status is ${options.check} (expected)`);
             }
           }
           return;
@@ -115,17 +116,17 @@ export function createStatusCommand(): Command {
 
         // Output the result
         if (options.json) {
-          console.log(
+          log.agent(
             JSON.stringify({
               task: task.id,
               status: task.status,
             })
           );
         } else {
-          console.log(`Task ${task.id} status: ${task.status}`);
+          log.cli(`Task ${task.id} status: ${task.status}`);
         }
       } catch (error) {
-        console.error("Error:", error instanceof Error ? error.message : String(error));
+        log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
         exit(1);
       }
     });
@@ -148,7 +149,7 @@ export function createStatusCommand(): Command {
         }
 
         if (!workspacePath) {
-          console.error(
+          log.cliError(
             "Could not determine repository path. Please provide --repo or --session option."
           );
           exit(1);
@@ -161,7 +162,7 @@ export function createStatusCommand(): Command {
         if (!status) {
           // Check if we're in a non-interactive environment
           if (!process.stdout.isTTY) {
-            console.error(
+            log.cliError(
               `\nStatus is required in non-interactive mode.\nValid options are: ${Object.values(
                 TASK_STATUS
               ).join(", ")}\nExample: minsky tasks status set #071 DONE\n`
@@ -172,7 +173,7 @@ export function createStatusCommand(): Command {
           // Get current status for the task
           const task = await taskService.getTask(taskId);
           if (!task) {
-            console.error(`Task ${taskId} not found.`);
+            log.cliError(`Task ${taskId} not found.`);
             exit(1);
           }
 
@@ -212,7 +213,7 @@ export function createStatusCommand(): Command {
 
         // Output the result
         if (options.json) {
-          console.log(
+          log.agent(
             JSON.stringify({
               task: task.id,
               status: task.status,
@@ -220,18 +221,18 @@ export function createStatusCommand(): Command {
             })
           );
         } else {
-          console.log(`Updated task ${task.id} status to ${task.status}`);
+          log.cli(`Updated task ${task.id} status to ${task.status}`);
         }
       } catch (error) {
         if (options.json) {
-          console.log(
+          log.agent(
             JSON.stringify({
               error: error instanceof Error ? error.message : String(error),
               success: false,
             })
           );
         } else {
-          console.error("Error:", error instanceof Error ? error.message : String(error));
+          log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
         exit(1);
       }

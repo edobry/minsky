@@ -4,6 +4,7 @@ import { getCurrentSessionContext } from "../../domain/workspace.js";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { generateFilterMessages } from "../../utils/filter-messages";
+import { log } from "../../utils/logger.js";
 
 const execAsync = promisify(exec);
 
@@ -73,28 +74,28 @@ export function createListCommand(): Command {
 
         // Output tasks
         if (options.json) {
-          console.log(JSON.stringify(filteredTasks, null, 2));
+          log.agent(JSON.stringify(filteredTasks, null, 2));
         } else {
           // Display filter messages in non-JSON mode
           if (filterMessages.length > 0) {
-            filterMessages.forEach((message) => console.log(message));
-            console.log("");
+            filterMessages.forEach((message) => log.cli(message));
+            log.cli("");
           }
 
           if (filteredTasks.length === 0) {
-            console.log("No tasks found.");
+            log.cli("No tasks found.");
             return;
           }
 
-          console.log(`Found ${filteredTasks.length} tasks:\n`);
+          log.cli(`Found ${filteredTasks.length} tasks:\n`);
 
           for (const task of filteredTasks) {
             const prefix = task.id === currentTaskId ? "* " : "  ";
-            console.log(`${prefix}${task.id}: ${task.title} [${task.status}]`);
+            log.cli(`${prefix}${task.id}: ${task.title} [${task.status}]`);
           }
         }
       } catch (error) {
-        console.error("Error:", error instanceof Error ? error.message : String(error));
+        log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
     });
