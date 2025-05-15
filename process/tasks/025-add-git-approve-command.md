@@ -1,15 +1,19 @@
-# Task #025: Add `git approve` Command for Session PR Merging
+# Task #025: Add PR Merging Commands for Session Workflow
 
 ## Context
 
 Minsky already has a `git pr` command that prepares PR descriptions, but the workflow for merging these PRs into the main branch is not fully automated. The current process requires manual merging steps after the PR has been reviewed and approved.
 
-To complete the PR workflow, we need to implement a `git approve` command that works in concert with the existing `git pr` command. This will establish a "prepared-merge" workflow where the merge commit is created before review and then can be easily landed by a reviewer via fast-forward merge.
+To complete the PR workflow, we need to implement commands for merging PRs with a clearer separation of concerns:
+1. A git-level command that handles just the core git operations
+2. A session-level command that provides a higher-level workflow including task metadata updates
+
+This will establish a "prepared-merge" workflow where the merge commit is created before review and then can be easily landed by a reviewer via fast-forward merge.
 
 The workflow consists of two main steps:
 
-1. Author creates a PR branch with a prepared merge commit (`minsky git pr`)
-2. Reviewer approves and merges the prepared commit (`minsky git approve`)
+1. Author creates a PR branch with a prepared merge commit (`minsky git prepare-pr`)
+2. Reviewer approves and merges the prepared commit (`minsky session approve`)
 
 This approach provides several benefits:
 
@@ -17,6 +21,7 @@ This approach provides several benefits:
 - Fast-forward merges keep the history linear
 - The main branch isn't polluted with direct pushes
 - The workflow works with pure Git and doesn't require GitHub
+- Clean separation of concerns between git operations and session/task management
 
 ## Requirements
 
@@ -35,7 +40,7 @@ This approach provides several benefits:
 
 ### 2. Enhanced PR Workflow
 
-- Update `minsky git pr` to:
+- Rename and enhance `minsky git pr` to `minsky git prepare-pr` to:
 
   - Ensure clean work-tree (exit 2 if dirty)
   - Create a PR branch named `pr/<feature-branch>` off latest BASE (default: `main`)
@@ -46,17 +51,23 @@ This approach provides several benefits:
   - For non-GitHub backends: Create a local PR branch with prepared merge commit
   - Exit 4 if merge conflicts occur (user should resolve and retry)
 
-- Create new `minsky git approve` to:
+- Create new `minsky git merge-pr` for git-specific operations:
   - Fetch the PR branch
   - Switch to the base branch (default: `main`)
   - Perform a fast-forward merge (`--ff-only`) of the PR branch
   - Push the updated base branch
   - Delete the PR branch from the remote
-  - If a task ID is associated, update the task record with merge commit information
   - For GitHub backend: Close the PR as merged via API
   - For non-GitHub backends: Clean up the PR branch
-  - Exit 3 if base branch has moved (author must rerun `git pr`)
+  - Exit 3 if base branch has moved (author must rerun `git prepare-pr`)
   - On any error, revert changes and provide clear error messages
+
+- Create new `minsky session approve` for higher-level workflow:
+  - Calls `git merge-pr` for the core git operations
+  - Updates task status to DONE
+  - Updates task metadata with merge information
+  - Performs any other session cleanup/completion tasks
+  - Handles any session-specific error cases
 
 ### 3. Session and Task Context Integration
 
@@ -78,8 +89,9 @@ This approach provides several benefits:
 - Command signatures:
 
   ```
-  minsky git pr [--session <session>] [--repo <repo-path>] [--base <base-branch>] [--title <pr-title>] [--body <pr-body>]
-  minsky git approve <pr-branch> [--session <session>] [--repo <repo-path>] [--task <task-id>]
+  minsky git prepare-pr [--session <session>] [--repo <repo-path>] [--base <base-branch>] [--title <pr-title>] [--body <pr-body>]
+  minsky git merge-pr <pr-branch> [--session <session>] [--repo <repo-path>] [--base <base-branch>]
+  minsky session approve [--task <task-id>] [--session <session>] [--repo <repo-path>]
   ```
 
 - Exit codes must match exactly:
@@ -124,7 +136,7 @@ This approach provides several benefits:
 
 ### 7. Git Operations
 
-For `git pr`:
+For `git prepare-pr`:
 
 ```bash
 # 1. Sync & clean
@@ -163,7 +175,7 @@ if [ "$REPO_BACKEND" = "github" ]; then
 fi
 ```
 
-For `git approve`:
+For `git merge-pr`:
 
 ```bash
 # 1. Fetch PR branch
@@ -185,18 +197,36 @@ MERGED_BY=$(git config user.name)
 git push origin main
 git push origin --delete pr/$TOPIC
 
-# 5. Update task metadata if task ID is available
+# 5. For GitHub backend only
+if [ "$REPO_BACKEND" = "github" ]; then
+  # Close the GitHub PR as merged
+  # This integrates with Task #010
+fi
+```
+
+For `session approve`:
+
+```bash
+# 1. Get task ID from session or from --task parameter
+if [ -z "$TASK_ID" ]; then
+  # Try to get task ID from session metadata
+  TASK_ID=$(minsky session get --json | jq -r '.taskId')
+fi
+
+# 2. Call git merge-pr for git operations
+PR_BRANCH=$(git branch --show-current | sed 's/^/pr\//')
+minsky git merge-pr "$PR_BRANCH" --session "$SESSION" --repo "$REPO"
+
+# 3. Update task metadata and status
 if [ -n "$TASK_ID" ]; then
+  # Update task metadata
   minsky tasks set-metadata "$TASK_ID" \
     --merge-commit "$MERGE_COMMIT" \
     --merge-date "$MERGE_DATE" \
     --merged-by "$MERGED_BY"
-fi
-
-# 6. For GitHub backend only
-if [ "$REPO_BACKEND" = "github" ]; then
-  # Close the GitHub PR as merged
-  # This integrates with Task #010
+    
+  # Update task status
+  minsky tasks status set "$TASK_ID" DONE
 fi
 ```
 
@@ -204,38 +234,46 @@ fi
 
 1. [ ] Update GitService in `src/domain/git.ts`:
 
-   - [ ] Enhance the `pr` method to support prepared-merge workflow
+   - [ ] Rename and enhance the `pr` method to `preparePr` to support prepared-merge workflow
    - [ ] Add support for user-provided PR title/body
-   - [ ] Add an `approve` method for merging PR branches
+   - [ ] Add a `mergePr` method for merging PR branches
    - [ ] Ensure methods work with all repository backends through the abstraction layer
    - [ ] Add proper error handling with specific exit codes
 
-2. [ ] Update PR command in `src/commands/git/pr.ts`:
+2. [ ] Update PR command in `src/commands/git/pr.ts` to be `prepare-pr.ts`:
 
-   - [ ] Update to create and push a PR branch with prepared merge commit
+   - [ ] Rename and update to create and push a PR branch with prepared merge commit
    - [ ] Add `--base` option for base branch (default: `main`)
    - [ ] Add `--title` and `--body` options for PR metadata
    - [ ] Reuse existing session context detection code
    - [ ] Add proper validation and error handling
 
-3. [ ] Create Approve command in `src/commands/git/approve.ts`:
+3. [ ] Create merge-pr command in `src/commands/git/merge-pr.ts`:
+
+   - [ ] Implement command using Commander.js
+   - [ ] Add options for session, repo, and base branch
+   - [ ] Implement action handler with proper error handling
+   - [ ] Handle repository backend-specific logic
+
+4. [ ] Create session approve command in `src/commands/session/approve.ts`:
 
    - [ ] Implement command using Commander.js
    - [ ] Add options for session, repo, and task ID
    - [ ] Reuse existing task ID detection logic
+   - [ ] Call git merge-pr for git operations
+   - [ ] Update task metadata and status
    - [ ] Implement action handler with proper error handling
-   - [ ] Add task metadata update functionality
 
-4. [ ] Register new command in `src/commands/git/index.ts`
+5. [ ] Register new commands in appropriate index.ts files
 
-5. [ ] Update TaskService and MarkdownTaskBackend:
+6. [ ] Update TaskService and MarkdownTaskBackend:
 
    - [ ] Extend the Task interface with merge information
    - [ ] Add methods to update and retrieve task metadata
    - [ ] Implement YAML frontmatter support in MarkdownTaskBackend
    - [ ] Ensure backward compatibility with existing task files
 
-6. [ ] Add comprehensive tests:
+7. [ ] Add comprehensive tests:
 
    - [ ] Unit tests for GitService methods
    - [ ] Unit tests for TaskService metadata methods
@@ -243,7 +281,7 @@ fi
    - [ ] Tests for different repository backends
    - [ ] Error handling and edge case tests
 
-7. [ ] Update documentation:
+8. [ ] Update documentation:
    - [ ] Update README.md with new workflow
    - [ ] Update minsky-workflow.mdc with PR workflow
    - [ ] Add usage examples for different scenarios
@@ -254,10 +292,10 @@ fi
 
 1. **GitService Tests** (`src/domain/__tests__/git.test.ts`):
 
-   - [ ] Test PR creation with clean/dirty worktrees
-   - [ ] Test PR creation with different base branches
-   - [ ] Test PR creation with user-provided title/body
-   - [ ] Test PR approval with valid/invalid PR branches
+   - [ ] Test PR preparation with clean/dirty worktrees
+   - [ ] Test PR preparation with different base branches
+   - [ ] Test PR preparation with user-provided title/body
+   - [ ] Test PR merging with valid/invalid PR branches
    - [ ] Test error handling for all exit code scenarios
    - [ ] Test repository backend integration
 
@@ -271,8 +309,9 @@ fi
 
 1. **Command Integration Tests**:
 
-   - [ ] Test `git pr` command with actual repositories
-   - [ ] Test `git approve` command with prepared PR branches
+   - [ ] Test `git prepare-pr` command with actual repositories
+   - [ ] Test `git merge-pr` command with prepared PR branches
+   - [ ] Test `session approve` command with complete workflow
    - [ ] Test automatic session detection
    - [ ] Test automatic task detection
    - [ ] Test error scenarios with actual repositories
@@ -328,12 +367,13 @@ fi
 
 ## Verification
 
-- [ ] Can successfully create a PR branch with `minsky git pr`
+- [ ] Can successfully create a PR branch with `minsky git prepare-pr`
 - [ ] The PR branch contains a proper merge commit
-- [ ] Can approve and merge the PR branch with `minsky git approve`
+- [ ] Can merge the PR branch with both `minsky git merge-pr` and `minsky session approve`
 - [ ] Base branch is updated with a fast-forward merge
 - [ ] PR branch is deleted after successful merge
 - [ ] Task record is updated with merge commit information
+- [ ] Task status is updated to DONE when using `session approve`
 - [ ] Works with local/remote Git repositories
 - [ ] Works with GitHub repositories (creates/closes real PRs)
 - [ ] Session autodetection works correctly
@@ -347,19 +387,13 @@ fi
 
 ## Notes
 
-This implementation follows the "prepared-merge" workflow, adapted to work with all repository backends in Minsky. It reuses existing session and task detection logic for consistency with other commands.
+This implementation follows a cleaner separation of concerns:
+- `git prepare-pr` and `git merge-pr` handle the core git operations
+- `session approve` provides the higher-level workflow including task metadata and status updates
 
-Key features:
-
-- Works with all repository backends (local, remote, GitHub)
-- Stores task metadata in YAML frontmatter for compatibility
-- Provides clear error messages and specific exit codes
-- Offers a consistent user experience across different environments
-- Integrates with GitHub API for repositories using the GitHub backend
-
-The PR workflow is designed to be:
-
-- Simple and intuitive for users
-- Consistent with existing Minsky commands
-- Extensible for future repository types
-- Reliable with proper error handling
+Key benefits of this approach:
+- Clearer separation between git operations and task/session management
+- Each command has a single responsibility
+- Users can choose the level of automation they need
+- More consistent with existing command organization
+- More maintainable and easier to test
