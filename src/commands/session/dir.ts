@@ -5,6 +5,7 @@ import { getCurrentSession as importedGetCurrentSession } from "../../domain/wor
 import { join } from "path";
 import { existsSync } from "fs";
 import type { SessionCommandDependencies } from "./index.js";
+import { log } from "../../utils/logger.js";
 
 export function createDirCommand(dependencies: SessionCommandDependencies = {}): Command {
   // Use provided dependency or fall back to default
@@ -29,7 +30,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
           
           // Error if both session and --task are provided
           if (sessionName && options.task) {
-            console.error("Provide either a session name or --task, not both.");
+            log.cliError("Provide either a session name or --task, not both.");
             process.exit(1);
             return;
           }
@@ -39,14 +40,14 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
             // Normalize the task ID format
             const internalTaskId = normalizeTaskId(options.task);
             if (!internalTaskId) {
-              console.error(`Error: Invalid Task ID format provided: "${options.task}"`);
+              log.cliError(`Error: Invalid Task ID format provided: "${options.task}"`);
               process.exit(1);
               return;
             }
             
             session = await db.getSessionByTaskId(internalTaskId);
             if (!session) {
-              console.error(`No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`);
+              log.cliError(`No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`);
               process.exit(1);
               return;
             }
@@ -54,7 +55,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
             // Otherwise look up by session name
             session = await db.getSession(sessionName);
             if (!session) {
-              console.error(`Session "${sessionName}" not found.`);
+              log.cliError(`Session "${sessionName}" not found.`);
               process.exit(1);
               return;
             }
@@ -63,7 +64,7 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
             const currentSessionName = await getCurrentSession();
             if (!currentSessionName) {
               // Match the exact error message expected by tests
-              console.error(
+              log.cliError(
                 "Not in a session workspace. You must provide either a session name or --task."
               );
               process.exit(1);
@@ -71,12 +72,12 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
             }
             session = await db.getSession(currentSessionName);
             if (!session) {
-              console.error(`Session "${currentSessionName}" not found in session database.`);
+              log.cliError(`Session "${currentSessionName}" not found in session database.`);
               process.exit(1);
               return;
             }
           } else {
-            console.error(
+            log.cliError(
               "You must provide either a session name or --task, or run this command from within a session workspace."
             );
             process.exit(1);
@@ -108,18 +109,22 @@ export function createDirCommand(dependencies: SessionCommandDependencies = {}):
             // For test compatibility, use new path for some specific session names
             if (session.session.includes("test-session-new") || existsSync(newPath)) {
               // Use new format with sessions subdirectory
-              console.log(newPath);
+              log.cli(newPath);
             } else {
               // Use legacy format for compatibility with tests
-              console.log(legacyPath);
+              log.cli(legacyPath);
             }
           } else {
             // Fallback: just print repoUrl if structure is missing (should not happen)
-            console.log(session.repoUrl);
+            log.cli(session.repoUrl);
           }
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
-          console.error("Error getting session directory:", err.message);
+          log.cliError(`Error getting session directory: ${err.message}`);
+          log.error("Session directory resolution error", {
+            error: err.message,
+            stack: err.stack
+          });
           process.exit(1);
         }
       }

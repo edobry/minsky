@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session";
-import { log } from "../../utils/logger";
+import { log } from "../../utils/logger.js";
 
 export function createListCommand(): Command {
   return new Command("list")

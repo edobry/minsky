@@ -3,6 +3,7 @@ import { SessionDB } from "../../domain/session.js";
 import { normalizeTaskId } from "../../domain/tasks/utils";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import type { SessionCommandDependencies } from "./index.js";
+import { log } from "../../utils/logger.js";
 
 export function createGetCommand(dependencies: SessionCommandDependencies = {}): Command {
   // Use provided dependency or fall back to default
@@ -28,9 +29,9 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
           if (sessionName && options.task) {
             const msg = "Provide either a session name or --task, not both.";
             if (options.json) {
-              console.log(JSON.stringify({ error: msg }));
+              log.agent(JSON.stringify({ error: msg }));
             } else {
-              console.error(msg);
+              log.cliError(msg);
             }
             process.exit(1);
           }
@@ -41,9 +42,9 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
             if (!internalTaskId) {
               const msg = `Error: Invalid Task ID format provided: "${options.task}"`;
               if (options.json) {
-                console.log(JSON.stringify({ error: msg }));
+                log.agent(JSON.stringify({ error: msg }));
               } else {
-                console.error(msg);
+                log.cliError(msg);
               }
               process.exit(1);
               return;
@@ -52,9 +53,9 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
             if (!record) {
               const msg = `No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`;
               if (options.json) {
-                console.log(JSON.stringify(null));
+                log.agent(JSON.stringify(null));
               } else {
-                console.error(msg);
+                log.cliError(msg);
               }
               process.exit(1);
             }
@@ -62,9 +63,9 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
             record = await db.getSession(sessionName);
             if (!record) {
               if (options.json) {
-                console.log(JSON.stringify(null));
+                log.agent(JSON.stringify(null));
               } else {
-                console.error(`Session "${sessionName}" not found.`);
+                log.cliError(`Session "${sessionName}" not found.`);
               }
               process.exit(1);
             }
@@ -75,9 +76,9 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
               if (!record) {
                 const msg = `Current session "${currentSessionName}" not found in session database.`;
                 if (options.json) {
-                  console.log(JSON.stringify({ error: msg }));
+                  log.agent(JSON.stringify({ error: msg }));
                 } else {
-                  console.error(msg);
+                  log.cliError(msg);
                 }
                 process.exit(1);
               }
@@ -85,42 +86,47 @@ export function createGetCommand(dependencies: SessionCommandDependencies = {}):
               const msg =
                 "Not in a session workspace. Please provide a session name or --task option.";
               if (options.json) {
-                console.log(JSON.stringify({ error: msg }));
+                log.agent(JSON.stringify({ error: msg }));
               } else {
-                console.error(msg);
+                log.cliError(msg);
               }
               process.exit(1);
             }
           } else {
             const msg = "You must provide either a session name or --task.";
             if (options.json) {
-              console.log(JSON.stringify({ error: msg }));
+              log.agent(JSON.stringify({ error: msg }));
             } else {
-              console.error(msg);
+              log.cliError(msg);
             }
             process.exit(1);
           }
 
           if (options.json) {
-            console.log(JSON.stringify(record, null, 2));
+            log.agent(JSON.stringify(record, null, 2));
           } else {
             // Print a human-readable summary (mimic list output)
-            console.log(`Session: ${record.session}`);
-            console.log(`Repo: ${record.repoUrl}`);
+            log.cli(`Session: ${record.session}`);
+            log.cli(`Repo: ${record.repoUrl}`);
             // The branch property might not exist on SessionRecord type, so access it safely
-            console.log(`Branch: ${(record as any).branch || "(none)"}`);
-            console.log(`Created: ${record.createdAt}`);
+            log.cli(`Branch: ${(record as any).branch || "(none)"}`);
+            log.cli(`Created: ${record.createdAt}`);
             if (record.taskId) {
-              console.log(`Task ID: ${record.taskId}`);
+              log.cli(`Task ID: ${record.taskId}`);
             }
           }
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
           const msg = `Error getting session: ${err.message}`;
+          log.error("Error getting session details", {
+            error: err.message,
+            stack: err.stack
+          });
+          
           if (options.json) {
-            console.log(JSON.stringify({ error: msg }));
+            log.agent(JSON.stringify({ error: msg }));
           } else {
-            console.error(msg);
+            log.cliError(msg);
           }
           process.exit(1);
         }
