@@ -1,3 +1,24 @@
+import { promises as fs } from "fs";
+import { join, basename, dirname } from "path";
+import * as grayMatterNamespace from "gray-matter";
+import { existsSync } from "fs";
+import * as jsYaml from "js-yaml";
+
+const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
+
+// Create a custom stringify function that doesn't add unnecessary quotes
+function customMatterStringify(content: string, data: any): string {
+  // Use js-yaml's dump function directly with options to control quoting behavior
+  const yamlStr = jsYaml.dump(data, {
+    lineWidth: -1,      // Don't wrap lines
+    noCompatMode: true, // Use YAML 1.2
+    quotingType: '"',   // Use double quotes when necessary
+    forceQuotes: false  // Don't force quotes on all strings
+  });
+  
+  return `---\n${yamlStr}---\n${content}`;
+}
+
 # Changelog
 
 > **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](.specstory/.what-is-this.md) for details on the SpecStory artifact system.
@@ -24,6 +45,7 @@
 - Added TestSessionParams type to fix type errors in get.test.ts (#072)
 - Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
 - Fixed missing variable declarations in startSession.test.ts to avoid linter errors (#072)
+- Fixed `minsky rules create/update` description quoting bug by replacing gray-matter's default stringify function with a custom implementation that uses js-yaml directly. This ensures that descriptions with special characters use double quotes instead of single quotes, and simple descriptions don't have any quotes at all. (#065)
 
 ### Added
 

@@ -85,7 +85,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
 
-- [ ] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
+- [x] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
 
 - [x] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
 
