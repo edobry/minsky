@@ -6,6 +6,52 @@ The current Minsky workflow heavily relies on the `session-first-workflow.mdc` r
 
 Minsky has recently added MCP (Model Context Protocol) support, providing an opportunity to implement proper workspace isolation at the tooling level rather than relying solely on rule-based enforcement.
 
+## Design Analysis
+
+### Current System Behavior
+
+The core issue stems from how AI coding agents interact with the filesystem:
+
+1. Tools like `edit_file` resolve paths relative to the main workspace root
+2. Even when an AI agent believes it's operating in a session directory, its file operations may target the main workspace
+3. This creates an inherent conflict with Minsky's strict session isolation requirements
+4. The current approach relies solely on rule-based enforcement, which is prone to human error and isn't technically enforced
+
+### Approaches Considered
+
+Four primary approaches were evaluated:
+
+1. **Path Transformation Layer**: Add middleware to intercept file operations, transform paths, and enforce boundaries
+   - **Pros**: Simple implementation, minimal architectural changes, transparent to AI agents
+   - **Cons**: Processing overhead, potential for bypass if new tools are added without wrappers
+
+2. **Session-Specific MCP Instances**: Launch dedicated MCP server instances for each session
+   - **Pros**: Strong isolation, clear security boundaries, natural session lifecycle management
+   - **Cons**: Resource overhead with multiple servers, port management complexity, requires agents to connect to specific endpoints
+
+3. **Virtual Filesystem with Path Mapping**: Create a virtualized filesystem layer for all operations
+   - **Pros**: Most robust approach, handles complex scenarios, clean abstractions
+   - **Cons**: Most complex implementation, significant changes required, higher maintenance burden
+
+4. **Centralized Router with Session Context**: One MCP server that routes based on session context
+   - **Pros**: Resource efficient, centralized control, works across sessions
+   - **Cons**: Requires changes to tool calls, risk of context leakage, complex context management
+
+### Recommended Approach
+
+A hybrid approach combining elements of options 1 and 4 is recommended:
+
+1. Use a single MCP server (or small pool) for efficiency
+2. Implement a robust path transformation layer for security
+3. Add session context tracking for proper routing
+4. Develop strict path validation to enforce boundaries
+
+This provides the best balance of:
+- Resource efficiency (no server per session)
+- Strong isolation guarantees (strict path validation)
+- Compatibility with existing workflows (minimal changes to agent behavior)
+- Implementation simplicity (focused components with clear responsibilities)
+
 ## Requirements
 
 1. **Session-Scoped MCP Integration**
@@ -23,10 +69,9 @@ Minsky has recently added MCP (Model Context Protocol) support, providing an opp
 
 3. **MCP Server Architecture Design**
 
-   - Research and evaluate different architectural approaches:
-     - Central MCP server that routes tool calls based on session parameters
-     - Independent MCP servers per session with scoped tool names
-     - Hybrid approach with centralized routing but session-specific controls
+   - Implement a hybrid approach with a central MCP server and path transformation layer
+   - Add session context tracking for proper routing of operations
+   - Create a secure path resolution system that enforces session boundaries
    - Consider performance, security, and maintainability tradeoffs
 
 4. **Cursor API Compatibility**
@@ -42,64 +87,91 @@ Minsky has recently added MCP (Model Context Protocol) support, providing an opp
 
 ## Implementation Steps
 
-1. [ ] Research and Architecture Design:
+1. [ ] Path Resolution System:
 
-   - [ ] Document current MCP implementation and capabilities
-   - [ ] Research path resolution and sandbox techniques for filesystem operations
-   - [ ] Design and document the optimal architecture for session-scoped MCP
-   - [ ] Create technical specification for implementation
+   - [ ] Create a `SessionPathResolver` class to handle secure path operations:
+     - [ ] Path normalization and validation
+     - [ ] Containment verification (preventing path traversal outside session)
+     - [ ] Relative to absolute path conversion within session context
+   - [ ] Implement error types for different path violations
+   - [ ] Add utility functions for common path operations
 
-2. [ ] Core Isolation Implementation:
+2. [ ] Session Context Management:
 
-   - [ ] Create path resolution and validation utilities for session workspaces
-   - [ ] Implement session context tracking system
-   - [ ] Develop wrapper mechanisms for standard file operation tools
-   - [ ] Add security controls to prevent workspace boundary violations
+   - [ ] Design a `SessionContextManager` to track session information:
+     - [ ] Store session paths and metadata
+     - [ ] Associate agent IDs with active sessions
+     - [ ] Provide context retrieval methods
+   - [ ] Implement session context persistence
+   - [ ] Add APIs for setting and retrieving current session context
 
-3. [ ] MCP Server Integration:
+3. [ ] Tool Wrapper Implementation:
 
-   - [ ] Extend `session start` command to configure MCP for the session
-   - [ ] Implement MCP server initialization with session context
-   - [ ] Create session-aware tool set with proper isolation
-   - [ ] Add session routing capabilities to MCP server
+   - [ ] Create wrapped versions of all file operation tools:
+     - [ ] File reading/writing tools
+     - [ ] Directory listing tools
+     - [ ] File search tools
+     - [ ] File editing tools
+   - [ ] Ensure wrappers validate paths before operations
+   - [ ] Add clear error reporting for boundary violations
+   - [ ] Maintain API compatibility with original tools
 
-4. [ ] CLI and User Experience:
+4. [ ] MCP Server Integration:
 
-   - [ ] Add command-line options for MCP configuration in `session start`
-   - [ ] Create commands to manage MCP server lifecycle
-   - [ ] Implement status reporting for session MCP servers
-   - [ ] Add documentation for MCP-enabled sessions
+   - [ ] Extend the MCP server to use session context:
+     - [ ] Initialize with session path information
+     - [ ] Configure tools with session context
+     - [ ] Add session context to tool execution pipeline
+   - [ ] Implement session ID parameter for relevant tools
+   - [ ] Create a session discovery mechanism for AI agents
 
-5. [ ] Testing and Validation:
+5. [ ] Session Start Enhancement:
 
-   - [ ] Create comprehensive test suite for path resolution security
-   - [ ] Implement integration tests for session-scoped MCP
-   - [ ] Test with various AI agent interactions to verify isolation
-   - [ ] Validate performance and resource usage
+   - [ ] Add MCP options to the `session start` command:
+     - [ ] `--mcp` flag to enable MCP server
+     - [ ] Transport configuration options
+     - [ ] Port and host settings
+   - [ ] Implement MCP server lifecycle management
+   - [ ] Add session-specific configuration options
 
-6. [ ] Documentation and Examples:
-   - [ ] Document architecture and security model
-   - [ ] Create examples for AI interactions with session-scoped MCP
-   - [ ] Update existing documentation to highlight the new capabilities
-   - [ ] Add migration guides for transitioning from rule-based enforcement
+6. [ ] Security Enhancements:
+
+   - [ ] Add comprehensive path traversal protection
+   - [ ] Implement allowlist/blocklist for operations
+   - [ ] Create audit logging for all file operations
+   - [ ] Add mechanisms to prevent context leakage
+
+7. [ ] Testing and Validation:
+
+   - [ ] Create unit tests for path resolution
+   - [ ] Implement integration tests for tool wrappers
+   - [ ] Add end-to-end tests with simulated AI interactions
+   - [ ] Create security-focused tests for boundary enforcement
+   - [ ] Develop performance benchmarks for overhead measurement
+
+8. [ ] Documentation and Examples:
+   - [ ] Create detailed architecture documentation
+   - [ ] Add examples of AI interactions with session-scoped MCP
+   - [ ] Update existing documentation to reflect new capabilities
+   - [ ] Create user guides for different use cases
 
 ## Verification
 
-- [ ] `session start` command successfully configures and optionally launches an MCP server for the session
+- [ ] `session start --mcp` successfully launches an MCP server for the session
 - [ ] All file operations through MCP are correctly scoped to the session workspace
 - [ ] Relative paths in tool calls are properly resolved within the session context
-- [ ] Attempted operations outside the session workspace are blocked or redirected
-- [ ] Performance is acceptable with no significant resource overhead
-- [ ] AI agents can seamlessly interact with the session-scoped MCP without special handling
+- [ ] Attempted operations outside the session workspace are blocked with clear error messages
+- [ ] Performance overhead is minimal (less than 5% increase in operation time)
+- [ ] AI agents can seamlessly interact with session-scoped MCP without special handling
 - [ ] No file operations can accidentally leak out to modify the main workspace
 - [ ] Documentation clearly explains the architecture and usage
 
 ## Technical Considerations
 
 - **Security**: Ensure strict isolation between sessions and the main workspace
-- **Performance**: Evaluate overhead of path resolution and context tracking
+- **Performance**: Minimize overhead of path resolution and context tracking
 - **Compatibility**: Maintain backward compatibility with existing AI workflows
-- **Scalability**: Consider resource usage for multiple concurrent sessions
+- **Scalability**: Support multiple concurrent sessions with efficient resource usage
 - **Error Handling**: Provide clear, actionable error messages for boundary violations
 - **Configuration**: Support flexible configuration for different use cases
 - **Testing**: Implement robust testing for security boundaries
@@ -109,3 +181,9 @@ Minsky has recently added MCP (Model Context Protocol) support, providing an opp
 - Related to task #034 (Add MCP Support to Minsky)
 - Related to task #047 (Configure MCP Server in Minsky Init Command)
 - Related to task #039 (Prevent Session Creation Within Existing Sessions)
+
+## Work Log
+
+- 2024-07-14: Performed initial analysis of the problem and existing codebase
+- 2024-07-14: Evaluated architectural approaches and selected hybrid approach
+- 2024-07-14: Updated task specification with detailed design and implementation plan
