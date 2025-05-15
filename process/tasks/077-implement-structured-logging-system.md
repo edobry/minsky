@@ -91,39 +91,43 @@ A proper logging system would provide:
 
 ## Implementation Plan (Comprehensive)
 
+**Overall Approach Priorities:**
+The logging implementation will prioritize:
+
+- **Good Developer Experience (DX):** Simple to use, clear separation of concerns.
+- **Low Configuration Overhead:** Minimal boilerplate and easy initial setup.
+- **Easy Debuggability:** Structured logs for agent events, plain text for direct CLI feedback.
+- **Flexibility in Outputs:** Chosen library should allow easy extension to different transports later.
+- **Minimal Initial Implementation:** Start with the essentials and avoid over-engineering.
+
 **Phase 1: Foundation & Library Selection**
 
-1.  **Research & Decision (Estimate: 2 hours)**
+1.  **Research & Decision (Estimate: 1 hour - Shortened as decision made)**
 
-    - Investigate popular TypeScript-friendly logging libraries:
-      - Pino: Known for high performance, JSON-first.
-      - Winston: Mature, flexible, multiple transports.
-      - Bunyan: JSON-based, good for server-side.
-      - Consider `roarr` or other modern lightweight options.
-    - Criteria:
-      - Performance impact (especially with Bun).
-      - Ease of use and TypeScript integration.
-      - Flexibility in transports and formatting.
-      - Community support and maintenance.
-      - Compatibility with structured logging (JSON or similar).
-      - Ability to handle distinct streams for "program messages" vs. "agent events".
-      - Strong Bun.js compatibility and performance within the Bun runtime.
-    - **Decision Point:** Select one library. _Initial preference: Pino due to performance and JSON focus, but will confirm after research._
+    - Initial research considered Pino, Winston, and Bunyan.
+    - **Decision: Winston** selected.
+    - Rationale: Winston provides excellent flexibility in transports and formatting, which is beneficial for clearly separating `stdout` (structured JSON for agent events) and `stderr` (plain text for program messages). While Pino offers higher performance, Winston's slightly more straightforward configuration for this specific dual-stream/dual-format requirement, combined with its maturity and rich feature set for future expansion, makes it a good fit for the project's priorities, especially given that extreme log throughput is less critical for a CLI tool than for a high-traffic server. The focus is on DX and a minimal, easy-to-understand initial setup.
 
-2.  **Basic Logger Setup (Estimate: 3 hours)**
+2.  **Minimal Basic Logger Setup (Estimate: 2 hours - Refined for minimality)**
 
-    - Install the chosen library.
-    - Create `src/utils/logger.ts`. This module will export the configured logger instance(s) (e.g., `programLogger`, `agentLogger`).
-    - Initialize the logger with basic configuration:
-      - Default level: `info` for production, `debug` for development (configurable via environment variable `LOG_LEVEL`).
-      - Timestamp, Process ID.
-      - Consider `LOG_FORMAT` (e.g., `json`, `pretty`, `text`) for `agentLogger` output, defaulting to `pretty` in dev and `json` in prod.
-      - If file output is chosen for `agentLogger` in production, consider env vars like `AGENT_LOG_PATH`, `AGENT_LOG_MAX_SIZE`, `AGENT_LOG_MAX_FILES`.
-      - Hostname (optional, for distributed context).
-    - Implement wrapper functions for standard levels: `logger.debug()`, `logger.info()`, `logger.warn()`, `logger.error()`. These wrappers should be resilient and not crash the application if the logging mechanism itself encounters an issue.
-    - Initial formatter for `agentLogger`: Human-readable/pretty-printed structured logs for console in development, JSON for production (typically to `stdout` or a file, if configured).
+    - Install Winston.
+    - Create `src/utils/logger.ts`. This module will export configured logger instances: `agentLogger` and `programLogger`.
+    - **`agentLogger` Configuration:**
+      - Output: `process.stdout`.
+      - Format: Structured JSON (using `winston.format.json()`), including timestamps and full error stack traces (`winston.format.errors({ stack: true })`).
+      - Level: Configurable via `LOG_LEVEL` environment variable (defaults to `debug` in development, `info` in production).
+      - Transports: A single `winston.transports.Console` directing to `stdout`.
+      - Includes `handleExceptions` and `handleRejections` to capture uncaught issues.
+    - **`programLogger` Configuration:**
+      - Output: `process.stderr`.
+      - Format: Simple plain text (e.g., using `winston.format.printf(info => info.message)`), colorized by level.
+      - Level: Configurable via `LOG_LEVEL` (same as `agentLogger`).
+      - Transports: A single `winston.transports.Console` with `stderrLevels: ['*']` to ensure all its output goes to `stderr`.
+      - Includes `handleExceptions` and `handleRejections`.
+    - **Wrapper:** Implement a simple `log` object with convenience functions (`log.debug`, `log.info`, `log.warn`, `log.error` for `agentLogger`; and `log.cli`, `log.cliWarn`, `log.cliError` for `programLogger`).
+    - **Initial Focus:** The setup will be minimal. Features like development-specific pretty-printing for JSON logs or extensive default metadata (beyond basic error properties) will be deferred and can be added later if a strong need for DX improvement arises.
 
-3.  **Distinguishing Program Messages vs. Agent Events (Estimate: 2 hours)**
+3.  **Distinguishing Program Messages vs. Agent Events (Estimate: 1 hour - Simplified due to logger setup)**
     - Define "Program Messages":
       - Handled by `programLogger`.
       - Intended for human-readable, non-structured messages directly to `stderr` (e.g., brief status updates for non-JSON command output, interactive prompt text, non-critical errors or warnings meant for immediate user attention without breaking structured output).
