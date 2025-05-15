@@ -248,6 +248,7 @@ The logging implementation will prioritize:
      - MCP command modules (`src/commands/mcp/index.ts`)
      - All task command modules (`src/commands/tasks/list.ts`, `src/commands/tasks/get.ts`, `src/commands/tasks/status.ts`, `src/commands/tasks/create.ts`)
      - Init command module (`src/commands/init/index.ts`)
+     - Several session command modules (`src/commands/session/list.ts`, `src/commands/session/get.ts`, `src/commands/session/dir.ts`)
    - Enhanced CLI adapters with structured logging:
      - Git CLI adapter (`src/adapters/cli/git.ts`)
      - Tasks CLI adapter
@@ -280,6 +281,10 @@ The logging implementation will prioritize:
      - `src/commands/tasks/create.ts` - Updated for consistent error handling and better output formatting
    - Updated init command:
      - `src/commands/init/index.ts` - Fixed imports and ensured proper error handling with context
+   - Migrated several session commands:
+     - `src/commands/session/list.ts` - Updated to use structured logging with proper error handling
+     - `src/commands/session/get.ts` - Enhanced with better error reporting and contextual logging
+     - `src/commands/session/dir.ts` - Converted to structured logging while maintaining test compatibility
    - Applied consistent patterns across all migrated modules:
      - Using log.agent for JSON output (with the --json option)
      - Using log.cli family for user-facing messages
@@ -298,14 +303,18 @@ The logging implementation will prioritize:
        - `src/domain/session.ts` (debug logs)
        - `src/domain/rules.ts` (multiple logs)
        - `src/domain/workspace.ts` (warn and error logs)
-       - `src/domain/localGitBackend.ts` and `remoteGitBackend.ts` (warnings)
+       - `src/domain/localGitBackend.ts` and `src/remoteGitBackend.ts` (warnings)
      - MCP modules in `src/mcp/` directory:
        - `src/mcp/server.ts` (connection logs)
        - `src/mcp/tools/tasks.ts` (error logs)
        - `src/mcp/tools/session.ts` (error logs)
        - `src/mcp/command-mapper.ts` (error execution logs)
      - Remaining session command modules:
-       - `src/commands/session/*.ts`
+       - `src/commands/session/start.ts`
+       - `src/commands/session/startSession.ts`
+       - `src/commands/session/delete.ts`
+       - `src/commands/session/commit.ts`
+       - `src/commands/session/update.ts`
    - Standardize error handling patterns across all modules
    - Add appropriate context objects to all log messages
    - Update all JSON output to use `log.agent` for consistent formatting

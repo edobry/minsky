@@ -226,6 +226,7 @@ function customMatterStringify(content: string, data: any): string {
   - Migrated git commands with proper structured logging for agent and user interactions 
   - Migrated task commands with enhanced error reporting and standardized output formats
   - Updated init command to use structured logging for better interactive output
+  - Migrated session commands (list, get, dir) with consistent error handling and proper JSON formatting
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
