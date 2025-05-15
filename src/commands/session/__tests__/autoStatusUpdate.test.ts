@@ -26,11 +26,14 @@ describe("Session start auto status update", () => {
   });
 
   test("should not update task status when skipStatusUpdate is true", () => {
-    // Act
-    const result = updateTaskStatus({
+    // Arrange
+    const options = {
       taskId: "123",
       skipStatusUpdate: true,
-    });
+    };
+
+    // Act
+    const result = updateTaskStatus(options);
 
     // Assert
     expect(result.updated).toBe(false);
