@@ -234,23 +234,22 @@ The logging implementation will prioritize:
      - Corrected parameter naming from `workspacePath` to `workspace`
      - Removed Bun type reference and replaced with standard Node.js environment variables
 
+5. **MCP and Rules Systems**
+   - Updated the MCP command-mapper to use structured logging for errors
+   - Improved the MCP server connection/disconnection logging with better context
+   - Enhanced the rules system to use consistent structured logging pattern
+   - Added detailed context objects to all log messages
+
 ### Remaining Work
 
 1. **Continue Migration**
-   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 300 remaining instances)
+   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 250 remaining instances)
    - Priority files to update:
      - **Core Domain Modules:**
        - `src/domain/git.ts` - 25+ console.error calls (debug/error logging)
-       - `src/domain/rules.ts` - 5+ log/error calls
        - `src/domain/workspace.ts` - Several warn/error calls
        - `src/domain/localGitBackend.ts` and `src/domain/remoteGitBackend.ts` - Git command warnings
      
-     - **MCP (Server/Tools):**
-       - `src/mcp/server.ts` - Server connection and error logs
-       - `src/mcp/tools/tasks.ts` - Task-related error handling
-       - `src/mcp/tools/session.ts` - Session operation logs and errors
-       - `src/mcp/command-mapper.ts` - Command execution errors
-
      - **CLI Command Modules:**
        - `src/commands/session/*.ts` - Multiple files with direct console output
        - `src/commands/git/*.ts` - Git operation output and errors
