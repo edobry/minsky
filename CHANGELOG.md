@@ -301,18 +301,21 @@ _See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.m
 _See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/history/2025-05-22_task-021-refactor-git-service.md) for implementation details._
 _See: SpecStory history [2024-07-01_rule-sync-bug-diagnostics](.specstory/history/2024-07-01_rule-sync-bug-diagnostics.md) for rule sync bug investigation._
 
-### Fixed
+### Added
 
-- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
-- Fixed issues with session-related tests by enhancing error handling and directory creation
-- Fixed task list tests by ensuring tasks.md is created in the proper process directory
-- Added more robust directory existence checking and file creation in test setup
-- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
-- Updated mock CLI command implementations to handle task ID operations consistently
-- Ensured proper type safety in test mocks
-- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
-- Improved test environment setup to create more complete Minsky workspace structure
-- Enhanced error handling and debugging output in test environment setup
+- Interface-agnostic architecture implementation with domain functions and adapters
+- CLI adapters for session commands
+- CLI adapters for rules commands
+- CLI adapters for git commands with push functionality
+- CLI adapters for init command
+- Zod schemas for command parameters to ensure type safety
+- Architecture documentation in README
+
+### Changed
+
+- Refactored CLI entry point to use new adapters
+- Improved error handling in adapters with better error messages
+- Updated task specification and worklog
 
 ## [0.39.0] - 2025-04-29
 
