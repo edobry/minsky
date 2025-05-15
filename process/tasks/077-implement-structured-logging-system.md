@@ -238,13 +238,39 @@ The logging implementation will prioritize:
 
 1. **Continue Migration**
    - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 300 remaining instances)
-   - Focus on remaining core modules and adapters
+   - Priority files to update:
+     - **Core Domain Modules:**
+       - `src/domain/git.ts` - 25+ console.error calls (debug/error logging)
+       - `src/domain/rules.ts` - 5+ log/error calls
+       - `src/domain/workspace.ts` - Several warn/error calls
+       - `src/domain/localGitBackend.ts` and `src/domain/remoteGitBackend.ts` - Git command warnings
+     
+     - **MCP (Server/Tools):**
+       - `src/mcp/server.ts` - Server connection and error logs
+       - `src/mcp/tools/tasks.ts` - Task-related error handling
+       - `src/mcp/tools/session.ts` - Session operation logs and errors
+       - `src/mcp/command-mapper.ts` - Command execution errors
+
+     - **CLI Command Modules:**
+       - `src/commands/session/*.ts` - Multiple files with direct console output
+       - `src/commands/git/*.ts` - Git operation output and errors
+       - `src/adapters/cli/session.ts` - Session CLI adapter
+   
    - Ensure proper categorization of logs (program/CLI messages vs agent/system events)
+   - Handle test files separately - many have mocked console methods
 
 2. **Refine Context Objects**
    - Implement consistent metadata for structured logging
    - Ensure proper error formatting and stack trace capture
+   - Add standard context fields for different log types:
+     - Domain operations: Include operation name, input params (sanitized)
+     - CLI commands: Include command name, relevant options
+     - Errors: Capture cause chain, relevant object IDs
    
 3. **Documentation**
    - Add documentation about the logging system and how to use it
    - Provide examples of proper logging usage
+   - Add guidelines for different log levels:
+     - When to use debug vs info vs warn vs error
+     - When to use programLogger vs agentLogger
+     - How to structure context objects
