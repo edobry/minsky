@@ -6,6 +6,9 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 
+// Re-export mocking utilities from the dedicated module
+export * from "./test-utils/mocking";
+
 // Make TypeScript happy with Node.js global objects
 declare const global: {
   Date: DateConstructor;

@@ -73,7 +73,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Evaluate zod-matter and Zod for Rule Metadata and Validation [#058](process/tasks/058-evaluate-zod-matter-and-zod-for-rule-metadata-and-validation.md)
 
-- [-] Add Centralized Test Mock Utilities [#059](process/tasks/059-add-centralized-test-mock-utilities.md)
+- [x] Add Centralized Test Mock Utilities [#059](process/tasks/059-add-centralized-test-mock-utilities.md)
 
 - [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
