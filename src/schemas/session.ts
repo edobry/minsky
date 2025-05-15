@@ -11,6 +11,24 @@ import {
 } from "./common.js";
 
 /**
+ * Schema for a session record
+ */
+export const sessionRecordSchema = z.object({
+  session: sessionNameSchema.describe("Unique name of the session"),
+  repoUrl: z.string().describe("URL of the repository"),
+  repoName: z.string().describe("Normalized name of the repository"),
+  repoPath: z.string().optional().describe("Path to the session repository"),
+  createdAt: z.string().describe("ISO timestamp of when the session was created"),
+  taskId: taskIdSchema.optional().describe("Task ID associated with the session"),
+  branch: z.string().optional().describe("Branch name for this session"),
+  backendType: z.string().describe("Backend type (local, remote, etc.)"),
+  remote: z.object({
+    authMethod: z.string().describe("Authentication method for remote operations"),
+    depth: z.number().describe("Clone depth"),
+  }).describe("Remote repository configuration"),
+});
+
+/**
  * Schema for session list parameters
  */
 export const sessionListParamsSchema = commonCommandOptionsSchema;

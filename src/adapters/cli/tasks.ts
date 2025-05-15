@@ -24,6 +24,7 @@ import {
 import { MinskyError } from "../../errors/index.js";
 import * as p from "@clack/prompts";
 import { log } from "../../utils/logger";
+import { z } from "zod"; // Add import for z namespace
 
 // Helper for exiting process consistently
 function exit(code: number): never {
@@ -71,8 +72,8 @@ export function createListCommand(): Command {
           // Format and display the results
           if (tasks.length === 0) {
             if (options.json) {
-              // For JSON output, ensure it is raw JSON to stdout, not through logger
-              console.log(JSON.stringify([]));
+              // For JSON output, write directly to stdout
+              process.stdout.write(`${JSON.stringify([])}\n`);
             } else {
               // Generate and display filter messages in non-JSON mode
               const filterMessages = generateFilterMessages({
@@ -92,8 +93,8 @@ export function createListCommand(): Command {
           }
 
           if (options.json) {
-            // For JSON output, ensure it is raw JSON to stdout, not through logger
-            console.log(JSON.stringify(tasks, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(tasks, null, 2)}\n`);
           } else {
             // Generate and display filter messages in non-JSON mode
             const filterMessages = generateFilterMessages({
@@ -160,8 +161,8 @@ export function createGetCommand(): Command {
 
           // Format and display the result
           if (options.json) {
-            // For JSON output, ensure it is raw JSON to stdout, not through logger
-            console.log(JSON.stringify(task, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
           } else {
             log.cli(`Task #${task.id}:`);
             log.cli(`Title: ${task.title}`);
@@ -226,10 +227,10 @@ export function createStatusCommand(): Command {
 
           // Format and display the result
           if (options.json) {
-            // For JSON output, ensure it is raw JSON to stdout, not through logger
-            console.log(JSON.stringify({ taskId, status }, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify({ taskId, status }, null, 2)}\n`);
           } else {
-            console.log(`Status of task #${taskId}: ${status}`);
+            log.cli(`Status of task #${taskId}: ${status}`);
           }
         } catch (error) {
           log.cliError("Error getting task status:");
@@ -287,16 +288,24 @@ export function createStatusCommand(): Command {
           await setTaskStatusFromParams(params);
 
           // Display success message
-          console.log(`Status of task #${taskId} set to ${status}`);
-        } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
+          if (options.json) {
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify({ 
+              taskId, 
+              status, 
+              success: true 
+            }, null, 2)}\n`);
           } else {
-            log.cli(`Status for task ${taskId} set to ${status}`);
+            log.cli(`Status of task #${taskId} set to ${status}`);
           }
         } catch (error) {
-          log.cliError("Error setting task status:");
-          log.error("Error details for setting task status", error as Error);
+          if (error instanceof MinskyError) {
+            log.cliError(`Error: ${error.message}`);
+            log.error("Error details for MinskyError", error);
+          } else {
+            log.cliError("Error setting task status:");
+            log.error("Error details for setting task status", error as Error);
+          }
           exit(1);
         }
       }
@@ -327,8 +336,8 @@ export function createCreateCommand(): Command {
           const task = await createTaskFromParams(params); // Corrected domain function call
 
           if (options.json) {
-            // For JSON output, ensure it is raw JSON to stdout, not through logger
-            console.log(JSON.stringify(task, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
           } else {
             log.cli(`Task ${task.id} created: ${task.title}`);
             p.note(task.specPath, "Specification file");
