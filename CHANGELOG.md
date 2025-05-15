@@ -40,7 +40,7 @@ function customMatterStringify(content: string, data: any): string {
 - Fixed session merging with main branch to resolve conflicts (#072)
 - Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
 - Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
-- Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
+- Fixed type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
 - Fixed placeholder tests in list.test.ts and get.test.ts with proper implementation notes (#072)
 - Added TestSessionParams type to fix type errors in get.test.ts (#072)
 - Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
@@ -49,7 +49,7 @@ function customMatterStringify(content: string, data: any): string {
 - Test failures after interface-agnostic architecture PR merge:
   - Fixed session tests by isolating session database for tests, preventing interaction with real session database
   - Updated init tests to work with Bun test runner instead of Jest
-  - Started updating CLI adapter tests to work with Bun test runner
+  - Refactored test mocking patterns to use centralized mocking utilities from src/utils/test-utils/mocking.ts for improved test consistency and maintainability
 
 _See: SpecStory history (fix-test-failures session) for detailed implementation details._
 
