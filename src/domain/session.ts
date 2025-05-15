@@ -391,8 +391,6 @@ export async function startSessionFromParams(
     }
 
     const branchCmdOptions: BranchOptions = { session: sessionName, branch: actualBranchName };
-    if (repoPath) {
-    }
     const branchResult = await deps.gitService.branch(branchCmdOptions);
 
     return {

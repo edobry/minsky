@@ -1,12 +1,30 @@
 /**
- * Tests for the repository backends implementation.
+ * Tests for repository domain functionality
  */
 import { describe, test, expect } from "bun:test";
+import { normalizeRepoName } from "../repo-utils";
 
 describe("Repository backends", () => {
-  // TODO: Implement proper tests for repository backends. Original test was a placeholder.
-  // test("placeholder test to make CI pass", () => {
-  //   // This is a placeholder test that always passes
-  //   expect(true).toBe(true);
-  // });
+  // Proper tests for repository backends will be added later
+  // This describes tests for GitHub, GitLab, etc. integrations
+});
+
+describe("Repository", () => {
+  describe("normalizeRepoName", () => {
+    test("should handle GitHub URLs correctly", () => {
+      const githubUrl = "https://github.com/user/repo.git";
+      expect(normalizeRepoName(githubUrl)).toBe("user/repo");
+    });
+    
+    test("should handle SSH URLs correctly", () => {
+      const sshUrl = "git@github.com:user/repo.git";
+      expect(normalizeRepoName(sshUrl)).toBe("user/repo");
+    });
+    
+    test("should handle local paths correctly", () => {
+      const localPath = "/path/to/repo";
+      // Local paths are expected to be returned as-is
+      expect(normalizeRepoName(localPath)).toBe(localPath);
+    });
+  });
 });

@@ -147,12 +147,12 @@ function runCliCommand(args: string[]) {
       if (hasJsonFlag) {
         mockResult.stdout = JSON.stringify({
           success: true,
-          message: `Session 'custom-path-session' successfully deleted.`,
+          message: "Session 'custom-path-session' successfully deleted.",
           repoDeleted: true,
           recordDeleted: true,
         });
       } else {
-        mockResult.stdout = `Session "custom-path-session" successfully deleted`;
+        mockResult.stdout = "Session \"custom-path-session\" successfully deleted";
       }
       return mockResult;
     }

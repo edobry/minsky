@@ -30,12 +30,12 @@ mock.module("../../domain/git.js", () => {
 const mockGetSession = mock((name) => 
   name === "test-session" 
     ? Promise.resolve({
-        session: "test-session",
-        repoUrl: "test-repo-url",
-        repoName: "test-repo",
-        taskId: "123",
-        createdAt: new Date().toISOString()
-      }) 
+      session: "test-session",
+      repoUrl: "test-repo-url",
+      repoName: "test-repo",
+      taskId: "123",
+      createdAt: new Date().toISOString()
+    }) 
     : Promise.resolve(null)
 );
 
