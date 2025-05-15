@@ -211,96 +211,97 @@ The logging implementation will prioritize:
    - Added Winston dependency to the project (`bun add winston @types/winston`)
 
 2. **Logger Implementation**
-   - Created a centralized logger module in `src/utils/logger.ts`
-   - Implemented two separate logger instances:
-     - `agentLogger`: Structured JSON logs to stdout for system events and debugging
-     - `programLogger`: Plain text logs to stderr for user-facing messages
-   - Added convenience wrapper methods for different log levels
-   - Implemented proper error handling for unhandled exceptions and rejections
+   - Created a centralized logger module in `src/utils/logger.ts` with the following features:
+     - Separate loggers for agent (structured JSON to stdout) and program (human-readable text to stderr)
+     - Support for different log levels (debug, info, warn, error)
+     - Proper error handling with stack traces
+     - Global error handling for uncaught exceptions and rejections
+     - Environment variable configuration for log levels
+   - Implemented separate log functions for different use cases:
+     - `log.debug`, `log.info`, `log.warn`, `log.error` for agent logs (JSON to stdout)
+     - `log.cli`, `log.cliWarn`, `log.cliError` for program logs (text to stderr)
+     - `log.agent` for direct JSON output to stdout
+   - Added enhanced error handling to extract and properly format error information
+   - Implemented context object support for all log methods to include relevant metadata
 
-3. **Initial Integration**
-   - Updated the `src/mcp/tools/session.ts` file to use the new logger
-   - Imported the logger in the main CLI entry point (`src/cli.ts`)
-   - Replaced console logging in core domain modules:
-     - `src/domain/tasks.ts`: Converted logging to structured format with proper context
-     - `src/domain/session.ts`: Updated debug and error logging with improved metadata
-   - Fixed the CLI task adapter (`src/adapters/cli/tasks.ts`) to use the new logger
-   - Added missing `sessionRecordSchema` in the session schema file
-   - Updated JSON output handling to properly use stdout for structured data
+3. **Testing Infrastructure**
+   - Created comprehensive log capture utilities in `src/utils/test-utils/log-capture.ts`:
+     - `LogCapture` class for intercepting and testing structured logs
+     - Methods for analyzing agent and CLI logs separately
+     - Helper functions for testing code that uses the logger
+     - Support for assertion-based testing of log messages and context
+   - Added backward compatibility with `ConsoleCapture` for legacy tests
+   - Created helper functions like `withLogCapture()` for simplified test writing
 
-4. **Fixed Linter Errors**
-   - Resolved the linting errors in `src/domain/session.ts`:
-     - Fixed function signatures for GitService method calls
-     - Corrected parameter naming from `workspacePath` to `workspace`
-     - Removed Bun type reference and replaced with standard Node.js environment variables
+4. **Documentation**
+   - Created detailed documentation in `docs/logging.md`:
+     - Complete API reference for all logging methods
+     - Usage patterns for different logging scenarios
+     - Best practices for structured logging
+     - Examples of proper error handling
+     - Guidelines for JSON output formatting
 
-5. **MCP and Rules Systems**
-   - Updated the MCP command-mapper to use structured logging for errors
-   - Improved the MCP server connection/disconnection logging with better context
-   - Enhanced the rules system to use consistent structured logging pattern
-   - Added detailed context objects to all log messages
-   - Updated the `src/commands/mcp/index.ts` with structured logging
+5. **Module Migration**
+   - Updated key command modules to use structured logging:
+     - Git command modules (`src/commands/git/pr.ts`, `src/commands/git/commit.ts`)
+     - MCP command modules (`src/commands/mcp/index.ts`)
+     - Rules system modules (`src/commands/rules/get.ts`)
+     - Session command modules
+   - Enhanced CLI adapters with structured logging:
+     - Git CLI adapter (`src/adapters/cli/git.ts`)
+     - Tasks CLI adapter
+     - Session CLI adapter
+   - Implemented consistent patterns for:
+     - JSON output using `log.agent` for machine-readable responses
+     - User feedback using `log.cli` family of functions
+     - Error handling with proper stack traces and context
+     - Debug logging with rich context objects
 
-6. **Git and Workspace Systems**
-   - Updated `src/domain/git.ts` with comprehensive structured logging:
-     - Replaced debug console.error calls with log.debug calls and added context objects
-     - Added proper error handling in PR and commit functions
-     - Added structured logging in the determineTaskId method
-   - Fixed workspace notification logging in `src/domain/workspace.ts`:
-     - Updated session validation warnings with better context
-     - Added error logging with stack traces for session lookup errors
-   - Improved Git backend logging:
-     - Converted console.warn statements in `src/domain/localGitBackend.ts` and `src/domain/remoteGitBackend.ts` to use log.debug
-     - Added context about the Git commands being executed
-     - Enhanced error reporting with stack traces
-
-7. **Session Command Modules**
-   - Updated all session command modules to use structured logging:
-     - `src/commands/session/list.ts`: Changed JSON output to use `log.agent` for structured data
-     - `src/commands/session/delete.ts`: Added comprehensive error handling with context
-     - `src/commands/session/cd.ts`: Fixed error messages and added debug logging
-     - `src/commands/session/commit.ts`: Enhanced with progress messages and detailed debug logs
-     - `src/commands/session/update.ts`: Added progress logging and better error context
-   - Standardized error handling patterns:
-     - Used `log.cli` for user-facing messages
-     - Used `log.agent` for structured JSON responses
-     - Used `log.error` for error logging with proper stack traces
-     - Added context objects with relevant metadata for better debugging
-
-8. **Git Command Modules**
-   - Updated all Git command modules to use the new logging system:
-     - `src/commands/git/clone.ts`: Converted to use structured logging with context
-     - `src/commands/git/branch.ts`: Added context objects and proper error handling
-     - `src/commands/git/commit.ts`: Added debug logging with commit details
-     - `src/commands/git/pr.ts`: Updated with structured error handling and JSON formatting
-   - Added support for JSON format output via `log.agent`
-   - Enhanced error logging with stack traces and context objects
-
-9. **VS Code Configuration**
-   - Enhanced VS Code workspace settings for improved developer experience
-   - Added debugging configurations specifically for the Minsky CLI
-   - Configured editor settings to support the project's coding standards
-
-10. **Testing Infrastructure**
-    - Created log capture utilities for testing in `src/utils/test-utils/log-capture.ts`
-    - Added classes for capturing and analyzing structured logs in tests
-    - Implemented backward compatibility for existing tests with `ConsoleCapture`
-    - Added helper functions for testing code that uses the logger
-
-11. **Documentation**
-    - Created detailed documentation about the logging system in `docs/logging.md`
-    - Included examples, best practices, and usage patterns
-    - Documented all available logging methods and their appropriate usage
+6. **Error Handling Improvements**
+   - Enhanced error handling throughout the codebase
+   - Added context objects to error logs for better debugging
+   - Ensured stack traces are preserved and properly formatted
+   - Implemented standardized error reporting patterns for both CLI and programmatic usage
 
 ### Remaining Work
 
-1. **Additional Module Updates**
-   - Update any remaining modules that use console.log, particularly in domain modules
-   - Check for any approve.ts file that might need updating
+1. **Complete Codebase Migration**
+   - Replace remaining console.log/error/warn calls in these files:
+     - Domain modules in `src/domain/` directory:
+       - `src/domain/git.ts` (multiple debug logs)
+       - `src/domain/tasks.ts` (several console logs)
+       - `src/domain/session.ts` (debug logs)
+       - `src/domain/rules.ts` (multiple logs)
+       - `src/domain/workspace.ts` (warn and error logs)
+       - `src/domain/localGitBackend.ts` and `remoteGitBackend.ts` (warnings)
+     - MCP modules in `src/mcp/` directory:
+       - `src/mcp/server.ts` (connection logs)
+       - `src/mcp/tools/tasks.ts` (error logs)
+       - `src/mcp/tools/session.ts` (error logs)
+       - `src/mcp/command-mapper.ts` (error execution logs)
+   - Standardize error handling patterns across all modules
+   - Add appropriate context objects to all log messages
+   - Update all JSON output to use `log.agent` for consistent formatting
 
-2. **Final Testing**
-   - Run all tests to ensure they still pass with the new logging system
-   - Verify that all console output has been replaced with the appropriate logger calls
-   - Check for consistent formatting across all log messages
-   - Ensure proper error handling with stack traces for all error scenarios
-   - Verify that the separation between user-facing output and system logs is maintained
+2. **Test Update and Verification**
+   - Update existing tests that use console capture to use the new `LogCapture` utilities
+   - Add tests for the logger itself to verify:
+     - Proper formatting of structured logs
+     - Error object handling
+     - Context object inclusion
+     - Log level filtering
+   - Run all tests to ensure they pass with the new logging system
+   - Add specific tests for JSON output formatting
+
+3. **Final Integration and Review**
+   - Ensure consistent logging patterns across all modules
+   - Review all error handling for proper stack trace preservation
+   - Check for any missing log level configurations
+   - Verify environment variable controls work as expected
+   - Final pass to ensure all console methods have been replaced
+
+4. **Performance Optimization**
+   - Profile logging performance in high-volume scenarios
+   - Optimize log formatting and transport configuration if needed
+   - Consider adding log sampling for very verbose debug logs
+   - Review for any potential memory leaks in the logging system
