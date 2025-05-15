@@ -149,9 +149,10 @@ describe("git commit command", () => {
     // Mock implementation to test (not executed)
     const mockImplementation = async () => {
       await command.parseAsync(["--amend", "-m", "amended commit"], { from: "user" });
-      return mockGitService.commit.mock.calls.length > 0
-        && mockGitService.commit.mock.calls[0][0] === "amended commit"
-        && mockGitService.commit.mock.calls[0][1] === true;
+      const calls = mockGitService.commit.mock.calls;
+      return calls.length > 0
+        && calls[0]?.[0] === "amended commit"
+        && calls[0]?.[1] === true;
     };
     
     // Verify the mock structure is correct
@@ -222,9 +223,9 @@ describe("git commit command", () => {
 
     // Mock implementation to test (not executed)
     const mockImplementation = async () => {
-      const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [], deleted: [] };
+      const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [""], deleted: [""] };
       // Ensure getStatus is mocked for this specific test path *after* reset
-      mockGitService.getStatus.mockImplementation(() => Promise.resolve(mockStatusNoStage));
+      mockGitService.getStatus.mockImplementation(() => Promise.resolve(mockStatusNoStage as any));
       mockResolveRepoPath.mockImplementation(() => Promise.resolve("/path/to/repo"));
 
       await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
