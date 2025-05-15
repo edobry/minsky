@@ -3,3 +3,158 @@ description:
 globs:
 alwaysApply: false
 ---
+# Task Implementation Workflow
+
+This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.
+
+## Task Implementation Lifecycle
+
+### 1. Task Selection
+
+1. **List available tasks**:
+   ```bash
+   minsky tasks list --json
+   ```
+
+2. **View task details**:
+   ```bash
+   minsky tasks get <task-id>
+   ```
+
+3. **Check the current status**:
+   ```bash
+   minsky tasks status get <task-id>
+   ```
+
+### 2. Session Setup
+
+1. **Start a new session for the task**:
+   ```bash
+   minsky session start --task <task-id>
+   ```
+   This will automatically set the task status to IN-PROGRESS.
+
+2. **Enter the session directory**:
+   ```bash
+   cd $(minsky session dir --task <task-id>)
+   ```
+
+3. **Verify session setup**:
+   ```bash
+   minsky session get --task <task-id>
+   git status
+   ```
+
+### 3. Implementation Planning
+
+1. **Read the task specification**:
+   - Locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
+   - Review all requirements and acceptance criteria
+
+2. **Plan your implementation**:
+   - Identify the files you need to modify
+   - Sketch out the changes you'll make
+   - Identify any dependencies or potential issues
+
+3. **Document your plan**:
+   - Add your implementation plan to the task specification file
+   - Commit this update:
+     ```bash
+     git add process/tasks/<task-id>-<task-name>.md
+     git commit -m "Add implementation plan for task #<task-id>"
+     ```
+
+### 4. Development Phase
+
+1. **Make code changes**:
+   - Modify the required files
+   - Follow project coding standards
+   - Add tests for new functionality
+   - Ensure backward compatibility
+
+2. **Commit changes regularly**:
+   - Use meaningful commit messages with task ID references
+   - Group related changes in logical commits
+   - Example:
+     ```bash
+     git commit -m "task #<task-id>: Add new function for handling X"
+     ```
+
+3. **Verify changes**:
+   - Run tests to ensure nothing is broken
+   - Check for linting errors and code quality issues
+   - Verify that all task requirements are met
+
+### 5. Final Verification
+
+1. **Run all tests**:
+   ```bash
+   bun test
+   ```
+
+2. **Update task documentation**:
+   - Add implementation details to the task spec
+   - Document any design decisions or trade-offs
+   - Update the implementation plan with actual changes made
+
+3. **Prepare PR description**:
+   ```bash
+   minsky git pr --task <task-id>
+   ```
+   Save the output to `process/tasks/<task-id>/pr.md`
+
+### 6. Task Completion
+
+1. **Update CHANGELOG.md**:
+   - Add entries for all changes made
+   - Reference the task ID in changelog entries
+
+2. **Commit final changes**:
+   ```bash
+   git add .
+   git commit -m "Complete implementation of task #<task-id>"
+   ```
+
+3. **Push changes**:
+   ```bash
+   git push origin $(git branch --show-current)
+   ```
+
+4. **Update task status**:
+   ```bash
+   minsky tasks status set <task-id> IN-REVIEW
+   ```
+   This can also happen automatically when using `minsky git pr`.
+
+## Work Log Guidelines
+
+Maintain a "Work Log" section in the task document to track implementation progress:
+
+```markdown
+## Work Log
+- YYYY-MM-DD: Implemented X feature
+- YYYY-MM-DD: Fixed Y bug
+- YYYY-MM-DD: Added tests for Z functionality
+```
+
+This log will be used to update the changelog when the task is complete.
+
+## Task Completion Checklist
+
+Task implementation is not complete until ALL these steps are performed:
+
+1. ✓ All code changes are made in the session directory (not main workspace)
+2. ✓ All tests pass in the session directory
+3. ✓ Task document is updated with Work Log and verification steps
+4. ✓ All changes are committed with task ID in commit message
+5. ✓ Changes are pushed to remote
+6. ✓ Changelog is updated appropriately
+7. ✓ PR description is prepared
+8. ✓ Task status is updated to IN-REVIEW
+
+## Integration with Other Rules
+
+- For session creation and management, see [minsky-session-management](mdc:.cursor/rules/minsky-session-management.mdc)
+- For task status checking and updating, see [task-status-protocol](mdc:.cursor/rules/task-status-protocol.mdc)
+- For PR preparation and submission, see [pr-preparation-workflow](mdc:.cursor/rules/pr-preparation-workflow.mdc)
+- For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
