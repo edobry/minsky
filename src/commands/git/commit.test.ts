@@ -219,28 +219,27 @@ describe("git commit command", () => {
   });
 
   test("no-stage flag implementation verifies staging operations are skipped", async () => {
-    // NOTE: This test validates the --no-stage flag implementation correctness
-    // It is implemented with a mock function pattern to prevent execution errors
-    // while providing structure validation
+    // Setup a mock Git status with changes
+    const mockStatusNoStage = { 
+      modified: ["file1.txt"], 
+      untracked: ["new.txt"], 
+      deleted: ["old.txt"] 
+    } as unknown as GitStatus;
     
-    // Verify the command is defined
-    expect(command).toBeDefined();
-
-    // Mock implementation to test (not executed)
-    const mockImplementation = async () => {
-      const mockStatusNoStage: GitStatus = { modified: ["file1"], untracked: [""], deleted: [""] };
-      // Ensure getStatus is mocked for this specific test path *after* reset
-      mockGitService.getStatus.mockImplementation(() => Promise.resolve(mockStatusNoStage as any));
-      mockResolveRepoPath.mockImplementation(() => Promise.resolve("/path/to/repo"));
-
-      await command.parseAsync(["node", "minsky", "commit", "--no-stage", "-m", "test commit"]);
-
-      // Check that neither stageAll nor stageModified were called
-      return mockGitService.stageAll.mock.calls.length === 0
-        && mockGitService.stageModified.mock.calls.length === 0;
-    };
+    // Configure mocks
+    mockGitService.getStatus.mockResolvedValue(mockStatusNoStage);
+    mockResolveRepoPath.mockResolvedValue("/path/to/repo");
+    mockGitService.commit.mockResolvedValue("abc123");
     
-    // Verify the mock structure is correct
-    expect(typeof mockImplementation).toBe("function");
+    // Execute the command with the --no-stage flag
+    await command.parseAsync(["--no-stage", "-m", "test commit"], { from: "user" });
+    
+    // Verify staging operations were skipped but commit happened
+    expect(mockGitService.stageAll.mock.calls.length).toBe(0);
+    expect(mockGitService.stageModified.mock.calls.length).toBe(0);
+    expect(mockGitService.commit.mock.calls.length).toBe(1);
+    
+    // Verify the commit message was passed correctly
+    expect(mockGitService.commit.mock.calls[0]?.[0]).toBe("test commit");
   });
 });

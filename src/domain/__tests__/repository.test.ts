@@ -23,8 +23,13 @@ describe("Repository", () => {
     
     test("should handle local paths correctly", () => {
       const localPath = "/path/to/repo";
-      // Local paths are expected to be returned as-is
-      expect(normalizeRepoName(localPath)).toBe(localPath);
+      // Local paths are returned as local/<basename>
+      expect(normalizeRepoName(localPath)).toBe("local/repo");
+    });
+
+    test("should handle file:// URLs correctly", () => {
+      const fileUrl = "file:///path/to/project";
+      expect(normalizeRepoName(fileUrl)).toBe("local/project");
     });
   });
 });
