@@ -240,15 +240,26 @@ The logging implementation will prioritize:
    - Enhanced the rules system to use consistent structured logging pattern
    - Added detailed context objects to all log messages
 
+6. **Git and Workspace Systems**
+   - Updated `src/domain/git.ts` with comprehensive structured logging:
+     - Replaced debug console.error calls with log.debug calls and added context objects
+     - Added proper error handling in PR and commit functions
+     - Added structured logging in the determineTaskId method
+   - Fixed workspace notification logging in `src/domain/workspace.ts`:
+     - Updated session validation warnings with better context
+     - Added error logging with stack traces for session lookup errors
+   - Improved Git backend logging:
+     - Converted console.warn statements in `src/domain/localGitBackend.ts` and `src/domain/remoteGitBackend.ts` to use log.debug
+     - Added context about the Git commands being executed
+     - Enhanced error reporting with stack traces
+
 ### Remaining Work
 
 1. **Continue Migration**
-   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 250 remaining instances)
+   - Replace remaining `console.log`, `console.error`, and `console.warn` calls (approximately 200 remaining instances)
    - Priority files to update:
      - **Core Domain Modules:**
-       - `src/domain/git.ts` - 25+ console.error calls (debug/error logging)
-       - `src/domain/workspace.ts` - Several warn/error calls
-       - `src/domain/localGitBackend.ts` and `src/domain/remoteGitBackend.ts` - Git command warnings
+       - Any remaining warnings/errors in domain modules
      
      - **CLI Command Modules:**
        - `src/commands/session/*.ts` - Multiple files with direct console output

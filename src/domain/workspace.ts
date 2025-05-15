@@ -3,6 +3,7 @@ import { join, dirname } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "./session";
+import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
 
@@ -231,9 +232,10 @@ export async function getCurrentSessionContext(
   try {
     const sessionRecord = await db.getSession(currentSessionName);
     if (!sessionRecord) {
-      console.warn(
-        `Session name ${currentSessionName} found by getCurrentSession, but no record in DB.`
-      );
+      log.warn("Session record not found in database", { 
+        sessionName: currentSessionName,
+        cwd
+      });
       return null;
     }
     return {
@@ -241,8 +243,12 @@ export async function getCurrentSessionContext(
       taskId: sessionRecord.taskId,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error(`Error fetching session record for ${currentSessionName}: ${err.message}`);
+    log.error("Error fetching session record", { 
+      sessionName: currentSessionName, 
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      cwd 
+    });
     return null;
   }
 }
