@@ -22,6 +22,16 @@ let minskyDir: string;
 let sessionDbPath: string;
 let gitDir: string;
 
+// Define the session record type for tests
+type TestSessionParams = {
+  session: string;
+  repoUrl: string;
+  repoName?: string;
+  branch?: string;
+  createdAt: string;
+  taskId?: string;
+};
+
 interface TestSessionRecord extends SessionRecord {
   branch?: string;
   taskId?: string;
@@ -227,7 +237,7 @@ describe("minsky session get CLI", () => {
         createdAt: "2024-01-01",
         taskId: "123",
         repoName: "repo",
-      } as TestSessionRecord,
+      } as TestSessionParams,
     ]);
     const { stdout, stderr } = runCliCommand(["session", "get", "foo"]);
     expect(stderr).toBe("");
@@ -246,7 +256,7 @@ describe("minsky session get CLI", () => {
         createdAt: "2024-01-01",
         taskId: "123",
         repoName: "repo",
-      } as TestSessionRecord,
+      } as TestSessionParams,
     ]);
     const { stdout, stderr } = runCliCommand(["session", "get", "foo", "--json"]);
     expect(stderr).toBe("");
@@ -281,7 +291,7 @@ describe("minsky session get CLI", () => {
         createdAt: "2024-01-01",
         taskId: "#T123",
         repoName: "repo",
-      } as TestSessionRecord,
+      } as TestSessionParams,
     ]);
     const { stdout, stderr } = runCliCommand(["session", "get", "--task", "T123"]);
     expect(stderr).toBe("");
@@ -298,7 +308,7 @@ describe("minsky session get CLI", () => {
         createdAt: "2024-01-01",
         taskId: "#T123",
         repoName: "repo",
-      } as TestSessionRecord,
+      } as TestSessionParams,
     ]);
     const { stdout, stderr } = runCliCommand(["session", "get", "--task", "T123", "--json"]);
     expect(stderr).toBe("");
@@ -342,7 +352,7 @@ describe("minsky session get CLI", () => {
         createdAt: "2024-01-01",
         taskId: "#T123",
         repoName: "repo",
-      } as TestSessionRecord,
+      } as TestSessionParams,
     ]);
     const { stdout, stderr, status } = runCliCommand(["session", "get", "foo", "--task", "T123"]);
     expect(status !== 0).toBe(true);
@@ -371,7 +381,7 @@ describe("minsky session get CLI", () => {
   // The following test would require complex mocking of the getCurrentSession function
   // This is a placeholder test description for what should be tested
   // A more complete integration test would simulate a real session workspace environment
-  // TODO: auto-detects the current session when in a session workspace
+  // NOTE: For future work - implement test for auto-detection of current session in workspace
   /*
   test.todo(
     "auto-detects the current session when in a session workspace (original TODO at line 374)"
