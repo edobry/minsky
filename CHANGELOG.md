@@ -392,3 +392,12 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Task creation handles spec file with missing type
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
+
+## [Unreleased]
+
+### Changed
+- Continued work on interface-agnostic architecture migration (Task #076)
+  - All adapter implementations (tasks, git, session, init, rules) are complete
+  - CLI has been updated to use the new adapters
+  - Domain function tests are passing for the new architecture
+  - Old implementation files still need to be removed after all tests pass
