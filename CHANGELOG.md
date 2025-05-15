@@ -12,6 +12,10 @@
 - Improved `normalizeTaskId` function to handle multiple leading `#` characters and validate that task IDs contain only numeric characters.
 - Fixed `minsky session delete` command to properly remove both the session repository directory and database record. The command now correctly identifies the repository location regardless of directory structure (legacy or with sessions subdirectory) and properly handles errors during database operations, clearly reporting failures rather than falsely reporting success.
 - Removed console.error mocking from integration tests to focus on testing behavior rather than implementation details of error reporting, following the new testing-boundaries guidelines.
+- Removed placeholder tests and replaced with actual implementations in domain test files (#072)
+- Fixed empty block statement in session.ts (#072)
+- Improved test implementations in git and repository modules to avoid placeholder patterns (#072)
+- Fixed session merging with main branch to resolve conflicts (#072)
 
 ### Added
 
