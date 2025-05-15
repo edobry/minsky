@@ -16,6 +16,8 @@
 - Fixed empty block statement in session.ts (#072)
 - Improved test implementations in git and repository modules to avoid placeholder patterns (#072)
 - Fixed session merging with main branch to resolve conflicts (#072)
+- Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
+- Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
 
 ### Added
 
