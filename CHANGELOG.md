@@ -46,6 +46,12 @@ function customMatterStringify(content: string, data: any): string {
 - Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
 - Fixed missing variable declarations in startSession.test.ts to avoid linter errors (#072)
 - Fixed `minsky rules create/update` description quoting bug by replacing gray-matter's default stringify function with a custom implementation that uses js-yaml directly. This ensures that descriptions with special characters use double quotes instead of single quotes, and simple descriptions don't have any quotes at all. (#065)
+- Test failures after interface-agnostic architecture PR merge:
+  - Fixed session tests by isolating session database for tests, preventing interaction with real session database
+  - Updated init tests to work with Bun test runner instead of Jest
+  - Started updating CLI adapter tests to work with Bun test runner
+
+_See: SpecStory history (fix-test-failures session) for detailed implementation details._
 
 ### Added
 
