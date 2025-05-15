@@ -389,3 +389,18 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
 - Task creation handles spec file with missing type
 - Improved test environment setup to create more complete Minsky workspace structure
 - Enhanced error handling and debugging output in test environment setup
+
+### Added
+- New cursor rules for Minsky workflow to replace monolithic workflow rule:
+  - minsky-workflow-orchestrator - Overview of the workflow system and entry point
+  - minsky-cli-usage - CLI command reference and usage guidelines
+  - minsky-session-management - Session creation and management procedures
+  - task-implementation-workflow - Task implementation process
+  - task-status-protocol - Status checking and updating procedures
+  - pr-preparation-workflow - PR creation and submission guidelines
+
+### Changed
+- Refactored minsky-workflow.mdc into smaller, focused rules for better organization and maintainability
+- Deprecated original monolithic minsky-workflow rule with references to new rule system
+
+_See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._

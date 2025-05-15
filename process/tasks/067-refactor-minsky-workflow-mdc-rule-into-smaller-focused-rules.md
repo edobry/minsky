@@ -188,3 +188,14 @@ minsky rules create minsky-workflow-orchestrator --name "Minsky Workflow Overvie
 - The orchestrator rule should provide enough context for users to find the specific rule they need
 - Test cases developed should be designed to be incorporated into the rule test suite in task #041
 - Cross-referencing between rules is crucial to maintain comprehensive guidance and avoid duplication
+
+## Work Log
+
+- 2024-05-15: Reviewed current minsky-workflow.mdc rule and identified six logical components to extract
+- 2024-05-15: Created initial drafts of all six rule files in temp-rules directory
+- 2024-05-15: Implemented rule cross-referencing system for navigation between rules
+- 2024-05-15: Created the rules in the Minsky system using `minsky rules create`
+- 2024-05-15: Fixed cross-references format and resolved formatting issues
+- 2024-05-15: Marked original rule as deprecated with references to new rules
+- 2024-05-15: Updated CHANGELOG.md with refactoring information
+- 2024-05-15: Created PR description
