@@ -3,3 +3,141 @@ description:
 globs:
 alwaysApply: false
 ---
+# Minsky Workflow Overview
+
+⛔️ **STOP - READ THIS FIRST**
+
+This orchestrator rule provides a comprehensive overview of the Minsky workflow system, with links to specific, focused rules for each aspect of the workflow.
+
+## Core Workflow Principles
+
+1. **CLI-based Management**: ALL task and session operations MUST use the Minsky CLI, NEVER the file system
+2. **Session-First Workflow**: ALL implementation work MUST occur within a Minsky session
+3. **Repository Isolation**: Session workspaces are SEPARATE from the main workspace
+4. **Status Tracking**: Task status MUST be tracked and updated via the Minsky CLI
+5. **Structured PR Process**: All changes must follow the standardized PR preparation workflow
+
+## Workflow Overview Diagram
+
+```
+┌─────────────────┐     ┌───────────────────┐     ┌──────────────────┐
+│ Task Selection  │────▶│ Session Creation  │────▶│ Implementation   │
+│ & Status Check  │     │ & Management      │     │ Process          │
+└─────────────────┘     └───────────────────┘     └──────────────────┘
+        │                        │                         │
+        ▼                        ▼                         ▼
+┌─────────────────┐     ┌───────────────────┐     ┌──────────────────┐
+│ CLI Usage       │     │ Status Updates    │     │ PR Preparation   │
+│ Guidelines      │     │ & Verification    │     │ & Submission     │
+└─────────────────┘     └───────────────────┘     └──────────────────┘
+```
+
+## When to Apply Each Rule
+
+| Workflow Stage | Rule to Apply | When to Apply |
+|----------------|---------------|--------------|
+| **Initial Setup** | [mdc:minsky-cli-usage.mdc] | When using ANY Minsky CLI command |
+| **Session Management** | [mdc:minsky-session-management.mdc] | When creating, navigating, or managing sessions |
+| **Implementation** | [mdc:task-implementation-workflow.mdc] | When implementing task requirements |
+| **Status Updates** | [mdc:task-status-protocol.mdc] | When checking or updating task status |
+| **PR Preparation** | [mdc:pr-preparation-workflow.mdc] | When preparing and submitting PRs |
+| **File Operations** | [mdc:session-first-workflow.mdc] | When working with files in a session workspace |
+
+## Workflow Sequence
+
+1. **Task Selection and Status Verification**
+   - First: Check available tasks with `minsky tasks list`
+   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - Apply: [mdc:minsky-cli-usage.mdc] and [mdc:task-status-protocol.mdc]
+
+2. **Session Creation and Navigation**
+   - First: Create or re-enter a session for the task
+   - Then: Navigate to the session directory
+   - Apply: [mdc:minsky-session-management.mdc]
+
+3. **Task Implementation**
+   - First: Understand task requirements
+   - Then: Implement the solution in the session workspace
+   - Apply: [mdc:task-implementation-workflow.mdc] and [mdc:session-first-workflow.mdc]
+
+4. **Testing and Verification**
+   - First: Write and run tests for the implementation
+   - Then: Verify that all requirements are met
+   - Apply: [mdc:task-implementation-workflow.mdc] and [mdc:tests.mdc]
+
+5. **PR Preparation and Submission**
+   - First: Generate PR description
+   - Then: Finalize changes and update task status
+   - Apply: [mdc:pr-preparation-workflow.mdc]
+
+6. **Task Completion**
+   - First: Update task status to DONE after PR is merged
+   - Then: Clean up the session if needed
+   - Apply: [mdc:task-status-protocol.mdc] and [mdc:minsky-session-management.mdc]
+
+## Error Recovery Checkpoints
+
+| Error Scenario | Rule to Apply | Recovery Action |
+|----------------|---------------|-----------------|
+| **Wrong CLI Command** | [mdc:minsky-cli-usage.mdc] | Check command reference and retry |
+| **Path Resolution Issue** | [mdc:session-first-workflow.mdc] | Use absolute paths in session workspace |
+| **File Editing Outside Session** | [mdc:session-first-workflow.mdc] | Cancel edits and switch to session workspace |
+| **Status Tracking Issue** | [mdc:task-status-protocol.mdc] | Verify implementation state vs. tracked status |
+| **PR Creation Problem** | [mdc:pr-preparation-workflow.mdc] | Check prerequisites and retry |
+
+## Common Workflow Questions
+
+### Task-Related Questions
+
+- **"What tasks are available?"**
+  → Apply [mdc:minsky-cli-usage.mdc] and use `minsky tasks list`
+
+- **"How do I start working on a task?"**
+  → Apply [mdc:minsky-session-management.mdc] to create a session
+
+- **"How do I check task status?"**
+  → Apply [mdc:task-status-protocol.mdc] and use `minsky tasks status get`
+
+### Session-Related Questions
+
+- **"How do I create a session?"**
+  → Apply [mdc:minsky-session-management.mdc] and use `minsky session start`
+
+- **"How do I get back to my session?"**
+  → Apply [mdc:minsky-session-management.mdc] and use `minsky session dir`
+
+- **"Why aren't my changes showing up?"**
+  → Apply [mdc:session-first-workflow.mdc] to verify you're in the correct workspace
+
+### Implementation Questions
+
+- **"How do I implement a task?"**
+  → Apply [mdc:task-implementation-workflow.mdc] for step-by-step guidance
+
+- **"How do I verify my implementation?"**
+  → Apply [mdc:task-implementation-workflow.mdc] and [mdc:tests.mdc]
+
+- **"How do I create a PR?"**
+  → Apply [mdc:pr-preparation-workflow.mdc] for PR creation steps
+
+## Rule Integration Table
+
+| Rule | Primary Purpose | Integrates With |
+|------|-----------------|----------------|
+| [mdc:minsky-cli-usage.mdc] | CLI command usage | All workflow rules |
+| [mdc:minsky-session-management.mdc] | Session operations | [mdc:session-first-workflow.mdc], [mdc:task-implementation-workflow.mdc] |
+| [mdc:task-implementation-workflow.mdc] | Task implementation | [mdc:task-status-protocol.mdc], [mdc:pr-preparation-workflow.mdc] |
+| [mdc:task-status-protocol.mdc] | Status management | [mdc:task-status-verification.mdc], [mdc:task-implementation-workflow.mdc] |
+| [mdc:pr-preparation-workflow.mdc] | PR preparation | [mdc:task-implementation-workflow.mdc], [mdc:pr-description-guidelines.mdc] |
+| [mdc:session-first-workflow.mdc] | File operations | [mdc:minsky-session-management.mdc], [mdc:task-implementation-workflow.mdc] |
+
+## See Also
+- See [mdc:minsky-cli-usage.mdc] for CLI command reference
+- See [mdc:minsky-session-management.mdc] for session management
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:task-status-protocol.mdc] for status update procedures
+- See [mdc:pr-preparation-workflow.mdc] for PR creation and submission
+- See [mdc:session-first-workflow.mdc] for file operations in sessions
+- See [mdc:task-status-verification.mdc] for detailed status verification
+- See [mdc:pr-description-guidelines.mdc] for PR content guidelines
+- See [mdc:tests.mdc] for testing requirements

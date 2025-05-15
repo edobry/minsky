@@ -3,3 +3,142 @@ description:
 globs:
 alwaysApply: false
 ---
+# PR Preparation Workflow
+
+This rule defines the standard protocol for preparing, creating, and submitting Pull Requests (PRs) for implemented tasks in the Minsky system.
+
+## Prerequisites
+
+Before generating a PR, ensure:
+
+1. All implementation work is complete
+2. All tests are passing
+3. All changes are committed to the session branch
+4. The task document has been updated with Work Log and verification steps
+
+## PR Generation
+
+1. **Generate a PR description:**
+   ```bash
+   minsky git pr --path .
+   ```
+   - Minsky will automatically generate a PR description based on the changes in the current branch
+   - Save this description to:
+     ```
+     process/tasks/<task-id>/pr.md
+     ```
+   - **For guidelines on the content and formatting of the PR description itself, refer to [mdc:pr-description-guidelines.mdc].**
+   - Commit this PR description file:
+     ```bash
+     minsky session commit -m "task#<id>: Generate PR description" 
+     ```
+
+2. **Finalization**
+   - If any additional final changes are needed, commit them:
+     ```bash
+     minsky session commit -m "task#<id>: Final changes before PR submission"
+     ```
+   - Verify all changes have been pushed:
+     ```bash
+     git status
+     ```
+
+3. **Status Update**
+   - Update the task status to the appropriate state:
+     ```bash
+     # Use IN-REVIEW after you've generated a PR and pushed your changes
+     minsky tasks status set '#<id>' IN-REVIEW
+     ```
+
+## Task Completion Checklist
+
+Before marking a task as complete (IN-REVIEW), ensure the following steps have been completed:
+
+1. ✓ All code changes are made in the session directory (not main workspace)
+2. ✓ All tests pass in the session directory
+3. ✓ Task document is updated with Work Log and verification steps are checked off
+4. ✓ All changes are committed with task ID in commit message
+5. ✓ PR description is generated using `minsky git pr` and saved to `process/tasks/<task-id>/pr.md`
+6. ✓ PR description is committed
+7. ✓ Changes are pushed to remote with `minsky session commit`
+8. ✓ Task status is updated to IN-REVIEW using `minsky tasks status set '#id' IN-REVIEW`
+
+## Commit Guidelines
+
+When making commits during PR preparation:
+
+1. **Clear Commit Messages**
+   - Always include the task ID in the commit message
+   - Use descriptive messages that explain what changed and why
+   - Follow conventional commit format when possible:
+     ```
+     task#<id>: <type>(<scope>): <description>
+     ```
+     Where `<type>` is one of: feat, fix, docs, style, refactor, test, chore
+
+2. **Logical Commits**
+   - Group related changes into logical commits
+   - Avoid mixing unrelated changes in the same commit
+   - Consider readability for reviewers
+
+3. **Immediate Pushing**
+   - Always push commits immediately after creating them
+   - Use `minsky session commit` which handles both committing and pushing
+   - Never leave commits unpushed at the end of a session
+
+## PR Description Content
+
+A good PR description should include:
+
+1. **Summary**
+   - Brief description of what the PR accomplishes
+   - Reference to the task ID and name
+
+2. **Changes**
+   - List of specific changes made
+   - Impact on existing functionality
+
+3. **Testing**
+   - How the changes were tested
+   - Any new test cases added
+
+4. **Screenshots/Demos**
+   - If applicable, include screenshots or demo videos
+
+5. **Checklist**
+   - Confirmation that the PR meets all acceptance criteria
+   - Verification that all tests pass
+   - Indication that documentation has been updated
+
+For more detailed guidelines, see [mdc:pr-description-guidelines.mdc].
+
+## After PR Creation
+
+1. **Respond to review comments promptly**
+   - Address all feedback
+   - Make requested changes
+   - Update tests as needed
+
+2. **If changes are significant:**
+   - Update the task status back to IN-PROGRESS
+   - Make the necessary changes
+   - Run tests to ensure they pass
+   - Update the PR description if needed
+   - Set the status back to IN-REVIEW when ready
+
+3. **After PR is merged:**
+   - Update the task status to DONE:
+     ```bash
+     minsky tasks status set '#<id>' DONE
+     ```
+   - Clean up the session (if no longer needed):
+     ```bash
+     minsky session delete task#<id> --force
+     ```
+
+## See Also
+- See [mdc:minsky-workflow-orchestrator.mdc] for workflow overview
+- See [mdc:minsky-cli-usage.mdc] for CLI command reference
+- See [mdc:task-implementation-workflow.mdc] for implementing tasks
+- See [mdc:task-status-protocol.mdc] for status update procedures
+- See [mdc:pr-description-guidelines.mdc] for PR content guidelines
