@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandMapper } from "../command-mapper.js";
 import { execSync } from "child_process";
+import { log } from "../../utils/logger";
 
 /**
  * Register task-related tools with the MCP server
@@ -42,7 +43,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
-        console.error("Error listing tasks:", error);
+        log.error("MCP: Error listing tasks via execSync", {
+          originalError: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mcpArgs: args,
+        });
         throw new Error(
           `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -66,7 +71,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
-        console.error(`Error getting task ${args.taskId}:`, error);
+        log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
+          originalError: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mcpArgs: args,
+        });
         throw new Error(
           `Failed to get task ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -93,7 +102,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           status: output.split(": ")[1], // Extract the status value
         };
       } catch (error) {
-        console.error(`Error getting task status for ${args.taskId}:`, error);
+        log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
+          originalError: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mcpArgs: args,
+        });
         throw new Error(
           `Failed to get task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -129,7 +142,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           status: args.status,
         };
       } catch (error) {
-        console.error(`Error setting task status for ${args.taskId}:`, error);
+        log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
+          originalError: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mcpArgs: args,
+        });
         throw new Error(
           `Failed to set task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -153,7 +170,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
-        console.error("Error creating task:", error);
+        log.error("MCP: Error creating task via execSync", {
+          originalError: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          mcpArgs: args,
+        });
         throw new Error(
           `Failed to create task: ${error instanceof Error ? error.message : String(error)}`
         );

@@ -5,6 +5,7 @@ import { exit } from "../../utils/process";
 import * as p from "@clack/prompts";
 import fs from "fs";
 import path from "path";
+import { log } from "../../utils/logger";
 
 export function createInitCommand(): Command {
   return new Command("init")
@@ -43,10 +44,8 @@ export function createInitCommand(): Command {
               session: options.session,
             });
           } catch (error) {
-            console.error(
-              "Error resolving repository path:",
-              error instanceof Error ? error.message : String(error)
-            );
+            log.cliError("Error resolving repository path:");
+            log.error("Error details for resolving repository path", error as Error);
             exit(1);
           }
 
@@ -203,26 +202,28 @@ export function createInitCommand(): Command {
             ruleFormat: ruleFormat as "cursor" | "generic",
             mcp: mcpEnabled
               ? {
-                enabled: mcpEnabled,
-                transport: (mcpTransport as "stdio" | "sse" | "httpStream") || "stdio",
+                enabled: true,
+                transport: (mcpTransport || "stdio") as "stdio" | "sse" | "httpStream",
                 port: mcpPort,
                 host: mcpHost,
               }
-              : { enabled: false, transport: "stdio" },
+              : undefined,
             mcpOnly: options.mcpOnly,
             overwrite: options.overwrite,
           });
 
-          if (options.mcpOnly) {
-            p.outro("MCP configuration added successfully!");
-          } else {
-            p.outro("Project initialized successfully!");
-          }
+          p.outro("Project initialized for Minsky");
         } catch (error) {
-          console.error(
-            "Error initializing project:",
-            error instanceof Error ? error.message : String(error)
-          );
+          // Log with clack if it's a known error, otherwise use generic console.error
+          if (error instanceof Error && p.isCancel(error)) {
+            p.cancel("Operation cancelled");
+          } else if (error instanceof Error) {
+            log.cliError(`Error during initialization: ${error.message}`);
+            log.error("Initialization error details", error);
+          } else {
+            log.cliError("An unexpected error occurred during initialization.");
+            log.error("Unexpected initialization error", error as any);
+          }
           exit(1);
         }
       }

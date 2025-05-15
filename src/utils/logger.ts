@@ -1,73 +1,113 @@
 #!/usr/bin/env bun
-import * as winston from 'winston';
+import winston, { format, transports } from 'winston';
+import { TransformableInfo } from 'logform';
 
-const { combine, timestamp, json, printf, colorize } = winston.format;
+// Environment variable for log level
+const logLevel = process.env.LOG_LEVEL || 'info';
 
-const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
-
-// Agent Logger (Structured JSON to STDOUT)
-export const agentLogger = winston.createLogger({
-  level: LOG_LEVEL,
-  format: combine(
-    timestamp(),
-    json(),
-    winston.format.errors({ stack: true }) // Log stack traces for Error objects
-  ),
-  transports: [
-    new winston.transports.Console({ // Default Console logs non-errors to stdout
-      handleExceptions: true, // Log uncaught exceptions
-      handleRejections: true, // Log unhandled rejections
-    }),
-  ],
-  exitOnError: true, // Per robust-error-handling, exit on unhandled exceptions (Winston's default)
-});
-
-// Program Logger (Plain Text to STDERR)
-export const programLogger = winston.createLogger({
-  level: LOG_LEVEL,
-  format: combine(
-    colorize(),
-    printf(info => String(info.message)) // Keep it simple: just the message, colorized by level implicitly
-    // Levels like 'info:' will be prepended by winston if not customized away
-    // For true minimality, ensure format is just `printf(info => String(info.message))`
-    // But winston's default level prefix is usually fine.
-    // Let's refine to ensure only message for CLI output:
-  ),
-  transports: [
-    new winston.transports.Console({
-      stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'], // Ensure all levels go to stderr
-      handleExceptions: true, // Also catch exceptions here if they are specific to CLI interactions
-      handleRejections: true,
-    }),
-  ],
-  exitOnError: true,
-});
-
-// Refined programLogger format for truly minimal message-only output
-programLogger.format = combine(
-  colorize(),
-  printf(info => `${String(info.message)}`) // Only the message, color applied by level
+// Common format for agent logs (JSON)
+const agentLogFormat = format.combine(
+  format.timestamp(),
+  format.errors({ stack: true }), // Log stack traces
+  format.json()
 );
 
+// Common format for program/CLI logs (plain text)
+const programLogFormat = format.combine(
+  format.colorize(),
+  format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  format.printf((info: TransformableInfo) => {
+    // Ensure message is a string
+    const message = typeof info.message === 'string' ? info.message : JSON.stringify(info.message);
+    let log = `${info.timestamp} [${info.level}]: ${message}`;
+    if (info.stack) {
+      log += `\n${info.stack}`;
+    }
+    // Add other metadata if it exists
+    const metadata = Object.keys(info).reduce((acc, key) => {
+      if (['level', 'message', 'timestamp', 'stack'].includes(key)) {
+        return acc;
+      }
+      acc[key] = info[key];
+      return acc;
+    }, {} as Record<string, any>);
 
-// Convenience log functions
+    if (Object.keys(metadata).length > 0) {
+      try {
+        log += ` ${JSON.stringify(metadata)}`;
+      } catch (e) {
+        // ignore serialization errors for metadata in text logs
+      }
+    }
+    return log;
+  })
+);
+
+// Agent logger: structured JSON to stdout
+const agentLogger = winston.createLogger({
+  level: logLevel,
+  format: agentLogFormat,
+  transports: [new transports.Console({ stderrLevels: [] })], // Ensure only stdout
+  exceptionHandlers: [new transports.Console({ format: agentLogFormat, stderrLevels: [] })],
+  rejectionHandlers: [new transports.Console({ format: agentLogFormat, stderrLevels: [] })],
+  exitOnError: false,
+});
+
+// Program logger: plain text to stderr
+const programLogger = winston.createLogger({
+  level: logLevel,
+  format: programLogFormat,
+  transports: [new transports.Console({ stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'] })], // Ensure only stderr
+  exceptionHandlers: [new transports.Console({ format: programLogFormat })],
+  rejectionHandlers: [new transports.Console({ format: programLogFormat })],
+  exitOnError: false,
+});
+
+interface LogContext {
+  [key: string]: any;
+}
+
+// Convenience wrapper
 export const log = {
-  // Agent logs (structured)
-  debug: (message: string, meta?: any) => agentLogger.debug(message, meta),
-  info: (message: string, meta?: any) => agentLogger.info(message, meta),
-  warn: (message: string, meta?: any) => agentLogger.warn(message, meta),
-  error: (message: string | Error, meta?: any) => {
-    // Winston's format.errors({ stack: true }) handles Error objects well
-    agentLogger.error(message as string, meta); // Cast to string for the signature, error object is passed
+  // Agent logs (structured JSON to stdout)
+  agent: (message: string, context?: LogContext) => agentLogger.info(message, context),
+  debug: (message: string, context?: LogContext) => agentLogger.debug(message, context),
+  warn: (message: string, context?: LogContext) => agentLogger.warn(message, context),
+  error: (message: string, context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any; }) => {
+    if (context instanceof Error) {
+      agentLogger.error(message, { originalError: context.message, stack: context.stack, name: context.name });
+    } else if (typeof context === 'object' && context !== null && (context.originalError || context.stack)) {
+      agentLogger.error(message, context);
+    }
+     else {
+      agentLogger.error(message, context);
+    }
   },
-
-  // Program logs (plain text to stderr)
-  cli: (message: string) => programLogger.info(message),
-  cliWarn: (message: string) => programLogger.warn(message),
-  cliError: (message: string) => programLogger.error(message),
-  // For verbose CLI debugging, if needed:
-  // cliDebug: (message: string) => programLogger.debug(message),
+  // Program/CLI logs (plain text to stderr)
+  cli: (message: string, ...args: any[]) => programLogger.info(message, ...args),
+  cliWarn: (message: string, ...args: any[]) => programLogger.warn(message, ...args),
+  cliError: (message: string, ...args: any[]) => programLogger.error(message, ...args),
 };
+
+// Ensure logs are written before exiting on unhandled exceptions/rejections
+const handleExit = async (error?: Error) => {
+  if (error) {
+    // Use programLogger for unhandled errors that might crash the CLI
+    programLogger.error('Unhandled error or rejection, exiting.', error);
+  }
+  // Give logs a moment to flush
+  await new Promise(resolve => setTimeout(resolve, 100));
+};
+
+process.on('uncaughtException', async (error) => {
+  await handleExit(error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+  await handleExit(reason instanceof Error ? reason : new Error(String(reason)));
+  process.exit(1);
+});
 
 // Basic test to ensure it works - can be removed or moved to a test file
 if (process.env.RUN_LOGGER_TEST === 'true') {
