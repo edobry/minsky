@@ -175,8 +175,12 @@ Currently, the migration is only partially complete:
 
 ## Remaining Work
 
-1. **Fix Integration Tests**: Several integration tests are still failing that need to be fixed for a complete migration.
+1. **Add Tests for New Adapters**: Write comprehensive tests for the newly implemented session and rules adapters. Ensure they properly use the domain functions and handle both success and error cases.
 
-2. **Continue with Init and Rules Migration**: Once the git and session command migrations are fully tested and stable, proceed with migrating the remaining command modules.
+2. **Fix Integration Tests**: Several integration tests are likely failing due to the architectural changes. These need to be updated to work with the new adapter implementations.
 
-3. **Update Documentation**: Document the new architecture and update CHANGELOG.md.
+3. **Remove Old Implementation Files**: Once all tests pass, remove the old implementation files that have been replaced by the interface-agnostic architecture.
+
+4. **Perform Final Code Cleanup**: Review all adapter implementations for consistent error handling patterns, code style, and documentation. Ensure all adapters follow the same architectural patterns.
+
+5. **Verify Cross-Interface Consistency**: Confirm that the same operations through different interfaces (CLI, MCP) produce consistent results using the shared domain functions.
