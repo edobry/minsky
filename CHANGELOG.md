@@ -18,6 +18,7 @@
 - Fixed session merging with main branch to resolve conflicts (#072)
 - Fixed import path in session.test.ts from workspace.js to workspace-utils.js (#072)
 - Fixed using mock() vs jest.fn() in commit.test.ts to resolve linter errors (#072)
+- Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
 
 ### Added
 
