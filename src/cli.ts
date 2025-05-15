@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /* eslint-disable no-restricted-imports */
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session/index.js";
+import { createSessionCommand } from "./adapters/cli/session.js";
 import { createTasksCommand as createOldTasksCommand } from "./commands/tasks/index.js";
 import { createTasksCommand } from "./adapters/cli/tasks.js";
-import { createGitCommand } from "./commands/git/index.js";
+import { createGitCommand } from "./adapters/cli/git.js";
 import { createInitCommand } from "./commands/init/index.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
 import { createRulesCommand } from "./commands/rules/index.js";
