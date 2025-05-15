@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { GitService } from "../../domain/git";
 import * as path from "path";
 import * as fs from "fs";
+import { log } from "../../utils/logger";
 
 export function createPrCommand(): Command {
   const gitService = new GitService();
@@ -16,6 +17,7 @@ export function createPrCommand(): Command {
     .option("-b, --branch <branch>", "Branch to use (defaults to current branch)")
     .option("--debug", "Enable debug logging to stderr")
     .option("--no-status-update", "Skip automatic task status update to IN-REVIEW")
+    .option("--json", "Output result as JSON")
     .action(
       async (options: {
         session?: string;
@@ -24,10 +26,23 @@ export function createPrCommand(): Command {
         branch?: string;
         debug?: boolean;
         statusUpdate?: boolean;
+        json?: boolean;
       }) => {
         // We need either a session, path, or task
         if (!options.session && !options.path && !options.task) {
-          console.error("Error: Either --session, --path, or --task must be provided");
+          log.error("Missing required option", {
+            message: "Either --session, --path, or --task must be provided",
+            options
+          });
+          
+          if (options.json) {
+            log.agent(JSON.stringify({
+              success: false,
+              error: "Either --session, --path, or --task must be provided"
+            }));
+          } else {
+            log.cliError("Error: Either --session, --path, or --task must be provided");
+          }
           process.exit(1);
         }
 
@@ -39,11 +54,23 @@ export function createPrCommand(): Command {
         ) {
           if (options.debug) {
             if (options.session && options.path) {
-              console.error("Warning: Both session and path provided. Using session.");
+              log.debug("Multiple options provided", {
+                message: "Both session and path provided. Using session.",
+                session: options.session,
+                path: options.path
+              });
             } else if (options.session && options.task) {
-              console.error("Warning: Both session and task provided. Using session.");
+              log.debug("Multiple options provided", {
+                message: "Both session and task provided. Using session.",
+                session: options.session,
+                task: options.task
+              });
             } else if (options.path && options.task) {
-              console.error("Warning: Both path and task provided. Using path.");
+              log.debug("Multiple options provided", {
+                message: "Both path and task provided. Using path.",
+                path: options.path,
+                task: options.task
+              });
             }
           }
         }
@@ -55,10 +82,31 @@ export function createPrCommand(): Command {
             repoPath = path.resolve(options.path);
             // Check if it's a git repository
             if (!fs.existsSync(path.join(repoPath, ".git"))) {
-              console.error(`Error: ${repoPath} is not a git repository`);
+              log.error("Invalid repository path", {
+                repoPath,
+                message: "Not a git repository"
+              });
+              
+              if (options.json) {
+                log.agent(JSON.stringify({
+                  success: false,
+                  error: `${repoPath} is not a git repository`
+                }));
+              } else {
+                log.cliError(`Error: ${repoPath} is not a git repository`);
+              }
               process.exit(1);
             }
           }
+
+          log.debug("Generating PR markdown", {
+            session: options.session,
+            repoPath,
+            branch: options.branch,
+            taskId: options.task,
+            debug: options.debug,
+            noStatusUpdate: options.statusUpdate === false
+          });
 
           const result = await gitService.pr({
             session: options.session,
@@ -70,21 +118,51 @@ export function createPrCommand(): Command {
           });
 
           // Output the PR markdown
-          console.log(result.markdown);
+          if (options.json) {
+            const jsonResponse = {
+              success: true,
+              markdown: result.markdown,
+              statusUpdate: result.statusUpdateResult ? {
+                taskId: result.statusUpdateResult.taskId,
+                previousStatus: result.statusUpdateResult.previousStatus,
+                newStatus: result.statusUpdateResult.newStatus
+              } : null
+            };
+            log.agent(JSON.stringify(jsonResponse));
+          } else {
+            // Standard output to stdout using log.cli
+            log.cli(result.markdown);
 
-          // Show status update information if applicable
-          if (result.statusUpdateResult) {
-            console.log("\n---");
-            const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
-            console.log(
-              `Task ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
-            );
-          } else if (options.task && options.statusUpdate === false) {
-            console.log("\n---");
-            console.log(`Task ${options.task} status update skipped (--no-status-update)`);
+            // Show status update information if applicable
+            if (result.statusUpdateResult) {
+              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+              log.cli("\n---");
+              log.cli(
+                `Task ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
+              );
+            } else if (options.task && options.statusUpdate === false) {
+              log.cli("\n---");
+              log.cli(`Task ${options.task} status update skipped (--no-status-update)`);
+            }
           }
         } catch (error) {
-          console.error("Error generating PR markdown:", error);
+          log.error("Error generating PR markdown", {
+            session: options.session,
+            path: options.path,
+            task: options.task,
+            branch: options.branch,
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          });
+          
+          if (options.json) {
+            log.agent(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            }));
+          } else {
+            log.cliError(`Error generating PR markdown: ${error instanceof Error ? error.message : String(error)}`);
+          }
           process.exit(1);
         }
       }

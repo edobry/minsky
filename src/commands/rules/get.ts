@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { RuleService } from "../../domain/index.js";
 import * as prompts from "@clack/prompts";
 import { exit } from "../../utils/process.js";
+import { log } from "../../utils/logger.js";
 
 export function createGetCommand(): Command {
   return new Command("get")
@@ -23,11 +24,20 @@ export function createGetCommand(): Command {
         });
 
         if (options.debug) {
-          console.log(`[DEBUG] Resolved repo path: ${repoPath}`);
+          log.debug("Rules get command debug info", {
+            resolvedRepoPath: repoPath,
+            ruleId,
+            format: options.format
+          });
         }
 
         // Initialize the rule service
         const ruleService = new RuleService(repoPath);
+
+        log.debug("Getting rule", {
+          ruleId,
+          format: options.format
+        });
 
         // Get the rule
         const rule = await ruleService.getRule(ruleId, {
@@ -38,36 +48,36 @@ export function createGetCommand(): Command {
           // If meta-only, output only the metadata
           if (options.metaOnly) {
             const { content, ...meta } = rule;
-            console.log(JSON.stringify(meta, null, 2));
+            log.agent(JSON.stringify(meta, null, 2));
           } else {
-            console.log(JSON.stringify(rule, null, 2));
+            log.agent(JSON.stringify(rule, null, 2));
           }
         } else {
           // Human-readable output
           const formatLabel = rule.format === "cursor" ? "Cursor" : "Generic";
           const tags = rule.tags ? ` [${rule.tags.join(", ")}]` : "";
 
-          prompts.log.info(`Rule: ${rule.id} (${formatLabel})${tags}`);
+          log.cli(`Rule: ${rule.id} (${formatLabel})${tags}`);
 
           if (rule.name) {
-            prompts.log.info(`Name: ${rule.name}`);
+            log.cli(`Name: ${rule.name}`);
           }
 
           if (rule.description) {
-            prompts.log.info(`Description: ${rule.description}`);
+            log.cli(`Description: ${rule.description}`);
           }
 
-          prompts.log.info(`Path: ${rule.path}`);
+          log.cli(`Path: ${rule.path}`);
 
           if (rule.globs && rule.globs.length > 0) {
-            prompts.log.info(`Globs: ${rule.globs.join(", ")}`);
+            log.cli(`Globs: ${rule.globs.join(", ")}`);
           }
 
-          prompts.log.info(`Always Apply: ${rule.alwaysApply ? "Yes" : "No"}`);
+          log.cli(`Always Apply: ${rule.alwaysApply ? "Yes" : "No"}`);
 
           // Display format conversion notice if present
           if (rule.formatNote) {
-            prompts.log.warn(`Format Notice: ${rule.formatNote}`);
+            log.cliWarn(`Format Notice: ${rule.formatNote}`);
           }
 
           // If we don't want to see the content, stop here
@@ -75,15 +85,30 @@ export function createGetCommand(): Command {
             return;
           }
 
-          prompts.log.info("\nContent:");
-          prompts.log.info("---------------------------");
-          console.log(rule.content);
-          prompts.log.info("---------------------------");
+          log.cli("\nContent:");
+          log.cli("---------------------------");
+          log.cli(rule.content);
+          log.cli("---------------------------");
         }
       } catch (error) {
-        prompts.log.error(
-          `Error getting rule: ${error instanceof Error ? error.message : String(error)}`
-        );
+        log.error("Error getting rule", {
+          ruleId,
+          format: options.format,
+          repo: options.repo,
+          session: options.session,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        if (options.json) {
+          log.agent(JSON.stringify({
+            success: false,
+            error: error instanceof Error ? error.message : String(error)
+          }));
+        } else {
+          log.cliError(`Error getting rule: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        
         exit(1);
       }
     });
