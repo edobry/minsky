@@ -1,11 +1,5 @@
 ---
-name: PR Preparation Workflow
-description: PR creation and submission guidelines
+description:
 globs:
-  - \"**/*\"
 alwaysApply: false
 ---
-
-# PR Preparation Workflow
-
-This rule provides guidelines for preparing and submitting pull requests (PRs) in the Minsky workflow.

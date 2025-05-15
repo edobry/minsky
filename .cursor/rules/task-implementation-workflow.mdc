@@ -1,11 +1,5 @@
 ---
-name: Task Implementation Workflow
-description: Step-by-step process for implementing tasks
+description:
 globs:
-  - \"**/*\"
 alwaysApply: false
 ---
-
-# Task Implementation Workflow
-
-This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.

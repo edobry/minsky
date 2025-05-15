@@ -400,7 +400,8 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
   - pr-preparation-workflow - PR creation and submission guidelines
 
 ### Changed
-- Refactored minsky-workflow.mdc into smaller, focused rules for better organization and maintainability
-- Deprecated original monolithic minsky-workflow rule with references to new rule system
+- Refactored monolithic minsky-workflow.mdc rule into six smaller, focused rules for better organization and maintainability
+- Updated index.mdc to reference the new rules correctly
+- Improved references between rules using MDC links
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._

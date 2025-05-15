@@ -1,11 +1,5 @@
 ---
-name: Minsky Session Management
-description: REQUIRED procedures for creating, navigating, and managing sessions
+description:
 globs:
-  - \"**/*\"
 alwaysApply: false
 ---
-
-# Minsky Session Management
-
-This rule provides detailed procedures for creating, navigating, and managing sessions in the Minsky workflow.
