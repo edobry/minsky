@@ -40,10 +40,10 @@ export class SessionDB {
   private readonly dbPath: string;
   private readonly baseDir: string;
 
-  constructor(options?: { baseDir?: string }) {
+  constructor(options?: { baseDir?: string; dbPath?: string }) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyStateDir = join(xdgStateHome, "minsky");
-    this.dbPath = join(minskyStateDir, "session-db.json");
+    this.dbPath = options?.dbPath || join(minskyStateDir, "session-db.json");
     this.baseDir = options?.baseDir || join(minskyStateDir, "git");
   }
 
