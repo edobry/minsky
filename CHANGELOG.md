@@ -21,6 +21,8 @@
 - Added type safety improvements in commit.test.ts to handle potentially undefined objects and fix GitStatus type mismatches (#072)
 - Fixed placeholder tests in list.test.ts and get.test.ts with proper implementation notes (#072)
 - Added TestSessionParams type to fix type errors in get.test.ts (#072)
+- Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
+- Fixed missing variable declarations in startSession.test.ts to avoid linter errors (#072)
 
 ### Added
 
