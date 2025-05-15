@@ -228,6 +228,12 @@ The logging implementation will prioritize:
    - Added missing `sessionRecordSchema` in the session schema file
    - Updated JSON output handling to properly use stdout for structured data
 
+4. **Fixed Linter Errors**
+   - Resolved the linting errors in `src/domain/session.ts`:
+     - Fixed function signatures for GitService method calls
+     - Corrected parameter naming from `workspacePath` to `workspace`
+     - Removed Bun type reference and replaced with standard Node.js environment variables
+
 ### Remaining Work
 
 1. **Continue Migration**
@@ -242,6 +248,3 @@ The logging implementation will prioritize:
 3. **Documentation**
    - Add documentation about the logging system and how to use it
    - Provide examples of proper logging usage
-
-4. **Session Domain Fixes**
-   - Fix the remaining linter errors in `src/domain/session.ts` related to method signatures and type compatibility
