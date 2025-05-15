@@ -89,7 +89,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
 
-- [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
+- [-] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
 
 - [x] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
 

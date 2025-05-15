@@ -202,3 +202,73 @@ The logging implementation will prioritize:
 - **Verbosity Control:** Provide ways to easily control log verbosity for debugging specific modules without flooding the console.
 - **Circular Dependencies:** Ensure the logger module itself doesn't create circular dependencies.
 - **Global Error Handling:** Integrate with global error handlers (e.g., `process.on('uncaughtException')`) to ensure unhandled errors are logged correctly.
+
+## Implementation Worklog
+
+### Work Completed
+
+1. **Research & Library Selection**
+
+   - Selected Winston as the logging library due to its flexibility in transports and formatting
+   - Added Winston dependency to the project (`bun add winston @types/winston`)
+
+2. **Logger Implementation**
+
+   - Created `src/utils/logger.ts` with the following features:
+     - Separate loggers for agent (structured JSON to stdout) and program (human-readable text to stderr)
+     - Support for different log levels (debug, info, warn, error)
+     - Proper error handling with stack traces
+     - Global error handling for uncaught exceptions and rejections
+     - Environment variable configuration for log levels
+   - Implemented separate log functions for different use cases:
+     - `log.debug`, `log.info`, `log.warn`, `log.error` for agent logs (JSON to stdout)
+     - `log.cli`, `log.cliWarn`, `log.cliError` for program logs (text to stderr)
+   - Added enhanced error handling to extract and properly format error information
+
+3. **Initial Setup & Testing**
+   - Added test mode triggered by environment variable (`RUN_LOGGER_TEST`)
+   - Verified proper functioning of both loggers with various message types
+   - Tested error object handling and stack trace preservation
+
+### Remaining Work
+
+1. **Codebase Migration**
+
+   - Replace all `console.log`, `console.error`, and `console.warn` calls with the new logger
+   - Identify and migrate all console output across the codebase (approximately 28 files)
+   - Categorize each log statement as either agent or program output
+   - Assess appropriate log levels for each statement (debug, info, warn, error)
+   - Update error handling to use structured error logging capabilities
+
+2. **Test Updates**
+
+   - Update existing tests that capture console output to work with the new logging system
+   - Add test utilities for capturing and verifying logs in test environments
+   - Create dedicated tests for the logger functionality
+
+3. **Documentation**
+
+   - Document the logging system usage in project documentation
+   - Create examples for different logging scenarios
+   - Document how to control log levels via environment variables
+   - Add guidelines for when to use each type of logger and log level
+
+4. **Integration & Verification**
+   - Verify consistent formatting across all logs
+   - Ensure proper separation between stdout (agent logs) and stderr (program logs)
+   - Test the system with various log levels to ensure proper filtering
+   - Verify all error handling works correctly with the new logging system
+
+### Next Steps
+
+The next immediate actions required are:
+
+1. Begin systematic migration of console output in domain modules:
+
+   - Start with core files in `src/domain/`
+   - Move to command modules in `src/commands/`
+   - Update adapter modules in `src/adapters/`
+
+2. Create test utilities for capturing and verifying logs in tests
+
+3. Document logging system usage patterns for developers
