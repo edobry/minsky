@@ -72,28 +72,28 @@ Currently, the migration is only partially complete:
 
 ### Phase 3: Migrate Session Commands
 
-- [ ] Create session adapter implementation
-- [ ] Implement all existing session command functionality
-- [ ] Update CLI entry point to use session adapter
+- [x] Create session adapter implementation
+- [x] Implement all existing session command functionality
+- [x] Update CLI entry point to use session adapter
 - [ ] Add tests for session adapter
 - [ ] Fix any issues found during testing
 - [ ] Remove old session implementation files
 
 ### Phase 4: Migrate Remaining Commands
 
-- [ ] Create init adapter implementation
-- [ ] Create rules adapter implementation
-- [ ] Update CLI entry point to use new adapters
+- [x] Create init adapter implementation
+- [x] Create rules adapter implementation
+- [x] Update CLI entry point to use new adapters
 - [ ] Run tests to verify functionality
 - [ ] Add any missing functionality to adapters
 - [ ] Remove old implementation files
 
 ### Phase 5: Final Documentation and Cleanup
 
-- [ ] Update architecture documentation
-- [ ] Document adapter implementation patterns
-- [ ] Update changelog
-- [ ] Update README with new architecture information
+- [x] Update architecture documentation (added to CHANGELOG.md)
+- [x] Document adapter implementation patterns
+- [x] Update changelog (initial update complete)
+- [x] Update README with new architecture information
 - [ ] Perform final code cleanup
 
 ## Verification
