@@ -4,10 +4,13 @@ import { Command } from "commander";
 import { createSessionCommand } from "./adapters/cli/session.js";
 import { createTasksCommand as createOldTasksCommand } from "./commands/tasks/index.js";
 import { createTasksCommand } from "./adapters/cli/tasks.js";
+import { createGitCommand as createOldGitCommand } from "./commands/git/index.js";
 import { createGitCommand } from "./adapters/cli/git.js";
-import { createInitCommand } from "./commands/init/index.js";
+import { createInitCommand as createOldInitCommand } from "./commands/init/index.js";
+import { createInitCommand } from "./adapters/cli/init.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
-import { createRulesCommand } from "./commands/rules/index.js";
+import { createRulesCommand as createOldRulesCommand } from "./commands/rules/index.js";
+import { createRulesCommand } from "./adapters/cli/rules.js";
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
