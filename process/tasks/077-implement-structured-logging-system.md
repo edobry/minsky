@@ -221,22 +221,21 @@ The logging implementation will prioritize:
 3. **Initial Integration**
    - Updated the `src/mcp/tools/session.ts` file to use the new logger
    - Imported the logger in the main CLI entry point (`src/cli.ts`)
+   - Replaced console logging in core domain modules:
+     - `src/domain/tasks.ts`: Converted logging to structured format with proper context
+     - `src/domain/session.ts`: Updated debug and error logging with improved metadata
 
 ### Remaining Work
 
 1. **Continue Migration**
-   - Replace all remaining `console.log`, `console.error`, and `console.warn` calls (approximately 360 instances)
-   - Start with critical modules and work outward
+   - Replace all remaining `console.log`, `console.error`, and `console.warn` calls (approximately 330 instances)
+   - Focus on remaining core modules like `src/adapters/cli/tasks.ts`
    - Ensure proper categorization of logs (program/CLI messages vs agent/system events)
 
-2. **Test Infrastructure**
-   - Create or update utilities for capturing and verifying logs in tests
-   - Ensure tests for MCP commands work with the new logging system
-
-3. **Refine Context Objects**
+2. **Refine Context Objects**
    - Implement consistent metadata for structured logging
    - Ensure proper error formatting and stack trace capture
    
-4. **Documentation**
+3. **Documentation**
    - Add documentation about the logging system and how to use it
    - Provide examples of proper logging usage
