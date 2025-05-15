@@ -8,6 +8,7 @@ import { resolveRepoPath } from "../../domain/repo-utils.js";
 import { startSession } from "./startSession.js";
 import { normalizeTaskId } from "../../domain/tasks";
 import { isSessionRepository } from "../../domain/workspace.js";
+import { log } from "../../utils/logger.js";
 
 export function createStartCommand(): Command {
   const gitService = new GitService();
@@ -72,7 +73,7 @@ export function createStartCommand(): Command {
               determinedRepoPath = await resolveRepoPath({});
             } catch (err) {
               const errorMsg = err instanceof Error ? err.message : String(err);
-              console.error("Error starting session:", `Failed to resolve repository path: ${errorMsg}`);
+              log.cliError(`Error starting session: Failed to resolve repository path: ${errorMsg}`);
               globalThis.process.exit(1);
               return; // Should be unreachable, for TSC
             }
@@ -132,29 +133,33 @@ export function createStartCommand(): Command {
           });
 
           if (options.quiet) {
-            console.log(result.cloneResult.workdir);
+            log.cli(result.cloneResult.workdir);
           } else {
-            console.log(`Session '${result.sessionRecord.session}' started.`);
-            console.log(`Repository cloned to: ${result.cloneResult.workdir}`);
-            console.log(`Branch '${result.branchResult.branch}' created.`);
-            console.log(`Backend: ${result.sessionRecord.backendType || "local"}`);
+            log.cli(`Session '${result.sessionRecord.session}' started.`);
+            log.cli(`Repository cloned to: ${result.cloneResult.workdir}`);
+            log.cli(`Branch '${result.branchResult.branch}' created.`);
+            log.cli(`Backend: ${result.sessionRecord.backendType || "local"}`);
             if (taskId) {
-              console.log(`Associated with task: ${taskId}`);
+              log.cli(`Associated with task: ${taskId}`);
               if (result.statusUpdateResult) {
                 const { previousStatus, newStatus } = result.statusUpdateResult;
-                console.log(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
+                log.cli(`Task status updated: ${previousStatus || "none"} → ${newStatus}`);
               } else if (options.statusUpdate === false) {
-                console.log("Task status update skipped (--no-status-update)");
+                log.cli("Task status update skipped (--no-status-update)");
               }
             }
-            console.log("\nTo navigate to this session's directory, run:");
-            console.log(`cd $(minsky session dir ${result.sessionRecord.session})`);
-            console.log("");
-            console.log(result.cloneResult.workdir);
+            log.cli("\nTo navigate to this session's directory, run:");
+            log.cli(`cd $(minsky session dir ${result.sessionRecord.session})`);
+            log.cli("");
+            log.cli(result.cloneResult.workdir);
           }
         } catch (error) {
           const err = error instanceof Error ? error : new Error(String(error));
-          console.error("Error starting session:", err.message);
+          log.cliError(`Error starting session: ${err.message}`);
+          log.error("Session start error", {
+            error: err.message,
+            stack: err.stack
+          });
           globalThis.process.exit(1);
         }
       }

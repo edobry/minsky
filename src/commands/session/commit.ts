@@ -6,7 +6,7 @@ import { SessionDB } from "../../domain/session.js";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import { resolveRepoPath } from "../../domain/repo-utils.js";
 import { createInterface } from "readline";
-import { log } from "../../utils/logger";
+import { log } from "../../utils/logger.js";
 
 // Helper function to prompt for commit message
 async function defaultPromptForMessage(): Promise<string> {

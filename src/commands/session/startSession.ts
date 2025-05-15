@@ -10,6 +10,7 @@ import {
   normalizeRepoName,
 } from "../../domain/repo-utils.js";
 import { normalizeTaskId } from "../../domain/tasks/utils";
+import { log } from "../../utils/logger.js";
 
 // Default imports for optional parameters
 const fsDefault = fs;
@@ -197,9 +198,13 @@ export async function startSession({
         };
       }
     } catch (error) {
-      console.error(
-        `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const err = error instanceof Error ? error : new Error(String(error));
+      log.cliError(`Warning: Failed to update status for task ${taskId}: ${err.message}`);
+      log.warn("Task status update failed", {
+        taskId,
+        error: err.message,
+        stack: err.stack
+      });
     }
   }
   return result;

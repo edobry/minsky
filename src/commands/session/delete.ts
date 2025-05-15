@@ -5,7 +5,7 @@ import { join } from "path";
 import { promises as fs } from "fs";
 import { exit } from "../../utils/process.js";
 import * as p from "@clack/prompts";
-import { log } from "../../utils/logger";
+import { log } from "../../utils/logger.js";
 
 export function createDeleteCommand(): Command {
   return new Command("delete")
