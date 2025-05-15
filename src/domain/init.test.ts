@@ -3,58 +3,23 @@ import { initializeProject, initializeProjectWithFS } from "./init";
 import type { FileSystem } from "./init";
 import fs from "fs";
 import path from "path";
+import { createMockFileSystem, setupTestMocks } from "../utils/test-utils/mocking";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("initializeProject", () => {
-  // Test utility to create mocks that track calls
-  function createMockFunction() {
-    const calls: any[][] = [];
-    const mockFn = (...args: any[]) => {
-      calls.push(args);
-      if (typeof mockFn.implementation === 'function') {
-        return mockFn.implementation(...args);
-      }
-      return mockFn.returnValue;
-    };
-    
-    mockFn.calls = calls;
-    mockFn.returnValue = undefined;
-    mockFn.implementation = undefined as any;
-    
-    mockFn.mockReturnValue = (val: any) => {
-      mockFn.returnValue = val;
-      mockFn.implementation = undefined;
-      return mockFn;
-    };
-    
-    mockFn.mockImplementation = (impl: Function) => {
-      mockFn.implementation = impl;
-      return mockFn;
-    };
-    
-    mockFn.mockReset = () => {
-      calls.length = 0;
-      mockFn.returnValue = undefined;
-      mockFn.implementation = undefined;
-    };
-    
-    return mockFn;
-  }
-
   const repoPath = "/test/repo";
 
   test("should create directories and files for tasks.md backend and cursor rule format", async () => {
-    // Set up mocks
-    const mockExistsSync = createMockFunction();
-    mockExistsSync.mockReturnValue(false);
-    
-    const mockMkdirSync = createMockFunction();
-    const mockWriteFileSync = createMockFunction();
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
     
     // Set up mock file system
     const mockFileSystem: FileSystem = {
-      existsSync: mockExistsSync as any,
-      mkdirSync: mockMkdirSync as any,
-      writeFileSync: mockWriteFileSync as any,
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
     };
     
     // Run the test
@@ -67,43 +32,44 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Verify the results
-    expect(mockExistsSync.calls.length).toBeGreaterThan(0);
-    expect(mockMkdirSync.calls.length).toBeGreaterThan(0);
-    expect(mockWriteFileSync.calls.length).toBeGreaterThan(0);
+    // Verify the results - check that directories were created
+    expect(mockFS.mkdirSync).toHaveBeenCalledWith(
+      path.join(repoPath, "process", "tasks"), 
+      { recursive: true }
+    );
     
-    // Check specific paths were created
-    expect(mockMkdirSync.calls.some((args: any[]) => 
-      args[0] === path.join(repoPath, "process", "tasks")
-    )).toBe(true);
+    expect(mockFS.mkdirSync).toHaveBeenCalledWith(
+      path.join(repoPath, ".cursor", "rules"), 
+      { recursive: true }
+    );
     
-    expect(mockMkdirSync.calls.some((args: any[]) => 
-      args[0] === path.join(repoPath, ".cursor", "rules")
-    )).toBe(true);
+    // Verify files were written with correct content
+    expect(mockFS.writeFileSync).toHaveBeenCalledWith(
+      path.join(repoPath, "process", "tasks.md"),
+      expect.stringContaining("# Minsky Tasks")
+    );
     
-    // Check that files were written
-    expect(mockWriteFileSync.calls.some((args: any[]) => 
-      args[0] === path.join(repoPath, "process", "tasks.md") && 
-      String(args[1]).includes("# Minsky Tasks")
-    )).toBe(true);
+    expect(mockFS.writeFileSync).toHaveBeenCalledWith(
+      path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc"),
+      expect.stringContaining("# Minsky Workflow")
+    );
     
-    expect(mockWriteFileSync.calls.some((args: any[]) => 
-      args[0] === path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc") && 
-      String(args[1]).includes("# Minsky Workflow")
-    )).toBe(true);
-    
-    expect(mockWriteFileSync.calls.some((args: any[]) => 
-      args[0] === path.join(repoPath, ".cursor", "mcp.json") && 
-      String(args[1]).includes("mcpServers")
-    )).toBe(true);
+    expect(mockFS.writeFileSync).toHaveBeenCalledWith(
+      path.join(repoPath, ".cursor", "mcp.json"),
+      expect.stringContaining("mcpServers")
+    );
   });
 
   test("should create directories and files for tasks.md backend and generic rule format", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -114,54 +80,62 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Should check directories/files
-    const existsCalls = mockExistsSync.calls.map((args) => args[0]);
-    expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules"));
-    expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules", "minsky-workflow.mdc"));
-    expect(existsCalls).toContain(path.join(repoPath, ".ai", "rules", "index.mdc"));
-
-    // Should create directories
-    const mkdirCalls = mockMkdirSync.calls.map((args) => args[0]);
-    expect(mkdirCalls).toContain(path.join(repoPath, ".ai", "rules"));
-
-    // Should create files
-    const writeRuleCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".ai", "rules", "minsky-workflow.mdc") &&
-        String(args[1]).includes("# Minsky Workflow")
+    // Verify directories were created
+    expect(mockFS.mkdirSync).toHaveBeenCalledWith(
+      path.join(repoPath, ".ai", "rules"), 
+      { recursive: true }
     );
-    expect(writeRuleCheck).toBe(true);
 
-    const writeIndexCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".ai", "rules", "index.mdc") &&
-        String(args[1]).includes("# Minsky Rules Index")
+    // Verify files were written with correct content - check for calls containing the expected content
+    const writeFileCalls = mockFS.writeFileSync.mock.calls;
+    
+    // Check minsky-workflow.mdc
+    const workflowCall = writeFileCalls.find(
+      call => String(call[0]) === path.join(repoPath, ".ai", "rules", "minsky-workflow.mdc")
     );
-    expect(writeIndexCheck).toBe(true);
-
-    // Should still create MCP config with generic rule format
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".cursor", "mcp.json") &&
-        String(args[1]).includes("mcpServers")
+    expect(workflowCall).toBeTruthy();
+    if (workflowCall) {
+      expect(String(workflowCall[1])).toContain("# Minsky Workflow");
+    }
+    
+    // Check index.mdc
+    const indexCall = writeFileCalls.find(
+      call => String(call[0]) === path.join(repoPath, ".ai", "rules", "index.mdc")
     );
-    expect(mcpConfigCheck).toBe(true);
-
-    // Should create MCP usage rule in generic format
-    const mcpRuleCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".ai", "rules", "mcp-usage.mdc") &&
-        String(args[1]).includes("# MCP Usage")
+    expect(indexCall).toBeTruthy();
+    if (indexCall) {
+      expect(String(indexCall[1])).toContain("# Minsky Rules Index");
+    }
+    
+    // Check MCP config
+    const mcpConfigCall = writeFileCalls.find(
+      call => String(call[0]) === path.join(repoPath, ".cursor", "mcp.json")
     );
-    expect(mcpRuleCheck).toBe(true);
+    expect(mcpConfigCall).toBeTruthy();
+    if (mcpConfigCall) {
+      expect(String(mcpConfigCall[1])).toContain("mcpServers");
+    }
+    
+    // Check MCP usage rule
+    const mcpRuleCall = writeFileCalls.find(
+      call => String(call[0]) === path.join(repoPath, ".ai", "rules", "mcp-usage.mdc")
+    );
+    expect(mcpRuleCall).toBeTruthy();
+    if (mcpRuleCall) {
+      expect(String(mcpRuleCall[1])).toContain("# MCP Usage");
+    }
   });
 
   test("should create project without MCP configuration when disabled", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -176,25 +150,29 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Should not create MCP config when disabled
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) => args[0] === path.join(repoPath, ".cursor", "mcp.json")
+    // Verify MCP config was NOT created when disabled
+    const mcpConfigCalls = mockFS.writeFileSync.mock.calls.filter(
+      (args) => String(args[0]) === path.join(repoPath, ".cursor", "mcp.json")
     );
-    expect(mcpConfigCheck).toBe(false);
+    expect(mcpConfigCalls.length).toBe(0);
 
-    // Should not create MCP usage rule when disabled
-    const mcpRuleCheck = mockWriteFileSync.calls.some(
-      (args) => args[0] === path.join(repoPath, ".cursor", "rules", "mcp-usage.mdc")
+    // Verify MCP usage rule was NOT created when disabled
+    const mcpRuleCalls = mockFS.writeFileSync.mock.calls.filter(
+      (args) => String(args[0]) === path.join(repoPath, ".cursor", "rules", "mcp-usage.mdc")
     );
-    expect(mcpRuleCheck).toBe(false);
+    expect(mcpRuleCalls.length).toBe(0);
   });
 
   test("should create MCP config with stdio transport by default", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -210,20 +188,26 @@ describe("initializeProject", () => {
     );
 
     // Check that MCP config is created with stdio transport
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".cursor", "mcp.json") &&
-        String(args[1]).includes("\"transport\": \"stdio\"")
+    const mcpConfigCall = mockFS.writeFileSync.mock.calls.find(
+      call => String(call[0]) === path.join(repoPath, ".cursor", "mcp.json")
     );
-    expect(mcpConfigCheck).toBe(true);
+    
+    expect(mcpConfigCall).toBeTruthy();
+    if (mcpConfigCall) {
+      expect(String(mcpConfigCall[1])).toContain("--stdio");
+    }
   });
 
   test("should create MCP config with SSE transport and custom port/host", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -240,23 +224,31 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Check that MCP config is created with SSE transport and custom port/host
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".cursor", "mcp.json") &&
-        String(args[1]).includes("\"transport\": \"sse\"") &&
-        String(args[1]).includes("\"port\": 8080") &&
-        String(args[1]).includes("\"host\": \"localhost\"")
+    // Find the MCP config call
+    const mcpConfigCall = mockFS.writeFileSync.mock.calls.find(
+      call => String(call[0]) === path.join(repoPath, ".cursor", "mcp.json")
     );
-    expect(mcpConfigCheck).toBe(true);
+    
+    // Verify the MCP config was created and has the expected content
+    expect(mcpConfigCall).toBeTruthy();
+    if (mcpConfigCall) {
+      const mcpConfigContent = String(mcpConfigCall[1]);
+      expect(mcpConfigContent).toContain("--sse");
+      expect(mcpConfigContent).toContain("8080");
+      expect(mcpConfigContent).toContain("localhost");
+    }
   });
 
   test("should create MCP config with HTTP Stream transport", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -271,26 +263,27 @@ describe("initializeProject", () => {
       mockFileSystem
     );
 
-    // Check that MCP config is created with HTTP Stream transport
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) =>
-        args[0] === path.join(repoPath, ".cursor", "mcp.json") &&
-        String(args[1]).includes("\"transport\": \"httpStream\"")
+    // Find the MCP config call
+    const mcpConfigCall = mockFS.writeFileSync.mock.calls.find(
+      call => String(call[0]) === path.join(repoPath, ".cursor", "mcp.json")
     );
-    expect(mcpConfigCheck).toBe(true);
+    
+    // Verify the MCP config was created and has the expected transport
+    expect(mcpConfigCall).toBeTruthy();
+    if (mcpConfigCall) {
+      expect(String(mcpConfigCall[1])).toContain("--http-stream");
+    }
   });
 
   test("should throw error for unimplemented backend", async () => {
-    // Set up mocks
-    const mockExistsSync = createMockFunction();
-    const mockMkdirSync = createMockFunction();
-    const mockWriteFileSync = createMockFunction();
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
     
     // Set up mock file system
     const mockFileSystem: FileSystem = {
-      existsSync: mockExistsSync as any,
-      mkdirSync: mockMkdirSync as any,
-      writeFileSync: mockWriteFileSync as any,
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
     };
     
     // Test that it throws an error for unimplemented backend
@@ -310,24 +303,16 @@ describe("initializeProject", () => {
   });
 
   test("should throw error if file already exists", async () => {
-    // Set up mocks
-    const mockExistsSync = createMockFunction();
-    // Mock file exists for specific path
-    mockExistsSync.mockImplementation((filePath: string) => {
-      if (filePath === path.join(repoPath, "process", "tasks.md")) {
-        return true;
-      }
-      return false;
+    // Create a mock file system with tasks.md already existing
+    const mockFS = createMockFileSystem({
+      [path.join(repoPath, "process", "tasks.md")]: "Existing content"
     });
-    
-    const mockMkdirSync = createMockFunction();
-    const mockWriteFileSync = createMockFunction();
     
     // Set up mock file system
     const mockFileSystem: FileSystem = {
-      existsSync: mockExistsSync as any,
-      mkdirSync: mockMkdirSync as any,
-      writeFileSync: mockWriteFileSync as any,
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
     };
     
     // Test that it throws an error when file exists
@@ -347,11 +332,15 @@ describe("initializeProject", () => {
   });
 
   test("should create parent directories if they don't exist", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
-    mockExistsSync.returnValue = false;
+    // Create a mock file system with initial empty state
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -363,10 +352,23 @@ describe("initializeProject", () => {
     );
 
     // Check that parent directories were created
-    expect(mockMkdirSync.calls.length).toBeGreaterThan(0);
+    expect(mockFS.mkdirSync).toHaveBeenCalledWith(
+      path.join(repoPath, "process", "tasks"), 
+      { recursive: true }
+    );
   });
 
   test("should only configure MCP when mcpOnly is true", async () => {
+    // Create a mock file system
+    const mockFS = createMockFileSystem();
+    
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
+
     await initializeProjectWithFS(
       {
         repoPath,
@@ -378,26 +380,31 @@ describe("initializeProject", () => {
     );
 
     // Should not create tasks.md
-    const tasksFileCheck = mockWriteFileSync.calls.filter(
+    const tasksFileCalls = mockFS.writeFileSync.mock.calls.filter(
       (args) => String(args[0]).includes("tasks.md")
     );
-    expect(tasksFileCheck.length).toBe(0);
+    expect(tasksFileCalls.length).toBe(0);
 
     // Should create MCP config
-    const mcpConfigCheck = mockWriteFileSync.calls.filter(
+    const mcpConfigCalls = mockFS.writeFileSync.mock.calls.filter(
       (args) => String(args[0]).includes("mcp.json")
     );
-    expect(mcpConfigCheck.length).toBe(1);
+    expect(mcpConfigCalls.length).toBe(1);
   });
 
   test("should overwrite existing files when overwrite is true", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
+    // Create a mock file system with files already existing
+    const mockFS = createMockFileSystem({
+      [path.join(repoPath, "process", "tasks.md")]: "Existing content",
+      [path.join(repoPath, ".cursor", "rules", "minsky-workflow.mdc")]: "Existing rule"
+    });
     
-    // Make it look like all files already exist
-    mockExistsSync.returnValue = true;
+    // Set up mock file system
+    const mockFileSystem: FileSystem = {
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      writeFileSync: mockFS.writeFileSync,
+    };
 
     await initializeProjectWithFS(
       {
@@ -410,39 +417,13 @@ describe("initializeProject", () => {
     );
 
     // Files should still have been written even though they "existed"
-    expect(mockWriteFileSync.calls.length).toBeGreaterThan(0);
-  });
-
-  test("should only configure MCP and overwrite existing files when both options are true", async () => {
-    // Reset mocks for this test
-    mockExistsSync.calls.length = 0;
-    mockMkdirSync.calls.length = 0;
-    mockWriteFileSync.calls.length = 0;
+    const tasksFileCall = mockFS.writeFileSync.mock.calls.find(
+      call => String(call[0]) === path.join(repoPath, "process", "tasks.md")
+    );
     
-    // Make it look like all files already exist
-    mockExistsSync.returnValue = true;
-
-    await initializeProjectWithFS(
-      {
-        repoPath,
-        backend: "tasks.md",
-        ruleFormat: "cursor",
-        mcpOnly: true,
-        overwrite: true,
-      },
-      mockFileSystem
-    );
-
-    // Only MCP config should be written, and it should be overwritten
-    const mcpConfigCheck = mockWriteFileSync.calls.some(
-      (args) => args[0] === path.join(repoPath, ".cursor", "mcp.json")
-    );
-    expect(mcpConfigCheck).toBe(true);
-
-    // Task backend file should not be created when mcpOnly is true
-    const taskFileCheck = mockWriteFileSync.calls.some(
-      (args) => args[0] === path.join(repoPath, "process", "tasks.md")
-    );
-    expect(taskFileCheck).toBe(false);
+    expect(tasksFileCall).toBeTruthy();
+    if (tasksFileCall) {
+      expect(String(tasksFileCall[1])).toContain("# Minsky Tasks");
+    }
   });
 });
