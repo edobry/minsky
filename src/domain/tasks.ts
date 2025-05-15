@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { resolveRepoPath } from "./repo-utils.js";
 import { resolveWorkspacePath } from "./workspace.js";
+import { log } from "../utils/logger";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import type {
   TaskListParams,
@@ -206,7 +207,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       return tasks;
     } catch (error) {
-      console.error("Error reading tasks file:", error);
+      log.error("Error reading tasks file", { error, filePath: this.filePath });
       return [];
     }
   }
@@ -333,8 +334,9 @@ export class MarkdownTaskBackend implements TaskBackend {
           await fs.unlink(fullSpecPath);
         } catch (error) {
           // If file doesn't exist or can't be deleted, just log it
-          console.warn(
-            `Warning: Could not delete original spec file: ${error instanceof Error ? error.message : String(error)}`
+          log.warn(
+            "Could not delete original spec file",
+            { error, path: fullSpecPath }
           );
         }
       }
@@ -373,26 +375,22 @@ export class GitHubTaskBackend implements TaskBackend {
   }
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    // Placeholder for GitHub API integration
-    console.log("GitHub task backend not fully implemented");
+    log.debug("GitHub task backend not fully implemented", { method: "listTasks", options });
     return [];
   }
 
   async getTask(id: string): Promise<Task | null> {
-    // Placeholder for GitHub API integration
-    console.log("GitHub task backend not fully implemented");
+    log.debug("GitHub task backend not fully implemented", { method: "getTask", id });
     return null;
   }
 
   async getTaskStatus(id: string): Promise<string | null> {
-    // Placeholder for GitHub API integration
-    console.log("GitHub task backend not fully implemented");
+    log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
     return null;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    // Placeholder for GitHub API integration
-    console.log("GitHub task backend not fully implemented");
+    log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, status });
   }
 
   getWorkspacePath(): string {

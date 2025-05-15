@@ -17,10 +17,13 @@ import {
   getTaskFromParams,
   getTaskStatusFromParams,
   setTaskStatusFromParams,
-} from "../../domain/index.js";
+  createTaskFromParams,
+  normalizeTaskId,
+  TASK_STATUS,
+} from "../../domain/tasks.js";
 import { MinskyError } from "../../errors/index.js";
-import { TASK_STATUS } from "../../domain/tasks.js";
 import * as p from "@clack/prompts";
+import { log } from "../../utils/logger";
 
 // Helper for exiting process consistently
 function exit(code: number): never {

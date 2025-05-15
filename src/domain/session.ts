@@ -22,6 +22,7 @@ import { normalizeTaskId } from "./tasks/utils.js";
 import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
+import { log } from "../utils/logger";
 
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
 export type Session = SessionRecord; // Alias for convenience
@@ -77,15 +78,16 @@ export class SessionDB {
 
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
     try {
-      console.log(`[DEBUG] Starting writeDb. DB Path: ${this.dbPath}`);
+      log.debug("Starting writeDb", { dbPath: this.dbPath });
       await this.ensureDbDir();
-      console.log("[DEBUG] DB directory ensured.");
+      log.debug("DB directory ensured");
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-      console.log("[DEBUG] DB file written successfully.");
+      log.debug("DB file written successfully");
     } catch (error) {
-      console.error(
-        `[DEBUG] Error writing session database: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error("Error writing session database", { 
+        error: error instanceof Error ? error.message : String(error),
+        dbPath: this.dbPath
+      });
     }
   }
 
@@ -154,19 +156,20 @@ export class SessionDB {
       const sessions = await this.readDb();
       const index = sessions.findIndex((s) => s.session === session);
       if (index === -1) {
-        console.log(`[DEBUG] Session '${session}' not found in DB.`);
+        log.debug("Session not found in DB", { session });
         return false;
       }
-      console.log(`[DEBUG] Found session '${session}' at index ${index}.`);
+      log.debug("Found session in DB", { session, index });
       sessions.splice(index, 1);
-      console.log(`[DEBUG] Session '${session}' removed from array.`);
+      log.debug("Session removed from array", { session });
       await this.writeDb(sessions);
-      console.log(`[DEBUG] writeDb called for session '${session}'.`);
+      log.debug("writeDb called for session deletion", { session });
       return true;
     } catch (error) {
-      console.error(
-        `[DEBUG] Error in deleteSession for '${session}': ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error("Error deleting session", { 
+        error: error instanceof Error ? error.message : String(error), 
+        session 
+      });
       return false;
     }
   }
