@@ -54,26 +54,54 @@ When investigating or reporting on a task's status, follow these verification st
    git log -n 5 --oneline
    ```
 
-4. **Discrepancy Resolution**:
+## Task Completion Verification
 
-   // AVOID
-   "Task #123 is in progress."
+Before marking any task as DONE or claiming a task is complete:
 
-   // PREFER
-   "Task #123 is marked as 'IN-PROGRESS' in the tracking system, but the implementation has been merged to main branch in commit a36f4e8."
+1. **Requirements Verification**:
+   - Create an explicit checklist of all requirements from the task description
+   - Verify each requirement is fully implemented (not partial)
+   - Document evidence of implementation for each requirement
+   - Check for any remaining TODOs or deprecated components
 
-5. **Complete Status Report**:
+2. **Implementation Verification**:
+   - Verify all old implementations have been fully removed or properly transitioned
+   - Ensure tests are passing with the new implementation
+   - Check for any linting errors or compiler warnings
+   - Verify the implementation works end-to-end
 
-   // AVOID
-   "Task #020 is in progress."
+3. **Documentation Check**:
+   - Ensure CHANGELOG.md has been updated
+   - Verify PR description accurately describes all completed work
+   - Update any relevant documentation affected by the changes
 
-   // PREFER
-   "Task #020: Official status is 'IN-PROGRESS', but implementation has been merged to main branch (commit a36f4e8). The session still exists but is redundant. Recommend updating task status to 'DONE' and cleaning up the session."
+4. **Status Report**:
+   - Detail any remaining work, even if minor
+   - Never claim a task is "complete" or "done" if any part remains unfinished
+   - Provide clear verification evidence for each completed requirement
+
+## Discrepancy Resolution
+
+// AVOID
+"Task #123 is in progress."
+
+// PREFER
+"Task #123 is marked as 'IN-PROGRESS' in the tracking system, but the implementation has been merged to main branch in commit a36f4e8."
+
+## Complete Status Report
+
+// AVOID
+"Task #020 is in progress."
+
+// PREFER
+"Task #020: Official status is 'IN-PROGRESS', but implementation has been merged to main branch (commit a36f4e8). The session still exists but is redundant. Recommend updating task status to 'DONE' and cleaning up the session."
 
 ## Verification Checkpoint
 - Always check for all possible commit message patterns and merge scenarios, not just `feat`/`fix`.
 - Review merge commits and their included changes for the task.
 - Confirm that the implementation is present on the main branch, regardless of commit message format.
+- **ALWAYS verify file paths before creation or modification to ensure correct locations are used.**
+- **For rule files specifically, verify they are created in `.cursor/rules/` and nowhere else.**
 
 ## When to Apply This Protocol
 
