@@ -5,6 +5,7 @@ import { join } from "path";
 import { promises as fs } from "fs";
 import { exit } from "../../utils/process.js";
 import * as p from "@clack/prompts";
+import { log } from "../../utils/logger";
 
 export function createDeleteCommand(): Command {
   return new Command("delete")
@@ -28,9 +29,9 @@ export function createDeleteCommand(): Command {
             if (!internalTaskId) {
               const errorMessage = `Error: Invalid Task ID format provided: "${options.task}"`;
               if (options.json) {
-                console.log(JSON.stringify({ success: false, error: errorMessage }));
+                log.agent(JSON.stringify({ success: false, error: errorMessage }));
               } else {
-                console.error(errorMessage);
+                log.cliError(errorMessage);
               }
               exit(1);
             }
@@ -42,9 +43,9 @@ export function createDeleteCommand(): Command {
             } else {
               const errorMessage = `No session found for task ID originating from "${options.task}" (normalized to "${internalTaskId}").`;
               if (options.json) {
-                console.log(JSON.stringify({ success: false, error: errorMessage }));
+                log.agent(JSON.stringify({ success: false, error: errorMessage }));
               } else {
-                console.error(errorMessage);
+                log.cliError(errorMessage);
               }
               exit(1);
             }
@@ -56,9 +57,9 @@ export function createDeleteCommand(): Command {
             // and no task ID is provided. However, making argument optional to handle --task properly.
             const errorMessage = "Session name or task ID must be provided.";
             if (options.json) {
-              console.log(JSON.stringify({ success: false, error: errorMessage }));
+              log.agent(JSON.stringify({ success: false, error: errorMessage }));
             } else {
-              console.error(errorMessage);
+              log.cliError(errorMessage);
             }
             exit(1);
           }
@@ -67,9 +68,9 @@ export function createDeleteCommand(): Command {
             // Should not happen if logic above is correct, but as a safeguard.
             const errorMessage = "Could not determine session to delete.";
             if (options.json) {
-              console.log(JSON.stringify({ success: false, error: errorMessage }));
+              log.agent(JSON.stringify({ success: false, error: errorMessage }));
             } else {
-              console.error(errorMessage);
+              log.cliError(errorMessage);
             }
             exit(1);
           }
@@ -81,9 +82,9 @@ export function createDeleteCommand(): Command {
             // Use sessionToDeleteName for the error message as it's what the user effectively tried to delete
             const errorMessage = `Session '${sessionToDeleteName}' not found.`;
             if (options.json) {
-              console.log(JSON.stringify({ success: false, error: errorMessage }));
+              log.agent(JSON.stringify({ success: false, error: errorMessage }));
             } else {
-              console.error(errorMessage);
+              log.cliError(errorMessage);
             }
             exit(1);
           }
@@ -97,9 +98,9 @@ export function createDeleteCommand(): Command {
             if (!answer) {
               const message = "Deletion cancelled.";
               if (options.json) {
-                console.log(JSON.stringify({ success: false, message }));
+                log.agent(JSON.stringify({ success: false, message }));
               } else {
-                console.log(message);
+                log.cli(message);
               }
               return;
             }
@@ -116,7 +117,7 @@ export function createDeleteCommand(): Command {
             repoPath = await db.getRepoPath(session);
           } else {
             // Legacy fallback - construct path manually
-            const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+            const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
             repoPath = join(xdgStateHome, "minsky", "git", session.repoName, session.session);
           }
 
@@ -127,9 +128,16 @@ export function createDeleteCommand(): Command {
             repoDeleted = true;
           } catch (error) {
             const errorMessage = `Error deleting repository: ${error instanceof Error ? error.message : String(error)}`;
+            
+            log.error("Failed to delete session repository", {
+              session: sessionToDeleteName,
+              repoPath,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
 
             if (options.json) {
-              console.log(
+              log.agent(
                 JSON.stringify({
                   success: false,
                   error: errorMessage,
@@ -138,7 +146,7 @@ export function createDeleteCommand(): Command {
                 })
               );
             } else {
-              console.error(errorMessage);
+              log.cliError(errorMessage);
             }
             exit(1);
           }
@@ -156,9 +164,16 @@ export function createDeleteCommand(): Command {
             const finalMessage = repoDeleted 
               ? `${errorMessage}\nWARNING: Repository was deleted but session record remains. Database might be in an inconsistent state.`
               : errorMessage;
+            
+            log.error("Failed to delete session record", {
+              session: sessionToDeleteName,
+              repoDeleted,
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            });
 
             if (options.json) {
-              console.log(
+              log.agent(
                 JSON.stringify({
                   success: false,
                   error: finalMessage,
@@ -167,15 +182,21 @@ export function createDeleteCommand(): Command {
                 })
               );
             } else {
-              console.error(finalMessage);
+              log.cliError(finalMessage);
             }
             exit(1); // Always exit if record deletion fails
           }
 
           // Success case
           const successMessage = `Session '${sessionToDeleteName}' successfully deleted.`;
+          log.debug("Session deleted successfully", {
+            session: sessionToDeleteName,
+            repoDeleted,
+            recordDeleted
+          });
+          
           if (options.json) {
-            console.log(
+            log.agent(
               JSON.stringify({
                 success: true,
                 message: successMessage,
@@ -184,15 +205,20 @@ export function createDeleteCommand(): Command {
               })
             );
           } else {
-            console.log(successMessage);
+            log.cli(successMessage);
           }
         } catch (error) {
           const errorMessage = `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
+          
+          log.error("Unexpected error in session delete command", {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          });
 
           if (options.json) {
-            console.log(JSON.stringify({ success: false, error: errorMessage }));
+            log.agent(JSON.stringify({ success: false, error: errorMessage }));
           } else {
-            console.error(errorMessage);
+            log.cliError(errorMessage);
           }
           exit(1);
         }

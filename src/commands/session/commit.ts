@@ -6,7 +6,7 @@ import { SessionDB } from "../../domain/session.js";
 import { getCurrentSession as defaultGetCurrentSession } from "../../domain/workspace.js";
 import { resolveRepoPath } from "../../domain/repo-utils.js";
 import { createInterface } from "readline";
-import { promisify } from "util";
+import { log } from "../../utils/logger";
 
 // Helper function to prompt for commit message
 async function defaultPromptForMessage(): Promise<string> {
@@ -86,6 +86,12 @@ export function createCommitCommand(dependencies?: CommitCommandDependencies): C
             workdir = await resolveRepoPath({ repo: options.repo });
           }
 
+          log.debug("Resolved repository path for commit", { 
+            workdir, 
+            session: sessionRecord?.session, 
+            taskId: sessionRecord?.taskId 
+          });
+
           // Check if there are changes to commit
           const status = await gitService.getStatus(workdir);
           const hasChanges =
@@ -110,30 +116,44 @@ export function createCommitCommand(dependencies?: CommitCommandDependencies): C
           }
 
           // Stage all changes
-          console.log("Staging changes...");
+          log.cli("Staging changes...");
           await gitService.stageAll(workdir);
 
           // Commit changes
-          console.log("Committing changes...");
+          log.cli("Committing changes...");
           const commitHash = await gitService.commit(message, workdir);
-          console.log(`Changes committed successfully (${commitHash}).`);
+          log.cli(`Changes committed successfully (${commitHash}).`);
 
           // Push changes if not disabled
           if (options.push !== false) {
-            console.log("Pushing changes...");
+            log.cli("Pushing changes...");
             await gitService.push({
               repoPath: workdir,
               session: sessionRecord?.session,
             });
-            console.log("Changes pushed successfully.");
+            log.cli("Changes pushed successfully.");
           }
+
+          log.debug("Commit and push completed", {
+            workdir,
+            session: sessionRecord?.session,
+            taskId: sessionRecord?.taskId,
+            commitHash,
+            pushed: options.push !== false
+          });
         } catch (error) {
-          const err = error instanceof Error ? error : new Error(String(error));
-          console.error("Error:", err.message);
+          log.error("Error in commit command", {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            session: sessionArg,
+            repo: options.repo
+          });
+
+          log.cliError(`Error: ${error instanceof Error ? error.message : String(error)}`);
 
           // In test environment, rethrow the error so tests can catch it
           if (isTestEnvironment) {
-            throw err;
+            throw error;
           }
 
           process.exit(1);

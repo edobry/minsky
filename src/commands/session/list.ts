@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { SessionDB } from "../../domain/session";
+import { log } from "../../utils/logger";
 
 export function createListCommand(): Command {
   return new Command("list")
@@ -8,20 +9,33 @@ export function createListCommand(): Command {
     .action(async (options: { json?: boolean }) => {
       const db = new SessionDB();
       const sessions = await db.listSessions();
-      if (sessions.length === 0) {
+      
+      try {
+        if (sessions.length === 0) {
+          if (options.json) {
+            // Use agent logger for structured JSON output
+            log.agent(JSON.stringify([]));
+          } else {
+            // Use program logger for user-facing messages
+            log.cli("No sessions found.");
+          }
+          return;
+        }
+        
         if (options.json) {
-          console.log(JSON.stringify([]));
+          // Use agent logger for structured JSON output
+          log.agent(JSON.stringify(sessions, null, 2));
         } else {
-          console.log("No sessions found.");
+          // Format and display each session using program logger
+          for (const s of sessions) {
+            log.cli(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Created: ${s.createdAt}\n`);
+          }
         }
-        return;
-      }
-      if (options.json) {
-        console.log(JSON.stringify(sessions, null, 2));
-      } else {
-        for (const s of sessions) {
-          console.log(`Session: ${s.session}\n  Repo: ${s.repoUrl}\n  Created: ${s.createdAt}\n`);
-        }
+      } catch (error) {
+        log.error("Error listing sessions", {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
       }
     });
 }
