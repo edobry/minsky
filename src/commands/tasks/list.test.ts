@@ -485,8 +485,5 @@ describe("minsky tasks list integration", () => {
   });
 });
 
-// TODO: Implement proper mocking to allow CLI tests to run in both environments (original TODO at line 54, moved here)
-// The previous test.todo was here, now handled by the comment above setupMinskyWorkspace
-
 // NOTE: Future improvement - implement proper CLI test mocking to allow running in all environments
-// The previous comment has been replaced with the note above describing needed improvements
+// The previous comment has been replaced with a note describing needed improvements
