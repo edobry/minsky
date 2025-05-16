@@ -22,8 +22,15 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "delete-session-test.json");
 
+<<<<<<< HEAD
+      // No need to ensure parent directory exists as tmpDir is already created
+
+      // Initialize the database
+      const db = new SessionDB({ dbPath: testDbPath });
+=======
       // Initialize the database with a custom path to avoid touching the real DB
       const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
+>>>>>>> origin/main
 
       // Create test sessions
       const sessions: SessionRecord[] = [
@@ -33,6 +40,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
         {
           session: "test-session-2",
@@ -40,6 +49,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#002",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 
@@ -62,8 +73,15 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "session-not-exist-test.json");
 
+<<<<<<< HEAD
+      // No need to ensure parent directory exists as tmpDir is already created
+
+      // Initialize the database with a clean file
+      const db = new SessionDB({ dbPath: testDbPath });
+=======
       // Initialize the database with a custom path
       const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
+>>>>>>> origin/main
 
       // Create and add a test session
       const session: SessionRecord = {
@@ -71,6 +89,8 @@ describe("SessionDB", () => {
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo",
         createdAt: new Date().toISOString(),
+        backendType: "local",
+        remote: { authMethod: "none", depth: 1 },
       };
 
       await db.addSession(session);
@@ -94,7 +114,11 @@ describe("SessionDB", () => {
       writeFileSync(emptyDbPath, JSON.stringify([], null, 2));
 
       // Initialize SessionDB instance with the empty database
+<<<<<<< HEAD
+      const db = new SessionDB({ dbPath: emptyDbPath });
+=======
       const db = new SessionDB({ baseDir: tmpDir, dbPath: emptyDbPath });
+>>>>>>> origin/main
 
       // Try to delete a session
       const result = await db.deleteSession("non-existent-session");
@@ -108,7 +132,11 @@ describe("SessionDB", () => {
       const nonExistentDbPath = join(tmpDir, "non-existent-dir", "does-not-exist.json");
 
       // Initialize SessionDB instance with a non-existent database file
+<<<<<<< HEAD
+      const db = new SessionDB({ dbPath: nonExistentDbPath });
+=======
       const db = new SessionDB({ baseDir: tmpDir, dbPath: nonExistentDbPath });
+>>>>>>> origin/main
 
       // Check that deleteSession returns false if the database doesn't exist
       const result = await db.deleteSession("test-session");
@@ -122,7 +150,11 @@ describe("SessionDB", () => {
       const testDbPath = join(tmpDir, "find-by-task-id-test.json");
 
       // Initialize with a clean database
+<<<<<<< HEAD
+      const db = new SessionDB({ dbPath: testDbPath });
+=======
       const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
+>>>>>>> origin/main
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
@@ -132,6 +164,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
         {
           session: "test-session-2",
@@ -139,6 +173,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#002",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 
@@ -165,7 +201,11 @@ describe("SessionDB", () => {
       const testDbPath = join(tmpDir, "no-task-id-test.json");
 
       // Initialize with a clean database
+<<<<<<< HEAD
+      const db = new SessionDB({ dbPath: testDbPath });
+=======
       const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
+>>>>>>> origin/main
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
@@ -175,6 +215,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 

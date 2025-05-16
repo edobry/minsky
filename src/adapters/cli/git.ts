@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import type { GitPullRequestParams, GitCommitParams, GitPushParams } from "../../schemas/git.js";
 import { MinskyError } from "../../errors/index.js";
+import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
 import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
@@ -39,7 +40,8 @@ export function createPrCommand(): Command {
             json: options.json,
           };
 
-          // Call the domain function
+          log.debug("Creating PR with params", { params });
+
           const result = await createPullRequestFromParams(params);
 
           // Output result based on format
@@ -59,8 +61,10 @@ export function createPrCommand(): Command {
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
           process.exit(1);
         }
@@ -107,45 +111,24 @@ export function createCommitCommand(): Command {
             json: options.json,
           };
 
-          // Call the domain function
+          log.debug("Committing changes with params", { params });
+
           const result = await commitChangesFromParams(params);
 
           // Output result based on format
           if (options.json) {
             console.log(JSON.stringify(result, null, 2));
           } else {
-            console.log(`Committed changes with message: ${result.message}`);
-            console.log(`Commit hash: ${result.commitHash}`);
-          }
-
-          // Implement push functionality if requested
-          if (options.push) {
-            try {
-              const gitService = new GitService();
-              const pushResult = await gitService.push({
-                session: options.session,
-                repoPath: options.repo,
-                remote: "origin", // Default remote
-                force: false
-              });
-
-              if (options.json) {
-                console.log(JSON.stringify(pushResult, null, 2));
-              } else {
-                console.log("Successfully pushed changes to remote.");
-              }
-            } catch (pushError) {
-              console.error(
-                `Error pushing changes: ${pushError instanceof Error ? pushError.message : String(pushError)}`
-              );
-              process.exit(1);
-            }
+            log.cli(`Committed changes with message: ${result.message}`);
+            log.cli(`Commit hash: ${result.commitHash}`);
           }
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
           process.exit(1);
         }
@@ -153,6 +136,7 @@ export function createCommitCommand(): Command {
     );
 }
 
+// Add the push command
 /**
  * Creates the git push command
  */
@@ -179,20 +163,22 @@ export function createPushCommand(): Command {
             session: options.session,
             repoPath: options.repo,
             remote: options.remote || "origin",
-            force: options.force ?? false
+            force: options.force ?? false,
           });
 
           // Output result based on format
           if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
+            log.agent(JSON.stringify(result, null, 2));
           } else {
-            console.log("Successfully pushed changes to remote.");
+            log.cli("Successfully pushed changes to remote.");
           }
         } catch (error) {
           if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
+            log.cliError(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
           process.exit(1);
         }

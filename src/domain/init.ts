@@ -48,14 +48,17 @@ export interface InitializeProjectOptions {
 /**
  * Creates directories if they don't exist, and errors if files already exist
  */
-export async function initializeProject({
-  repoPath,
-  backend,
-  ruleFormat,
-  mcp,
-  mcpOnly = false,
-  overwrite = false,
-}: InitializeProjectOptions): Promise<void> {
+export async function initializeProject(
+  {
+    repoPath,
+    backend,
+    ruleFormat,
+    mcp,
+    mcpOnly = false,
+    overwrite = false,
+  }: InitializeProjectOptions,
+  fileSystem: FileSystem = fs
+): Promise<void> {
   // When mcpOnly is true, we only set up MCP configuration and skip other setup
   if (!mcpOnly) {
     // Check if backend is implemented
@@ -65,7 +68,7 @@ export async function initializeProject({
 
     // Create process/tasks directory structure
     const tasksDir = path.join(repoPath, "process", "tasks");
-    await createDirectoryIfNotExists(tasksDir);
+    await createDirectoryIfNotExists(tasksDir, fileSystem);
 
     // Initialize the tasks backend
     if (backend === "tasks.md") {
@@ -79,7 +82,8 @@ export async function initializeProject({
 | ID | Title | Status |
 |----|-------|--------|
 `,
-        overwrite
+        overwrite,
+        fileSystem
       );
     }
 
@@ -90,15 +94,15 @@ export async function initializeProject({
     } else {
       rulesDirPath = path.join(repoPath, ".ai", "rules");
     }
-    await createDirectoryIfNotExists(rulesDirPath);
+    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
     // Create minsky.mdc rule file
     const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite);
+    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite, fileSystem);
 
     // Create index.mdc rule file for categorizing rules
     const indexFilePath = path.join(rulesDirPath, "index.mdc");
-    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite);
+    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite, fileSystem);
   }
 
   // Setup MCP if enabled
@@ -107,7 +111,7 @@ export async function initializeProject({
     // Create the MCP config file
     const mcpConfig = getMCPConfigContent(mcp);
     const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite);
+    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite, fileSystem);
 
     // Create MCP usage rule
     const rulesDirPath =
@@ -115,19 +119,19 @@ export async function initializeProject({
         ? path.join(repoPath, ".cursor", "rules")
         : path.join(repoPath, ".ai", "rules");
 
-    await createDirectoryIfNotExists(rulesDirPath);
+    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
     const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
-    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite);
+    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite, fileSystem);
   }
 }
 
 /**
  * Creates a directory and all parent directories if they don't exist
  */
-async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
+async function createDirectoryIfNotExists(dirPath: string, fileSystem: FileSystem = fs): Promise<void> {
+  if (!fileSystem.existsSync(dirPath)) {
+    fileSystem.mkdirSync(dirPath, { recursive: true });
   }
 }
 
@@ -137,9 +141,10 @@ async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
 async function createFileIfNotExists(
   filePath: string,
   content: string,
-  overwrite = false
+  overwrite = false,
+  fileSystem: FileSystem = fs
 ): Promise<void> {
-  if (fs.existsSync(filePath)) {
+  if (fileSystem.existsSync(filePath)) {
     if (!overwrite) {
       throw new Error(`File already exists: ${filePath}`);
     }
@@ -148,10 +153,10 @@ async function createFileIfNotExists(
 
   // Ensure the directory exists
   const dirPath = path.dirname(filePath);
-  await createDirectoryIfNotExists(dirPath);
+  await createDirectoryIfNotExists(dirPath, fileSystem);
 
   // Write the file
-  fs.writeFileSync(filePath, content);
+  fileSystem.writeFileSync(filePath, content);
 }
 
 /**
@@ -495,7 +500,7 @@ Minsky exposes the following tools via MCP:
 \`\`\`typescript
 // AI can retrieve task information using:
 const tasks = await tools.tasks.list({})
-console.log(tasks) // Returns JSON array of tasks
+log.agent(tasks) // Returns JSON array of tasks using structured logging
 \`\`\`
 
 ### Example: Start a Session via MCP
@@ -503,7 +508,7 @@ console.log(tasks) // Returns JSON array of tasks
 \`\`\`typescript
 // AI can start a session for task #123:
 const result = await tools.session.start({ task: "123", quiet: true })
-console.log(result.message) // Session directory path
+log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 
 ## Security Considerations
@@ -550,6 +555,10 @@ export async function initializeProjectWithFS(
   options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
+<<<<<<< HEAD
+  // Use the injected fileSystem for all file operations
+  await initializeProject(options, fileSystem);
+=======
   const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
 
   // Handle different backends
@@ -629,4 +638,5 @@ export async function initializeProjectWithFS(
   } else {
     throw new Error(`Backend not implemented: ${backend}`);
   }
+>>>>>>> origin/main
 }

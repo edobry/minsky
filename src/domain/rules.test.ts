@@ -4,6 +4,7 @@ import type { Rule, RuleFormat } from "./rules.js";
 import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
+import { log } from "../utils/logger.js";
 
 describe("RuleService", () => {
   const testDir = path.join(import.meta.dir, "../..", "test-rules-tmp");
@@ -41,7 +42,10 @@ describe("RuleService", () => {
     try {
       await fs.rm(testDir, { recursive: true, force: true });
     } catch (error) {
-      console.error(`Failed to clean up test directory: ${error}`);
+      log.error("Failed to clean up test directory", { 
+        error: error instanceof Error ? error.message : String(error),
+        testDir 
+      });
     }
   });
 

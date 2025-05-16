@@ -7,6 +7,7 @@ import { normalizeRepoName } from "./repo-utils.js";
 import { SessionDB } from "./session.js";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index.js";
+import { log } from "../utils/logger";
 
 const execAsync = promisify(childExec);
 
@@ -117,6 +118,11 @@ export class GitService {
     this.sessionDb = new SessionDB();
   }
 
+  // Add public method to get session record
+  public async getSessionRecord(sessionName: string): Promise<any | undefined> {
+    return this.sessionDb.getSession(sessionName);
+  }
+
   private async ensureBaseDir(): Promise<void> {
     await mkdir(this.baseDir, { recursive: true });
   }
@@ -200,22 +206,22 @@ export class GitService {
           };
 
           if (options.debug) {
-            console.error(
-              `[DEBUG] Updated task ${taskId} status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
+            log.debug(
+              `Updated task ${taskId} status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
             );
           }
         } catch (error) {
           if (options.debug) {
-            console.error(
-              `[DEBUG] Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+            log.debug(
+              `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
             );
           }
         }
       }
     } catch (error) {
       if (options.debug) {
-        console.error(
-          `[DEBUG] Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
+        log.debug(
+          `Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -229,21 +235,21 @@ export class GitService {
     const workdir = await this.determineWorkingDirectory(options, deps);
 
     if (options.debug) {
-      console.error(`[DEBUG] Using workdir: ${workdir}`);
+      log.debug(`Using workdir: ${workdir}`);
     }
 
     const branch = await this.determineCurrentBranch(workdir, options, deps);
 
     if (options.debug) {
-      console.error(`[DEBUG] Using branch: ${branch}`);
+      log.debug(`Using branch: ${branch}`);
     }
 
     const { baseBranch, mergeBase, comparisonDescription } =
       await this.determineBaseBranchAndMergeBase(workdir, branch, options, deps);
 
     if (options.debug) {
-      console.error(`[DEBUG] Using merge base: ${mergeBase}`);
-      console.error(`[DEBUG] Comparison: ${comparisonDescription}`);
+      log.debug(`Using merge base: ${mergeBase}`);
+      log.debug(`Comparison: ${comparisonDescription}`);
     }
 
     const markdown = await this.generatePrMarkdown(
@@ -265,23 +271,21 @@ export class GitService {
       return options.repoPath;
     }
 
-    if (options.session) {
-      const session = await deps.getSession(options.session);
-      if (!session) {
-        throw new Error(`Session '${options.session}' not found`);
-      }
-      return deps.getSessionWorkdir(session.repoName, session.session);
+    if (!options.session) {
+      throw new Error(
+        "Either 'session' or 'repoPath' must be provided to create a PR."
+      );
     }
 
-    if (options.taskId) {
-      const session = await deps.getSessionByTaskId?.(options.taskId);
-      if (!session) {
-        throw new Error(`No session found for task '${options.taskId}'`);
-      }
-      return deps.getSessionWorkdir(session.repoName, session.session);
+    const session = await deps.getSession(options.session);
+    if (!session) {
+      throw new Error(`Session '${options.session}' not found.`);
     }
-
-    throw new Error("Either session, repoPath, or taskId must be provided");
+    const repoName = session.repoName || normalizeRepoName(session.repoUrl);
+    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    
+    log.debug("Using workdir for PR", { workdir, session: options.session });
+    return workdir;
   }
 
   private async determineCurrentBranch(
@@ -290,158 +294,122 @@ export class GitService {
     deps: PrDependencies
   ): Promise<string> {
     if (options.branch) {
+      log.debug("Using specified branch for PR", { branch: options.branch });
       return options.branch;
     }
 
-    // Get current branch
-    const { stdout } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-    return stdout.trim();
+    const { stdout } = await deps.execAsync(`git -C ${workdir} branch --show-current`);
+    const branch = stdout.trim();
+    
+    log.debug("Using current branch for PR", { branch });
+    return branch;
   }
 
-  /**
-   * Find the base branch using multiple strategies
-   */
   private async findBaseBranch(
     workdir: string,
     branch: string,
     options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
-    // Try different strategies to find a base branch
-
-    // 1. Remote HEAD branch
+    // Try to get the remote HEAD branch
     try {
-      // Use the exact command that the test is expecting
-      const { stdout: remoteHeadOutput } = await deps.execAsync(
-        `git -C ${workdir} remote show origin`
+      const { stdout } = await deps.execAsync(
+        `git -C ${workdir} symbolic-ref refs/remotes/origin/HEAD --short`
       );
-
-      // Parse the remote head branch name
-      const match = remoteHeadOutput.match(/HEAD branch: (.+)/);
-      if (match && match[1]) {
-        const baseBranch = match[1].trim();
-        if (baseBranch && baseBranch !== branch) {
-          if (options.debug) {
-            console.error(`[DEBUG] Found remote HEAD branch: ${baseBranch}`);
-          }
-          return baseBranch;
-        }
-      }
+      const baseBranch = stdout.trim().replace("origin/", "");
+      log.debug("Found remote HEAD branch", { baseBranch });
+      return baseBranch;
     } catch (err) {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get remote HEAD: ${err}`);
-      }
+      log.debug("Failed to get remote HEAD", { 
+        error: err instanceof Error ? err.message : String(err),
+        branch 
+      });
     }
 
-    // 2. Upstream tracking branch
+    // Try to get the upstream branch
     try {
-      const { stdout: upstream } = await deps.execAsync(
+      const { stdout } = await deps.execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`
       );
-      if (upstream && upstream.trim() && upstream.trim() !== branch) {
-        const baseBranch = upstream.trim();
-        if (options.debug) {
-          console.error(`[DEBUG] Found upstream branch: ${baseBranch}`);
-        }
-        return baseBranch;
-      }
+      const baseBranch = stdout.trim().replace("origin/", "");
+      log.debug("Found upstream branch", { baseBranch });
+      return baseBranch;
     } catch (err) {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to get upstream branch: ${err}`);
-      }
+      log.debug("Failed to get upstream branch", { 
+        error: err instanceof Error ? err.message : String(err),
+        branch 
+      });
     }
 
-    // 3. Local main branch
+    // Check if main exists
     try {
-      const { stdout: hasMain } = await deps.execAsync(
-        `git -C ${workdir} show-ref --verify --quiet refs/heads/main && echo main || echo ''`
-      );
-      if (hasMain.trim() && hasMain.trim() !== branch) {
-        if (options.debug) {
-          console.error("[DEBUG] Using main as base branch");
-        }
-        return "main";
-      }
+      await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/main`);
+      log.debug("Using main as base branch");
+      return "main";
     } catch (err) {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to check main branch: ${err}`);
-      }
+      log.debug("Failed to check main branch", { 
+        error: err instanceof Error ? err.message : String(err) 
+      });
     }
 
-    // 4. Local master branch
+    // Check if master exists
     try {
-      const { stdout: hasMaster } = await deps.execAsync(
-        `git -C ${workdir} show-ref --verify --quiet refs/heads/master && echo master || echo ''`
-      );
-      if (hasMaster.trim() && hasMaster.trim() !== branch) {
-        if (options.debug) {
-          console.error("[DEBUG] Using master as base branch");
-        }
-        return "master";
-      }
+      await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
+      log.debug("Using master as base branch");
+      return "master";
     } catch (err) {
-      if (options.debug) {
-        console.error(`[DEBUG] Failed to check master branch: ${err}`);
-      }
+      log.debug("Failed to check master branch", { 
+        error: err instanceof Error ? err.message : String(err)
+      });
     }
 
-    return "";
+    // Default to main (might not exist)
+    return "main";
   }
 
-  /**
-   * Find the base branch to merge into and the merge base commit
-   */
   private async determineBaseBranchAndMergeBase(
     workdir: string,
     branch: string,
     options: PrOptions,
     deps: PrDependencies
   ): Promise<{ baseBranch: string; mergeBase: string; comparisonDescription: string }> {
-    let baseBranch = "";
-    let mergeBase = "";
-    let comparisonDescription = "";
+    const baseBranch = await this.findBaseBranch(workdir, branch, options, deps);
+    log.debug("Using base branch for PR", { baseBranch });
 
-    // 1. Try to determine the base branch
-    baseBranch = await this.findBaseBranch(workdir, branch, options, deps);
+    let mergeBase: string;
+    let comparisonDescription: string;
 
-    if (options.debug && baseBranch) {
-      console.error(`[DEBUG] Using base branch: ${baseBranch}`);
-    }
+    try {
+      // Find common ancestor of the current branch and the base branch
+      const { stdout } = await deps.execAsync(
+        `git -C ${workdir} merge-base origin/${baseBranch} ${branch}`
+      );
+      mergeBase = stdout.trim();
+      comparisonDescription = `Showing changes from merge-base with ${baseBranch}`;
+      log.debug("Found merge base with base branch", { baseBranch, mergeBase });
+    } catch (err) {
+      log.debug("Failed to find merge base", { 
+        error: err instanceof Error ? err.message : String(err),
+        branch,
+        baseBranch
+      });
 
-    // 2. Find the merge base between the branches
-    if (baseBranch) {
+      // If merge-base fails, get the first commit of the branch
       try {
-        // Use the exact command format that the test expects
-        const { stdout: mb } = await deps.execAsync(
-          `git -C ${workdir} merge-base ${baseBranch} ${branch}`
-        );
-        mergeBase = mb.trim();
-        comparisonDescription = `Changes compared to merge-base with ${baseBranch}`;
-        if (options.debug) {
-          console.error(`[DEBUG] Found merge base with ${baseBranch}: ${mergeBase}`);
-        }
-      } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to find merge base: ${err}`);
-        }
-      }
-    }
-
-    // 3. If no merge base found, use first commit
-    if (!mergeBase) {
-      try {
-        const { stdout: firstCommit } = await deps.execAsync(
+        const { stdout } = await deps.execAsync(
           `git -C ${workdir} rev-list --max-parents=0 HEAD`
         );
-        mergeBase = firstCommit.trim();
-        comparisonDescription = "All changes since repository creation";
-        if (options.debug) {
-          console.error(`[DEBUG] Using first commit as base: ${mergeBase}`);
-        }
+        mergeBase = stdout.trim();
+        comparisonDescription = "Showing changes from first commit";
+        log.debug("Using first commit as base", { mergeBase });
       } catch (err) {
-        if (options.debug) {
-          console.error(`[DEBUG] Failed to find first commit: ${err}`);
-        }
+        log.debug("Failed to find first commit", { 
+          error: err instanceof Error ? err.message : String(err),
+          branch 
+        });
+        // If that also fails, use empty tree
+        mergeBase = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"; // Git empty tree
+        comparisonDescription = "Showing all changes";
       }
     }
 
@@ -967,39 +935,31 @@ export class GitService {
     branch: string,
     deps: PrDependencies
   ): Promise<string | undefined> {
-    // 1. Use the explicitly provided task ID if available
+    // 1. Use taskId directly from options if available
     if (options.taskId) {
-      if (options.debug) {
-        console.error(`[DEBUG] Using provided task ID: ${options.taskId}`);
-      }
+      log.debug("Using provided task ID", { taskId: options.taskId });
       return options.taskId;
     }
 
-    // 2. Try to get task ID from session metadata
+    // 2. Try to get taskId from session
     if (options.session) {
       const session = await deps.getSession(options.session);
       if (session && session.taskId) {
-        if (options.debug) {
-          console.error(`[DEBUG] Found task ID in session metadata: ${session.taskId}`);
-        }
+        log.debug("Found task ID in session metadata", { taskId: session.taskId });
         return session.taskId;
       }
     }
 
-    // 3. Try to parse task ID from branch name (format: task#XXX)
-    const taskIdMatch = branch.match(/task#(\d+)/);
-    if (taskIdMatch && taskIdMatch[1]) {
-      const taskId = `#${taskIdMatch[1]}`;
-      if (options.debug) {
-        console.error(`[DEBUG] Parsed task ID from branch name: ${taskId}`);
-      }
+    // 3. Try to extract taskId from branch name
+    const taskIdMatch = branch.match(/task[#-]?(\d+)/i);
+    if (taskIdMatch) {
+      const taskId = taskIdMatch[1];
+      log.debug("Parsed task ID from branch name", { taskId, branch });
       return taskId;
     }
 
-    // No task ID could be determined
-    if (options.debug) {
-      console.error("[DEBUG] No task ID could be determined");
-    }
+    // No taskId found
+    log.debug("No task ID could be determined");
     return undefined;
   }
 }
@@ -1017,23 +977,26 @@ export async function createPullRequestFromParams(params: {
   noStatusUpdate?: boolean;
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
   try {
-    const gitService = new GitService();
-
-    const options = {
+    const git = new GitService();
+    const result = await git.pr({
       session: params.session,
       repoPath: params.repo,
       branch: params.branch,
       taskId: params.taskId,
-      debug: params.debug ?? false,
-      noStatusUpdate: params.noStatusUpdate ?? false,
-    };
-
-    return await gitService.pr(options);
+      debug: params.debug,
+      noStatusUpdate: params.noStatusUpdate
+    });
+    return result;
   } catch (error) {
-    console.error("Error creating pull request:", error);
-    throw new MinskyError(
-      `Failed to create pull request: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error("Error creating pull request", {
+      session: params.session,
+      repo: params.repo,
+      branch: params.branch,
+      taskId: params.taskId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw error;
   }
 }
 
@@ -1050,52 +1013,32 @@ export async function commitChangesFromParams(params: {
   noStage?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
   try {
-    const gitService = new GitService();
+    const git = new GitService();
 
-    // Resolve repo path
-    let repoPath = params.repo;
-    let taskId = undefined;
-
-    if (params.session) {
-      const sessionDb = new SessionDB();
-      const session = await sessionDb.getSession(params.session);
-      if (!session) {
-        throw new MinskyError(`Session '${params.session}' not found`);
-      }
-
-      // Get the repo path from session and extract taskId if available
-      const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-      repoPath = gitService.getSessionWorkdir(repoName, params.session);
-
-      // Get taskId from session if it exists
-      if (session.taskId) {
-        taskId = session.taskId;
-      }
-    }
-
-    // Stage changes if needed
     if (!params.noStage) {
       if (params.all) {
-        await gitService.stageAll(repoPath);
+        await git.stageAll(params.repo);
       } else {
-        await gitService.stageModified(repoPath);
+        await git.stageModified(params.repo);
       }
     }
-
-    // Prepare commit message with task ID prefix if available
-    const finalMessage = taskId ? `${taskId}: ${params.message}` : params.message;
-
-    // Commit the changes
-    const commitHash = await gitService.commit(finalMessage, repoPath, params.amend ?? false);
-
+    
+    const commitHash = await git.commit(params.message, params.repo, params.amend);
+    
     return {
       commitHash,
-      message: finalMessage,
+      message: params.message
     };
   } catch (error) {
-    console.error("Error committing changes:", error);
-    throw new MinskyError(
-      `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error("Error committing changes", {
+      session: params.session,
+      repo: params.repo,
+      message: params.message,
+      all: params.all,
+      amend: params.amend,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw error;
   }
 }

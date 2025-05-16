@@ -2,7 +2,11 @@ import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
+<<<<<<< HEAD
+import { log } from "../utils/logger"; // Added logger import
+=======
 import * as jsYaml from "js-yaml";
+>>>>>>> origin/main
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
@@ -71,7 +75,7 @@ export class RuleService {
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     // Log workspace path on initialization for debugging
-    console.log(`[DEBUG] RuleService initialized with workspace path: ${workspacePath}`);
+    log.debug("RuleService initialized", { workspacePath });
   }
 
   private getRuleDirPath(format: RuleFormat): string {
@@ -90,7 +94,7 @@ export class RuleService {
       const dirPath = this.getRuleDirPath(format);
       
       if (options.debug) {
-        console.log(`[DEBUG] Listing rules from directory: ${dirPath}`);
+        log.debug("Listing rules", { directory: dirPath, format });
       }
 
       try {
@@ -109,13 +113,21 @@ export class RuleService {
 
             if (rule) rules.push(rule);
           } catch (error) {
-            console.error(`Error processing rule file: ${file}`, error);
+            log.error("Error processing rule file", {
+              file,
+              originalError: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            });
           }
         }
       } catch (error) {
         // Directory might not exist, which is fine
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-          console.error(`Error reading rules directory for ${format}:`, error);
+          log.error("Error reading rules directory", {
+            format,
+            originalError: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
         }
       }
     }
@@ -261,7 +273,12 @@ export class RuleService {
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
 
-    console.log(`[DEBUG] Rule created/updated at path: ${filePath}`);
+    log.debug("Rule created/updated", { 
+      path: filePath, 
+      id, 
+      format,
+      globs: cleanMeta.globs
+    });
 
     // Return the created rule
     return {
@@ -281,16 +298,11 @@ export class RuleService {
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
-    // Get the existing rule first
     const rule = await this.getRule(id, ruleOptions);
 
-    // No changes needed
-    if (!options.content && !options.meta) {
-      return rule;
-    }
-
-    // Prepare updated meta
-    const updatedMeta: RuleMeta = {
+    // Prepare updated meta, similar to original logic but ensuring type safety
+    const metaForFrontmatter: RuleMeta = {};
+    const currentRuleMeta: Partial<RuleMeta> = {
       name: rule.name,
       description: rule.description,
       globs: rule.globs,
@@ -298,35 +310,42 @@ export class RuleService {
       tags: rule.tags,
     };
 
-    // Apply meta updates if any
-    if (options.meta) {
-      Object.assign(updatedMeta, options.meta);
-    }
+    // Merge current rule meta with updates from options.meta
+    const mergedMeta = { ...currentRuleMeta, ...options.meta };
 
-    // Clean up meta to remove undefined values that YAML can't handle
-    const cleanMeta: RuleMeta = {};
-    Object.entries(updatedMeta).forEach(([key, value]) => {
-      if (value !== undefined) {
-        cleanMeta[key] = value;
+    // Populate metaForFrontmatter with defined values from mergedMeta
+    for (const key in mergedMeta) {
+      if (
+        Object.prototype.hasOwnProperty.call(mergedMeta, key) &&
+        mergedMeta[key as keyof RuleMeta] !== undefined
+      ) {
+        metaForFrontmatter[key as keyof RuleMeta] = mergedMeta[key as keyof RuleMeta];
       }
-    });
+    }
 
     // Content to use
     const updatedContent = options.content || rule.content;
 
+<<<<<<< HEAD
+    // Create frontmatter content
+    const fileContent = matterStringify(updatedContent, metaForFrontmatter);
+=======
     // Use custom stringify function instead of matterStringify
     const fileContent = customMatterStringify(updatedContent, cleanMeta);
+>>>>>>> origin/main
 
     // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
-    console.log(`[DEBUG] Rule updated at path: ${rule.path}`);
 
-    // Return the updated rule
-    return {
-      ...rule,
-      ...cleanMeta,
-      content: updatedContent,
-    };
+    log.debug("Rule updated", { 
+      path: rule.path, 
+      id,
+      format: rule.format,
+      contentChanged: !!options.content,
+      metaChanged: !!options.meta
+    });
+
+    return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
   }
 
   /**

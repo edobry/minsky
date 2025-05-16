@@ -1,0 +1,85 @@
+# MCP Usage
+
+## Overview
+
+The Model Context Protocol (MCP) provides a standardized way for AI agents to interact with the Minsky CLI, enabling automation and intelligent assistance. This rule explains how to use MCP effectively with Minsky.
+
+## MCP Configuration
+
+Minsky uses MCP to expose its functionality to AI agents. The configuration is stored in `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "minsky-server": {
+      "command": "minsky",
+      "args": ["mcp", "start", "--stdio"]
+    }
+  }
+}
+```
+
+## Available Tools
+
+Minsky exposes the following tools via MCP:
+
+### Task Management
+
+- `tasks.list`: List all tasks
+- `tasks.get`: Get details of a specific task
+- `tasks.status.get`: Get the status of a task
+- `tasks.status.set`: Set the status of a task
+- `tasks.create`: Create a new task from a specification document
+
+### Session Management
+
+- `session.list`: List all sessions
+- `session.get`: Get details of a specific session
+- `session.start`: Start a new session
+- `session.commit`: Commit changes in a session
+- `session.push`: Push changes in a session
+
+## Usage Examples
+
+### Example: List Tasks via MCP
+
+```typescript
+// AI can retrieve task information using:
+const tasks = await tools.tasks.list({})
+log.agent(tasks) // Returns JSON array of tasks using structured logging
+```
+
+### Example: Start a Session via MCP
+
+```typescript
+// AI can start a session for task #123:
+const result = await tools.session.start({ task: "123", quiet: true })
+log.cli(result.message) // Session directory path using structured logging
+```
+
+## Security Considerations
+
+- MCP servers have access to execute commands on your system
+- Review and approve tool calls before allowing execution
+- Use environment variables for sensitive configuration values
+- For production use, consider network transport security when using SSE or HTTP Stream
+
+## Transport Types
+
+Minsky supports three MCP transport types:
+
+1. **stdio**: Default, runs on local machine only (most secure)
+2. **SSE**: Enables network access, supports remote connections
+3. **HTTP Stream**: Similar to SSE, with different protocol
+
+For team environments, SSE or HTTP Stream can allow shared access to Minsky tools.
+
+## Best Practices
+
+- Always verify that your MCP configuration file exists before running AI agents
+- Use task IDs consistently when referring to tasks through MCP
+- Review AI-proposed tool calls before execution
+- For web interfaces, prefer SSE transport
+- For security-sensitive environments, stick with stdio transport
+
+This rule helps Minsky users configure and leverage the Model Context Protocol effectively.

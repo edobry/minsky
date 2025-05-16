@@ -186,25 +186,27 @@ export function createInitCommand(): Command {
             }
           }
 
-          // Convert CLI options to domain parameters
-          const params: InitParams = {
-            repo: options.repo,
-            session: options.session,
-            backend,
-            ruleFormat,
-            mcp: mcpEnabled,
-            mcpTransport,
-            mcpPort,
-            mcpHost,
-            mcpOnly: options.mcpOnly,
-            overwrite: options.overwrite,
+          // Before constructing params:
+          let repoPath = options.repo || process.cwd();
+          // TODO: If session-based repo resolution is needed, add logic here.
+          // In params:
+          // repoPath,
+          // After calling initializeProjectFromParams:
+          const params = {
+            repoPath,
+            backend: backend as 'tasks.md' | 'tasks.csv',
+            ruleFormat: ruleFormat as 'cursor' | 'generic',
+            mcp: mcpEnabled ? {
+              enabled: true,
+              transport: (mcpTransport || 'stdio') as 'stdio' | 'sse' | 'httpStream',
+              port: mcpPort ? Number(mcpPort) : undefined,
+              host: mcpHost,
+            } : undefined,
+            mcpOnly: options.mcpOnly ?? false,
+            overwrite: options.overwrite ?? false,
           };
-
-          // Call the domain function
-          const result = await initializeProjectFromParams(params);
-
-          // Display the result
-          p.outro(result.message);
+          await initializeProjectFromParams(params);
+          p.outro('Project initialized for Minsky.');
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);

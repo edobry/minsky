@@ -100,7 +100,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - [x] Implement GitHub-specific repository operations
    - [x] Add GitHub authentication handling
 
-4. [ ] Update Session Management
+4. [x] Update Session Management
 
    - [x] Add backend configuration to session settings
    - [x] Modify session creation to use configured backend
@@ -108,12 +108,13 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 5. [ ] Add Configuration Support
 
-   - [ ] Add Remote Git configuration options
-   - [ ] Add GitHub configuration options
+   - [x] Add repository backend options to session commands
+   - [x] Add remote Git configuration options
+   - [x] Add GitHub configuration options
    - [ ] Implement configuration validation
    - [ ] Add configuration documentation
 
-6. [ ] Update CLI Commands
+6. [x] Update CLI Commands
 
    - [x] Add backend option to session commands
    - [x] Add Remote Git-specific options
@@ -126,7 +127,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - [x] Tests for LocalGitBackend
    - [x] Tests for RemoteGitBackend
    - [x] Tests for GitHubBackend
-   - [ ] Integration tests for session creation
+   - [ ] Integration tests for session creation with different backends
    - [ ] Test error handling scenarios
 
 8. [ ] Update Documentation
@@ -180,31 +181,40 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 ## Remaining Work
 
-1. **Session Integration**
+1. **Polishing and Bug Fixes**
 
-   - Test end-to-end workflows with different repository backends
-   - Add proper error handling for backend-specific failures
-   - Test authentication methods with remote repositories
+   - [ ] Fix circular dependency issues in repository backend imports
+   - [ ] Fix type issues with Result interface implementation in backends
+   - [ ] Complete implementation of push/pull operations in GitHub backend
+   - [ ] Ensure proper error handling for all backend operations
+   - [ ] Standardize return types across all backends
 
-2. **Configuration**
+2. **Testing**
 
-   - Add configuration options for each backend type
-   - Implement proper validation for backend-specific options
-   - Document configuration process in README
+   - [ ] Create comprehensive integration tests for each backend type
+   - [ ] Test authentication methods with different repository sources
+   - [ ] Test error handling scenarios (network failures, permission issues)
+   - [ ] Create test fixtures for remote repository operations
+   - [ ] Test backward compatibility with existing sessions
 
-3. **Fix Linting Errors**
+3. **Documentation**
 
-   - Address string quote style issues in updated files (doublequote vs singlequote)
-   - Fix property typing issues with SessionRecord interface
-   - Ensure proper import patterns for domain modules (using index files)
+   - [ ] Add comprehensive documentation in README for repository backends
+   - [ ] Create examples for each backend type
+   - [ ] Document configuration options and their default values
+   - [ ] Add troubleshooting guide for common repository issues
+   - [ ] Update CLI command help text with backend options
 
-4. **Testing**
+4. **Configuration and Migration**
 
-   - Complete integration tests between session management and repository backends
-   - Add tests for error handling scenarios
-   - Ensure full test coverage for new functionality
+   - [ ] Create migration utility for existing sessions to use explicit backend type
+   - [ ] Add global configuration options for default repository backends
+   - [ ] Implement backend auto-detection improvements
+   - [ ] Add validation for configuration options
 
-5. **Documentation**
-   - Add comprehensive documentation for all backend types
-   - Include examples for common use cases
-   - Document configuration and setup requirements
+5. **Enhance GitHub Integration**
+
+   - [ ] Complete GitHub API integration for PR creation
+   - [ ] Add support for GitHub Enterprise
+   - [ ] Implement token management and refresh
+   - [ ] Add GitHub status reporting

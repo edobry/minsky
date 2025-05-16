@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CommandMapper } from "../command-mapper.js";
 import { execSync } from "child_process";
+import { log } from "../../utils/logger";
 
 /**
  * Register session-related tools with the MCP server
@@ -17,7 +18,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       // Parse the JSON output
       return JSON.parse(output);
     } catch (error) {
-      console.error("Error listing sessions:", error);
+      log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -40,7 +41,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
-        console.error(`Error getting session ${args.session}:`, error);
+        log.error(`Error getting session ${args.session}`, { error, session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -88,7 +89,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
       } catch (error) {
-        console.error("Error starting session:", error);
+        log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
           `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -134,7 +135,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (error) {
-        console.error("Error committing changes:", error);
+        log.error("Error committing changes", { error, session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -175,7 +176,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (error) {
-        console.error("Error pushing changes:", error);
+        log.error("Error pushing changes", { error, session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`
         );

@@ -15,9 +15,13 @@ import type { SessionRecord, Session, SessionDeps } from "../session.js";
 import type { Task } from "../tasks.js";
 import type { SessionUpdateParams } from "../../schemas/session.js";
 import * as WorkspaceUtilsFns from "../workspace.js";
+<<<<<<< HEAD
+import { log } from "../../utils/logger.js";
+=======
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
 import { rm } from "fs/promises"; // Import rm for cleanup
 import { createTempTestDir } from "../../utils/test-utils";
+>>>>>>> origin/main
 
 // Set up test mock cleanup
 setupTestMocks();
@@ -200,7 +204,11 @@ describe("interface-agnostic session functions", () => {
         expect(result.sessionRecord.session).toBe("test-session");
         expect(result.sessionRecord.repoUrl).toBe("/mock/repo/url");
       } catch (error) {
-        console.error("Test error:", error);
+        log.error("Test error", {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          params
+        });
         throw error;
       }
     });
