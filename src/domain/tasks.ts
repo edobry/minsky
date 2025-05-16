@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { resolveRepoPath } from "./repo-utils.js";
 import { resolveWorkspacePath } from "./workspace.js";
 import { log } from "../utils/logger";
+import { normalizeTaskId } from "./tasks/utils.js";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import type {
   TaskListParams,
@@ -99,7 +100,25 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async getTask(id: string): Promise<Task | null> {
     const tasks = await this.parseTasks();
-    return tasks.find((task) => task.id === id) || null;
+
+    // First try exact match
+    const exactMatch = tasks.find((task) => task.id === id);
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    // If no exact match, try numeric comparison
+    // This handles case where ID is provided without leading zeros
+    const numericId = parseInt(id.replace(/^#/, ""), 10);
+    if (!isNaN(numericId)) {
+      const numericMatch = tasks.find((task) => {
+        const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
+        return !isNaN(taskNumericId) && taskNumericId === numericId;
+      });
+      return numericMatch || null;
+    }
+
+    return null;
   }
 
   async getTaskStatus(id: string): Promise<string | null> {
@@ -111,8 +130,18 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
       throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
+
+    // First verify the task exists with our enhanced getTask method
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task ${id} not found`);
+    }
+
+    // Use the canonical task ID from the found task
+    const canonicalId = task.id;
+    const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
+
     const content = await fs.readFile(this.filePath, "utf-8");
-    const idNum = id.startsWith("#") ? id.slice(1) : id;
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.split("\n");
     let inCodeBlock = false;
@@ -252,7 +281,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       title = titleWithoutIdMatch[1];
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 
@@ -334,10 +363,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           await fs.unlink(fullSpecPath);
         } catch (error) {
           // If file doesn't exist or can't be deleted, just log it
-          log.warn(
-            "Could not delete original spec file",
-            { error, path: fullSpecPath }
-          );
+          log.warn("Could not delete original spec file", { error, path: fullSpecPath });
         }
       }
     } catch (error) {
@@ -538,8 +564,17 @@ export async function getTaskFromParams(
   }
 ): Promise<Task> {
   try {
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
     // Validate params with Zod schema
-    const validParams = taskGetParamsSchema.parse(params);
+    const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -598,8 +633,17 @@ export async function getTaskStatusFromParams(
   }
 ): Promise<string> {
   try {
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
     // Validate params with Zod schema
-    const validParams = taskStatusGetParamsSchema.parse(params);
+    const validParams = taskStatusGetParamsSchema.parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -661,8 +705,17 @@ export async function setTaskStatusFromParams(
   }
 ): Promise<void> {
   try {
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
     // Validate params with Zod schema
-    const validParams = taskStatusSetParamsSchema.parse(params);
+    const validParams = taskStatusSetParamsSchema.parse(paramsWithNormalizedId);
 
     // Validate the status is one of the allowed values
     if (!Object.values(TASK_STATUS).includes(validParams.status as TaskStatus)) {

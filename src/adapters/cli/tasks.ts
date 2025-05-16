@@ -146,9 +146,18 @@ export function createGetCommand(): Command {
         }
       ) => {
         try {
+          // Normalize the task ID before passing to domain
+          const normalizedTaskId = normalizeTaskId(taskId);
+          if (!normalizedTaskId) {
+            log.cliError(
+              `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            );
+            exit(1);
+          }
+
           // Convert CLI options to domain parameters
           const params: TaskGetParams = {
-            taskId,
+            taskId: normalizedTaskId,
             session: options.session,
             repo: options.repo,
             workspace: options.workspace,
@@ -290,11 +299,17 @@ export function createStatusCommand(): Command {
           // Display success message
           if (options.json) {
             // For JSON output, write directly to stdout
-            process.stdout.write(`${JSON.stringify({ 
-              taskId, 
-              status, 
-              success: true 
-            }, null, 2)}\n`);
+            process.stdout.write(
+              `${JSON.stringify(
+                {
+                  taskId,
+                  status,
+                  success: true,
+                },
+                null,
+                2
+              )}\n`
+            );
           } else {
             log.cli(`Status of task #${taskId} set to ${status}`);
           }
@@ -322,10 +337,14 @@ export function createCreateCommand(): Command {
     new Command("create")
       .description("Create a new task from a specification file or URL")
       .argument("<spec-path>", "Path or URL to the task specification markdown file") // Corrected argument name to spec-path
-      .option("-f, --force", "Force creation even if a task with the same ID might exist (used by AI)")
+      .option(
+        "-f, --force",
+        "Force creation even if a task with the same ID might exist (used by AI)"
+      )
       .option("--json", "Output created task as JSON")
       // Session/repo/workspace options are implicitly handled by the domain if needed for backend resolution
-      .action(async (specPath: string, options: { force?: boolean; json?: boolean }) => { // Corrected parameter name to specPath
+      .action(async (specPath: string, options: { force?: boolean; json?: boolean }) => {
+        // Corrected parameter name to specPath
         try {
           const params: TaskCreateParams = {
             specPath, // Corrected to use specPath

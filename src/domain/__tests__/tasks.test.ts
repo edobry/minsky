@@ -122,6 +122,38 @@ describe("interface-agnostic task functions", () => {
         expect(e instanceof ResourceNotFoundError).toBe(true);
       }
     });
+
+    test("should normalize non-canonical task IDs (e.g., '123' -> '#123')", async () => {
+      const params = {
+        taskId: "123", // non-canonical, missing '#'
+        backend: "markdown",
+      };
+
+      const result = await getTaskFromParams(params, mockDeps);
+
+      expect(result).toEqual(mockTask);
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
+    });
+
+    test("should handle task IDs without leading zeros", async () => {
+      // Modify mock implementation to return task with ID '123' for both '#123' and '#23'
+      // This simulates the updated MarkdownTaskBackend.getTask behavior
+      mockTaskService.getTask.mockImplementationOnce((id) =>
+        Promise.resolve(
+          parseInt(id.replace(/^#/, ""), 10) === 23 ? { ...mockTask, id: "#023" } : null
+        )
+      );
+
+      const params = {
+        taskId: "23", // without leading zeros
+        backend: "markdown",
+      };
+
+      const result = await getTaskFromParams(params, mockDeps);
+
+      expect(result).toEqual({ ...mockTask, id: "#023" });
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
+    });
   });
 
   describe("getTaskStatusFromParams", () => {

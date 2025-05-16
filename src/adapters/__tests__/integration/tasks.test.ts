@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import { execSync } from "child_process";
 
 /**
  * TODO: CLI/MCP integration tests need to be migrated
