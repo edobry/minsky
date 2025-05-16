@@ -173,7 +173,7 @@ export function createGetCommand(): Command {
             // For JSON output, write directly to stdout
             process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
           } else {
-            log.cli(`Task #${task.id}:`);
+            log.cli(`Task ${task.id}:`);
             log.cli(`Title: ${task.title}`);
             log.cli(`Status: ${task.status}`);
             if (task.specPath) {
@@ -239,7 +239,9 @@ export function createStatusCommand(): Command {
             // For JSON output, write directly to stdout
             process.stdout.write(`${JSON.stringify({ taskId, status }, null, 2)}\n`);
           } else {
-            log.cli(`Status of task #${taskId}: ${status}`);
+            // Normalize the ID for display to ensure consistent formatting
+            const displayId = normalizeTaskId(taskId) || taskId;
+            log.cli(`Status of task ${displayId}: ${status}`);
           }
         } catch (error) {
           log.cliError("Error getting task status:");
@@ -311,7 +313,9 @@ export function createStatusCommand(): Command {
               )}\n`
             );
           } else {
-            log.cli(`Status of task #${taskId} set to ${status}`);
+            // Normalize the ID for display to ensure consistent formatting
+            const displayId = normalizeTaskId(taskId) || taskId;
+            log.cli(`Status of task ${displayId} set to ${status}`);
           }
         } catch (error) {
           if (error instanceof MinskyError) {

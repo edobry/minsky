@@ -35,6 +35,7 @@ _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specs
 - Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options
 - Improved error handling and user feedback for invalid status values in `tasks status set`
 - Ensured all code and tests follow best practices for modularity and separation of concerns
+- Improved CLI output format by removing timestamps and log level indicators for better user experience
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization changes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -49,6 +50,7 @@ _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specs
 - Fixed duplicate schema definition in session schema file
 - Updated createSessionDeps to correctly handle async operations
 - Improved path normalization for session directories
+- Fixed duplicate hash character display in task IDs (showing "##077" instead of "#077")
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
