@@ -247,3 +247,104 @@ Assistant:
 
 ### Meta-Error Prevention
 - If this protocol is not followed, treat it as a critical protocol failure and immediately update this rule and process.
+
+## When to Apply This Rule
+
+This rule MUST be applied whenever:
+1. The user expresses dissatisfaction
+2. The user corrects you
+3. The user indicates confusion
+4. The user expresses a preference for future behavior
+5. The user asks you to do something differently
+6. Your action results in an error
+
+## Self-Improvement Protocol
+
+**REQUIRED: When triggered, follow this exact procedure:**
+
+1. **Stop Current Task**
+   - Immediately pause progress on the current task
+   - Do not continue with the previous workflow
+   - Display acknowledgment that you're considering the feedback
+
+2. **Root Cause Analysis**
+   - Identify the specific cause of the issue
+   - Determine if it's a:
+     - Misunderstanding of requirements
+     - System limitation
+     - Tool usage error
+     - Reasoning error
+     - Misalignment with user preferences
+
+3. **Verbalize Understanding**
+   - Explicitly state what went wrong
+   - Demonstrate that you understand the user's concern
+   - Confirm the user's preference for future behavior
+
+4. **Apply Correction**
+   - State how you'll adjust your approach
+   - Make the change immediately
+   - Use specific, concrete language about what you'll do differently
+
+5. **Verify Alignment**
+   - Confirm your new approach meets the user's needs
+   - Only after confirmation, resume the previous task with the new approach
+
+## Rule System Organization Lessons
+
+When working with complex rule systems (like testing rules), apply these organizational principles:
+
+1. **Create Rule Hierarchies**:
+   - Create a router rule as the entry point for the rule system
+   - Organize rules into layers (Foundation, Implementation, Specialized)
+   - Ensure descriptions clearly indicate rule relationships
+
+2. **Cross-Rule References**:
+   - Always include explicit references to related rules
+   - Use relationship indicators in descriptions ("Apply alongside X")
+   - Create a relationship matrix in the router rule showing when each rule applies
+
+3. **Rule Application Clarity**:
+   - Ensure every rule has a clear, unique purpose
+   - Prevent overlapping guidance between rules
+   - Use specific scenarios in descriptions to trigger correct rule application
+
+4. **Combine Related Rules When Appropriate**:
+   - If multiple rules cover similar topics and are consistently applied together, consider merging them
+   - If a rule system becomes too complex (10+ rules), look for consolidation opportunities
+
+These lessons should be applied proactively when creating or refactoring rule systems to improve AI understanding and rule application.
+
+## Common Self-Improvement Scenarios
+
+### Wrong Rule Application
+
+If you applied an incorrect rule or missed applying a relevant rule:
+
+```
+I apologize for applying the wrong rule. I see that this situation calls for the [correct-rule] instead of [incorrect-rule]. The key difference is [explanation]. I'll now apply the correct rule.
+```
+
+### Confusing Output
+
+If your explanation was unclear or confusing:
+
+```
+I see my explanation was confusing. Let me clarify: [simple, direct explanation]. The core point is [key takeaway]. Does that make more sense?
+```
+
+### System Limitations
+
+If you hit a system limitation:
+
+```
+I understand what you're asking for, but I'm limited in my ability to [specific limitation]. Let me suggest an alternative approach: [workaround].
+```
+
+### User Preference Alignment
+
+If the user expresses a preference for how something should be done:
+
+```
+I understand your preference for [specific preference]. I'll adjust my approach to [specific change] going forward. Let me demonstrate that now by [example of implementing preference].
+```

@@ -1,0 +1,123 @@
+---
+description: "REQUIRED: Entry point for ALL test-related tasks. Always consult first when writing, modifying, or debugging tests."
+globs: "**/*.test.ts"
+alwaysApply: true
+---
+# Minsky Testing Guidance - Start Here
+
+This rule serves as the **primary entry point** for all testing guidance in the Minsky project. It directs you to the relevant rules for your specific testing needs, recognizing that **multiple rules often apply simultaneously** for any testing scenario.
+
+## Rule Application Matrix
+
+| Scenario | Primary Rules | Supporting Rules |
+|----------|---------------|------------------|
+| Writing new tests | testing-boundaries, designing-tests | bun-test-patterns, framework-specific-tests |
+| Implementing mocks | bun-test-patterns, testing-boundaries | framework-specific-tests |
+| Debugging failing tests | test-debugging | bun-test-patterns, test-expectations |
+| Updating test expectations | test-expectations | testing-boundaries |
+| Setting up test environments | test-infrastructure-patterns | framework-specific-tests |
+| Fixing bugs with tests | test-driven-bugfix | testing-boundaries, test-debugging |
+| Verifying and running tests | tests | test-debugging |
+
+## Rule Relationships
+
+### Foundation Layer (Always Apply)
+- [**testing-boundaries**](mdc:.cursor/rules/testing-boundaries.mdc): CRITICAL rules for what should and should NOT be tested
+- [**bun-test-patterns**](mdc:.cursor/rules/bun-test-patterns.mdc): Essential patterns for using bun:test correctly
+
+### Implementation Layer (Apply as Needed)
+- [**framework-specific-tests**](mdc:.cursor/rules/framework-specific-tests.mdc): Standards for working with specific testing frameworks
+- [**test-infrastructure-patterns**](mdc:.cursor/rules/test-infrastructure-patterns.mdc): Setting up test environments and fixtures
+- [**designing-tests**](mdc:.cursor/rules/designing-tests.mdc): General principles for effective test design
+
+### Specialized Layer (Apply for Specific Scenarios)
+- [**test-debugging**](mdc:.cursor/rules/test-debugging.mdc): Systematic approach to troubleshooting test failures
+- [**test-expectations**](mdc:.cursor/rules/test-expectations.mdc): Managing test assertions and expectations correctly
+- [**test-driven-bugfix**](mdc:.cursor/rules/test-driven-bugfix.mdc): Using TDD for fixing bugs
+
+### Process Layer
+- [**tests**](mdc:.cursor/rules/tests.mdc): Test execution requirements and verification protocols
+
+## Consolidated Testing Requirements
+
+1. **Test Domain Logic, Not Interfaces:**
+   - Always test domain functions directly with specific inputs and expected outputs
+   - Never test CLI or MCP interfaces directly - test the domain methods they call
+   - Interfaces should be thin wrappers around domain logic
+
+2. **Use Centralized Testing Utilities:**
+   - Always use project utilities from `src/utils/test-utils/mocking.ts`
+   - Use `createMock()` instead of `jest.fn()`
+   - Use `mockModule()` instead of `mock.module()`
+   - Use `setupTestMocks()` for automatic cleanup
+
+3. **NEVER Test These Components:**
+   - Framework internals (Commander.js, Winston, etc.)
+   - Console output formatting or styling
+   - Interactive terminal interactions
+   - Filesystem operations directly (use mocks)
+   - Third-party library internals
+
+4. **ZERO TOLERANCE for Placeholder Tests:**
+   - Never use `expect(true).toBe(true)` or similar non-testing patterns
+   - Never use `test.skip()` to avoid fixing tests
+   - Never comment out failing tests
+   - All tests must validate actual functionality
+
+5. **Always Verify Test Results:**
+   - Run tests after ANY change to source or test files
+   - Use batch verification (lint, type-check, test)
+   - Never proceed with failing tests
+   - See [tests](mdc:.cursor/rules/tests.mdc) for complete verification protocols
+
+## Test Structure Checklist
+
+When writing any test, verify:
+
+- [ ] Testing domain logic, not interfaces or framework details
+- [ ] Using centralized mocking utilities (createMock, mockModule, setupTestMocks)
+- [ ] Following the Arrange-Act-Assert pattern
+- [ ] Proper test isolation with no shared mutable state
+- [ ] No direct filesystem operations (using mockFS instead)
+- [ ] No assertions against console output
+- [ ] No placeholder or skipped tests
+- [ ] Clear test descriptions that explain the expected behavior
+
+## Quick Reference Example
+
+```typescript
+// 1. Import testing utilities
+import { describe, test, expect } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockFileSystem
+} from "../../utils/test-utils/mocking";
+
+// 2. Set up automatic mock cleanup
+setupTestMocks();
+
+// 3. Define test suite
+describe("Domain feature", () => {
+  // 4. Set up mocks
+  const mockDependency = createMock();
+
+  // 5. Mock modules if needed
+  mockModule("../dependency", () => ({
+    someFunction: mockDependency
+  }));
+
+  // 6. Test specific behaviors
+  test("should handle specific case", () => {
+    // Arrange
+    mockDependency.mockReturnValue("expected");
+
+    // Act
+    const result = functionUnderTest();
+
+    // Assert
+    expect(result).toBe("expected");
+  });
+});
+```

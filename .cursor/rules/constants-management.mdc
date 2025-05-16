@@ -1,7 +1,7 @@
 ---
-description: 
-globs: 
-alwaysApply: true
+description: Use this when working with strings, especially when those strings contain duplication
+globs:
+alwaysApply: false
 ---
 # Constants Management
 
@@ -15,7 +15,7 @@ Extract and organize constants systematically to improve maintainability and red
    console.log("🔴 Error: Connection failed");
    console.log("🔴 Error: Authentication failed");
    console.log("🔴 Error: Network timeout");
-   
+
    // PREFER - Extracted emoji constant
    const ERROR_EMOJI = "🔴";
    console.log(`${ERROR_EMOJI} Error: Connection failed`);
@@ -32,7 +32,7 @@ Extract and organize constants systematically to improve maintainability and red
      INSTALL_FORMULA: 'brew install',
      INSTALL_CASK: 'brew install --cask',
    };
-   
+
    export const DISPLAY = {
      EMOJIS: {
        ENABLED: '🟢',
@@ -53,7 +53,7 @@ Extract and organize constants systematically to improve maintainability and red
    app.get('/api/users', ...);
    app.post('/api/users', ...);
    app.get('/api/posts', ...);
-   
+
    // PREFER
    const API_PREFIX = '/api';
    app.get(`${API_PREFIX}/users`, ...);
@@ -67,10 +67,10 @@ Extract and organize constants systematically to improve maintainability and red
    export * from './display';
    export * from './commands';
    export * from './paths';
-   
+
    // constants/display.ts - Display-related constants
    export const DISPLAY = { ... };
-   
+
    // constants/commands.ts - Command-related constants
    export const COMMANDS = { ... };
    ```
@@ -79,7 +79,7 @@ Extract and organize constants systematically to improve maintainability and red
    ```typescript
    const BASE_URL = 'https://api.example.com';
    const API_VERSION = 'v1';
-   
+
    // Derived constant using template literals
    const API_ENDPOINT = `${BASE_URL}/${API_VERSION}`;
    ```
@@ -88,7 +88,7 @@ Extract and organize constants systematically to improve maintainability and red
    ```typescript
    // String literal union for status
    export type Status = 'idle' | 'loading' | 'success' | 'error';
-   
+
    // Properly typed object of constants
    export const HTTP_STATUS: Record<string, number> = {
      OK: 200,
@@ -108,7 +108,7 @@ Extract and organize constants systematically to improve maintainability and red
      TIMEOUT_MS: 5000,
      MAX_RETRIES: 3,
    };
-   
+
    // Environment-specific overrides
    const ENV_CONSTANTS = {
      development: {
@@ -121,7 +121,7 @@ Extract and organize constants systematically to improve maintainability and red
        API_URL: 'https://api.example.com',
      },
    };
-   
+
    // Export the appropriate constants
    export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || 'development'];
    ```

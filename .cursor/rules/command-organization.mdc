@@ -1,14 +1,67 @@
 ---
-description: Use this when creating/modifying CLI commands
-globs: 
+description: Use this when creating/modifying CLI commands or working with the interface-agnostic architecture
+globs:
 alwaysApply: false
 ---
+
 # Command Organization
 
-Each subcommand should be in its own directory under `src/commands/<command-name>/`.
+## Interface-Agnostic Architecture
+
+Minsky implements an interface-agnostic command architecture that separates:
+- Core domain logic in `src/domain/` (what to do)
+- Interface-specific adapters in `src/adapters/` (how to interact)
+- Command entry points in `src/commands/` (CLI entry points)
 
 ## Directory Structure
-- Subcommands should be in their own files under the command directory
-- Example: `src/commands/git/clone.ts` for the git clone command
-- Main command files should be named `index.ts` in their respective directories
-- Avoid putting multiple subcommands in a single file
+
+### Domain Logic
+- Core business logic lives in `src/domain/` directory
+- Organized by domain concept (e.g., `tasks.ts`, `git.ts`, `session.ts`)
+- Contains pure TypeScript functions with proper typing and validation
+- Focus on "what" rather than "how" of each operation
+
+### Interface Adapters
+- Located in `src/adapters/` directory
+- Organized by interface type:
+  - `src/adapters/cli/`: CLI-specific adapters
+  - `src/adapters/mcp/`: MCP-specific adapters
+- Responsible for:
+  - Converting interface-specific input to domain function parameters
+  - Calling appropriate domain functions
+  - Formatting output for the specific interface
+  - Handling interface-specific error presentation
+
+### Command Entry Points
+- Located in `src/commands/` directory
+- Organized by interface type:
+  - `src/commands/mcp/`: MCP command entry points
+  - CLI commands use Commander.js directly from main index
+- Each command entry point should:
+  - Define the interface-specific input schema
+  - Use the appropriate adapter to perform the operation
+  - Be focused on a single command or closely related command group
+
+## Best Practices
+
+1. **Separate Concerns**:
+   - Domain logic should be interface-agnostic
+   - Adapters handle interface-specific concerns
+   - Command entry points define the external API
+
+2. **Consistent Organization**:
+   - Match domain files with corresponding adapters
+   - Example: `src/domain/tasks.ts` → `src/adapters/cli/tasks.ts` and `src/adapters/mcp/tasks.ts`
+
+3. **Parameter Validation**:
+   - Use Zod schemas for consistent parameter validation across interfaces
+   - Define schemas once and reuse where possible
+
+4. **Error Handling**:
+   - Domain functions should throw typed errors
+   - Adapters should catch and format errors for their interface
+
+5. **Testing**:
+   - Test domain functions independently
+   - Test adapters with their respective interfaces
+   - Test complete flows end-to-end

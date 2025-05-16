@@ -1,7 +1,7 @@
 ---
-description: 
-globs: 
-alwaysApply: true
+description: Use this when running bun/nodejs commands, or when referencing nodejs in code/configuration.
+globs:
+alwaysApply: false
 ---
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 
