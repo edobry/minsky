@@ -80,6 +80,7 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 - Fixed TaskService initialization in session commands to use the repository path instead of the state directory, enabling proper task lookup
 - Fixed branch name not showing in session output by properly setting the branch field in session records
 - Refactored task ID validation to reduce code duplication and improve consistency
+- Fixed session name display in CLI output by using the correct property name (session.session)
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
