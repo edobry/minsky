@@ -277,7 +277,17 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
   const { name, task } = params;
   const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
   if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeTaskId(task);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+
+    // Then validate using the schema
+    taskIdSchema.parse(normalizedTaskId);
+
     return sessionDB.getSessionByTaskId(normalizedTaskId);
   }
   if (params.name) {
@@ -365,7 +375,17 @@ export async function startSessionFromParams(
     let sessionName: string;
 
     if (task) {
-      const normalizedTaskId = taskIdSchema.parse(task);
+      // First normalize the task ID
+      const normalizedTaskId = normalizeTaskId(task);
+      if (!normalizedTaskId) {
+        throw new ValidationError(
+          `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        );
+      }
+
+      // Then validate using the schema
+      taskIdSchema.parse(normalizedTaskId);
+
       const taskInfo = await deps.taskService.getTask(normalizedTaskId);
 
       if (!taskInfo) {
@@ -524,7 +544,17 @@ export async function updateSessionFromParams(
   let sessionNameToUse = sessionName;
 
   if (params.task && !sessionName) {
-    const normalizedTaskId = taskIdSchema.parse(params.task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeTaskId(params.task);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+
+    // Then validate using the schema
+    taskIdSchema.parse(normalizedTaskId);
+
     const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
       throw new ResourceNotFoundError(
@@ -600,7 +630,17 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
   let session: SessionRecord | null = null;
 
   if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeTaskId(task);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+
+    // Then validate using the schema
+    taskIdSchema.parse(normalizedTaskId);
+
     session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
       throw new ResourceNotFoundError(
