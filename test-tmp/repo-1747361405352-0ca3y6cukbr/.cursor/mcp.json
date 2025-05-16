@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "minsky-server": {
+      "command": "minsky",
+      "args": [
+        "mcp",
+        "start",
+        "--http-stream",
+        "--port",
+        "8888",
+        "--host",
+        "localhost"
+      ]
+    }
+  }
+}

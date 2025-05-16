@@ -25,7 +25,7 @@ describe("SessionDB", () => {
       // No need to ensure parent directory exists as tmpDir is already created
 
       // Initialize the database
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ dbPath: testDbPath });
 
       // Create test sessions
       const sessions: SessionRecord[] = [
@@ -35,6 +35,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
         {
           session: "test-session-2",
@@ -42,6 +44,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#002",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 
@@ -68,7 +72,7 @@ describe("SessionDB", () => {
       // No need to ensure parent directory exists as tmpDir is already created
 
       // Initialize the database with a clean file
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ dbPath: testDbPath });
 
       // Create and add a test session
       const session: SessionRecord = {
@@ -76,6 +80,8 @@ describe("SessionDB", () => {
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo",
         createdAt: new Date().toISOString(),
+        backendType: "local",
+        remote: { authMethod: "none", depth: 1 },
       };
 
       await db.addSession(session);
@@ -102,7 +108,7 @@ describe("SessionDB", () => {
       writeFileSync(emptyDbPath, JSON.stringify([], null, 2));
 
       // Initialize SessionDB instance with the empty database
-      const db = new SessionDB(emptyDbPath);
+      const db = new SessionDB({ dbPath: emptyDbPath });
 
       // Try to delete a session
       const result = await db.deleteSession("non-existent-session");
@@ -116,7 +122,7 @@ describe("SessionDB", () => {
       const nonExistentDbPath = join(tmpDir, "non-existent-dir", "does-not-exist.json");
 
       // Initialize SessionDB instance with a non-existent database file
-      const db = new SessionDB(nonExistentDbPath);
+      const db = new SessionDB({ dbPath: nonExistentDbPath });
 
       // Check that deleteSession returns false if the database doesn't exist
       const result = await db.deleteSession("test-session");
@@ -132,7 +138,7 @@ describe("SessionDB", () => {
       // No need to ensure parent directory exists as tmpDir is already created
 
       // Initialize with a clean database
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ dbPath: testDbPath });
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
@@ -142,6 +148,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
         {
           session: "test-session-2",
@@ -149,6 +157,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#002",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 
@@ -174,7 +184,7 @@ describe("SessionDB", () => {
       // No need to ensure parent directory exists as tmpDir is already created
 
       // Initialize with a clean database
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ dbPath: testDbPath });
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
@@ -184,6 +194,8 @@ describe("SessionDB", () => {
           repoUrl: "https://github.com/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "#001",
+          backendType: "local",
+          remote: { authMethod: "none", depth: 1 },
         },
       ];
 

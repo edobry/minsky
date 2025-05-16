@@ -40,10 +40,10 @@ export class SessionDB {
   private readonly dbPath: string;
   private readonly baseDir: string;
 
-  constructor(options?: { baseDir?: string }) {
+  constructor(options?: { dbPath?: string; baseDir?: string }) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyStateDir = join(xdgStateHome, "minsky");
-    this.dbPath = join(minskyStateDir, "session-db.json");
+    this.dbPath = options?.dbPath || join(minskyStateDir, "session-db.json");
     this.baseDir = options?.baseDir || join(minskyStateDir, "git");
   }
 
@@ -83,7 +83,7 @@ export class SessionDB {
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
       log.debug("DB file written successfully.");
     } catch (error) {
-      log.error("Error writing session database", {
+      log.error("Error writing session database", { 
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         dbPath: this.dbPath
@@ -145,9 +145,9 @@ export class SessionDB {
       return found || null;
     } catch (error) {
       log.error("Error finding session by task ID", {
-        error: error instanceof Error ? error.message : String(error),
+          error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        taskId
+          taskId
       });
       return null;
     }
@@ -169,9 +169,9 @@ export class SessionDB {
       return true;
     } catch (error) {
       log.error(`Error in deleteSession for '${session}'`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : String(error), 
         stack: error instanceof Error ? error.stack : undefined,
-        session
+        session 
       });
       return false;
     }
