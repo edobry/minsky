@@ -81,20 +81,32 @@ export class SessionDB {
       const sessions = JSON.parse(data);
 
       // Normalize and migrate session records
+      let normalizedCount = 0;
       const normalizedSessions = sessions.map((session: SessionRecord) => {
+        let wasNormalized = false;
+
         // Ensure repoName exists
         if (!session.repoName && session.repoUrl) {
           session.repoName = normalizeRepoName(session.repoUrl);
+          wasNormalized = true;
         }
 
         // Ensure branch field exists - default to session name if missing
         if (!session.branch && session.session) {
-          log.debug(`Fixing missing branch for session: ${session.session}`);
           session.branch = session.session;
+          wasNormalized = true;
+        }
+
+        if (wasNormalized) {
+          normalizedCount++;
         }
 
         return session;
       });
+
+      if (normalizedCount > 0) {
+        log.debug(`Normalized ${normalizedCount} session records with missing fields`);
+      }
 
       return normalizedSessions;
     } catch (e) {
