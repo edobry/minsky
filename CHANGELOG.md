@@ -212,22 +212,14 @@ function customMatterStringify(content: string, data: any): string {
 - Documentation in `.cursor/rules/README.md` explaining workspace isolation and rule management
 - Centralized test mock utilities in `src/utils/test-utils/mocking.ts` with functions like `createMock`, `mockModule`, `setupTestMocks`, `createMockObject`, `createMockExecSync`, and `createMockFileSystem` that encapsulate correct bun:test mocking patterns. These utilities improve test reliability, maintainability, and consistency across the codebase.
 - Comprehensive test suite for the mocking utilities in `src/utils/test-utils/mocking.test.ts` that verifies all functionality and provides usage examples.
-- Implemented structured logging system with Winston for consistent log handling:
-  - Created centralized logger module in `src/utils/logger.ts` with separate loggers for different purposes
-  - Added agent logger for structured JSON output to stdout (internal system events)
-  - Added program logger for human-readable text output to stderr (user-facing messages)
-  - Implemented log levels (debug, info, warn, error) for better log filtering
-  - Added proper error handling with stack trace preservation
-  - Added structured metadata support for enhanced debugging
-  - Implemented global error handlers for uncaught exceptions and rejections
-  - Migrated CLI commands and domain modules to use structured logging
-  - Improved error reporting with consistent formatting across the codebase
-  - Migrated rules commands with improved error handling and JSON formatting
-  - Migrated git commands with proper structured logging for agent and user interactions 
-  - Migrated task commands with enhanced error reporting and standardized output formats
-  - Updated init command to use structured logging for better interactive output
-  - Migrated session commands (list, get, dir) with consistent error handling and proper JSON formatting
-  - Migrated additional session commands (start, startSession, commit, delete, update) with enhanced error reporting and contextual metadata
+- Implemented structured logging system using Winston for consistent, configurable logging across the codebase:
+  - Created centralized `src/utils/logger.js` module with separate loggers for agent events (structured JSON to stdout) and program messages (human-readable text to stderr)
+  - Added support for different log levels (debug, info, warn, error) configurable via environment variables
+  - Implemented proper error handling with stack traces and context preservation
+  - Migrated all console.log/error/warn calls to use the structured logging system
+  - Added context objects to error logs for better debugging
+  - Standardized output formats for both human and machine consumption
+  - Created LogCapture utility for testing code that uses the logger
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -425,3 +417,5 @@ _See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/
   - CLI has been updated to use the new adapters
   - Domain function tests are passing for the new architecture
   - Old implementation files still need to be removed after all tests pass
+
+_See: SpecStory history [2025-05-16_01-20-structured-logging-implementation](.specstory/history/2025-05-16_01-20-structured-logging-implementation.md) for structured logging implementation._
