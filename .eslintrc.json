@@ -42,7 +42,35 @@
     "no-throw-literal": "error",
     "prefer-promise-reject-errors": "error",
     "no-useless-catch": "error",
-    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "no-console": ["error", { "allow": [] }],
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "console",
+        "property": "log",
+        "message": "Use log.cli() for user-facing output, log.agent() for structured data, or log.debug() for debugging information instead."
+      },
+      {
+        "object": "console",
+        "property": "error",
+        "message": "Use log.error() for internal error logging or log.cliError() for user-facing errors instead."
+      },
+      {
+        "object": "console",
+        "property": "warn",
+        "message": "Use log.warn() for internal warning logging or log.cliWarn() for user-facing warnings instead."
+      },
+      {
+        "object": "console",
+        "property": "info",
+        "message": "Use log.info() or log.cli() for informational messages instead."
+      },
+      {
+        "object": "console",
+        "property": "debug",
+        "message": "Use log.debug() for debug messages instead."
+      }
+    ],
     "max-lines": "off",
     "no-restricted-globals": "off",
     "import/extensions": "off",
@@ -54,6 +82,20 @@
       "files": ["**/domain/index.js", "**/domain/index.ts"],
       "rules": {
         "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["src/utils/logger.ts"],
+      "rules": {
+        "no-console": "off",
+        "no-restricted-properties": "off"
+      }
+    },
+    {
+      "files": ["**/test/**", "**/*.test.ts", "**/__tests__/**"],
+      "rules": {
+        "no-console": "warn",
+        "no-restricted-properties": "warn"
       }
     }
   ]
