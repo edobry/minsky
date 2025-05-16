@@ -132,36 +132,137 @@ export class GitService {
   }
 
   getSessionWorkdir(repoName: string, session: string): string {
-    return join(this.baseDir, repoName, "sessions", session);
+    // For consistency, ensure we're always using a normalized repo name
+    const normalizedRepoName = repoName.includes("/")
+      ? repoName.replace(/[^a-zA-Z0-9-_]/g, "-")
+      : repoName;
+    return join(this.baseDir, normalizedRepoName, "sessions", session);
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
+    log.debug("GitService.clone called with options", {
+      repoUrl: options.repoUrl,
+      session: options.session,
+      destination: options.destination,
+      branch: options.branch,
+    });
+
     await this.ensureBaseDir();
+    log.debug("Base directory ensured", { baseDir: this.baseDir });
 
     const session = options.session || this.generateSessionId();
+    log.debug("Using session name", { session, wasProvided: !!options.session });
+
     const repoName = normalizeRepoName(options.repoUrl);
+    const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    log.debug("Session and repo name determined", { session, repoName, normalizedRepoName });
 
-    const sessionsDir = join(this.baseDir, repoName, "sessions");
+    const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
+    log.debug("Sessions directory created", { sessionsDir });
 
-    const workdir = this.getSessionWorkdir(repoName, session);
+    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
+    log.debug("Computed workdir path", { workdir });
 
-    await execAsync(`git clone ${options.repoUrl} ${workdir}`);
+    try {
+      // Validate repo URL
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
+        log.error("Invalid repository URL", { repoUrl: options.repoUrl });
+        throw new MinskyError("Repository URL is required for cloning");
+      }
 
-    return {
-      workdir,
-      session,
-    };
+      // Check if destination already exists and is not empty
+      try {
+        const fs = await import("fs/promises");
+        const dirContents = await fs.readdir(workdir);
+        if (dirContents.length > 0) {
+          log.warn("Destination directory is not empty", { workdir, contents: dirContents });
+        }
+      } catch (err) {
+        // Directory doesn't exist or can't be read - this is expected
+        log.debug("Destination directory doesn't exist or is empty", { workdir });
+      }
+
+      // Clone the repository with verbose logging
+      log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
+      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
+      try {
+        const { stdout, stderr } = await execAsync(cloneCmd);
+        log.debug("git clone succeeded", {
+          stdout: stdout.trim().substring(0, 200),
+          stderr: stderr.trim().substring(0, 200),
+        });
+      } catch (cloneErr) {
+        log.error("git clone command failed", {
+          error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
+          command: cloneCmd,
+        });
+        throw cloneErr;
+      }
+
+      // Verify the clone was successful by checking for .git directory
+      log.debug("Verifying clone success");
+      const fs = await import("fs/promises");
+      try {
+        const gitDir = join(workdir, ".git");
+        await fs.access(gitDir);
+        log.debug(".git directory exists, clone was successful", { gitDir });
+
+        // List files in the directory to help debug
+        try {
+          const dirContents = await fs.readdir(workdir);
+          log.debug("Clone directory contents", {
+            workdir,
+            fileCount: dirContents.length,
+            firstFewFiles: dirContents.slice(0, 5),
+          });
+        } catch (err) {
+          log.warn("Could not read clone directory", {
+            workdir,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } catch (accessErr) {
+        log.error(".git directory not found after clone", {
+          workdir,
+          error: accessErr instanceof Error ? accessErr.message : String(accessErr),
+        });
+        throw new MinskyError("Git repository was not properly cloned: .git directory not found");
+      }
+
+      return {
+        workdir,
+        session,
+      };
+    } catch (error) {
+      log.error("Error during git clone", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        repoUrl: options.repoUrl,
+        workdir,
+      });
+      throw new MinskyError(
+        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   async branch(options: BranchOptions): Promise<BranchResult> {
     await this.ensureBaseDir();
+    log.debug("Getting session for branch", { session: options.session });
+
     const record = await this.sessionDb.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
+
+    // Make sure to use the normalized repo name for consistency
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+    log.debug("Branch: got repoName", { repoName });
+
     const workdir = this.getSessionWorkdir(repoName, options.session);
+    log.debug("Branch: calculated workdir", { workdir });
+
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
       workdir,
@@ -272,9 +373,7 @@ export class GitService {
     }
 
     if (!options.session) {
-      throw new Error(
-        "Either 'session' or 'repoPath' must be provided to create a PR."
-      );
+      throw new Error("Either 'session' or 'repoPath' must be provided to create a PR.");
     }
 
     const session = await deps.getSession(options.session);
@@ -283,7 +382,7 @@ export class GitService {
     }
     const repoName = session.repoName || normalizeRepoName(session.repoUrl);
     const workdir = deps.getSessionWorkdir(repoName, options.session);
-    
+
     log.debug("Using workdir for PR", { workdir, session: options.session });
     return workdir;
   }
@@ -300,7 +399,7 @@ export class GitService {
 
     const { stdout } = await deps.execAsync(`git -C ${workdir} branch --show-current`);
     const branch = stdout.trim();
-    
+
     log.debug("Using current branch for PR", { branch });
     return branch;
   }
@@ -320,9 +419,9 @@ export class GitService {
       log.debug("Found remote HEAD branch", { baseBranch });
       return baseBranch;
     } catch (err) {
-      log.debug("Failed to get remote HEAD", { 
+      log.debug("Failed to get remote HEAD", {
         error: err instanceof Error ? err.message : String(err),
-        branch 
+        branch,
       });
     }
 
@@ -335,9 +434,9 @@ export class GitService {
       log.debug("Found upstream branch", { baseBranch });
       return baseBranch;
     } catch (err) {
-      log.debug("Failed to get upstream branch", { 
+      log.debug("Failed to get upstream branch", {
         error: err instanceof Error ? err.message : String(err),
-        branch 
+        branch,
       });
     }
 
@@ -347,8 +446,8 @@ export class GitService {
       log.debug("Using main as base branch");
       return "main";
     } catch (err) {
-      log.debug("Failed to check main branch", { 
-        error: err instanceof Error ? err.message : String(err) 
+      log.debug("Failed to check main branch", {
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -358,8 +457,8 @@ export class GitService {
       log.debug("Using master as base branch");
       return "master";
     } catch (err) {
-      log.debug("Failed to check master branch", { 
-        error: err instanceof Error ? err.message : String(err)
+      log.debug("Failed to check master branch", {
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -388,24 +487,22 @@ export class GitService {
       comparisonDescription = `Showing changes from merge-base with ${baseBranch}`;
       log.debug("Found merge base with base branch", { baseBranch, mergeBase });
     } catch (err) {
-      log.debug("Failed to find merge base", { 
+      log.debug("Failed to find merge base", {
         error: err instanceof Error ? err.message : String(err),
         branch,
-        baseBranch
+        baseBranch,
       });
 
       // If merge-base fails, get the first commit of the branch
       try {
-        const { stdout } = await deps.execAsync(
-          `git -C ${workdir} rev-list --max-parents=0 HEAD`
-        );
+        const { stdout } = await deps.execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
         mergeBase = stdout.trim();
         comparisonDescription = "Showing changes from first commit";
         log.debug("Using first commit as base", { mergeBase });
       } catch (err) {
-        log.debug("Failed to find first commit", { 
+        log.debug("Failed to find first commit", {
           error: err instanceof Error ? err.message : String(err),
-          branch 
+          branch,
         });
         // If that also fails, use empty tree
         mergeBase = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"; // Git empty tree
@@ -984,7 +1081,7 @@ export async function createPullRequestFromParams(params: {
       branch: params.branch,
       taskId: params.taskId,
       debug: params.debug,
-      noStatusUpdate: params.noStatusUpdate
+      noStatusUpdate: params.noStatusUpdate,
     });
     return result;
   } catch (error) {
@@ -994,7 +1091,7 @@ export async function createPullRequestFromParams(params: {
       branch: params.branch,
       taskId: params.taskId,
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
   }
@@ -1022,12 +1119,12 @@ export async function commitChangesFromParams(params: {
         await git.stageModified(params.repo);
       }
     }
-    
+
     const commitHash = await git.commit(params.message, params.repo, params.amend);
-    
+
     return {
       commitHash,
-      message: params.message
+      message: params.message,
     };
   } catch (error) {
     log.error("Error committing changes", {
@@ -1037,7 +1134,7 @@ export async function commitChangesFromParams(params: {
       all: params.all,
       amend: params.amend,
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
   }
