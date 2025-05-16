@@ -3,8 +3,6 @@ name: PR Preparation Workflow
 description: REQUIRED workflow for preparing and submitting pull requests
 globs:
   - "**/*"
-alwaysApply: false
----
 # PR Preparation Workflow
 
 This rule provides guidelines for preparing and submitting pull requests (PRs) in the Minsky workflow.
@@ -18,4 +16,132 @@ Before creating a PR, ensure:
 1. **All requirements are implemented**: Check the task specification to confirm all requirements are met
 2. **All tests pass**: Run the test suite to ensure all tests pass
 3. **Code quality is acceptable**: Check for any linting issues or code smells
+4. **Documentation is updated**: Ensure task documentation and changelog are updated
+
+### 2. Generate PR Description
+
+Use the Minsky CLI to generate a PR description:
+
+```bash
+minsky git pr --task <task-id>
+```
+
+or if you're already in a session:
+
+```bash
+minsky git pr
+```
+
+### 3. Save PR Description
+
+Save the generated PR description to the task directory:
+
+```bash
+minsky git pr > process/tasks/<task-id>/pr.md
+```
+
+or more simply:
+
+```bash
+mkdir -p process/tasks/<task-id>
+minsky git pr > process/tasks/<task-id>/pr.md
+```
+
+### 4. Edit PR Description
+
+Edit the PR description to:
+
+1. **Follow conventional commits format**: Use the format `<type>(#<task-id>): <description>`
+2. **Include a clear summary**: Summarize the changes made
+3. **List all changes**: Ensure all significant changes are listed
+4. **Explain any decisions**: Document any important design decisions or trade-offs
+5. **Include testing information**: Describe how the changes were tested
+
+### 5. Commit PR Description
+
+Commit the PR description to your branch:
+
+```bash
+git add process/tasks/<task-id>/pr.md
+git commit -m "Add PR description for task #<task-id>"
+git push origin $(git branch --show-current)
+```
+
+### 6. Update Task Status
+
+Update the task status to IN-REVIEW:
+
+```bash
+minsky tasks status set <task-id> IN-REVIEW
+```
+
+This can happen automatically when using `minsky git pr` unless the `--no-status-update` flag is used.
+
+## PR Description Format
+
+Follow this format for PR descriptions:
+
+```markdown
+# <type>(#<task-id>): <Short description of changes>
+
+## Summary
+
+A brief description of what was changed and why.
+
+## Changes
+
+### Added
+
+- List of new features or functionality added
+
+### Changed
+
+- List of existing functionality that was modified
+
+### Fixed
+
+- List of bugs or issues that were fixed
+
+## Testing
+
+Description of how the changes were tested.
+
+## Checklist
+
+- [x] All requirements implemented
+- [x] All tests pass
+- [x] Code quality is acceptable
+- [x] Documentation is updated
+- [x] Changelog is updated
+```
+
+### PR Types
+
+Use these types for the PR title:
+
+- **feat**: A new feature
+- **fix**: A bug fix
+- **docs**: Documentation changes
+- **style**: Changes that don't affect the meaning of the code (formatting, etc.)
+- **refactor**: Code changes that neither fix a bug nor add a feature
+- **perf**: Changes that improve performance
+- **test**: Adding or modifying tests
+- **chore**: Changes to the build process or auxiliary tools
+
+## PR Submission Best Practices
+
+1. **Keep PRs focused**: Each PR should address a single task or issue
+2. **Include context**: Provide enough context for reviewers to understand the changes
+3. **Reference task ID**: Always include the task ID in the PR title and description
+4. **Document trade-offs**: Explain any trade-offs or alternative approaches considered
+5. **Include testing information**: Describe how the changes were tested and verified
+
+## Integration with Other Rules
+
+- For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
+- For task status checking and updating, see [task-status-protocol](mdc:.cursor/rules/task-status-protocol.mdc)
+- For session creation and management, see [minsky-session-management](mdc:.cursor/rules/minsky-session-management.mdc)
+- For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
+- For detailed PR description guidelines, see [pr-description-guidelines](mdc:.cursor/rules/pr-description-guidelines.mdc)
+
 4. **Documentation is updated**: Ensure task documentation and changelog are updated
