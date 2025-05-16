@@ -37,159 +37,134 @@ Four primary approaches were evaluated:
    - **Pros**: Resource efficient, centralized control, works across sessions
    - **Cons**: Requires changes to tool calls, risk of context leakage, complex context management
 
-### Recommended Approach
+### Refined Approach: Session-Specific Tools
 
-A hybrid approach combining elements of options 1 and 4 is recommended:
+After analyzing the immediate needs and long-term goals, we've refined our approach to focus on creating explicit session-scoped tools:
 
-1. Use a single MCP server (or small pool) for efficiency
-2. Implement a robust path transformation layer for security
-3. Add session context tracking for proper routing
-4. Develop strict path validation to enforce boundaries
+1. Create new MCP tools with names like `session_edit_file`, `session_read_file`, etc.
+2. Each tool requires explicit session parameters for clear context
+3. Implement strict path validation to ensure operations stay within session boundaries
+4. Use a centralized MCP server for resource efficiency
 
-This provides the best balance of:
-- Resource efficiency (no server per session)
-- Strong isolation guarantees (strict path validation)
-- Compatibility with existing workflows (minimal changes to agent behavior)
-- Implementation simplicity (focused components with clear responsibilities)
+This approach provides:
+- Clear separation between standard and session-scoped tools
+- Explicit session context through required parameters
+- Strong path validation and boundary enforcement
+- Incremental implementation with immediate benefits
 
 ## Advanced Use Cases Support
 
 This approach supports several advanced usage scenarios:
 
-1. **Multiple Cursor instances on different repos**: All use the same centralized MCP with different session contexts
-2. **Single Cursor with multiple tabs on multiple repos**: Session context identifies which workspace to target
-3. **Different agents isolated on same repo**: Use different session contexts to maintain isolation
-4. **Multiple agents collaborating in same session**: Share the same session context identifier
-5. **Remote/K8s deployments**: Centralized MCP with network transport and session context routing
+1. **Multiple Cursor instances on different repos**: All use the same centralized MCP with explicit session parameters
+2. **Single Cursor with multiple tabs on multiple repos**: Each tab specifies its session context when using tools
+3. **Different agents isolated on same repo**: Each agent uses different session identifiers
+4. **Multiple agents collaborating in same session**: Multiple agents use identical session parameters
+5. **Remote/K8s deployments**: Central MCP server handles session routing based on explicit parameters
 
 ## Requirements
 
-1. **Centralized Session-Context MCP**
+1. **Session-Specific MCP Tools**
 
-   - Implement a centralized MCP server that handles multiple sessions
-   - Add session context parameters to all file operation tools
-   - Ensure all operations are properly routed to the correct session workspace
-   - Establish a clean API for context-aware tool execution
+   - Create new MCP tools with names prefixed with `session_` (e.g., `session_edit_file`)
+   - Require explicit session identifier parameters for all session tools
+   - Implement session workspace path resolution for each tool
+   - Provide clear documentation on tool usage patterns
 
 2. **Path Resolution Safety**
 
-   - Implement a robust path resolution system that prevents any file operations outside the session directory
-   - Handle relative paths by resolving them within the session workspace context
+   - Implement path validation to prevent operations outside session boundaries
+   - Transform relative paths to absolute paths within the correct session workspace
    - Block operations targeting the main workspace or other session workspaces
-   - Provide clear error messages for path violations
+   - Provide clear error messages for boundary violations
 
-3. **Session Context Management**
+3. **Session Lookup and Validation**
 
-   - Design a system to track active sessions and their workspace paths
-   - Support explicit session ID parameters for all relevant tool calls
-   - Store and retrieve session paths securely from the session database
-   - Provide an API for tools to resolve session context to workspace paths
+   - Create utilities to lookup session information by name or task ID
+   - Validate session existence and status before operations
+   - Retrieve session workspace paths from the session database
+   - Handle graceful error cases for invalid sessions
 
-4. **Cursor API Compatibility**
+4. **Tool Registration and Discovery**
 
-   - Ensure the MCP server exposes compatible tools for Cursor AI coding agents
-   - Create session-aware wrappers for all file-modifying tools
-   - Maintain compatibility with existing client expectations
-   - Add session parameter to tool schemas with sensible defaults
+   - Register session tools with the central MCP server
+   - Provide discovery mechanisms for available session tools
+   - Implement consistent parameter patterns across all session tools
+   - Document session tool schemas for AI agent consumption
 
-5. **Session Registration**
-   - Enhance the `session start` command to register sessions with the MCP context system
-   - Provide session identification and discovery mechanisms
-   - Support connecting AI agents to the appropriate session context
-   - Update necessary documentation to reflect session context requirements
+5. **Session Documentation and Examples**
+   - Create comprehensive documentation for session tool usage
+   - Provide examples of session-aware AI workflows
+   - Document migration from standard tools to session tools
+   - Create guides for different session usage patterns
 
 ## Implementation Steps
 
-1. [ ] Session Context Management:
+1. [ ] Core Session Utilities:
 
-   - [ ] Create a `SessionContextManager` to manage session information:
-     - [ ] Lookup and retrieval of session workspace paths
-     - [ ] Session validation and authorization
-     - [ ] Integration with existing session database
-   - [ ] Implement permanent storage of session path information
-   - [ ] Add APIs for tools to access and use session context
+   - [ ] Create a `SessionPathResolver` module:
+     - [ ] Session path retrieval and validation
+     - [ ] Path containment verification
+     - [ ] Path transformation utilities
+   - [ ] Implement session-specific error types
+   - [ ] Add session workspace lookup functions
 
-2. [ ] Path Resolution System:
+2. [ ] Essential Session Tools (Phase 1):
 
-   - [ ] Create a `SessionPathResolver` class for secure path operations:
-     - [ ] Session-specific path normalization and validation
-     - [ ] Containment verification to prevent path traversal
-     - [ ] Session-aware relative to absolute path conversion
-   - [ ] Implement specialized error types for boundary violations
-   - [ ] Add utility functions for common path operations
+   - [ ] Create `session_edit_file` tool:
+     - [ ] Define schema with session parameter
+     - [ ] Implement path validation and transformation
+     - [ ] Provide clear error messages for boundary violations
+   - [ ] Create `session_read_file` tool with similar structure
+   - [ ] Implement `session_list_dir` for directory operations
+   - [ ] Add registration for these tools to the MCP server
 
-3. [ ] Session-Aware Tool Framework:
+3. [ ] Additional Session Tools (Phase 2):
 
-   - [ ] Design a tool wrapper system that enforces session context:
-     - [ ] Tool parameter schemas with session context parameters
-     - [ ] Pre-execution path validation and transformation
-     - [ ] Post-execution path handling and result sanitization
-   - [ ] Create a registration system for session-aware tools
-   - [ ] Implement session context propagation between tool calls
+   - [ ] Implement `session_grep_search` for text searching
+   - [ ] Create `session_codebase_search` for semantic code search
+   - [ ] Add `session_file_search` for path-based file finding
+   - [ ] Develop utility tools like `session_delete_file`
+   - [ ] Ensure all tools follow consistent parameter patterns
 
-4. [ ] File Operation Tool Implementations:
+4. [ ] Tool Documentation and Examples:
 
-   - [ ] Create session-aware versions of essential file operation tools:
-     - [ ] File reading/writing tools with context validation
-     - [ ] Directory listing tools with path transformation
-     - [ ] File search and code search with session scope
-     - [ ] File editing tools with boundary enforcement
-   - [ ] Ensure tools validate paths before operations
-   - [ ] Add clear error reporting for boundary violations
-   - [ ] Maintain API compatibility with existing tools
+   - [ ] Create detailed documentation for each session tool
+   - [ ] Add examples of session-aware AI agent prompts
+   - [ ] Provide migration guides from standard tools
+   - [ ] Document common error cases and solutions
 
-5. [ ] MCP Server Integration:
+5. [ ] Session Integration:
 
-   - [ ] Enhance the central MCP server with session context capabilities:
-     - [ ] Initialize with `SessionContextManager`
-     - [ ] Register session-aware tool implementations
-     - [ ] Add session context to all tool execution flows
-   - [ ] Implement session context extraction from client requests
-   - [ ] Create default session context resolution for backwards compatibility
+   - [ ] Add session tool documentation to the session start output
+   - [ ] Create helper utilities for session tool discovery
+   - [ ] Implement logging for session tool operations
+   - [ ] Add session tool reference to project documentation
 
-6. [ ] Session Registration System:
+6. [ ] Testing and Validation:
 
-   - [ ] Enhance the `session start` command:
-     - [ ] Add session registration with the MCP context system
-     - [ ] Provide connection information to the MCP server
-     - [ ] Update client configuration for session awareness
-   - [ ] Create mechanisms for session context discovery
-   - [ ] Implement session workspace path lookup and verification
-
-7. [ ] Testing and Validation:
-
-   - [ ] Create unit tests for session context management
-   - [ ] Implement integration tests for path resolution
-   - [ ] Add end-to-end tests for session-aware tools
-   - [ ] Create security-focused tests for boundary enforcement
-   - [ ] Develop performance benchmarks for overhead measurement
-
-8. [ ] Documentation and Examples:
-   - [ ] Create detailed architecture documentation
-   - [ ] Add examples of session-context aware MCP usage
-   - [ ] Update existing documentation to reflect new capabilities
-   - [ ] Create guides for different deployment scenarios
+   - [ ] Create unit tests for session path resolution
+   - [ ] Implement integration tests for session tools
+   - [ ] Add security tests for boundary enforcement
+   - [ ] Create end-to-end tests with AI agent simulation
 
 ## Verification
 
-- [ ] Session registration with MCP works when starting sessions
-- [ ] Tools correctly route operations to the appropriate session workspace
+- [ ] Session-specific tools correctly restrict operations to the session workspace
 - [ ] Relative paths in tool calls are properly resolved within the session context
 - [ ] Operations targeting non-session directories are blocked with clear error messages
-- [ ] Performance overhead is minimal (less than 5% increase in operation time)
-- [ ] AI agents can seamlessly use session-scoped tools
+- [ ] AI agents can easily use session tools with explicit session parameters
 - [ ] Session workspaces remain isolated with no cross-session interference
-- [ ] Documentation clearly explains the centralized architecture and usage
+- [ ] Documentation clearly explains the session tool usage pattern
 
 ## Technical Considerations
 
 - **Security**: Ensure strict isolation between sessions and the main workspace
-- **Performance**: Minimize overhead of path resolution and context tracking
-- **Compatibility**: Maintain backward compatibility with existing AI workflows
-- **Scalability**: Support multiple concurrent sessions with efficient resource usage
-- **Error Handling**: Provide clear, actionable error messages for boundary violations
-- **Configuration**: Support flexible configuration for different use cases
-- **Testing**: Implement robust testing for security boundaries
+- **Usability**: Make session parameters clear and consistent across tools
+- **Compatibility**: Maintain standard tools alongside session tools during transition
+- **Error Messages**: Provide informative, actionable error messages
+- **Documentation**: Create comprehensive guides for AI agent usage
+- **Performance**: Minimize overhead of session path resolution
 
 ## Related Tasks
 
@@ -203,3 +178,4 @@ This approach supports several advanced usage scenarios:
 - 2024-07-14: Evaluated architectural approaches and selected hybrid approach
 - 2024-07-14: Updated task specification with detailed design and implementation plan
 - 2024-07-14: Revised specification to clarify centralized MCP approach with session context
+- 2024-07-14: Refined approach to focus on explicit session-specific tools
