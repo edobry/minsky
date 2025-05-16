@@ -125,3 +125,17 @@ export const sessionUpdateParamsSchema = z
  * Type for session update parameters
  */
 export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
+
+/**
+ * Schema for a single session record stored in the database.
+ */
+export const sessionRecordSchema = z.object({
+  session: sessionNameSchema.describe("Unique identifier for the session"),
+  repoName: z.string().describe("Name of the repository the session belongs to"),
+  repoPath: repoPathSchema.describe("Absolute path to the session's repository clone"),
+  branch: z.string().describe("Current Git branch of the session"),
+  createdAt: z.string().datetime().describe("ISO8601 timestamp of when the session was created"),
+  repoUrl: z.string().url().optional().describe("Original URL of the repository if cloned"),
+  taskId: taskIdSchema.optional().describe("Associated task ID, if any"),
+  // Add other fields as necessary, e.g., status, lastAccessed
+});
