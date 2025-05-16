@@ -54,6 +54,32 @@ alwaysApply: false
    * Tests MUST NEVER contain commented-out assertions
    * NEVER create "dummy" tests that don't actually test functionality
 
+7. **NEVER Delete Test Files to Fix Test Failures**
+   * Test files for application code MUST NEVER be deleted to make tests pass
+   * Each test represents a verification contract that must be preserved
+   * **The only acceptable cases for test deletion are:**
+     * Tests for test utilities themselves (with explicit user approval)
+     * Redundant tests that have been properly consolidated elsewhere
+
+   * **When faced with failing tests, follow this hierarchy:**
+     1. Fix the actual code bug causing the test to fail
+     2. Fix merge conflicts in test files by properly resolving the conflicts
+     3. Update tests to match intentional API changes
+     4. Disable specific test cases temporarily with clear documentation
+     5. Only consider deletion after discussion with user and with documented rationale
+
+   * **For merge conflict resolution:**
+     * Examine both versions of conflicted test code before resolving
+     * Understand what each side is testing
+     * Preserve test coverage from both versions when possible
+     * When resolving conflicts, maintain the verification intent of both sides
+
+   * **Before any test file deletion, explicitly verify and confirm:**
+     * What the test is actually testing (application code vs. test utilities)
+     * Why the test cannot be fixed instead of deleted
+     * What verification coverage will be lost by deletion
+     * Get explicit user approval stating "we don't need these tests"
+
 ## What To Test
 
 ### Domain Logic
