@@ -2,7 +2,7 @@
 name: Task Implementation Workflow
 description: REQUIRED workflow for implementing tasks from start to completion
 globs:
-  - "**/*"
+---
 # Task Implementation Workflow
 
 This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.

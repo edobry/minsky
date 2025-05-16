@@ -1,8 +1,8 @@
 ---
-name: Minsky Session Management Protocol
 description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
 globs:
-  - "**/*"
+alwaysApply: false
+---
 # Minsky Session Management Protocol
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
@@ -107,9 +107,7 @@ A Minsky session is an isolated workspace for implementing a specific task. It e
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 
 ## See Also
-- See minsky-workflow-orchestrator for workflow overview
-- See minsky-cli-usage for CLI command reference
-- See task-implementation-workflow for implementing tasks
-- See session-first-workflow for detailed file handling in sessions
+- See [minsky-workflow-orchestrator.mdc](mdc:.cursor/rules/minsky-workflow-orchestrator.mdc) for workflow overview
+- See [session-first-workflow.mdc](mdc:.cursor/rules/session-first-workflow.mdc) for detailed file handling in sessions
 
 3. **Reproducibility**: Sessions can be recreated or updated as needed

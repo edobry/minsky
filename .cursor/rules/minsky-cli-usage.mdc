@@ -1,8 +1,6 @@
 ---
-name: Minsky CLI Usage Protocol
 description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
 globs:
-  - "**/*"
 alwaysApply: false
 ---
 # Minsky CLI Usage Protocol
@@ -157,8 +155,8 @@ Always check specific command help with `minsky <command> --help` for the most a
 "Let me get the exact session directory: `minsky session dir task#067`"
 
 ## See Also
-- See minsky-workflow-orchestrator for workflow overview
-- See minsky-session-management for session-specific operations 
-- See task-implementation-workflow for implementing tasks
-- See task-status-protocol for status update procedures
-- See pr-preparation-workflow for PR creation procedures
+- See [minsky-workflow-orchestrator.mdc](mdc:.cursor/rules/minsky-workflow-orchestrator.mdc) for workflow overview
+- See [minsky-session-management.mdc](mdc:.cursor/rules/minsky-session-management.mdc) for session-specific operations
+- See [task-implementation-workflow.mdc](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
+- See [task-status-protocol.mdc](mdc:.cursor/rules/task-status-protocol.mdc) for status update procedures
+- See [pr-preparation-workflow.mdc](mdc:.cursor/rules/pr-preparation-workflow.mdc) for PR creation procedures

@@ -1,6 +1,6 @@
 ---
 description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
-globs: ["**/commands/**/*.test.ts", "**/commands/**/*.spec.ts"]
+globs:
 alwaysApply: false
 ---
 # CLI Testing

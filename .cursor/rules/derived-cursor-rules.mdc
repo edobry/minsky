@@ -1,6 +1,7 @@
 ---
-description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
+description:
+globs:
+alwaysApply: false
 ---
 
 
@@ -39,8 +40,8 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.2.0 added git clone, branch, pr commands and session management
 - Version 0.3.0 added session start command and improved session management
 - Version 0.4.0 added optional repo path to `git pr` command
-- Version 0.5.0 added `tasks` command with `list`, `get`, and `status` subcommands.  Supports `process/tasks.md` as a default task backend.  Placeholder backends for GitHub Issues and other systems are planned. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
-- Version 0.6.0 Added support for session and repo path arguments to tasks commands. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.5.0 added `tasks` command with `list`, `get`, and `status` subcommands.  Supports `process/tasks.md` as a default task backend.  Placeholder backends for GitHub Issues and other systems are planned. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](mdc:.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
+- Version 0.6.0 Added support for session and repo path arguments to tasks commands. _See: SpecStory history [2025-04-26_22-29-task-management-command-design](mdc:.specstory/history/2025-04-26_22-29-task-management-command-design.md)_
 - Version 0.7.0 Added git branch command.
 - Version 0.8.0 Added git pr command with optional repo path.
 - Version 0.9.0 Added session db and session management commands (list, get, cd, start).
@@ -85,7 +86,7 @@ All project documentation will be stored in the `.specstory` directory, followin
 - Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
 - Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
 - Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
-- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
+- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](mdc:.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
 
 
 ## DEBUGGING
@@ -489,4 +490,4 @@ MIT
 - Version 0.48.0 Added tests for startSession command.  The tests utilize Bun's mocking capabilities to isolate and test the core logic.  The tests cover various scenarios, including successful execution with and without the --repo flag, error handling when no repository is found, and the correct usage of resolveRepoPath.  All tests pass.
 - Version 0.49.0 Updated `startSession` to accept dependencies via parameters, enabling direct dependency injection in tests.  Updated tests to inject mocks directly, avoiding `mock.module`. All tests pass.
 - Version 0.50.0 Added a positive test case for the fallback scenario where `resolveRepoPath` returns a valid path in `startSession.test.ts`. All tests pass.
-- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
+- Version 0.51.0 Added support for associating sessions with tasks via the `--task <taskId>` option in `session start` command. The task ID is stored in the session record and used to generate the session name. Enhanced error handling to validate task existence and prevent duplicate sessions for the same task. Updated all relevant tests. _See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](mdc:.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._

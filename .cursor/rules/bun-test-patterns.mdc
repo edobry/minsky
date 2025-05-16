@@ -1,75 +1,245 @@
 ---
-name: Bun Test Patterns
-description: Use when implementing bun:test patterns for mocking, types, and runtime.
-globs: '**/*.test.ts'
+description: REQUIRED: Use when implementing test mocks or fixtures. Always use centralized test utilities over direct API calls.
+globs: **/*.test.ts
 alwaysApply: false
 ---
-
 # Bun Test Patterns
 
-## Mocking Best Practices
+## ALWAYS USE CENTRALIZED MOCKING UTILITIES
+
+**CRITICAL REQUIREMENT: Always use the project's centralized mocking utilities in `src/utils/test-utils/mocking.ts` instead of directly using bun:test APIs.**
+
+```typescript
+// ❌ NEVER USE DIRECT BUN:TEST APIs
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({ ... }));
+
+// ✅ ALWAYS USE CENTRALIZED UTILITIES
+import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+setupTestMocks();
+const mockFn = createMock();
+mockModule("../path/to/module", () => ({ ... }));
+```
+
+The centralized utilities provide:
+1. Consistent mocking patterns across the codebase
+2. Automatic mock cleanup in afterEach hooks
+3. Better type safety and error handling
+4. Additional helper methods for common testing scenarios
+
+## Core Mocking Utilities
+
+### Required Setup
+
+Always begin your test file with:
+
+```typescript
+import { describe, test, expect } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockFileSystem
+} from "../../utils/test-utils/mocking";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+```
 
 ### Function Mocking
-- **CORRECT PATTERN**: Use `jest.fn()` from bun:test for mock functions:
-  ```typescript
-  import { jest } from "bun:test";
-  const mockFunction = jest.fn();
-  mockFunction.mockReturnValue("mocked value");
-  mockFunction.mockImplementation(() => { /* custom logic */ });
-  mockFunction.mockClear(); // For resetting between tests
-  ```
 
-- **AVOID**: Using `mock()` or `mock.fn()` directly, which may cause type inconsistencies:
-  ```typescript
-  // Avoid these patterns as they cause type/runtime inconsistencies
-  const mockFunction = mock(() => {});
-  const mockFunction = mock.fn();
-  ```
+**REQUIRED: Use createMock() instead of jest.fn()**
+
+```typescript
+// ❌ INCORRECT - Direct jest API usage
+const mockFunction = jest.fn().mockReturnValue("result");
+
+// ✅ CORRECT - Using centralized utility
+const mockFunction = createMock(() => "default value");
+mockFunction.mockReturnValue("result");
+
+// Assertion examples
+expect(mockFunction).toHaveBeenCalled();
+expect(mockFunction).toHaveBeenCalledWith("arg");
+expect(mockFunction.mock.calls.length).toBe(1);
+```
 
 ### Module Mocking
-- **CORRECT PATTERN**: Combine `mock.module()` with `jest.fn()` for clean module mocking:
-  ```typescript
-  import { mock, jest } from "bun:test";
 
-  const mockExportedFunction = jest.fn();
-  mock.module("../path/to/module", () => ({
-    exportedFunction: mockExportedFunction
-  }));
+**REQUIRED: Use mockModule() instead of mock.module()**
 
-  // Clean up after tests
-  afterEach(() => {
-    mock.restore(); // NOT mock.restoreAll()
+```typescript
+// ❌ INCORRECT - Direct mock API usage
+mock.module("../path/to/module", () => ({
+  exportedFunction: jest.fn()
+}));
+
+// ✅ CORRECT - Using centralized utility
+mockModule("../path/to/module", () => ({
+  exportedFunction: createMock()
+}));
+```
+
+### Filesystem Mocking
+
+**REQUIRED: Use createMockFileSystem() for all filesystem operations**
+
+```typescript
+// ❌ INCORRECT - Testing actual filesystem
+test("saves config to file", () => {
+  saveConfig({ setting: true });
+  expect(fs.existsSync(CONFIG_PATH)).toBe(true);
+});
+
+// ✅ CORRECT - Using mock filesystem
+test("saves config to file", () => {
+  const mockFS = createMockFileSystem();
+  mockModule("fs", () => mockFS);
+
+  saveConfig({ setting: true });
+
+  expect(mockFS.written[CONFIG_PATH]).toBeDefined();
+});
+```
+
+## Test Organization Patterns
+
+### Test Suite Structure
+
+Organize tests with appropriate nesting and descriptive names:
+
+```typescript
+describe("Module name", () => {
+  describe("functionName", () => {
+    test("should handle specific input correctly", () => {
+      // Test content
+    });
+
+    test("should throw error for invalid input", () => {
+      // Test content
+    });
   });
-  ```
+});
+```
 
-### Type vs Runtime Discrepancies
-- When encountering linter warnings that conflict with documented bun:test behavior:
-  1. Verify the pattern against bun:test documentation
-  2. If the pattern is correct according to docs but triggers linter errors:
-     - Proceed with the implementation if tests run correctly
-     - Document the discrepancy in code comments
-     - Example comment: `// Note: test.todo() works at runtime despite linter error`
+### Test Isolation
 
-### Required Test Imports
-- Always include the full set of required imports for testing:
-  ```typescript
-  import { describe, it, test, expect, beforeEach, afterEach, mock, jest, spyOn } from "bun:test";
-  ```
+Ensure tests don't share mutable state:
 
-## Troubleshooting Common Issues
+```typescript
+describe("Module with state", () => {
+  let instance;
 
-### Mock Function Issues
-- **Issue**: `TypeError: mock.fn is not a function`
-  - **Solution**: Use `jest.fn()` instead of `mock.fn()`
+  beforeEach(() => {
+    // Create a fresh instance for each test
+    instance = createTestInstance();
+  });
 
-### Test Skip/Todo Issues
-- **Issue**: Linter error on `test.skip()` or `test.todo()`
-  - **Solution**: Proceed with implementation; these functions work at runtime
+  afterEach(() => {
+    // Clean up after each test
+    instance.cleanup();
+  });
 
-### Mock Cleanup Issues
-- **Issue**: Mocks persisting between tests
-  - **Solution**: Use `mock.restore()` in `afterEach`, not `mock.restoreAll()`
+  test("should modify state correctly", () => {
+    instance.performAction();
+    expect(instance.state).toBe("expected");
+  });
+});
+```
 
-### Mock Methods Missing
-- **Issue**: TypeScript errors for methods like `mockClear()` or `mockReturnValue()`
-  - **Solution**: Ensure you're using `jest.fn()` rather than `mock()` or `mock.fn()`
+## Common Test Patterns
+
+### Arrange-Act-Assert Pattern
+
+Structure tests using the AAA pattern:
+
+```typescript
+test("function should transform input correctly", () => {
+  // Arrange
+  const input = { data: "input" };
+  const expectedOutput = { data: "transformed" };
+
+  // Act
+  const result = transformFunction(input);
+
+  // Assert
+  expect(result).toEqual(expectedOutput);
+});
+```
+
+### Testing Asynchronous Code
+
+```typescript
+test("async function returns expected result", async () => {
+  // Arrange
+  const mockData = { id: 123 };
+  const mockApi = createMock();
+  mockApi.mockResolvedValue(mockData);
+  mockModule("../api", () => ({ fetchData: mockApi }));
+
+  // Act
+  const result = await fetchAndProcess(123);
+
+  // Assert
+  expect(mockApi).toHaveBeenCalledWith(123);
+  expect(result).toEqual(expect.objectContaining({ id: 123, processed: true }));
+});
+```
+
+### Testing Error Cases
+
+```typescript
+test("function throws for invalid input", () => {
+  // Arrange
+  const invalidInput = null;
+
+  // Act & Assert
+  expect(() => validateInput(invalidInput)).toThrowError(/invalid input/i);
+});
+```
+
+## Common Troubleshooting
+
+### Jest vs Bun:Test Compatibility
+
+If encountering issues with Jest compatibility:
+
+```typescript
+// Issue with bun:test not fully supporting all Jest features
+// For complex mocking scenarios, use our utility wrappers:
+
+import { createSpy } from "../../utils/test-utils/mocking";
+
+// Instead of direct spyOn
+// const spy = jest.spyOn(object, 'method');
+
+// Use our utility
+const spy = createSpy(object, 'method');
+```
+
+### Fixing Mock Not Found Issues
+
+If seeing "Mock not found" errors:
+
+```typescript
+// Issue:
+// Error: Mock for "../some-module" not found
+
+// Solution:
+// 1. Make sure you're calling mockModule BEFORE importing the module under test
+// 2. Use proper relative paths from the test file
+
+// CORRECT:
+mockModule("../relative/path/from/test/file", () => ({
+  // mocked exports
+}));
+```
+
+## Benefits of Following These Patterns
+
+1. **Consistency**: All tests use the same patterns across the codebase
+2. **Maintainability**: Tests are easier to understand and modify
+3. **Reliability**: Tests are less prone to false positives or negatives
+4. **Performance**: Tests run faster with properly mocked dependencies
+5. **Isolation**: Each test runs independently without affecting others

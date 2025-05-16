@@ -1,9 +1,9 @@
 ---
-name: Minsky Workflow Overview
 description: REQUIRED entry point for understanding the Minsky workflow system
 globs:
-  - "**/*"
----|--------------|
+alwaysApply: false
+---
+|--------------|--------------|--------------|
 | **Initial Setup** | minsky-cli-usage | When using ANY Minsky CLI command |
 | **Session Management** | minsky-session-management | When creating, navigating, or managing sessions |
 | **Implementation** | task-implementation-workflow | When implementing task requirements |

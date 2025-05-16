@@ -1,0 +1,55 @@
+---
+description: REQUIRED entry point for all code organization decisions. Use to navigate to specific organization rules like domain-oriented-modules or command-organization.
+globs:
+alwaysApply: false
+---
+# Code Organization Guidance - Start Here
+
+This rule serves as the entry point for all code organization guidance in the Minsky project. Use it to navigate to the appropriate code organization rules based on your specific scenario.
+
+## Rule Application Matrix
+
+| Scenario | Primary Rules | Supporting Rules |
+|----------|---------------|------------------|
+| Deciding where to put code | domain-oriented-modules | file-size |
+| Managing module boundaries | domain-oriented-modules | command-organization |
+| Handling constants and strings | constants-management | template-literals |
+| Organizing import statements | no-dynamic-imports | N/A |
+| Large file refactoring | file-size | domain-oriented-modules |
+| Command/adapter organization | command-organization | domain-oriented-modules |
+
+## Rule Relationships
+
+### Core Organization Rules
+- [**domain-oriented-modules**](mdc:.cursor/rules/domain-oriented-modules.mdc): Guidance on organizing code by domain concepts
+- [**file-size**](mdc:.cursor/rules/file-size.mdc): Guidelines for managing file size and complexity
+- [**constants-management**](mdc:.cursor/rules/constants-management.mdc): Patterns for managing string constants and identifiers
+- [**command-organization**](mdc:.cursor/rules/command-organization.mdc): Organization of command modules and interface adapters
+
+### Supporting Rules
+- [**no-dynamic-imports**](mdc:.cursor/rules/no-dynamic-imports.mdc): Guidelines for static vs. dynamic imports
+- [**template-literals**](mdc:.cursor/rules/template-literals.mdc): Guidance on string construction and formatting
+
+## Key Organization Principles
+
+1. **Domain-Driven Organization**
+   - Organize code around domain concepts rather than technical concerns
+   - Keep related functionality together in cohesive modules
+   - Use clear boundaries between different domains
+
+2. **Appropriate Module Size**
+   - Maintain reasonable file sizes (ideally <400 lines)
+   - Extract related submodules when files grow too large
+   - Balance cohesion and separation of concerns
+
+3. **Consistent Patterns**
+   - Use consistent naming and organization across similar modules
+   - Follow established project patterns for new code
+   - Refactor towards improved patterns when identified
+
+4. **Clear Interfaces**
+   - Define clear module interfaces and boundaries
+   - Minimize dependencies between modules
+   - Use explicit imports rather than dynamic loading when possible
+
+For detailed guidance on specific code organization scenarios, refer to the related rules linked above.

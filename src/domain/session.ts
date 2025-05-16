@@ -23,6 +23,26 @@ import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
 
+/**
+ * Helper function to normalize and validate a task ID
+ * @param taskId The raw task ID to normalize and validate
+ * @returns The normalized task ID
+ * @throws ValidationError if the task ID is invalid
+ */
+function normalizeAndValidateTaskId(taskId: string): string {
+  const normalized = normalizeTaskId(taskId);
+  if (!normalized) {
+    throw new ValidationError(
+      `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+    );
+  }
+
+  // Validate using the schema
+  taskIdSchema.parse(normalized);
+
+  return normalized;
+}
+
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
 export type Session = SessionRecord; // Alias for convenience
 
@@ -60,12 +80,35 @@ export class SessionDB {
       const data = await readFile(this.dbPath, "utf8");
       const sessions = JSON.parse(data);
 
-      return sessions.map((session: SessionRecord) => {
+      // Normalize and migrate session records
+      let normalizedCount = 0;
+      const normalizedSessions = sessions.map((session: SessionRecord) => {
+        let wasNormalized = false;
+
+        // Ensure repoName exists
         if (!session.repoName && session.repoUrl) {
           session.repoName = normalizeRepoName(session.repoUrl);
+          wasNormalized = true;
         }
+
+        // Ensure branch field exists - default to session name if missing
+        if (!session.branch && session.session) {
+          session.branch = session.session;
+          wasNormalized = true;
+        }
+
+        if (wasNormalized) {
+          normalizedCount++;
+        }
+
         return session;
       });
+
+      if (normalizedCount > 0) {
+        log.debug(`Normalized ${normalizedCount} session records with missing fields`);
+      }
+
+      return normalizedSessions;
     } catch (e) {
       return [];
     }
@@ -132,14 +175,11 @@ export class SessionDB {
       if (!taskId) {
         return null;
       }
-      const normalizedInputId = normalizeTaskId(taskId);
-      if (!normalizedInputId) {
-        return null;
-      }
+      const normalizedInputId = normalizeAndValidateTaskId(taskId);
       const sessions = await this.readDb();
       const found = sessions.find((s) => {
         if (!s.taskId) return false;
-        const normalizedStoredId = normalizeTaskId(s.taskId);
+        const normalizedStoredId = normalizeAndValidateTaskId(s.taskId);
         return normalizedStoredId === normalizedInputId;
       });
       return found || null;
@@ -257,8 +297,12 @@ export async function createSessionDeps(options?: {
   const baseDir = getMinskyStateDir();
   const sessionDBInstance = new SessionDB({ baseDir });
   const gitServiceInstance = new GitService(baseDir);
+
+  // Use the provided workspace path or the current directory for task operations
+  // This ensures task lookups happen in the actual repository, not in the state directory
+  const workspacePath = options?.workspacePath || process.cwd();
   const taskServiceInstance = new TaskService({
-    workspacePath: baseDir,
+    workspacePath, // Use the actual repository path, not the state directory
     backend: "markdown",
   });
 
@@ -277,7 +321,9 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
   const { name, task } = params;
   const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
   if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeAndValidateTaskId(task);
+
     return sessionDB.getSessionByTaskId(normalizedTaskId);
   }
   if (params.name) {
@@ -365,7 +411,9 @@ export async function startSessionFromParams(
     let sessionName: string;
 
     if (task) {
-      const normalizedTaskId = taskIdSchema.parse(task);
+      // First normalize the task ID
+      const normalizedTaskId = normalizeAndValidateTaskId(task);
+
       const taskInfo = await deps.taskService.getTask(normalizedTaskId);
 
       if (!taskInfo) {
@@ -405,6 +453,7 @@ export async function startSessionFromParams(
       repoName: normalizedRepoName,
       createdAt: new Date().toISOString(),
       backendType: "local",
+      branch: actualBranchName,
       remote: {
         authMethod: "ssh",
         depth: 1,
@@ -524,7 +573,9 @@ export async function updateSessionFromParams(
   let sessionNameToUse = sessionName;
 
   if (params.task && !sessionName) {
-    const normalizedTaskId = taskIdSchema.parse(params.task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeAndValidateTaskId(params.task);
+
     const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
       throw new ResourceNotFoundError(
@@ -600,7 +651,9 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
   let session: SessionRecord | null = null;
 
   if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+    // First normalize the task ID
+    const normalizedTaskId = normalizeAndValidateTaskId(task);
+
     session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
       throw new ResourceNotFoundError(

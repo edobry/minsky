@@ -2,7 +2,7 @@
 name: PR Preparation Workflow
 description: REQUIRED workflow for preparing and submitting pull requests
 globs:
-  - "**/*"
+---
 # PR Preparation Workflow
 
 This rule provides guidelines for preparing and submitting pull requests (PRs) in the Minsky workflow.

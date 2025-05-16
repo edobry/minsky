@@ -68,7 +68,7 @@ Rules are read by AI assistants with limited attention spans and context windows
    - When updating from requirements, use the EXACT wording specified
    - Do not paraphrase or reword descriptions unless explicitly instructed
    - Copy and paste values from requirements when available
-   
+
 2. **ALWAYS verify after editing**:
    - Read the complete file after editing
    - Check for duplicated content or frontmatter
@@ -90,6 +90,44 @@ Using exact wording from requirements:
 description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
 ```
 
+## Cross-Rule Relationships and Rule Systems
+
+Rules often work together in systems where multiple rules apply to the same scenario. When creating related rules:
+
+1. **Explicit Rule Relationships**: In descriptions, explicitly reference related rules:
+   ```
+   description: "Use when implementing test mocks. Apply alongside testing-boundaries for proper test focus."
+   ```
+
+2. **Rule Application Patterns**: Include one of these relationship indicators:
+   - "Apply alongside X": Indicates equal-priority rules that should be used together
+   - "Apply with X": Suggests X as a complementary rule for this specific context
+   - "Apply after X": Indicates a sequence where X should be consulted first
+
+3. **Router Rule for Rule Systems**: For complex rule systems (4+ rules), create a router rule that:
+   - Serves as the entry point for the entire system
+   - Contains a relationship matrix showing when each rule applies
+   - Uses a description that clearly identifies it as the primary entry point
+   - Example:
+     ```
+     description: "REQUIRED: Entry point for ALL test-related tasks. Always consult first when writing tests."
+     ```
+
+4. **Rule Layers**: In complex rule systems, organize rules into clear layers:
+   - **Foundation Layer**: Always applicable core principles (marked with "REQUIRED")
+   - **Implementation Layer**: How to implement the principles in specific contexts
+   - **Specialized Layer**: Rules for edge cases or specific scenarios
+
+5. **Cross-References in Rule Content**: Always include explicit references to related rules:
+   ```markdown
+   See [testing-boundaries](mdc:.cursor/rules/testing-boundaries.mdc) for what should and should not be tested.
+   ```
+
+6. **Avoid Rule Duplication**: When rules relate:
+   - Never duplicate content between related rules
+   - Clearly define the scope boundary of each rule
+   - Use explicit cross-references instead of duplicating content
+
 ## File Location
 
 **RULE FILES MUST BE STORED IN THE `.cursor/rules` DIRECTORY AT THE ROOT OF THE PROJECT.**
@@ -106,6 +144,7 @@ The description is **critically important** as it's the main trigger for rule ap
 - Include all relevant trigger keywords (e.g., "required for testing components")
 - Specify file types or contexts where the rule applies
 - Use "REQUIRED" or "MUST" for non-negotiable rules
+- For rules that work together, include relationship indicators ("Apply alongside X")
 - Keep under 100 characters while remaining specific
 - Test by asking: "Would an AI correctly apply this rule based solely on this description?"
 
@@ -155,6 +194,8 @@ Before submitting a rule, verify it:
 - [ ] Is structured from most to least important information
 - [ ] Could be correctly applied by someone with limited attention
 - [ ] Would be triggered by the correct glob patterns
+- [ ] Explicitly references related rules where applicable
+- [ ] Clearly states relationship to other rules in the description
 
 ## Anti-patterns
 
@@ -164,6 +205,8 @@ Before submitting a rule, verify it:
 - **Nested Complexity**: Keep rule structure flat and scannable
 - **Excessive Context**: Focus on directives, not background information
 - **Mixed Concerns**: Each rule should govern exactly one area of concern
+- **Isolated Rules**: Rules without explicit connections to related rules when they exist
+- **Overlapping Rules**: Multiple rules covering the same guidance without clear boundaries
 
 ## Router Rules
 

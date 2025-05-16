@@ -4,10 +4,6 @@ description: REQUIRED protocol for checking, updating, and verifying task status
 globs:
   - "**/*"
 ---
-name: Task Status Protocol
-description: REQUIRED protocol for checking, updating, and verifying task status
-globs:
-  - "**/*"
 # Task Status Protocol
 
 This rule defines the standard protocol for checking, updating, and verifying task status within the Minsky system.

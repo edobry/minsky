@@ -257,7 +257,7 @@ export function createStatusCommand(): Command {
     .description("Set the status of a task")
     .argument("<task-id>", "ID of the task")
     // The linter error for TASK_STATUS here seems incorrect, Object.values(TASK_STATUS) is a valid value usage.
-    .argument("<status>", `New status for the task (${Object.values(TASK_STATUS).join(" | ")})`)
+    .argument("[status]", `New status for the task (${Object.values(TASK_STATUS).join(" | ")})`)
     .option("--session <session>", "Session name to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
     .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
@@ -266,7 +266,7 @@ export function createStatusCommand(): Command {
     .action(
       async (
         taskId: string,
-        status: string, // status comes as a string from commander
+        status: string | undefined, // status comes as a string from commander or undefined if not provided
         options: {
           session?: string;
           repo?: string;
@@ -275,6 +275,57 @@ export function createStatusCommand(): Command {
           json?: boolean;
         }
       ) => {
+        // If status is not provided, prompt for it interactively
+        if (!status) {
+          // Check if we're in a non-interactive environment
+          if (!process.stdout.isTTY) {
+            log.cliError(
+              `Status is required in non-interactive mode.\nValid options are: ${Object.values(TASK_STATUS).join(", ")}`
+            );
+            exit(1);
+          }
+
+          try {
+            // Convert CLI options to domain parameters for getting task
+            const getParams: TaskStatusGetParams = {
+              taskId,
+              session: options.session,
+              repo: options.repo,
+              workspace: options.workspace,
+              backend: options.backend,
+              json: false,
+            };
+
+            // Get current status for task context
+            const currentStatus = await getTaskStatusFromParams(getParams);
+
+            // Prompt for status using @clack/prompts
+            const statusOptions = Object.values(TASK_STATUS).map((value) => ({
+              value,
+              label: value,
+            }));
+
+            const statusChoice = await p.select({
+              message: `Select new status for task ${normalizeTaskId(taskId) || taskId}:`,
+              options: statusOptions,
+              initialValue: currentStatus || TASK_STATUS.TODO,
+            });
+
+            // Handle cancellation
+            if (p.isCancel(statusChoice)) {
+              p.cancel("Operation cancelled");
+              exit(0);
+            }
+
+            // Set the chosen status
+            status = statusChoice.toString();
+          } catch (error) {
+            log.cliError("Error getting task status for prompt:");
+            log.error("Error details for getting task status", error as Error);
+            exit(1);
+          }
+        }
+
         // Validate status
         if (!Object.values(TASK_STATUS).includes(status as z.infer<typeof taskStatusSchema>)) {
           log.cliError(

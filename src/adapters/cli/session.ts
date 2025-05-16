@@ -46,7 +46,7 @@ export function createListCommand(): Command {
           console.log(JSON.stringify(result, null, 2));
         } else {
           result.forEach((session) => {
-            console.log(`Session: ${session.name}`);
+            console.log(`Session: ${session.session}`);
             console.log(`  Repo: ${session.repoPath}`);
             console.log(`  Created: ${session.createdAt}`);
             console.log();
@@ -87,14 +87,16 @@ export function createGetCommand(): Command {
         // Format output
         if (options?.json) {
           console.log(JSON.stringify(result, null, 2));
-        } else {
-          console.log(`Session: ${result.name}`);
+        } else if (result) {
+          console.log(`Session: ${result.session}`);
           console.log(`Repo: ${result.repoPath}`);
           console.log(`Branch: ${result.branch}`);
           console.log(`Created: ${result.createdAt}`);
           if (result.taskId) {
             console.log(`Task ID: ${result.taskId}`);
           }
+        } else {
+          console.log("Session not found");
         }
       } catch (error) {
         if (error instanceof MinskyError) {
@@ -125,7 +127,7 @@ export function createStartCommand(): Command {
           repo: options?.repo,
           task: options?.task,
           quiet: options?.quiet || false,
-          noStatusUpdate: false
+          noStatusUpdate: false,
         };
 
         // Call the domain function
@@ -142,7 +144,9 @@ export function createStartCommand(): Command {
           console.log(repoPath);
         } else {
           console.log(`Session '${sessionRecord.session}' created successfully.`);
-          console.log(`Session directory: ${await (new (await import("../../domain/session.js")).SessionDB()).getRepoPath(sessionRecord)}`);
+          console.log(
+            `Session directory: ${await new (await import("../../domain/session.js")).SessionDB().getRepoPath(sessionRecord)}`
+          );
           console.log(`Branch: ${sessionRecord.branch}`);
         }
       } catch (error) {
@@ -240,10 +244,10 @@ export function createUpdateCommand(): Command {
         const params: SessionUpdateParams = {
           name: name || "", // Provide default empty string
           json: options?.json,
-          noStash: false,    // Default values for required properties
-          noPush: false,     // Default values for required properties
-          branch: "main",    // Default value
-          remote: "origin"   // Default value
+          noStash: false, // Default values for required properties
+          noPush: false, // Default values for required properties
+          branch: "main", // Default value
+          remote: "origin", // Default value
         };
 
         // Call the domain function
@@ -285,4 +289,4 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createUpdateCommand());
 
   return sessionCommand;
-} 
+}

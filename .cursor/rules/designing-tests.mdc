@@ -1,6 +1,6 @@
 ---
 description: Guidelines for writing effective, maintainable tests with proper isolation, data management, and thorough coverage
-globs: ["**/*.test.ts", "**/*.spec.ts", "**/test/**/*"]
+globs: **/*.test.ts
 alwaysApply: false
 ---
 # Designing Tests

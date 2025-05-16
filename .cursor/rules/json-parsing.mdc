@@ -1,6 +1,6 @@
 ---
-description: Use this when working with a command that outputs JSON
-globs: 
+description: Use this when working with any command that outputs JSON, or when planning to use grep/awk/sed
+globs:
 alwaysApply: false
 ---
 # JSON Parsing Best Practices
