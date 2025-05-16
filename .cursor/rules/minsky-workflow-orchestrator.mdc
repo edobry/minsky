@@ -1,0 +1,268 @@
+---
+name: Minsky Workflow Overview
+description: REQUIRED entry point for understanding the Minsky workflow system
+globs:
+  - "**/*"
+---|--------------|
+| **Initial Setup** | minsky-cli-usage | When using ANY Minsky CLI command |
+| **Session Management** | minsky-session-management | When creating, navigating, or managing sessions |
+| **Implementation** | task-implementation-workflow | When implementing task requirements |
+| **Status Updates** | task-status-protocol | When checking or updating task status |
+| **PR Preparation** | pr-preparation-workflow | When preparing and submitting PRs |
+| **File Operations** | session-first-workflow | When working with files in a session workspace |
+
+## Workflow Sequence
+
+1. **Task Selection and Status Verification**
+   - First: Check available tasks with `minsky tasks list`
+   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - Apply: minsky-cli-usage and task-status-protocol
+
+2. **Session Creation and Navigation**
+   - First: Create or re-enter a session for the task
+   - Then: Navigate to the session directory
+   - Apply: minsky-session-management
+
+3. **Task Implementation**
+   - First: Understand task requirements
+   - Then: Implement the solution in the session workspace
+   - Apply: task-implementation-workflow and session-first-workflow
+
+4. **Testing and Verification**
+   - First: Write and run tests for the implementation
+   - Then: Verify that all requirements are met
+   - Apply: task-implementation-workflow and tests
+
+5. **PR Preparation and Submission**
+   - First: Generate PR description
+   - Then: Finalize changes and update task status
+   - Apply: pr-preparation-workflow
+
+6. **Task Completion**
+   - First: Update task status to DONE after PR is merged
+   - Then: Clean up the session if needed
+   - Apply: task-status-protocol and minsky-session-management
+
+## Error Recovery Checkpoints
+
+| Error Scenario | Rule to Apply | Recovery Action |
+|----------------|---------------|-----------------|
+| **Wrong CLI Command** | minsky-cli-usage | Check command reference and retry |
+| **Path Resolution Issue** | session-first-workflow | Use absolute paths in session workspace |
+| **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
+| **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
+| **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+
+## Common Workflow Questions
+
+### Task-Related Questions
+
+- **"What tasks are available?"**
+  → Apply minsky-cli-usage and use `minsky tasks list`
+
+- **"How do I start working on a task?"**
+  → Apply minsky-session-management to create a session
+
+- **"How do I check task status?"**
+  → Apply task-status-protocol and use `minsky tasks status get`
+
+### Session-Related Questions
+
+- **"How do I create a session?"**
+  → Apply minsky-session-management and use `minsky session start`
+
+- **"How do I get back to my session?"**
+  → Apply minsky-session-management and use `minsky session dir`
+
+- **"Why aren't my changes showing up?"**
+  → Apply session-first-workflow to verify you're in the correct workspace
+
+### Implementation Questions
+
+- **"How do I implement a task?"**
+  → Apply task-implementation-workflow for step-by-step guidance
+
+- **"How do I verify my implementation?"**
+  → Apply task-implementation-workflow and tests
+
+- **"How do I create a PR?"**
+  → Apply pr-preparation-workflow for PR creation steps
+
+## Rule Integration Table
+
+| Rule | Primary Purpose | Integrates With |
+|------|-----------------|----------------|
+| minsky-cli-usage | CLI command usage | All workflow rules |
+| minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
+| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
+| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
+| pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
+| session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
+
+## See Also
+- See minsky-cli-usage for CLI command reference
+- See minsky-session-management for session management
+- See task-implementation-workflow for implementing tasks
+- See task-status-protocol for status update procedures
+- See pr-preparation-workflow for PR creation and submission
+- See session-first-workflow for file operations in sessions
+- See task-status-verification for detailed status verification
+- See pr-description-guidelines for PR content guidelines
+- See tests for testing requirements
+
+# Minsky Workflow System
+
+This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
+
+## Core Workflow Rules
+
+The following rules form the complete Minsky workflow system:
+
+1. [**minsky-cli-usage**](mdc:.cursor/rules/minsky-cli-usage.mdc) - Guidelines for using the Minsky CLI for all task and session operations
+2. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions
+3. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
+4. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
+5. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
+
+## Fundamental Principle: CLI-Based Workflow
+
+**CRITICAL REQUIREMENT**: ALL task and session management MUST be done through the Minsky CLI, not through direct file system operations. This includes:
+
+- Task listing, status checking, and status updates
+- Session creation, navigation, and management
+- Task implementation and verification
+- PR preparation and submission
+
+## When to Apply These Rules
+
+These workflow rules should be applied:
+
+- When starting work on a new task
+- When checking or updating task status
+- When creating or managing sessions
+- When implementing task requirements
+- When preparing pull requests
+
+## Supporting Rules
+
+The Minsky workflow is supported by these additional rules:
+
+- [**session-first-workflow**](mdc:.cursor/rules/session-first-workflow.mdc) - Ensures all implementation work happens in dedicated sessions
+- [**creating-tasks**](mdc:.cursor/rules/creating-tasks.mdc) - Guidelines for creating well-structured task specifications
+- [**pr-description-guidelines**](mdc:.cursor/rules/pr-description-guidelines.mdc) - Format and content requirements for PR descriptions
+- [**rules-management**](mdc:.cursor/rules/rules-management.mdc) - Guidelines for managing Minsky rules
+
+## Usage Scenarios & Rule Application
+
+### For New Contributors
+
+When a developer first joins the project, they should focus on:
+
+1. Understanding the overall Minsky workflow system (this rule)
+2. Learning the session creation and management procedures (minsky-session-management)
+3. Becoming familiar with the Minsky CLI commands (minsky-cli-usage)
+
+### When Implementing Features
+
+During feature implementation, the most relevant rules are:
+
+1. The task implementation workflow (task-implementation-workflow)
+2. Session management procedures (minsky-session-management)
+3. Task status protocol (task-status-protocol)
+
+### When Preparing for Review
+
+When preparing work for review, focus on:
+
+1. PR preparation guidelines (pr-preparation-workflow)
+2. Task status updates (task-status-protocol)
+
+## Workflow Sequence
+
+1. **Task Selection and Status Verification**
+   - First: Check available tasks with `minsky tasks list`
+   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - Apply: minsky-cli-usage and task-status-protocol
+
+2. **Session Creation and Navigation**
+   - First: Create or re-enter a session for the task
+   - Then: Navigate to the session directory
+   - Apply: minsky-session-management
+
+3. **Task Implementation**
+   - First: Understand task requirements
+   - Then: Implement the solution in the session workspace
+   - Apply: task-implementation-workflow and session-first-workflow
+
+4. **Testing and Verification**
+   - First: Write and run tests for the implementation
+   - Then: Verify that all requirements are met
+   - Apply: task-implementation-workflow and tests
+
+5. **PR Preparation and Submission**
+   - First: Generate PR description
+   - Then: Finalize changes and update task status
+   - Apply: pr-preparation-workflow
+
+6. **Task Completion**
+   - First: Update task status to DONE after PR is merged
+   - Then: Clean up the session if needed
+   - Apply: task-status-protocol and minsky-session-management
+
+## Error Recovery Checkpoints
+
+| Error Scenario | Rule to Apply | Recovery Action |
+|----------------|---------------|-----------------|
+| **Wrong CLI Command** | minsky-cli-usage | Check command reference and retry |
+| **Path Resolution Issue** | session-first-workflow | Use absolute paths in session workspace |
+| **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
+| **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
+| **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+
+## Common Workflow Questions
+
+### Task-Related Questions
+
+- **"What tasks are available?"**
+  → Apply minsky-cli-usage and use `minsky tasks list`
+
+- **"How do I start working on a task?"**
+  → Apply minsky-session-management to create a session
+
+- **"How do I check task status?"**
+  → Apply task-status-protocol and use `minsky tasks status get`
+
+### Session-Related Questions
+
+- **"How do I create a session?"**
+  → Apply minsky-session-management and use `minsky session start`
+
+- **"How do I get back to my session?"**
+  → Apply minsky-session-management and use `minsky session dir`
+
+- **"Why aren't my changes showing up?"**
+  → Apply session-first-workflow to verify you're in the correct workspace
+
+### Implementation Questions
+
+- **"How do I implement a task?"**
+  → Apply task-implementation-workflow for step-by-step guidance
+
+- **"How do I verify my implementation?"**
+  → Apply task-implementation-workflow and tests
+
+- **"How do I create a PR?"**
+  → Apply pr-preparation-workflow for PR creation steps
+
+## Rule Integration Table
+
+| Rule | Primary Purpose | Integrates With |
+|------|-----------------|----------------|
+| minsky-cli-usage | CLI command usage | All workflow rules |
+| minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
+| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
+| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
+| pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
+| session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
+
+For detailed instructions on specific aspects of the workflow, refer to the individual rules listed above.

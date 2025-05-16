@@ -1,0 +1,115 @@
+---
+name: Minsky Session Management Protocol
+description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
+globs:
+  - "**/*"
+# Minsky Session Management Protocol
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+This rule defines the procedures for creating, navigating, and managing Minsky sessions, which provide isolated workspaces for task implementation.
+
+## What is a Minsky Session?
+
+A Minsky session is an isolated workspace for implementing a specific task. It ensures:
+
+1. **Isolation**: Changes are isolated from the main workspace until they're ready for review
+2. **Traceability**: Each session is associated with a specific task
+3. **Reproducibility**: Sessions can be recreated or updated as needed
+
+## Session Creation Process
+
+### Starting a New Session
+
+1. **Start a session for a task**:
+   ```bash
+   minsky session start --task <task-id>
+   ```
+   Example: `minsky session start --task 067`
+
+2. **Alternatively, start a session with a custom name**:
+   ```bash
+   minsky session start <session-name> --repo <repo-path>
+   ```
+   Example: `minsky session start my-feature --repo .`
+
+3. **Enter the session directory**:
+   ```bash
+   cd $(minsky session dir)
+   ```
+   Or if you specified a task: `cd $(minsky session dir --task <task-id>)`
+
+### Session Creation Guidelines
+
+- **Do not create sessions from within existing sessions**
+- **Always verify the session was created successfully** before proceeding
+- **Ensure the session is associated with a task** for proper tracking
+
+## Session Navigation and Management
+
+### Listing and Finding Sessions
+
+- **List all available sessions**:
+  ```bash
+  minsky session list
+  ```
+
+- **Get details of a specific session**:
+  ```bash
+  minsky session get <session-name>
+  ```
+  Or by task ID: `minsky session get --task <task-id>`
+
+- **Find the directory of a session**:
+  ```bash
+  minsky session dir
+  ```
+  Or by task ID: `minsky session dir --task <task-id>`
+
+### Updating a Session
+
+- **Update a session with changes from the main branch**:
+  ```bash
+  minsky session update
+  ```
+  This pulls the latest changes from the main branch, merges them into your session branch, and pushes the result.
+
+### Deleting a Session
+
+- **Delete a completed or abandoned session**:
+  ```bash
+  minsky session delete <session-name>
+  ```
+  This removes both the session's repository directory and its database record.
+
+## Session-First Implementation Principle
+
+**CRITICAL REQUIREMENT**: All work related to a task MUST be performed within the session workspace, not directly in the main workspace.
+
+- All code editing, testing, and committing must happen in the session workspace
+- Never modify files in the main workspace while implementing a task
+- Use absolute paths for all file operations to ensure you're working in the session
+- See [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc) for detailed guidelines
+
+## Session Management Best Practices
+
+1. **Regularly commit your changes** within the session
+2. **Keep sessions focused on a single task** for clarity and easier review
+3. **Update your session regularly** with the latest changes from the main branch
+4. **Verify your work in the session** before creating a PR
+5. **Clean up completed sessions** after the associated PR has been merged
+
+## Integration with Other Rules
+
+- For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
+- For task status checking and updating, see [task-status-protocol](mdc:.cursor/rules/task-status-protocol.mdc)
+- For PR preparation and submission, see [pr-preparation-workflow](mdc:.cursor/rules/pr-preparation-workflow.mdc)
+- For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
+
+## See Also
+- See minsky-workflow-orchestrator for workflow overview
+- See minsky-cli-usage for CLI command reference
+- See task-implementation-workflow for implementing tasks
+- See session-first-workflow for detailed file handling in sessions
+
+3. **Reproducibility**: Sessions can be recreated or updated as needed

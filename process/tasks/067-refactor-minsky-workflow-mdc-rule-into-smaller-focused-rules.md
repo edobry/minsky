@@ -22,18 +22,20 @@ This violates the rule-creation-guidelines principles of modularity, concision, 
 
 ## Proposed Solution
 
-Refactor `minsky-workflow.mdc` into multiple smaller, focused rules that each address a specific aspect of the workflow, while creating an orchestrator rule that provides an overview and links to these specific rules.
+Refactor `minsky-workflow.mdc` into multiple smaller, focused rules that each address a specific aspect of the workflow, while creating an orchestrator rule that provides an overview and links to these specific rules. Ensure proper cross-referencing between rules to maintain comprehensive guidance.
 
 ## Acceptance Criteria
 
 - [ ] Extract content from the current `minsky-workflow.mdc` rule into logical sections
-- [ ] Create 3-5 smaller, focused rules that each address a specific aspect of the workflow
+- [ ] Create 5-6 smaller, focused rules that each address a specific aspect of the workflow
 - [ ] Create an orchestrator rule that provides an overview of the workflow and links to the specific rules
 - [ ] Ensure no information is lost during the refactoring
+- [ ] Implement proper cross-referencing between rules using the `mdc:rule-name.mdc` notation
 - [ ] Update any cross-references in other rules that point to `minsky-workflow.mdc`
 - [ ] Test rule application in different scenarios to ensure guidance is still comprehensive
 - [ ] Update all rules using the `minsky rules` command to ensure proper metadata
 - [ ] Follow the guidance in `rule-creation-guidelines.mdc` for each new rule
+- [ ] Add test cases that can be used with the rule test suite being developed in task #041
 
 ## Implementation Plan
 
@@ -51,7 +53,7 @@ Create the following new rules:
      - Data integrity warnings
      - Never use direct file access
 
-2. **Update `session-first-workflow.mdc` or create `session-workflow.mdc`**
+2. **`minsky-session-management.mdc`**
 
    - **Description**: "REQUIRED protocol for starting, re-entering, and managing Minsky sessions"
    - **Focus**: Session-specific operations
@@ -72,10 +74,8 @@ Create the following new rules:
      - Work log maintenance
      - Testing requirements
      - Status updates
-     - PR preparation
-     - Task completion checklist
 
-4. **Update `task-status-verification.mdc` or create `task-status-protocol.mdc`**
+4. **`task-status-protocol.mdc`**
 
    - **Description**: "Protocol for checking, updating, and verifying task status via Minsky CLI"
    - **Focus**: Task status handling
@@ -85,35 +85,82 @@ Create the following new rules:
      - Verification steps for status changes
      - Integration with task lifecycle
 
-5. **`minsky-workflow-orchestrator.mdc`**
+5. **`pr-preparation-workflow.mdc`**
+
+   - **Description**: "REQUIRED protocol for preparing, creating, and submitting PRs for implemented tasks"
+   - **Focus**: PR and commit procedures
+   - **Content**:
+     - PR description generation
+     - Commit procedures
+     - Final status updates
+     - Checklist for PR readiness
+
+6. **`minsky-workflow-orchestrator.mdc`**
    - **Description**: "REQUIRED entry point for understanding the Minsky workflow system"
    - **Focus**: Overview and linking
    - **Content**:
      - Brief overview of workflow philosophy
      - Clear links to detailed rules by purpose
-     - Visual workflow diagram if possible
+     - Visual workflow diagram showing rule relationships
      - Brief summary of critical points
 
-### 2. Implementation Steps
+### 2. Cross-Referencing Strategy
+
+1. Use consistent cross-reference notation: `mdc:rule-name.mdc`
+2. Ensure bi-directional references where appropriate (rules reference each other)
+3. Create a "See also" section in each rule that links to related rules
+4. In the orchestrator rule, clearly show which rule applies at each workflow stage
+
+### 3. Implementation Steps
 
 1. Extract content from current rule into discrete sections
 2. Check for existing rules with overlapping content:
-   - If exists: update with relevant content
+   - If exists: update with relevant content or cross-reference
    - If not: create new rule
 3. Create each new rule via `minsky rules create` command with appropriate metadata
 4. Create the orchestrator rule that links to the detailed rules
 5. Update any cross-references in other rules that point to `minsky-workflow.mdc`
 6. Test rule application in different scenarios
-7. Get feedback and iterate
+7. Add test cases for the rule test suite (task #041)
+8. Get feedback and iterate
 
-### 3. Rules Creation Commands
+### 4. Testing Strategy
+
+1. Develop test scenarios for the rule test suite (task #041) that:
+   - Test single rule application
+   - Test transitions between rules (e.g., going from session creation to task implementation)
+   - Test scenarios that should trigger multiple rules
+   - Verify the orchestrator rule correctly guides to specific rules
+
+2. Develop test cases that cover:
+   - Common workflow patterns
+   - Edge cases and error handling
+   - Specific command usage scenarios
+   - Cross-rule guidance consistency
+
+3. Create test scenarios that can be incorporated into task #041's test suite:
+   - User queries about basic tasks/sessions
+   - Task implementation scenarios
+   - Session navigation scenarios
+   - PR creation scenarios
+
+### 5. Rules Creation Commands
 
 ```bash
 # Create CLI usage rule
 minsky rules create minsky-cli-usage --name "Minsky CLI Usage Protocol" --description "REQUIRED guidelines for using the Minsky CLI for all task/session operations" --tags "workflow" "cli" --globs "**/*"
 
+# Create session management rule
+minsky rules create minsky-session-management --name "Minsky Session Management Protocol" --description "REQUIRED protocol for starting, re-entering, and managing Minsky sessions" --tags "workflow" "session" --globs "**/*"
+
 # Create task implementation workflow rule
 minsky rules create task-implementation-workflow --name "Task Implementation Workflow" --description "REQUIRED workflow for implementing tasks from start to completion" --tags "workflow" "tasks" --globs "**/*"
+
+# Create task status protocol rule
+minsky rules create task-status-protocol --name "Task Status Protocol" --description "Protocol for checking, updating, and verifying task status via Minsky CLI" --tags "workflow" "tasks" "status" --globs "**/*"
+
+# Create PR preparation workflow rule
+minsky rules create pr-preparation-workflow --name "PR Preparation Workflow" --description "REQUIRED protocol for preparing, creating, and submitting PRs for implemented tasks" --tags "workflow" "pr" "git" --globs "**/*"
 
 # Create orchestrator rule
 minsky rules create minsky-workflow-orchestrator --name "Minsky Workflow Overview" --description "REQUIRED entry point for understanding the Minsky workflow system" --tags "workflow" "meta" --globs "**/*" --always-apply true
@@ -123,12 +170,15 @@ minsky rules create minsky-workflow-orchestrator --name "Minsky Workflow Overvie
 
 - Check if `session-first-workflow.mdc` exists and its content
 - Check if `task-status-verification.mdc` exists and its content
+- Consider integration with task #041: Write Test Suite for Cursor Rules
 
 ## Resources/Links
 
 - Current `minsky-workflow.mdc` rule
 - `rules-management.mdc`
 - `rule-creation-guidelines.mdc`
+- `session-first-workflow.mdc`
+- `task-status-verification.mdc`
 
 ## Notes
 
@@ -136,3 +186,16 @@ minsky rules create minsky-workflow-orchestrator --name "Minsky Workflow Overvie
 - Rules should follow "Core Principles" from `rule-creation-guidelines.mdc`: rule follower perspective, concision, modularity, clarity, hierarchy, no duplication
 - Each rule should have a precise description that triggers its application in the right context
 - The orchestrator rule should provide enough context for users to find the specific rule they need
+- Test cases developed should be designed to be incorporated into the rule test suite in task #041
+- Cross-referencing between rules is crucial to maintain comprehensive guidance and avoid duplication
+
+## Work Log
+
+- 2024-05-15: Reviewed current minsky-workflow.mdc rule and identified six logical components to extract
+- 2024-05-15: Created initial drafts of all six rule files in temp-rules directory
+- 2024-05-15: Implemented rule cross-referencing system for navigation between rules
+- 2024-05-15: Created the rules in the Minsky system using `minsky rules create`
+- 2024-05-15: Fixed cross-references format and resolved formatting issues
+- 2024-05-15: Marked original rule as deprecated with references to new rules
+- 2024-05-15: Updated CHANGELOG.md with refactoring information
+- 2024-05-15: Created PR description

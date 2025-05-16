@@ -1,0 +1,169 @@
+---
+name: Task Status Protocol
+description: REQUIRED protocol for checking, updating, and verifying task status
+globs:
+  - "**/*"
+---
+name: Task Status Protocol
+description: REQUIRED protocol for checking, updating, and verifying task status
+globs:
+  - "**/*"
+# Task Status Protocol
+
+This rule defines the standard protocol for checking, updating, and verifying task status within the Minsky system.
+
+## Task Status Lifecycle
+
+Tasks in the Minsky system progress through the following statuses:
+
+- `TODO`: Not started, available to work on
+- `IN-PROGRESS`: Work has begun but is not complete
+- `IN-REVIEW`: Work is complete and awaiting review
+- `DONE`: Work is complete, reviewed, and merged
+
+## Status Checking Commands
+
+To check the status of a task:
+
+```bash
+# Get status of a specific task
+minsky tasks status get '#<task-id>'
+
+# List all tasks with their status
+minsky tasks list --json
+
+# List only tasks with a specific status
+minsky tasks list --json | jq '.[] | select(.status == "IN-PROGRESS")'
+```
+
+Always use the Minsky CLI to get the current status of tasks, never rely on file system inspection or cached information.
+
+## Status Update Procedures
+
+To update the status of a task:
+
+```bash
+# Set task status
+minsky tasks status set '<task-id>' <status>
+```
+
+Where `<status>` is one of: `TODO`, `IN-PROGRESS`, `IN-REVIEW`, `DONE`
+
+### Status Transition Guidelines
+
+1. **TODO → IN-PROGRESS**
+   - Update when you start actively working on the task
+   - Should coincide with session creation
+   - Example:
+     ```bash
+     minsky tasks status set '#042' IN-PROGRESS
+     ```
+
+2. **IN-PROGRESS → IN-REVIEW**
+   - Update when the task is fully implemented and ready for review
+   - All tests should be passing
+   - PR should be generated
+   - Example:
+     ```bash
+     minsky tasks status set '#042' IN-REVIEW
+     ```
+
+3. **IN-REVIEW → DONE**
+   - Update when the task has been reviewed and merged
+   - Indicates no further work is needed
+   - Example:
+     ```bash
+     minsky tasks status set '#042' DONE
+     ```
+
+4. **Reverting Status (e.g., IN-REVIEW → IN-PROGRESS)**
+   - Appropriate when issues are found during review
+   - Requires returning to implementation phase
+   - Example:
+     ```bash
+     minsky tasks status set '#042' IN-PROGRESS
+     ```
+
+## Task Status Update Protocol
+
+- All changes to task status (e.g., marking a task as DONE) must be performed using the `minsky tasks` command.
+- Direct edits to `tasks.md` are strictly forbidden for status changes.
+- **Verification Checkpoint:** Before marking any task as complete, verify that the update is performed via the CLI, not by file edit.
+- Example:
+  - Correct: `minsky tasks status set 039 DONE --session task#039`
+  - Incorrect: Editing `tasks.md` directly in any workspace.
+
+## Status Verification
+
+When working with tasks, always verify both the tracked status and the actual implementation state:
+
+1. **Check tracked status**:
+   ```bash
+   minsky tasks status get '#<task-id>'
+   ```
+
+2. **Verify implementation state**:
+   - Check if the task has been implemented by examining the relevant code
+   - Check if the implementation has been merged into the main branch
+   - Check if tests are passing for the implementation
+
+3. **Report any discrepancies**:
+   - If the tracked status doesn't match the implementation state, report it
+   - Example: "Task #123 is marked as TODO but has already been implemented"
+
+## Status Automation
+
+The Minsky system supports automatic task status updates at key workflow points:
+
+1. **Session Start → IN-PROGRESS**
+   - When starting a session for a task, consider updating its status to IN-PROGRESS
+   - Example:
+     ```bash
+     minsky session start --task 042 --quiet
+     minsky tasks status set '#042' IN-PROGRESS
+     ```
+
+2. **PR Creation → IN-REVIEW**
+   - When creating a PR for a task, update its status to IN-REVIEW
+   - Example:
+     ```bash
+     minsky git pr
+     minsky tasks status set '#042' IN-REVIEW
+     ```
+
+3. **PR Merge → DONE**
+   - After a PR is merged, update the task status to DONE
+   - Example:
+     ```bash
+     # After merging PR
+     minsky tasks status set '#042' DONE
+     ```
+
+## Complete Status Verification
+
+Before marking any task as DONE, do a final verification:
+
+1. **Requirements Validation**
+   - All requirements in the task document should be implemented
+   - All acceptance criteria should be met
+   - All verification steps should be completed
+
+2. **Code Quality Verification**
+   - All tests should be passing
+   - Code should adhere to project standards
+   - No TODOs or unfinished work should remain
+
+3. **Documentation Check**
+   - Work log should be up to date
+   - Changelog should be updated
+   - Any relevant documentation should be updated
+
+## See Also
+
+For more comprehensive verification of task status, especially when there might be discrepancies between tracked status and actual implementation state, see [task-status-verification](mdc:.cursor/rules/task-status-verification.mdc).
+
+- See [minsky-workflow-orchestrator](mdc:.cursor/rules/minsky-workflow-orchestrator.mdc) for workflow overview
+- See [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) for CLI command reference
+- See [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc) for implementing tasks
+
+- `DONE`: Work is complete, reviewed, and merged

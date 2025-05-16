@@ -101,3 +101,19 @@ _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specs
 
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
+
+### Added
+- New cursor rules for Minsky workflow to replace monolithic workflow rule:
+  - minsky-workflow-orchestrator - Overview of the workflow system and entry point
+  - minsky-cli-usage - CLI command reference and usage guidelines
+  - minsky-session-management - Session creation and management procedures
+  - task-implementation-workflow - Task implementation process
+  - task-status-protocol - Status checking and updating procedures
+  - pr-preparation-workflow - PR creation and submission guidelines
+
+### Changed
+- Refactored monolithic minsky-workflow.mdc rule into six smaller, focused rules for better organization and maintainability
+- Updated index.mdc to reference the new rules correctly
+- Improved references between rules using MDC links
+
+_See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
