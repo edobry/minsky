@@ -1,6 +1,8 @@
 ---
-description:
+name: Minsky CLI Usage Protocol
+description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
 globs:
+  - "**/*"
 alwaysApply: false
 ---
 # Minsky CLI Usage Protocol
