@@ -2,11 +2,8 @@ import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-<<<<<<< HEAD
 import { log } from "../utils/logger"; // Added logger import
-=======
 import * as jsYaml from "js-yaml";
->>>>>>> origin/main
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
@@ -14,12 +11,12 @@ const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
   const yamlStr = jsYaml.dump(data, {
-    lineWidth: -1,      // Don't wrap lines
+    lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: '"',   // Use double quotes when necessary
-    forceQuotes: false  // Don't force quotes on all strings
+    quotingType: '"', // Use double quotes when necessary
+    forceQuotes: false, // Don't force quotes on all strings
   });
-  
+
   return `---\n${yamlStr}---\n${content}`;
 }
 
@@ -92,7 +89,7 @@ export class RuleService {
 
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);
-      
+
       if (options.debug) {
         log.debug("Listing rules", { directory: dirPath, format });
       }
@@ -104,7 +101,10 @@ export class RuleService {
           if (!file.endsWith(".mdc")) continue;
 
           try {
-            const rule = await this.getRule(file.replace(/\.mdc$/, ""), { format, debug: options.debug });
+            const rule = await this.getRule(file.replace(/\.mdc$/, ""), {
+              format,
+              debug: options.debug,
+            });
 
             // Filter by tag if specified
             if (options.tag && (!rule.tags || !rule.tags.includes(options.tag))) {
@@ -142,7 +142,7 @@ export class RuleService {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
-    // If a specific format is requested, try that first 
+    // If a specific format is requested, try that first
     if (options.format) {
       const requestedFormat = options.format;
       const dirPath = this.getRuleDirPath(requestedFormat);
@@ -195,7 +195,7 @@ export class RuleService {
         if (options.format && format !== options.format) {
           const originalFormat = format;
           const requestedFormat = options.format;
-          
+
           // Return the rule in its original format, but with a notice that format conversion was requested
           // Future enhancement: We could implement actual format conversion here
           return {
@@ -208,7 +208,7 @@ export class RuleService {
             content: ruleContent.trim(),
             format: originalFormat, // Return actual format, not requested format
             path: filePath,
-            formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`
+            formatNote: `Rule found in '${originalFormat}' format but '${requestedFormat}' was requested. Format conversion is not supported yet.`,
           };
         }
 
@@ -232,7 +232,9 @@ export class RuleService {
 
     // If we reach here, the rule was not found in any format
     if (options.format) {
-      throw new Error(`Rule '${id}' not found in '${options.format}' format or any other available format`);
+      throw new Error(
+        `Rule '${id}' not found in '${options.format}' format or any other available format`
+      );
     } else {
       throw new Error(`Rule not found: ${id}`);
     }
@@ -273,11 +275,11 @@ export class RuleService {
     // Write the file
     await fs.writeFile(filePath, fileContent, "utf-8");
 
-    log.debug("Rule created/updated", { 
-      path: filePath, 
-      id, 
+    log.debug("Rule created/updated", {
+      path: filePath,
+      id,
       format,
-      globs: cleanMeta.globs
+      globs: cleanMeta.globs,
     });
 
     // Return the created rule
@@ -300,7 +302,12 @@ export class RuleService {
   ): Promise<Rule> {
     const rule = await this.getRule(id, ruleOptions);
 
-    // Prepare updated meta, similar to original logic but ensuring type safety
+    // No changes needed
+    if (!options.content && !options.meta) {
+      return rule;
+    }
+
+    // Prepare updated meta
     const metaForFrontmatter: RuleMeta = {};
     const currentRuleMeta: Partial<RuleMeta> = {
       name: rule.name,
@@ -326,23 +333,18 @@ export class RuleService {
     // Content to use
     const updatedContent = options.content || rule.content;
 
-<<<<<<< HEAD
-    // Create frontmatter content
-    const fileContent = matterStringify(updatedContent, metaForFrontmatter);
-=======
     // Use custom stringify function instead of matterStringify
-    const fileContent = customMatterStringify(updatedContent, cleanMeta);
->>>>>>> origin/main
+    const fileContent = customMatterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
     await fs.writeFile(rule.path, fileContent, "utf-8");
 
-    log.debug("Rule updated", { 
-      path: rule.path, 
+    log.debug("Rule updated", {
+      path: rule.path,
       id,
       format: rule.format,
       contentChanged: !!options.content,
-      metaChanged: !!options.meta
+      metaChanged: !!options.meta,
     });
 
     return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule

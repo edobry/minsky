@@ -7,14 +7,16 @@ export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
   backend: z.enum(["tasks.md", "tasks.csv"]),
   ruleFormat: z.enum(["cursor", "generic"]),
-  mcp: z.object({
-    enabled: z.boolean().optional().default(true),
-    transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
-    port: z.number().optional(),
-    host: z.string().optional()
-  }).optional(),
+  mcp: z
+    .object({
+      enabled: z.boolean().optional().default(true),
+      transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
+      port: z.number().optional(),
+      host: z.string().optional(),
+    })
+    .optional(),
   mcpOnly: z.boolean().optional().default(false),
-  overwrite: z.boolean().optional().default(false)
+  overwrite: z.boolean().optional().default(false),
 });
 
 export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSchema>;
@@ -129,7 +131,10 @@ export async function initializeProject(
 /**
  * Creates a directory and all parent directories if they don't exist
  */
-async function createDirectoryIfNotExists(dirPath: string, fileSystem: FileSystem = fs): Promise<void> {
+async function createDirectoryIfNotExists(
+  dirPath: string,
+  fileSystem: FileSystem = fs
+): Promise<void> {
   if (!fileSystem.existsSync(dirPath)) {
     fileSystem.mkdirSync(dirPath, { recursive: true });
   }
@@ -212,7 +217,7 @@ This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
      minsky tasks list --json          # List all tasks
      minsky tasks get '#XXX' --json    # Get specific task details
      minsky tasks status get '#XXX'    # Get task status
-     
+
      # For session queries
      minsky session list --json        # List all sessions
      minsky session get <n>            # Get session details by name
@@ -555,10 +560,6 @@ export async function initializeProjectWithFS(
   options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
-<<<<<<< HEAD
-  // Use the injected fileSystem for all file operations
-  await initializeProject(options, fileSystem);
-=======
   const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
 
   // Handle different backends
@@ -579,18 +580,11 @@ export async function initializeProjectWithFS(
       }
 
       // Create tasks.md file
-      fileSystem.writeFileSync(
-        tasksFilePath,
-        "# Minsky Tasks\n\n- [ ] Example task\n"
-      );
+      fileSystem.writeFileSync(tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
     }
 
     // Handle rule format based on options
-    const rulesDirPath = path.join(
-      repoPath,
-      ruleFormat === "cursor" ? ".cursor" : ".ai",
-      "rules"
-    );
+    const rulesDirPath = path.join(repoPath, ruleFormat === "cursor" ? ".cursor" : ".ai", "rules");
 
     // Create directories for rules
     if (!fileSystem.existsSync(rulesDirPath)) {
@@ -613,7 +607,7 @@ export async function initializeProjectWithFS(
     // MCP Configuration
     if (mcp?.enabled !== false) {
       const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-      
+
       // Create .cursor directory if it doesn't exist (even for generic rule format)
       const cursorDirPath = path.join(repoPath, ".cursor");
       if (!fileSystem.existsSync(cursorDirPath)) {
@@ -638,5 +632,4 @@ export async function initializeProjectWithFS(
   } else {
     throw new Error(`Backend not implemented: ${backend}`);
   }
->>>>>>> origin/main
 }
