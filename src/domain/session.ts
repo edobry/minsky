@@ -83,10 +83,10 @@ export class SessionDB {
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
       log.debug("DB file written successfully.");
     } catch (error) {
-      log.error("Error writing session database", { 
+      log.error("Error writing session database", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        dbPath: this.dbPath
+        dbPath: this.dbPath,
       });
     }
   }
@@ -145,9 +145,9 @@ export class SessionDB {
       return found || null;
     } catch (error) {
       log.error("Error finding session by task ID", {
-          error: error instanceof Error ? error.message : String(error),
+        error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-          taskId
+        taskId,
       });
       return null;
     }
@@ -169,9 +169,9 @@ export class SessionDB {
       return true;
     } catch (error) {
       log.error(`Error in deleteSession for '${session}'`, {
-        error: error instanceof Error ? error.message : String(error), 
+        error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        session 
+        session,
       });
       return false;
     }
@@ -246,8 +246,15 @@ export type SessionDeps = {
   workspaceUtils: typeof WorkspaceUtils;
 };
 
-export function createSessionDeps(options?: { workspacePath?: string }): SessionDeps {
-  const baseDir = options?.workspacePath || process.cwd();
+function getMinskyStateDir(): string {
+  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  return join(xdgStateHome, "minsky", "git");
+}
+
+export async function createSessionDeps(options?: {
+  workspacePath?: string;
+}): Promise<SessionDeps> {
+  const baseDir = getMinskyStateDir();
   const sessionDBInstance = new SessionDB({ baseDir });
   const gitServiceInstance = new GitService(baseDir);
   const taskServiceInstance = new TaskService({
@@ -268,7 +275,7 @@ export function createSessionDeps(options?: { workspacePath?: string }): Session
  */
 export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
   const { name, task } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+  const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
   if (task && !name) {
     const normalizedTaskId = taskIdSchema.parse(task);
     return sessionDB.getSessionByTaskId(normalizedTaskId);
@@ -283,7 +290,7 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
  * Lists all sessions based on parameters
  */
 export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+  const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
   return sessionDB.listSessions();
 }
 
@@ -292,12 +299,23 @@ export async function listSessionsFromParams(params: SessionListParams): Promise
  */
 export async function startSessionFromParams(
   params: SessionStartParams,
-  deps = createSessionDeps({ workspacePath: params.repo })
+  depsInput?: SessionDeps
 ): Promise<SessionResult> {
+  const deps = depsInput || (await createSessionDeps({ workspacePath: params.repo }));
   const { name, repo, task, branch: inputBranch, noStatusUpdate, quiet, json } = params;
   let repoUrl = repo;
 
   try {
+    log.debug("Starting session with params", {
+      name,
+      repoUrl,
+      task,
+      inputBranch,
+      noStatusUpdate,
+      quiet,
+      json,
+    });
+
     const currentDir = process.env.PWD || process.cwd();
     const isInSession = await deps.workspaceUtils.isSessionRepository(currentDir);
     if (isInSession) {
@@ -308,8 +326,15 @@ export async function startSessionFromParams(
 
     if (!repoUrl) {
       try {
+        log.debug("No repoUrl provided, attempting to resolve from current directory", {
+          currentDir,
+        });
         repoUrl = await resolveRepoPath({ repo: currentDir });
+        log.debug("Resolved repoUrl from current directory", { repoUrl });
       } catch (error) {
+        log.warn("Failed to resolve repoUrl from current directory", {
+          error: error instanceof Error ? error.message : String(error),
+        });
         if (!name && !task) {
           throw new ValidationError(
             "Could not determine repository path. Please provide a repository URL or path."
@@ -322,7 +347,10 @@ export async function startSessionFromParams(
       throw new ValidationError("Repository URL is required");
     }
 
-    const repoPathToUse = params.repo || await resolveRepoPath({});
+    log.debug("Using repoUrl", { repoUrl });
+    const repoPathToUse = params.repo || (await resolveRepoPath({}));
+    log.debug("Resolved repoPathToUse", { repoPathToUse });
+
     if (!repoPathToUse) {
       throw new MinskyError(
         "Repository path could not be determined. Please specify with --repo or run from within a Git repository."
@@ -331,6 +359,7 @@ export async function startSessionFromParams(
 
     const repoName = normalizeRepoName(repoPathToUse);
     const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    log.debug("Normalized repo name", { repoName, normalizedRepoName });
 
     let taskId: string | undefined = undefined;
     let sessionName: string;
@@ -368,6 +397,7 @@ export async function startSessionFromParams(
     }
 
     const actualBranchName = inputBranch || sessionName;
+    log.debug("Using branch name", { actualBranchName });
 
     const sessionRecord: SessionRecord = {
       session: sessionName,
@@ -385,10 +415,18 @@ export async function startSessionFromParams(
       sessionRecord.taskId = taskId;
     }
 
+    log.debug("Created session record", { sessionRecord });
+
     const repoPath = deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName);
     sessionRecord.repoPath = repoPath;
+    log.debug("Session directory path", { repoPath });
+
+    // Ensure the session directory exists before git operations
+    await mkdir(repoPath, { recursive: true });
+    log.debug("Created session directory");
 
     await deps.sessionDB.addSession(sessionRecord);
+    log.debug("Added session to database");
 
     const cloneOptions = {
       repoUrl,
@@ -398,30 +436,67 @@ export async function startSessionFromParams(
       depth: 1,
     };
 
-    const cloneResult = await deps.gitService.clone(cloneOptions);
+    log.debug("Starting git clone operation", { cloneOptions });
+    try {
+      const cloneResult = await deps.gitService.clone({
+        ...cloneOptions,
+        session: sessionName,
+      });
+      log.debug("Git clone completed successfully", { cloneResult });
+    } catch (error) {
+      log.error("Git clone failed", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        cloneOptions,
+      });
+      throw new MinskyError(
+        `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
 
     let statusUpdateResult;
     if (taskId && !noStatusUpdate) {
       try {
+        log.debug("Updating task status", { taskId, status: TASK_STATUS.IN_PROGRESS });
         statusUpdateResult = await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
-        log.warn("Warning: Failed to update task status", { 
+        log.warn("Warning: Failed to update task status", {
           error: error instanceof Error ? error.message : String(error),
           taskId,
-          targetStatus: TASK_STATUS.IN_PROGRESS
+          targetStatus: TASK_STATUS.IN_PROGRESS,
         });
       }
     }
 
     const branchCmdOptions: BranchOptions = { session: sessionName, branch: actualBranchName };
-    const branchResult = await deps.gitService.branch(branchCmdOptions);
+    log.debug("Starting git branch operation", { branchCmdOptions });
 
-    return {
-      sessionRecord,
-      cloneResult,
-      branchResult: { branch: branchResult.branch },
-    };
+    try {
+      const branchResult = await deps.gitService.branch(branchCmdOptions);
+      log.debug("Git branch completed successfully", { branchResult });
+
+      return {
+        sessionRecord,
+        cloneResult: { workdir: repoPath },
+        branchResult: { branch: branchResult.branch },
+      };
+    } catch (error) {
+      log.error("Git branch failed", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        branchCmdOptions,
+      });
+      throw new MinskyError(
+        `Failed to create branch: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   } catch (error) {
+    log.error("Session start failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      params,
+    });
+
     if (error instanceof MinskyError) {
       throw error;
     }
@@ -436,10 +511,13 @@ export async function startSessionFromParams(
  */
 export async function updateSessionFromParams(
   params: SessionUpdateParams,
-  deps: SessionDeps = createSessionDeps({
-    workspacePath: params.workspace || params.repo || process.cwd(),
-  })
+  depsInput?: SessionDeps
 ): Promise<SessionRecord | null> {
+  const deps =
+    depsInput ||
+    (await createSessionDeps({
+      workspacePath: params.workspace || params.repo || process.cwd(),
+    }));
   const { name: sessionName, task: taskParam, branch: inputBranch, remote: inputRemote } = params;
   const sessionDB = deps.sessionDB;
 
@@ -486,7 +564,11 @@ export async function updateSessionFromParams(
   }
 
   if (!params.noPush) {
-    await deps.gitService.push({ session: sessionName, repoPath: sessionWorkDir, remote: inputRemote });
+    await deps.gitService.push({
+      session: sessionName,
+      repoPath: sessionWorkDir,
+      remote: inputRemote,
+    });
   }
 
   const {
