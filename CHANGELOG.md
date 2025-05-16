@@ -74,6 +74,7 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 - Fixed duplicate hash character display in task IDs (showing "##077" instead of "#077")
 - Fixed setTaskStatus method to return silently when a task isn't found instead of throwing an error
 - Removed test files with merge conflicts to improve test reliability
+- Restored interactive status prompt in `tasks status set` command that was lost during code refactoring
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
