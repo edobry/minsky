@@ -80,12 +80,23 @@ export class SessionDB {
       const data = await readFile(this.dbPath, "utf8");
       const sessions = JSON.parse(data);
 
-      return sessions.map((session: SessionRecord) => {
+      // Normalize and migrate session records
+      const normalizedSessions = sessions.map((session: SessionRecord) => {
+        // Ensure repoName exists
         if (!session.repoName && session.repoUrl) {
           session.repoName = normalizeRepoName(session.repoUrl);
         }
+
+        // Ensure branch field exists - default to session name if missing
+        if (!session.branch && session.session) {
+          log.debug(`Fixing missing branch for session: ${session.session}`);
+          session.branch = session.session;
+        }
+
         return session;
       });
+
+      return normalizedSessions;
     } catch (e) {
       return [];
     }
