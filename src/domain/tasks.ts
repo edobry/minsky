@@ -134,7 +134,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     // First verify the task exists with our enhanced getTask method
     const task = await this.getTask(id);
     if (!task) {
-      throw new Error(`Task ${id} not found`);
+      return; // Return early without throwing an error or making changes
     }
 
     // Use the canonical task ID from the found task
