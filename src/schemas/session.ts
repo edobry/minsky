@@ -127,3 +127,22 @@ export const sessionUpdateParamsSchema = z
  * Type for session update parameters
  */
 export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
+
+/**
+ * Schema for session approve parameters
+ */
+export const sessionApproveParamsSchema = z
+  .object({
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
+    session: sessionNameSchema.optional().describe("Name of the session to approve"),
+    repo: repoPathSchema.optional().describe("Repository path"),
+  })
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.session !== undefined || data.task !== undefined || data.repo !== undefined, {
+    message: "Either session name, task ID, or repo path must be provided",
+  });
+
+/**
+ * Type for session approve parameters
+ */
+export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;

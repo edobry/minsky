@@ -9,6 +9,7 @@ import type {
   SessionDirParams,
   SessionDeleteParams,
   SessionUpdateParams,
+  SessionApproveParams,
 } from "../../schemas/session.js";
 import { MinskyError } from "../../errors/index.js";
 import {
@@ -18,6 +19,7 @@ import {
   getSessionDirFromParams,
   deleteSessionFromParams,
   updateSessionFromParams,
+  approveSessionFromParams,
 } from "../../domain/index.js";
 
 interface GetCurrentSessionConfig {
@@ -271,6 +273,64 @@ export function createUpdateCommand(): Command {
 }
 
 /**
+ * Creates the session approve command
+ */
+export function createApproveCommand(): Command {
+  return new Command("approve")
+    .description("Approve and merge a PR branch for a session")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--session <session>", "Session name")
+    .option("--repo <path>", "Repository path")
+    .option("--json", "Output as JSON")
+    .action(async (options: { 
+      task?: string;
+      session?: string;
+      repo?: string;
+      json?: boolean;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters
+        const params: SessionApproveParams = {
+          task: options.task,
+          session: options.session,
+          repo: options.repo,
+          json: options.json,
+        };
+
+        // Call the domain function
+        const result = await approveSessionFromParams(params);
+
+        // Output result
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`PR for session ${result.session} approved and merged successfully.`);
+          console.log(`Merge commit: ${result.commitHash}`);
+          console.log(`Merged by: ${result.mergedBy}`);
+          console.log(`Merge date: ${result.mergeDate}`);
+          if (result.taskId) {
+            console.log(`Task ${result.taskId} status updated to DONE`);
+          }
+        }
+      } catch (error) {
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+          // Exit with the specific error code if available
+          if (typeof (error as any).code === 'number') {
+            process.exit((error as any).code);
+          }
+          process.exit(1);
+        } else if (error instanceof Error) {
+          console.error(`Unexpected error: ${error.message}`);
+        } else {
+          console.error(`Unexpected error: ${String(error)}`);
+        }
+        process.exit(1);
+      }
+    });
+}
+
+/**
  * Creates the main session command with all subcommands
  * Accepts an optional getCurrentSession function for testing
  */
@@ -283,6 +343,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createDirCommand());
   sessionCommand.addCommand(createDeleteCommand());
   sessionCommand.addCommand(createUpdateCommand());
+  sessionCommand.addCommand(createApproveCommand());
 
   return sessionCommand;
 } 

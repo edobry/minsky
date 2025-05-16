@@ -11,8 +11,9 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
+  SessionApproveParams,
 } from "../schemas/session.js";
-import { GitService, type BranchOptions } from "./git.js";
+import { GitService, type BranchOptions, type MergePrResult } from "./git.js";
 import { TaskService, TASK_STATUS } from "./tasks.js";
 import { isSessionRepository } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
@@ -638,4 +639,123 @@ export async function deleteSessionFromParams(params: SessionDeleteParams): Prom
   }
 
   return sessionDB.deleteSession(name);
+}
+
+/**
+ * Approves and merges a session PR branch
+ */
+export async function approveSessionFromParams(
+  params: SessionApproveParams,
+  depsInput?: SessionDeps
+): Promise<MergePrResult & { session: string; taskId?: string }> {
+  const deps =
+    depsInput ||
+    (await createSessionDeps({
+      workspacePath: params.repo || process.cwd(),
+    }));
+  
+  try {
+    // Determine which session to approve
+    const { session: sessionName, task: taskParam, repo: repoPath } = params;
+    const sessionDB = deps.sessionDB;
+    
+    let sessionToApprove: SessionRecord | null = null;
+    let taskId: string | undefined = undefined;
+    
+    // Resolve session by task ID if provided
+    if (taskParam) {
+      const normalizedTaskId = taskIdSchema.parse(taskParam);
+      sessionToApprove = await sessionDB.getSessionByTaskId(normalizedTaskId);
+      if (!sessionToApprove) {
+        throw new ResourceNotFoundError(
+          `No session found for task ${normalizedTaskId}`,
+          "task",
+          normalizedTaskId
+        );
+      }
+      taskId = normalizedTaskId;
+    } 
+    // Otherwise use session name if provided
+    else if (sessionName) {
+      sessionToApprove = await sessionDB.getSession(sessionName);
+      if (!sessionToApprove) {
+        throw new ResourceNotFoundError(
+          `Session "${sessionName}" not found`,
+          "session",
+          sessionName
+        );
+      }
+      taskId = sessionToApprove.taskId;
+    }
+    // If neither session nor task is provided but repo is, try to detect current session
+    else if (repoPath) {
+      const currentSession = await deps.workspaceUtils.getCurrentSession(repoPath);
+      if (!currentSession) {
+        throw new ValidationError("No session detected. Please provide a session name or task ID");
+      }
+      sessionToApprove = await sessionDB.getSession(currentSession);
+      if (!sessionToApprove) {
+        throw new ResourceNotFoundError(
+          `Current session "${currentSession}" not found in database`,
+          "session",
+          currentSession
+        );
+      }
+      taskId = sessionToApprove.taskId;
+    } else {
+      throw new ValidationError("Either a session name, task ID, or repository path must be provided");
+    }
+    
+    const sessionWorkDir = await deps.sessionDB.getSessionWorkdir(sessionToApprove.session);
+    const currentBranch = sessionToApprove.branch || sessionToApprove.session;
+    const prBranch = `pr/${currentBranch}`;
+    
+    // Merge the PR branch
+    const mergeResult = await deps.gitService.mergePr({
+      prBranch,
+      repoPath: sessionWorkDir
+    });
+    
+    // Update task status if applicable
+    if (taskId) {
+      try {
+        // Update task status to DONE
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+        
+        // Update task metadata with merge information
+        await deps.taskService.setTaskMetadata(taskId, {
+          commitHash: mergeResult.commitHash,
+          mergeDate: mergeResult.mergeDate,
+          mergedBy: mergeResult.mergedBy
+        });
+      } catch (error) {
+        log.warn("Warning: Failed to update task status or metadata", {
+          error: error instanceof Error ? error.message : String(error),
+          taskId,
+          targetStatus: TASK_STATUS.DONE,
+          mergeInfo: mergeResult
+        });
+      }
+    }
+    
+    return {
+      ...mergeResult,
+      session: sessionToApprove.session,
+      taskId
+    };
+  } catch (error) {
+    log.error("Session approve failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      params
+    });
+    
+    if (error instanceof MinskyError) {
+      throw error;
+    }
+    
+    throw new MinskyError(
+      `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }

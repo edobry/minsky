@@ -6,6 +6,21 @@
 
 ### Added
 
+- Enhanced PR workflow with "prepared-merge" capabilities:
+  - Renamed `git pr` to `git summary` for creating PR descriptions (old command still works for backward compatibility)
+  - Added new `git prepare-pr` command for creating PR branches with prepared merge commits
+  - Added new `git merge-pr` command for merging PR branches via fast-forward
+  - Added new `session approve` command that integrates PR merging with task status updates
+  - Added task metadata storage for tracking merge commits, dates, and authors
+- Support for PR branch creation, pushing, and deletion
+- Automatic tracking of merge commit metadata in task specifications
+- Exit codes for common error conditions:
+  - 2: Dirty work-tree (uncommitted changes)
+  - 3: Remote base branch is outdated
+  - 4: Merge conflicts
+
+_See: SpecStory history [2025-05-15_23-29-task-025-planning-and-review](.specstory/history/2025-05-15_23-29-task-025-planning-and-review.md) for PR workflow enhancement._
+
 - Initial Bun+TypeScript project setup for the minsky CLI tool
 - Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
 - `git clone` command: clone a repo into an isolated workspace, with session support
