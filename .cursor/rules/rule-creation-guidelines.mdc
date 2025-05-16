@@ -45,6 +45,51 @@ Rules are read by AI assistants with limited attention spans and context windows
 
 6. **Rationale**: Only if not self-evident from principles
 
+## Frontmatter Verification Protocol
+
+**CRITICAL: ALL rule edits require strict verification of frontmatter structure and content**
+
+### Frontmatter Structure Verification
+1. **REQUIRED elements** in this exact order:
+   - Opening `---` delimiter on its own line
+   - `name` field (if applicable)
+   - `description` field with exact wording from requirements
+   - `globs` field with appropriate patterns
+   - `alwaysApply` field (true/false)
+   - Closing `---` delimiter on its own line
+
+2. **ALWAYS verify complete file structure** after any edit:
+   - File must have proper opening and closing frontmatter markers
+   - Content must not include duplicate frontmatter sections
+   - Frontmatter must be properly formatted YAML
+
+### Exact Requirements Matching
+1. **EXACT text matching** for frontmatter fields:
+   - When updating from requirements, use the EXACT wording specified
+   - Do not paraphrase or reword descriptions unless explicitly instructed
+   - Copy and paste values from requirements when available
+   
+2. **ALWAYS verify after editing**:
+   - Read the complete file after editing
+   - Check for duplicated content or frontmatter
+   - Ensure all formatting is correct and consistent
+   - Compare description text against original requirements word-for-word
+
+### Examples
+
+// AVOID
+Editing frontmatter directly with a similar wording:
+```
+description: Required protocol for CLI usage
+```
+(when requirements specified: "REQUIRED guidelines for using the Minsky CLI...")
+
+// PREFER
+Using exact wording from requirements:
+```
+description: REQUIRED guidelines for using the Minsky CLI for all task/session operations
+```
+
 ## File Location
 
 **RULE FILES MUST BE STORED IN THE `.cursor/rules` DIRECTORY AT THE ROOT OF THE PROJECT.**
