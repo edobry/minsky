@@ -103,8 +103,14 @@ export class SessionDB {
         return session;
       });
 
+      // If any records were normalized, save them back to disk
       if (normalizedCount > 0) {
         log.debug(`Normalized ${normalizedCount} session records with missing fields`);
+        this.writeDb(normalizedSessions).catch((err) => {
+          log.error("Failed to save normalized session records", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       }
 
       return normalizedSessions;
