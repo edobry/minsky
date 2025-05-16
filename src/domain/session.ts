@@ -23,6 +23,26 @@ import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
 
+/**
+ * Helper function to normalize and validate a task ID
+ * @param taskId The raw task ID to normalize and validate
+ * @returns The normalized task ID
+ * @throws ValidationError if the task ID is invalid
+ */
+function normalizeAndValidateTaskId(taskId: string): string {
+  const normalized = normalizeTaskId(taskId);
+  if (!normalized) {
+    throw new ValidationError(
+      `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+    );
+  }
+
+  // Validate using the schema
+  taskIdSchema.parse(normalized);
+
+  return normalized;
+}
+
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
 export type Session = SessionRecord; // Alias for convenience
 
@@ -132,14 +152,11 @@ export class SessionDB {
       if (!taskId) {
         return null;
       }
-      const normalizedInputId = normalizeTaskId(taskId);
-      if (!normalizedInputId) {
-        return null;
-      }
+      const normalizedInputId = normalizeAndValidateTaskId(taskId);
       const sessions = await this.readDb();
       const found = sessions.find((s) => {
         if (!s.taskId) return false;
-        const normalizedStoredId = normalizeTaskId(s.taskId);
+        const normalizedStoredId = normalizeAndValidateTaskId(s.taskId);
         return normalizedStoredId === normalizedInputId;
       });
       return found || null;
@@ -282,15 +299,7 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
   const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
   if (task && !name) {
     // First normalize the task ID
-    const normalizedTaskId = normalizeTaskId(task);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-      );
-    }
-
-    // Then validate using the schema
-    taskIdSchema.parse(normalizedTaskId);
+    const normalizedTaskId = normalizeAndValidateTaskId(task);
 
     return sessionDB.getSessionByTaskId(normalizedTaskId);
   }
@@ -380,15 +389,7 @@ export async function startSessionFromParams(
 
     if (task) {
       // First normalize the task ID
-      const normalizedTaskId = normalizeTaskId(task);
-      if (!normalizedTaskId) {
-        throw new ValidationError(
-          `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-        );
-      }
-
-      // Then validate using the schema
-      taskIdSchema.parse(normalizedTaskId);
+      const normalizedTaskId = normalizeAndValidateTaskId(task);
 
       const taskInfo = await deps.taskService.getTask(normalizedTaskId);
 
@@ -429,6 +430,7 @@ export async function startSessionFromParams(
       repoName: normalizedRepoName,
       createdAt: new Date().toISOString(),
       backendType: "local",
+      branch: actualBranchName,
       remote: {
         authMethod: "ssh",
         depth: 1,
@@ -549,15 +551,7 @@ export async function updateSessionFromParams(
 
   if (params.task && !sessionName) {
     // First normalize the task ID
-    const normalizedTaskId = normalizeTaskId(params.task);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${params.task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-      );
-    }
-
-    // Then validate using the schema
-    taskIdSchema.parse(normalizedTaskId);
+    const normalizedTaskId = normalizeAndValidateTaskId(params.task);
 
     const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
@@ -635,15 +629,7 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
 
   if (task && !name) {
     // First normalize the task ID
-    const normalizedTaskId = normalizeTaskId(task);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${task}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-      );
-    }
-
-    // Then validate using the schema
-    taskIdSchema.parse(normalizedTaskId);
+    const normalizedTaskId = normalizeAndValidateTaskId(task);
 
     session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
