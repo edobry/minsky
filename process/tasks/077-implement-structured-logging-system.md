@@ -281,10 +281,14 @@ The logging implementation will prioritize:
      - `src/commands/tasks/create.ts` - Updated for consistent error handling and better output formatting
    - Updated init command:
      - `src/commands/init/index.ts` - Fixed imports and ensured proper error handling with context
-   - Migrated several session commands:
+   - Migrated session command modules to use structured logging:
      - `src/commands/session/list.ts` - Updated to use structured logging with proper error handling
      - `src/commands/session/get.ts` - Enhanced with better error reporting and contextual logging
      - `src/commands/session/dir.ts` - Converted to structured logging while maintaining test compatibility
+     - `src/commands/session/start.ts` - Migrated to structured logging with enhanced error handling
+     - `src/commands/session/startSession.ts` - Updated with proper context objects and standardized logging
+     - `src/commands/session/commit.ts` - Converted to use structured logging patterns
+     - `src/commands/session/delete.ts` - Improved error reporting with structured logging
    - Applied consistent patterns across all migrated modules:
      - Using log.agent for JSON output (with the --json option)
      - Using log.cli family for user-facing messages
@@ -293,41 +297,30 @@ The logging implementation will prioritize:
    - Fixed import paths to use proper .js extensions for ESM compatibility
    - Updated CHANGELOG.md with detailed description of the structured logging system
 
+8. **Domain Module Migration**
+   - Migrated domain modules to use structured logging:
+     - `src/domain/session.ts` - Replaced debug logs with structured logging
+     - `src/domain/init.ts` - Updated MCP usage rule template to use structured logging
+   - Updated test files to use structured logging:
+     - `src/domain/rules.test.ts` - Replaced console.error with log.error
+     - `src/domain/__tests__/session.test.ts` - Added proper structured error logging
+   - Enhanced error reporting with standardized context objects
+   - Verified MCP modules have already been migrated to use structured logging
+
 ### Remaining Work
 
-1. **Complete Codebase Migration**
-   - Replace remaining console.log/error/warn calls in these files:
-     - Domain modules in `src/domain/` directory:
-       - `src/domain/git.ts` (multiple debug logs)
-       - `src/domain/tasks.ts` (several console logs)
-       - `src/domain/session.ts` (debug logs)
-       - `src/domain/rules.ts` (multiple logs)
-       - `src/domain/workspace.ts` (warn and error logs)
-       - `src/domain/localGitBackend.ts` and `src/remoteGitBackend.ts` (warnings)
-     - MCP modules in `src/mcp/` directory:
-       - `src/mcp/server.ts` (connection logs)
-       - `src/mcp/tools/tasks.ts` (error logs)
-       - `src/mcp/tools/session.ts` (error logs)
-       - `src/mcp/command-mapper.ts` (error execution logs)
-     - Remaining session command modules:
-       - `src/commands/session/start.ts`
-       - `src/commands/session/startSession.ts`
-       - `src/commands/session/delete.ts`
-       - `src/commands/session/commit.ts`
-       - `src/commands/session/update.ts`
-   - Standardize error handling patterns across all modules
-   - Add appropriate context objects to all log messages
-   - Update all JSON output to use `log.agent` for consistent formatting
+1. **Complete Domain Module Migration**
+   - Finish migrating any remaining domain modules that still use console.log/error/warn:
+     - Check `src/domain/git.ts` for any remaining console logs
+     - Verify `src/domain/workspace.ts` (warn and error logs)
+     - Check `src/domain/localGitBackend.ts` and `src/remoteGitBackend.ts` (warnings)
+     - Review any other domain files that might have been missed
 
-2. **Test Update and Verification**
-   - Update existing tests that use console capture to use the new `LogCapture` utilities
-   - Add tests for the logger itself to verify:
-     - Proper formatting of structured logs
-     - Error object handling
-     - Context object inclusion
-     - Log level filtering
-   - Run all tests to ensure they pass with the new logging system
-   - Add specific tests for JSON output formatting
+2. **Test Updates and Verification**
+   - Update remaining tests that need to work with the structured logging system
+   - Create test utilities for capturing and verifying logs with the new system
+   - Verify all tests pass with the structured logging implementation
+   - Add specific tests for JSON output formatting and error handling
 
 3. **Final Integration and Review**
    - Ensure consistent logging patterns across all modules
