@@ -135,3 +135,66 @@ export function createCommitCommand(): Command {
       }
     );
 }
+
+// Add the push command
+/**
+ * Creates the git push command
+ */
+export function createPushCommand(): Command {
+  return new Command("push")
+    .description("Push changes to remote")
+    .option("--session <session>", "Session to push in")
+    .option("--repo <path>", "Repository path")
+    .option("--remote <remote>", "Remote to push to (defaults to origin)")
+    .option("--force", "Force push (use with caution)")
+    .option("--json", "Output as JSON")
+    .action(
+      async (options: {
+        session?: string;
+        repo?: string;
+        remote?: string;
+        force?: boolean;
+        json?: boolean;
+      }) => {
+        try {
+          // Use GitService directly for push
+          const gitService = new GitService();
+          const result = await gitService.push({
+            session: options.session,
+            repoPath: options.repo,
+            remote: options.remote || "origin",
+            force: options.force ?? false,
+          });
+
+          // Output result based on format
+          if (options.json) {
+            log.agent(JSON.stringify(result, null, 2));
+          } else {
+            log.cli("Successfully pushed changes to remote.");
+          }
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            log.cliError(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
+          } else {
+            log.cliError(`Unexpected error: ${String(error)}`);
+          }
+          process.exit(1);
+        }
+      }
+    );
+}
+
+/**
+ * Creates the main git command with all subcommands
+ */
+export function createGitCommand(): Command {
+  const gitCommand = new Command("git").description("Git operations");
+
+  gitCommand.addCommand(createPrCommand());
+  gitCommand.addCommand(createCommitCommand());
+  gitCommand.addCommand(createPushCommand());
+
+  return gitCommand;
+}

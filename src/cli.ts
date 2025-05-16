@@ -6,12 +6,8 @@ import { createTasksCommand } from "./adapters/cli/tasks.js";
 import { createGitCommand } from "./adapters/cli/git.js";
 import { createInitCommand } from "./adapters/cli/init.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
-<<<<<<< HEAD
-import { createRulesCommand } from "./commands/rules/index.js";
-import { log } from "./utils/logger";
-=======
 import { createRulesCommand } from "./adapters/cli/rules.js";
->>>>>>> origin/main
+import { log } from "./utils/logger";
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
