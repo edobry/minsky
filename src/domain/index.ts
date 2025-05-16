@@ -7,7 +7,6 @@ export * from "./workspace";
 export * from "./init";
 
 export {
-  createPullRequestFromParams,
   createPullRequestSummaryFromParams,
   preparePrFromParams,
   mergePrFromParams,

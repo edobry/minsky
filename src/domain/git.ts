@@ -270,7 +270,7 @@ export class GitService {
     };
   }
 
-  async pr(options: PrOptions): Promise<PrResult> {
+  async summary(options: PrOptions): Promise<PrResult> {
     await this.ensureBaseDir();
 
     const deps: PrDependencies = {
@@ -1062,10 +1062,9 @@ export class GitService {
 }
 
 /**
- * Interface-agnostic function to create a pull request
- * This implements the interface agnostic command architecture pattern
+ * Interface-agnostic function to create a pull request summary
  */
-export async function createPullRequestFromParams(params: {
+export async function createPullRequestSummaryFromParams(params: {
   session?: string;
   repo?: string;
   branch?: string;
@@ -1075,7 +1074,7 @@ export async function createPullRequestFromParams(params: {
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
   try {
     const git = new GitService();
-    const result = await git.pr({
+    const result = await git.summary({
       session: params.session,
       repoPath: params.repo,
       branch: params.branch,
@@ -1085,7 +1084,7 @@ export async function createPullRequestFromParams(params: {
     });
     return result;
   } catch (error) {
-    log.error("Error creating pull request", {
+    log.error("Error creating pull request summary", {
       session: params.session,
       repo: params.repo,
       branch: params.branch,

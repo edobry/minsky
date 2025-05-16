@@ -83,69 +83,6 @@ export function createSummaryCommand(): Command {
 }
 
 /**
- * Creates the pr command for backward compatibility
- */
-export function createPrCommand(): Command {
-  return new Command("pr")
-    .description("Create a pull request (Deprecated: use 'summary' or 'prepare-pr' instead)")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--branch <branch>", "Branch to compare against (defaults to main/master)")
-    .option("--debug", "Enable debug output")
-    .option("--session <session>", "Session to create PR for")
-    .option("--json", "Output as JSON")
-    .action(
-      async (options: {
-        repo?: string;
-        branch?: string;
-        debug?: boolean;
-        session?: string;
-        json?: boolean;
-      }) => {
-        log.debug("Deprecated 'pr' command called, redirecting to summary");
-        try {
-          // Convert CLI options to domain parameters
-          const params: GitPullRequestParams = {
-            repo: options.repo,
-            branch: options.branch,
-            debug: options.debug ?? false,
-            session: options.session,
-            json: options.json,
-          };
-
-          log.debug("Creating PR with params", { params });
-
-          const result = await createPullRequestSummaryFromParams(params);
-
-          // Output result based on format
-          if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            console.log(result.markdown);
-
-            // Display status update information if available
-            if (result.statusUpdateResult) {
-              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
-              console.log(
-                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
-              );
-            }
-          }
-        } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-            process.exit(1);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
-        }
-      }
-    );
-}
-
-/**
  * Creates the prepare-pr command
  */
 export function createPreparePrCommand(): Command {
@@ -389,7 +326,6 @@ export function createGitCommand(): Command {
   const gitCommand = new Command("git").description("Git operations");
 
   gitCommand.addCommand(createSummaryCommand());
-  gitCommand.addCommand(createPrCommand());
   gitCommand.addCommand(createPreparePrCommand());
   gitCommand.addCommand(createMergePrCommand());
   gitCommand.addCommand(createCommitCommand());

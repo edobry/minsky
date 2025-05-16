@@ -7,7 +7,7 @@
 ### Added
 
 - Enhanced PR workflow with "prepared-merge" capabilities:
-  - Renamed `git pr` to `git summary` for creating PR descriptions (old command still works for backward compatibility)
+  - Renamed `git pr` to `git summary` for creating PR descriptions
   - Added new `git prepare-pr` command for creating PR branches with prepared merge commits
   - Added new `git merge-pr` command for merging PR branches via fast-forward
   - Added new `session approve` command that integrates PR merging with task status updates
