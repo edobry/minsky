@@ -466,7 +466,7 @@ Minsky exposes the following tools via MCP:
 \`\`\`typescript
 // AI can retrieve task information using:
 const tasks = await tools.tasks.list({})
-console.log(tasks) // Returns JSON array of tasks
+log.agent(tasks) // Returns JSON array of tasks using structured logging
 \`\`\`
 
 ### Example: Start a Session via MCP
@@ -474,7 +474,7 @@ console.log(tasks) // Returns JSON array of tasks
 \`\`\`typescript
 // AI can start a session for task #123:
 const result = await tools.session.start({ task: "123", quiet: true })
-console.log(result.message) // Session directory path
+log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 
 ## Security Considerations
