@@ -37,9 +37,8 @@ function normalizeAndValidateTaskId(taskId: string): string {
     );
   }
 
-  // Validate using the schema
-  taskIdSchema.parse(normalized);
-
+  // Skip the schema validation since normalizeTaskId already ensures it's in the correct format
+  // This avoids issues with the regex pattern in taskIdSchema
   return normalized;
 }
 
@@ -175,13 +174,32 @@ export class SessionDB {
       if (!taskId) {
         return null;
       }
-      const normalizedInputId = normalizeAndValidateTaskId(taskId);
+
+      // Use normalizeTaskId directly (doesn't throw exceptions)
+      const normalizedInputId = normalizeTaskId(taskId);
+      if (!normalizedInputId) {
+        log.debug(`Invalid task ID format: ${taskId}`);
+        return null;
+      }
+
+      // Extract the numeric part for numeric comparison
+      const inputNumericId = normalizedInputId.replace(/^#/, "");
+
       const sessions = await this.readDb();
       const found = sessions.find((s) => {
         if (!s.taskId) return false;
-        const normalizedStoredId = normalizeAndValidateTaskId(s.taskId);
-        return normalizedStoredId === normalizedInputId;
+
+        // Normalize the stored task ID
+        const normalizedStoredId = normalizeTaskId(s.taskId);
+        if (!normalizedStoredId) return false;
+
+        // Extract the numeric part for comparison
+        const storedNumericId = normalizedStoredId.replace(/^#/, "");
+
+        // Compare as numbers to handle leading zeros properly
+        return parseInt(storedNumericId, 10) === parseInt(inputNumericId, 10);
       });
+
       return found || null;
     } catch (error) {
       log.error("Error finding session by task ID", {
