@@ -84,6 +84,7 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 - Fixed session name display in CLI output by using the correct property name (session.session)
 - Added automatic session record normalization to fix missing fields like branch name in existing records
 - Improved task ID handling to correctly match task IDs with or without leading zeros (e.g., "79" and "079")
+- Fixed repeated session normalization by persisting normalized records to disk
 
 _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/history/2025-05-16_22-06-test-error-fixing.md) for test error fixing._
 
