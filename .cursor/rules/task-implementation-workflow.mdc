@@ -1,0 +1,29 @@
+---
+name: Task Implementation Workflow
+description: REQUIRED workflow for implementing tasks from start to completion
+globs:
+  - "**/*"
+alwaysApply: false
+---
+# Task Implementation Workflow
+
+This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.
+
+## Task Implementation Lifecycle
+
+### 1. Task Selection
+
+1. **List available tasks**:
+   ```bash
+   minsky tasks list --json
+   ```
+
+2. **View task details**:
+   ```bash
+   minsky tasks get <task-id>
+   ```
+
+3. **Check the current status**:
+   ```bash
+   minsky tasks status get <task-id>
+   ```

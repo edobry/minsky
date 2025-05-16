@@ -1,0 +1,21 @@
+---
+name: PR Preparation Workflow
+description: REQUIRED workflow for preparing and submitting pull requests
+globs:
+  - "**/*"
+alwaysApply: false
+---
+# PR Preparation Workflow
+
+This rule provides guidelines for preparing and submitting pull requests (PRs) in the Minsky workflow.
+
+## PR Creation Process
+
+### 1. Verify Implementation Completeness
+
+Before creating a PR, ensure:
+
+1. **All requirements are implemented**: Check the task specification to confirm all requirements are met
+2. **All tests pass**: Run the test suite to ensure all tests pass
+3. **Code quality is acceptable**: Check for any linting issues or code smells
+4. **Documentation is updated**: Ensure task documentation and changelog are updated

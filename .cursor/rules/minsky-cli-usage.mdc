@@ -1,0 +1,34 @@
+---
+name: Minsky CLI Usage Protocol
+description: REQUIRED protocol for using the Minsky CLI for all task and session operations
+globs:
+  - "**/*"
+alwaysApply: false
+---
+# Minsky CLI Usage Protocol
+
+⛔️ **CRITICAL: ALL TASK AND SESSION OPERATIONS MUST USE THE MINSKY CLI**
+
+## Core Principles
+
+1. **Always Use Minsky CLI for Task/Session Data**
+   - NEVER use file listings or static documentation for task/session data
+   - NEVER directly manipulate Minsky's state files or databases
+   - NEVER delete or modify files in `~/.local/state/minsky/`
+   - NEVER read or write to `session-db.json` directly - this is STRICTLY FORBIDDEN
+   - ALWAYS use appropriate minsky commands (see Command Reference section below)
+
+2. **Use Official Global Installation**
+   - Use the globally installed `minsky` CLI (available on your PATH, typically via `bun link`)
+   - **Do NOT use `bun run ...` for task/session operations**
+   - Only use `bun run ...` or direct script execution when developing or testing the Minsky CLI itself
+
+3. **Data Integrity is Critical**
+   - Minsky maintains critical state in `~/.local/state/minsky/`
+   - Direct manipulation of these files will corrupt the system
+   - NEVER attempt to "fix" issues by deleting state files
+   - Deleting state files is STRICTLY FORBIDDEN as it:
+     - Corrupts Minsky's understanding of tasks and sessions
+     - Makes session management impossible
+     - May lead to lost work or inconsistent state
+     - Violates the core principle of CLI-based management

@@ -1,0 +1,48 @@
+---
+name: Minsky Workflow Orchestrator
+description: Overview of the Minsky workflow system and entry point to focused workflow rules
+globs:
+  - "**/*"
+alwaysApply: false
+---
+# Minsky Workflow System
+
+This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
+
+## Core Workflow Rules
+
+The following rules form the complete Minsky workflow system:
+
+1. [**minsky-cli-usage**](mdc:.cursor/rules/minsky-cli-usage.mdc) - Guidelines for using the Minsky CLI for all task and session operations
+2. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions
+3. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
+4. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
+5. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
+
+## Fundamental Principle: CLI-Based Workflow
+
+**CRITICAL REQUIREMENT**: ALL task and session management MUST be done through the Minsky CLI, not through direct file system operations. This includes:
+
+- Task listing, status checking, and status updates
+- Session creation, navigation, and management
+- Task implementation and verification
+- PR preparation and submission
+
+## When to Apply These Rules
+
+These workflow rules should be applied:
+
+- When starting work on a new task
+- When checking or updating task status
+- When creating or managing sessions
+- When implementing task requirements
+- When preparing pull requests
+
+## Supporting Rules
+
+The Minsky workflow is supported by these additional rules:
+
+- [**session-first-workflow**](mdc:.cursor/rules/session-first-workflow.mdc) - Ensures all implementation work happens in dedicated sessions
+- [**creating-tasks**](mdc:.cursor/rules/creating-tasks.mdc) - Guidelines for creating well-structured task specifications
+- [**pr-description-guidelines**](mdc:.cursor/rules/pr-description-guidelines.mdc) - Format and content requirements for PR descriptions
+- [**rules-management**](mdc:.cursor/rules/rules-management.mdc) - Guidelines for managing Minsky rules

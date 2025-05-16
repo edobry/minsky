@@ -1,0 +1,20 @@
+---
+name: Minsky Session Management Protocol
+description: REQUIRED protocol for starting, re-entering, and managing Minsky sessions
+globs:
+  - "**/*"
+alwaysApply: false
+---
+# Minsky Session Management Protocol
+
+**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**
+
+This rule defines the procedures for creating, navigating, and managing Minsky sessions, which provide isolated workspaces for task implementation.
+
+## What is a Minsky Session?
+
+A Minsky session is an isolated workspace for implementing a specific task. It ensures:
+
+1. **Isolation**: Changes are isolated from the main workspace until they're ready for review
+2. **Traceability**: Each session is associated with a specific task
+3. **Reproducibility**: Sessions can be recreated or updated as needed
