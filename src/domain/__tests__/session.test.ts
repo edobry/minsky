@@ -7,6 +7,7 @@ import type { SessionRecord, Session, SessionDeps } from "../session.js";
 import type { Task } from "../tasks.js";
 import type { SessionUpdateParams } from "../../schemas/session.js";
 import * as WorkspaceUtilsFns from "../workspace.js";
+import { log } from "../../utils/logger.js";
 
 // Mock dependencies from HEAD/origin/main - they are similar
 const mockSessionRecord = {
@@ -178,7 +179,11 @@ describe("interface-agnostic session functions", () => {
         expect(result.sessionRecord.session).toBe("test-session");
         expect(result.sessionRecord.repoUrl).toBe("/mock/repo/url");
       } catch (error) {
-        console.error("Test error:", error);
+        log.error("Test error", {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          params
+        });
         throw error;
       }
     });
