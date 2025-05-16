@@ -51,6 +51,11 @@ _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specs
   - Defined patterns for rule application indicators ("Apply alongside X")
   - Introduced concept of rule layers (Foundation, Implementation, Specialized)
   - Added checklist items for rule cross-referencing
+- Fixed rule format and frontmatter issues:
+  - Added proper frontmatter to no-dynamic-imports rule and changed extension from .md to .mdc
+  - Added proper description to robust-error-handling rule
+  - Removed redundant self-improvement-router rule and consolidated router functionality into self-improvement rule
+  - Added descriptive frontmatter to template-literals and test-expectations rules
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization changes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._

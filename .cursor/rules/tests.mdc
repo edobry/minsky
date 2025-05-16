@@ -1,6 +1,6 @@
 ---
 description: Use for test execution requirements and verification protocols. Apply after implementing tests per testing-boundaries
-globs: 
+globs:
 alwaysApply: false
 ---
 # Test Execution and Verification

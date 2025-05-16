@@ -1,7 +1,7 @@
 ---
-description: 
-globs: 
-alwaysApply: true
+description: Use when handling errors or exceptions. Implement thorough error handling that preserves context and ensures resource cleanup
+globs:
+alwaysApply: false
 ---
 # Robust Error Handling
 
@@ -103,4 +103,4 @@ Always implement thorough error handling that provides clear, actionable informa
 - **Swallowing Errors Silently**: Never catch errors without proper handling or logging
 - **String Concatenation for Error Messages**: Avoid using + for error messages, use template literals
 - **Generic Error Messages**: Error messages should be specific about what failed and why
-- **Untyped Error Handling**: Always handle the fact that errors might not be Error instances 
+- **Untyped Error Handling**: Always handle the fact that errors might not be Error instances

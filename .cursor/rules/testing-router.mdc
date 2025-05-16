@@ -1,7 +1,7 @@
 ---
-description: "REQUIRED: Entry point for ALL test-related tasks. Always consult first when writing, modifying, or debugging tests."
-globs: "**/*.test.ts"
-alwaysApply: true
+description: REQUIRED: Entry point for ALL test-related tasks. Always consult first when writing, modifying, or debugging tests.
+globs:
+alwaysApply: false
 ---
 # Minsky Testing Guidance - Start Here
 
