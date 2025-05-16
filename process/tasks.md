@@ -73,7 +73,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Evaluate zod-matter and Zod for Rule Metadata and Validation [#058](process/tasks/058-evaluate-zod-matter-and-zod-for-rule-metadata-and-validation.md)
 
-- [-] Add Centralized Test Mock Utilities [#059](process/tasks/059-add-centralized-test-mock-utilities.md)
+- [x] Add Centralized Test Mock Utilities [#059](process/tasks/059-add-centralized-test-mock-utilities.md)
 
 - [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
@@ -85,11 +85,11 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Add Single-Line Description Validation to `minsky rules create` [#064](process/tasks/064-add-single-line-description-validation-to-minsky-rules-create-.md)
 
-- [ ] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
+- [x] Fix `minsky rules create/update` Description Quoting Bug [#065](process/tasks/065-fix-minsky-rules-create-update-description-quoting-bug.md)
 
 - [x] Investigate and Fix `minsky rules get --format generic` Inconsistency [#066](process/tasks/066-investigate-and-fix-minsky-rules-get-format-generic-inconsistency.md)
 
-- [ ] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
+- [-] Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules [#067](process/tasks/067-refactor-minsky-workflow-mdc-rule-into-smaller-focused-rules.md)
 
 - [x] AI Guideline: Do Not Over-Optimize Indentation [#068](process/tasks/068-ai-guideline-do-not-over-optimize-indentation.md)
 
@@ -107,6 +107,6 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
-- [ ] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
+- [x] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
 
 - [-] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)

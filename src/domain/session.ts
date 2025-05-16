@@ -40,7 +40,11 @@ export class SessionDB {
   private readonly dbPath: string;
   private readonly baseDir: string;
 
+<<<<<<< HEAD
   constructor(options?: { dbPath?: string; baseDir?: string }) {
+=======
+  constructor(options?: { baseDir?: string; dbPath?: string }) {
+>>>>>>> origin/main
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyStateDir = join(xdgStateHome, "minsky");
     this.dbPath = options?.dbPath || join(minskyStateDir, "session-db.json");
@@ -118,10 +122,10 @@ export class SessionDB {
     const index = sessions.findIndex((s) => s.session === sessionNameArg); // Use renamed arg
     if (index !== -1) {
       const { session, ...restOfOldRecord } = sessions[index]!; // Add non-null assertion
-      sessions[index] = { 
+      sessions[index] = {
         session, // Explicitly keep the original session string
-        ...restOfOldRecord, 
-        ...updates 
+        ...restOfOldRecord,
+        ...updates,
       };
       await this.writeDb(sessions);
     }
@@ -267,8 +271,13 @@ export function createSessionDeps(options?: { workspacePath?: string }): Session
  * Gets session details based on parameters
  */
 export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
+<<<<<<< HEAD
   const { name, task } = params;
   const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+=======
+  const { name, task, dbPath } = params as any; // allow dbPath for test injection
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
+>>>>>>> origin/main
   if (task && !name) {
     const normalizedTaskId = taskIdSchema.parse(task);
     return sessionDB.getSessionByTaskId(normalizedTaskId);
@@ -283,7 +292,12 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
  * Lists all sessions based on parameters
  */
 export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
+<<<<<<< HEAD
   const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+=======
+  const { dbPath } = params as any;
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
+>>>>>>> origin/main
   return sessionDB.listSessions();
 }
 
@@ -333,7 +347,11 @@ export async function startSessionFromParams(
       const taskInfo = await deps.taskService.getTask(normalizedTaskId);
 
       if (!taskInfo) {
-        throw new ResourceNotFoundError(`Task not found: ${normalizedTaskId}`, "task", normalizedTaskId);
+        throw new ResourceNotFoundError(
+          `Task not found: ${normalizedTaskId}`,
+          "task",
+          normalizedTaskId
+        );
       }
 
       taskId = normalizedTaskId;
@@ -341,7 +359,9 @@ export async function startSessionFromParams(
 
       const existingSession = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
       if (existingSession) {
-        throw new MinskyError(`Session already exists for task ${normalizedTaskId}: ${existingSession.session}`);
+        throw new MinskyError(
+          `Session already exists for task ${normalizedTaskId}: ${existingSession.session}`
+        );
       }
     } else if (name) {
       sessionName = name;
@@ -392,11 +412,17 @@ export async function startSessionFromParams(
       try {
         statusUpdateResult = await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
+<<<<<<< HEAD
         log.warn("Warning: Failed to update task status", { 
           error: error instanceof Error ? error.message : String(error),
           taskId,
           targetStatus: TASK_STATUS.IN_PROGRESS
         });
+=======
+        console.warn(
+          `Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+        );
+>>>>>>> origin/main
       }
     }
 
@@ -497,8 +523,13 @@ export async function updateSessionFromParams(
  * Gets the directory path for a session based on parameters
  */
 export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
+<<<<<<< HEAD
   const { name, task } = params;
   const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+=======
+  const { name, task, dbPath } = params as any;
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
+>>>>>>> origin/main
 
   let session: SessionRecord | null = null;
 
@@ -528,8 +559,13 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
  * Deletes a session based on parameters
  */
 export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
+<<<<<<< HEAD
   const { name, force } = params;
   const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+=======
+  const { name, force, dbPath } = params as any;
+  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
+>>>>>>> origin/main
 
   if (!name) {
     throw new ValidationError("Session name must be provided");

@@ -271,3 +271,35 @@ The pre-commit hooks themselves (e.g., `.husky/pre-commit`) need to be active (i
 ## License
 
 MIT
+
+## Architecture
+
+Minsky follows an interface-agnostic architecture that separates domain logic from interface-specific concerns. This allows the same core functionality to be used by different interfaces (CLI, MCP, API, etc.) without duplication.
+
+### Key Components
+
+- **Domain Layer (`src/domain/`)**: Contains all business logic independent of any interface. These functions are the source of truth for all operations.
+
+- **Adapter Layer (`src/adapters/`)**: Implements interface-specific adapters that convert interface inputs into domain function parameters and format domain function outputs for the interface.
+  - `src/adapters/cli/`: CLI-specific adapters using Commander.js
+  - `src/adapters/mcp/`: Model Context Protocol adapters (for AI integration)
+
+- **Schema Layer (`src/schemas/`)**: Defines input and output schemas for domain functions using Zod.
+
+- **Command Layer (`src/commands/`)**: Legacy command implementations (being migrated to the adapter architecture).
+
+- **Errors (`src/errors/`)**: Shared error types across all layers.
+
+### Function Flow
+
+1. Interface-specific code captures user input (CLI arguments, API request, etc.)
+2. Adapter converts input to domain parameters
+3. Domain function performs the operation
+4. Adapter formats domain output for the interface
+5. Interface presents result to the user
+
+This architecture enables:
+- Reduced code duplication
+- Consistent behavior across interfaces
+- Better testability of domain logic
+- Easier addition of new interfaces

@@ -1,6 +1,35 @@
 import * as fs from "fs";
 import type { PathLike } from "fs";
 import * as path from "path";
+import { z } from "zod";
+
+export const initializeProjectParamsSchema = z.object({
+  repoPath: z.string(),
+  backend: z.enum(["tasks.md", "tasks.csv"]),
+  ruleFormat: z.enum(["cursor", "generic"]),
+  mcp: z.object({
+    enabled: z.boolean().optional().default(true),
+    transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
+    port: z.number().optional(),
+    host: z.string().optional()
+  }).optional(),
+  mcpOnly: z.boolean().optional().default(false),
+  overwrite: z.boolean().optional().default(false)
+});
+
+export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSchema>;
+
+/**
+ * The interface-agnostic function for initializing a project with Minsky configuration
+ * This function acts as the primary domain function for the init command
+ */
+export async function initializeProjectFromParams(params: InitializeProjectParams): Promise<void> {
+  // Validate the parameters
+  const validatedParams = initializeProjectParamsSchema.parse(params);
+
+  // Call the original initialization function
+  return initializeProject(validatedParams);
+}
 
 export interface InitializeProjectOptions {
   repoPath: string;
@@ -526,6 +555,88 @@ export async function initializeProjectWithFS(
   options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
+<<<<<<< HEAD
   // Use the injected fileSystem for all file operations
   await initializeProject(options, fileSystem);
+=======
+  const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
+
+  // Handle different backends
+  if (backend === "tasks.md") {
+    // Initialize tasks.md backend
+    if (!mcpOnly) {
+      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
+      const tasksDirPath = path.join(repoPath, "process", "tasks");
+
+      // Check if files exist
+      if (fileSystem.existsSync(tasksFilePath) && !overwrite) {
+        throw new Error(`File already exists: ${tasksFilePath}`);
+      }
+
+      // Create directories
+      if (!fileSystem.existsSync(tasksDirPath)) {
+        fileSystem.mkdirSync(tasksDirPath, { recursive: true });
+      }
+
+      // Create tasks.md file
+      fileSystem.writeFileSync(
+        tasksFilePath,
+        "# Minsky Tasks\n\n- [ ] Example task\n"
+      );
+    }
+
+    // Handle rule format based on options
+    const rulesDirPath = path.join(
+      repoPath,
+      ruleFormat === "cursor" ? ".cursor" : ".ai",
+      "rules"
+    );
+
+    // Create directories for rules
+    if (!fileSystem.existsSync(rulesDirPath)) {
+      fileSystem.mkdirSync(rulesDirPath, { recursive: true });
+    }
+
+    // Create rule files
+    if (!mcpOnly) {
+      const workflowRulePath = path.join(rulesDirPath, "minsky-workflow.mdc");
+      const indexRulePath = path.join(rulesDirPath, "index.mdc");
+
+      if (fileSystem.existsSync(workflowRulePath) && !overwrite) {
+        throw new Error(`File already exists: ${workflowRulePath}`);
+      }
+
+      fileSystem.writeFileSync(workflowRulePath, getMinskyRuleContent());
+      fileSystem.writeFileSync(indexRulePath, getRulesIndexContent());
+    }
+
+    // MCP Configuration
+    if (mcp?.enabled !== false) {
+      const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
+      
+      // Create .cursor directory if it doesn't exist (even for generic rule format)
+      const cursorDirPath = path.join(repoPath, ".cursor");
+      if (!fileSystem.existsSync(cursorDirPath)) {
+        fileSystem.mkdirSync(cursorDirPath, { recursive: true });
+      }
+
+      if (fileSystem.existsSync(mcpConfigPath) && !overwrite) {
+        throw new Error(`File already exists: ${mcpConfigPath}`);
+      }
+
+      // Create MCP config file
+      fileSystem.writeFileSync(mcpConfigPath, getMCPConfigContent(mcp));
+
+      // Create MCP usage rule
+      const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
+      if (!fileSystem.existsSync(mcpRuleFilePath) || overwrite) {
+        fileSystem.writeFileSync(mcpRuleFilePath, getMCPRuleContent());
+      }
+    }
+  } else if (backend === "tasks.csv") {
+    throw new Error("The tasks.csv backend is not implemented yet.");
+  } else {
+    throw new Error(`Backend not implemented: ${backend}`);
+  }
+>>>>>>> origin/main
 }

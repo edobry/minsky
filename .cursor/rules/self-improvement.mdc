@@ -221,3 +221,29 @@ Assistant:
 - "This is a workflow/process requirement. Per the Rule Authority Hierarchy, I will update the minsky-workflow rule, not user-preferences."
 - [updates minsky-workflow rule, adds verification checkpoint]
 - [verifies update is in the correct rule]
+
+## Workflow Error Escalation and Verification Protocol
+
+### Immediate Verification Checkpoint
+- After any failed Minsky CLI command (especially session creation), immediately pause all further implementation or investigation.
+- Before proceeding, verify:
+  - That a valid, usable session workspace exists.
+  - That the session directory was actually created and is accessible.
+  - That the CLI did not return an error or malformed path.
+- If any of these checks fail, do not proceed. Escalate as below.
+
+### Escalation Protocol
+- Immediately recommend and initiate the creation of a new Minsky task/session for the bug.
+- Halt all further implementation work until the bug is tracked and a session for the fix is active.
+- Do not attempt any workaround, manual fix, or further investigation in the main workspace.
+
+### Communication Protocol
+- After any workflow error, output a clear, step-by-step summary of:
+  - What command was run
+  - What the error was
+  - Why this blocks further work
+  - The exact next step (create a new Minsky task/session for the bug)
+- Log this in the session worklog and update the self-improvement rule if needed.
+
+### Meta-Error Prevention
+- If this protocol is not followed, treat it as a critical protocol failure and immediately update this rule and process.

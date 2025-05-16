@@ -7,6 +7,9 @@ import * as fs from "fs";
 import * as os from "os";
 import { createRobustTempDir } from "./tempdir";
 
+// Re-export mocking utilities from the dedicated module
+export * from "./test-utils/mocking";
+
 // Make TypeScript happy with Node.js global objects
 declare const global: {
   Date: DateConstructor;
@@ -27,7 +30,26 @@ export const TEST_TIMESTAMPS = {
  * Creates a temporary directory for test file operations
  * Provides isolation between tests and automatic cleanup
  */
+<<<<<<< HEAD
 export const createTempTestDir: (prefix?: string) => string | null = createRobustTempDir;
+=======
+export function createTempTestDir(prefix = "minsky-test-"): string {
+  try {
+    const tmpDir = path.join(os.tmpdir(), prefix + Math.random().toString(36).substring(2, 10));
+    fs.mkdirSync(tmpDir, { recursive: true });
+    return tmpDir;
+  } catch (err) {
+    console.error("Failed to create temp directory:", err);
+    // Fallback to a directory in the current directory as a last resort
+    const fallbackDir = path.join(
+      process.cwd(),
+      `.tmp-test-${Math.random().toString(36).substring(2, 8)}`
+    );
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    return fallbackDir;
+  }
+}
+>>>>>>> origin/main
 
 /**
  * Sets up console spies for capturing and testing output

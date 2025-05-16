@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
 /* eslint-disable no-restricted-imports */
 import { Command } from "commander";
-import { createSessionCommand } from "./commands/session/index.js";
-import { createTasksCommand as createOldTasksCommand } from "./commands/tasks/index.js";
+import { createSessionCommand } from "./adapters/cli/session.js";
 import { createTasksCommand } from "./adapters/cli/tasks.js";
-import { createGitCommand } from "./commands/git/index.js";
-import { createInitCommand } from "./commands/init/index.js";
+import { createGitCommand } from "./adapters/cli/git.js";
+import { createInitCommand } from "./adapters/cli/init.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
+<<<<<<< HEAD
 import { createRulesCommand } from "./commands/rules/index.js";
 import { log } from "./utils/logger";
+=======
+import { createRulesCommand } from "./adapters/cli/rules.js";
+>>>>>>> origin/main
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";

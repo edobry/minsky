@@ -2,13 +2,14 @@
  * CLI adapter for git commands
  */
 import { Command } from "commander";
-import { execSync } from "child_process";
-import type { GitPullRequestParams, GitCommitParams } from "../../schemas/git.js";
+import type { GitPullRequestParams, GitCommitParams, GitPushParams } from "../../schemas/git.js";
 import { MinskyError } from "../../errors/index.js";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
 import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
+// Import GitService directly for push functionality
+import { GitService } from "../../domain/git.js";
 
 /**
  * Creates the git pr command
@@ -31,7 +32,7 @@ export function createPrCommand(): Command {
       }) => {
         try {
           // Convert CLI options to domain parameters
-          const _params: GitPullRequestParams = {
+          const params: GitPullRequestParams = {
             repo: options.repo,
             branch: options.branch,
             debug: options.debug ?? false,
@@ -39,52 +40,32 @@ export function createPrCommand(): Command {
             json: options.json,
           };
 
-          log.debug("Creating PR with params", { params: _params });
+          log.debug("Creating PR with params", { params });
 
-          // This is kept commented until the domain function is fully implemented
-          // const result = await createPullRequestFromParams(_params);
+          const result = await createPullRequestFromParams(params);
 
-          // Temporary implementation using existing CLI command
-          let command = "bun src/cli.ts git pr";
-          if (options.repo) command += ` --repo ${options.repo}`;
-          if (options.branch) command += ` --branch ${options.branch}`;
-          if (options.debug) command += " --debug";
-          if (options.session) command += ` --session ${options.session}`;
-          if (options.json) command += " --json";
-
-          log.debug("Executing command", { command });
-          const output = execSync(command).toString();
-          
+          // Output result based on format
           if (options.json) {
-            log.agent(output);
+            console.log(JSON.stringify(result, null, 2));
           } else {
-            log.cli(output);
-          }
-        } catch (error) {
-          log.error("Error creating PR", {
-            params: {
-              repo: options.repo,
-              branch: options.branch,
-              debug: options.debug,
-              session: options.session,
-            },
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-          });
-          
-          if (options.json) {
-            log.agent(JSON.stringify({
-              success: false,
-              error: error instanceof MinskyError ? error.message : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`
-            }));
-          } else {
-            if (error instanceof MinskyError) {
-              log.cliError(`Error: ${error.message}`);
-            } else {
-              log.cliError(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+            console.log(result.markdown);
+
+            // Display status update information if available
+            if (result.statusUpdateResult) {
+              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+              console.log(
+                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
+              );
             }
           }
-
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
+          } else {
+            log.cliError(`Unexpected error: ${String(error)}`);
+          }
           process.exit(1);
         }
       }
@@ -120,7 +101,7 @@ export function createCommitCommand(): Command {
       }) => {
         try {
           // Convert CLI options to domain parameters
-          const _params: GitCommitParams = {
+          const params: GitCommitParams = {
             message: options.message,
             session: options.session,
             repo: options.repo,
@@ -130,73 +111,27 @@ export function createCommitCommand(): Command {
             json: options.json,
           };
 
-          log.debug("Committing changes with params", { params: _params });
+          log.debug("Committing changes with params", { params });
 
-          // This is kept commented until the domain function is fully implemented
-          // const result = await commitChangesFromParams(_params);
+          const result = await commitChangesFromParams(params);
 
-          // Temporary implementation using existing CLI command
-          let command = `bun src/cli.ts git commit -m "${options.message}"`;
-          if (options.session) command += ` --session ${options.session}`;
-          if (options.repo) command += ` --repo ${options.repo}`;
-          if (options.push) command += " --push";
-          if (options.all) command += " --all";
-          if (options.amend) command += " --amend";
-          if (options.stage === false) command += " --no-stage";
-          if (options.verify === false) command += " --no-verify";
-          if (options.json) command += " --json";
-
-          log.debug("Executing command", { command });
-          const output = execSync(command).toString();
-          
+          // Output result based on format
           if (options.json) {
-            log.agent(output);
+            console.log(JSON.stringify(result, null, 2));
           } else {
-            log.cli(output);
+            log.cli(`Committed changes with message: ${result.message}`);
+            log.cli(`Commit hash: ${result.commitHash}`);
           }
         } catch (error) {
-          log.error("Error committing changes", {
-            params: {
-              message: options.message,
-              session: options.session,
-              repo: options.repo,
-              push: options.push,
-              all: options.all,
-              amend: options.amend,
-              stage: options.stage,
-              verify: options.verify
-            },
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-          });
-          
-          if (options.json) {
-            log.agent(JSON.stringify({
-              success: false,
-              error: error instanceof MinskyError ? error.message : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`
-            }));
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            if (error instanceof MinskyError) {
-              log.cliError(`Error: ${error.message}`);
-            } else {
-              log.cliError(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-            }
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
-
           process.exit(1);
         }
       }
     );
-}
-
-/**
- * Creates the main git command with all subcommands
- */
-export function createGitCommand(): Command {
-  const gitCommand = new Command("git").description("Git operations");
-
-  gitCommand.addCommand(createPrCommand());
-  gitCommand.addCommand(createCommitCommand());
-
-  return gitCommand;
 }

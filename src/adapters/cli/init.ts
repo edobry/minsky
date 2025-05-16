@@ -1,12 +1,16 @@
+/**
+ * CLI adapter for init commands
+ */
 import { Command } from "commander";
-import { resolveRepoPath, type RepoResolutionOptions } from "../../utils/repo";
-import { initializeProject } from "../../domain/index";
-import { exit } from "../../utils/process";
+import { MinskyError } from "../../errors/index.js";
+import { initializeProjectFromParams } from "../../domain/index.js";
 import * as p from "@clack/prompts";
-import fs from "fs";
-import path from "path";
-import { log } from "../../utils/logger.js";
+import { exit } from "../../utils/process.js";
+import type { InitParams } from "../../schemas/init.js";
 
+/**
+ * Creates the init command
+ */
 export function createInitCommand(): Command {
   return new Command("init")
     .description("Initialize a project for Minsky")
@@ -36,29 +40,16 @@ export function createInitCommand(): Command {
         try {
           p.intro("Initialize Minsky in your project");
 
-          // Resolve repo path
-          let repoPath: string;
-          try {
-            repoPath = await resolveRepoPath({
-              repo: options.repo,
-              session: options.session,
-            });
-          } catch (error) {
-            log.cliError("Error resolving repository path:");
-            log.error("Error details for resolving repository path", error as Error);
-            exit(1);
-          }
-
           // MCP-only mode doesn't need most of the interactive prompts
           let backend = options.backend || "tasks.md";
           let ruleFormat = options.ruleFormat || "cursor";
 
           // Only need interactive prompts if not in MCP-only mode
           if (!options.mcpOnly) {
-            // If repo path was resolved without explicit flags, confirm with user
+            // If repo path was provided but not session, give a warning
             if (!options.repo && !options.session) {
               const confirm = await p.confirm({
-                message: `Using current directory: ${repoPath}\nContinue?`,
+                message: `Using current directory: ${process.cwd()}\nContinue?`,
                 initialValue: true,
               });
 
@@ -111,7 +102,7 @@ export function createInitCommand(): Command {
           // Handle MCP configuration options
           let mcpEnabled = options.mcp !== "false"; // Default to true unless explicitly disabled
           let mcpTransport = options.mcpTransport;
-          let mcpPort = options.mcpPort ? parseInt(options.mcpPort, 10) : undefined;
+          let mcpPort = options.mcpPort;
           let mcpHost = options.mcpHost;
 
           // Interactive MCP configuration if not provided via options
@@ -175,7 +166,7 @@ export function createInitCommand(): Command {
                   exit(0);
                 }
 
-                mcpPort = parseInt(String(portText), 10);
+                mcpPort = String(portText);
               }
 
               // Get host if not provided and using network transport
@@ -195,37 +186,35 @@ export function createInitCommand(): Command {
             }
           }
 
-          // Init project
-          await initializeProject({
+          // Before constructing params:
+          let repoPath = options.repo || process.cwd();
+          // TODO: If session-based repo resolution is needed, add logic here.
+          // In params:
+          // repoPath,
+          // After calling initializeProjectFromParams:
+          const params = {
             repoPath,
-            backend: backend as "tasks.md" | "tasks.csv",
-            ruleFormat: ruleFormat as "cursor" | "generic",
-            mcp: mcpEnabled
-              ? {
-                enabled: true,
-                transport: (mcpTransport || "stdio") as "stdio" | "sse" | "httpStream",
-                port: mcpPort,
-                host: mcpHost,
-              }
-              : undefined,
-            mcpOnly: options.mcpOnly,
-            overwrite: options.overwrite,
-          });
-
-          p.outro("Project initialized for Minsky");
+            backend: backend as 'tasks.md' | 'tasks.csv',
+            ruleFormat: ruleFormat as 'cursor' | 'generic',
+            mcp: mcpEnabled ? {
+              enabled: true,
+              transport: (mcpTransport || 'stdio') as 'stdio' | 'sse' | 'httpStream',
+              port: mcpPort ? Number(mcpPort) : undefined,
+              host: mcpHost,
+            } : undefined,
+            mcpOnly: options.mcpOnly ?? false,
+            overwrite: options.overwrite ?? false,
+          };
+          await initializeProjectFromParams(params);
+          p.outro('Project initialized for Minsky.');
         } catch (error) {
-          // Log with clack if it's a known error, otherwise use generic console.error
-          if (error instanceof Error && p.isCancel(error)) {
-            p.cancel("Operation cancelled");
-          } else if (error instanceof Error) {
-            log.cliError(`Error during initialization: ${error.message}`);
-            log.error("Initialization error details", error);
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
           } else {
-            log.cliError("An unexpected error occurred during initialization.");
-            log.error("Unexpected initialization error", error as any);
+            console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
           }
           exit(1);
         }
       }
     );
-}
+} 
