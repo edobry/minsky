@@ -260,26 +260,43 @@ export const createSessionDeps = (options?: { workspacePath?: string }): Session
 /**
  * Gets session details based on parameters
  */
-export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
-  const { name, task, dbPath } = params as any; // allow dbPath for test injection
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
-  if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+export async function getSessionFromParams(
+  params: SessionGetParams,
+  deps: SessionDeps = createSessionDeps({ workspacePath: params.workspace || params.repo })
+): Promise<Session | null> {
+  const sessionDB = deps.sessionDB;
+  if (params.task && !params.name) {
+    const normalizedTaskId = taskIdSchema.parse(params.task);
     return sessionDB.getSessionByTaskId(normalizedTaskId);
   }
-  if (name) {
-    return sessionDB.getSession(name);
+  if (params.name) {
+    return sessionDB.getSession(params.name);
   }
-  throw new ResourceNotFoundError("You must provide either a session name or task ID");
+  return null;
 }
 
 /**
  * Lists all sessions based on parameters
  */
 export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  const { dbPath } = params as any;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspacePath, dbPath });
-  return sessionDB.listSessions();
+  const sessionDB = new SessionDB();
+  // No migration here, it's called in startSession, but could be relevant if old sessions exist
+  // await sessionDB.migrateSessionsToSubdirectory();
+  const sessionsFromDb = await sessionDB.listSessions(); // Renamed to avoid conflict
+
+  // Map over sessions and resolve repoPath for each one
+  const resolvedSessions = await Promise.all(
+    sessionsFromDb.map(async (s) => {
+      const resolvedRepoPath = await sessionDB.getRepoPath(s);
+      return {
+        ...s,
+        name: s.session, // 'session' is the ID/name string
+        repoPath: resolvedRepoPath, // Use the resolved path
+      };
+    })
+  );
+
+  return resolvedSessions;
 }
 
 /**
@@ -317,7 +334,14 @@ export async function startSessionFromParams(
       throw new ValidationError("Repository URL is required");
     }
 
-    const repoName = normalizeRepoName(repoUrl);
+    const repoPathToUse = params.repo || resolveRepoPath({});
+    if (!repoPathToUse) {
+      throw new MinskyError(
+        "Repository path could not be determined. Please specify with --repo or run from within a Git repository."
+      );
+    }
+
+    const repoName = normalizeRepoName(repoPathToUse);
     const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
 
     let taskId: string | undefined = undefined;
@@ -423,16 +447,16 @@ export async function startSessionFromParams(
 export async function updateSessionFromParams(
   params: SessionUpdateParams,
   deps: SessionDeps = createSessionDeps({
-    workspacePath: params.workspacePath || params.repo || WorkspaceUtils.resolveWorkspacePath({}),
+    workspacePath: params.workspace || params.repo || WorkspaceUtils.resolveWorkspacePath({}),
   })
 ): Promise<SessionRecord | null> {
-  const { name, task, branch: inputBranch, remote: inputRemote } = params;
+  const { name: sessionName, task: taskParam, branch: inputBranch, remote: inputRemote } = params;
   const sessionDB = deps.sessionDB;
 
-  let sessionName = name;
+  let sessionNameToUse = sessionName;
 
-  if (task && !name) {
-    const normalizedTaskId = taskIdSchema.parse(task);
+  if (params.task && !sessionName) {
+    const normalizedTaskId = taskIdSchema.parse(params.task);
     const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
     if (!session) {
       throw new ResourceNotFoundError(
@@ -441,26 +465,30 @@ export async function updateSessionFromParams(
         normalizedTaskId
       );
     }
-    sessionName = session.session;
+    sessionNameToUse = session.session;
   }
 
-  if (!sessionName) {
+  if (!sessionNameToUse) {
     throw new ValidationError("Either session name or task ID must be provided");
   }
 
-  const existingSession = await sessionDB.getSession(sessionName);
+  const existingSession = await sessionDB.getSession(sessionNameToUse);
   if (!existingSession) {
-    throw new ResourceNotFoundError(`Session "${sessionName}" not found`, "session", sessionName);
+    throw new ResourceNotFoundError(
+      `Session "${sessionNameToUse}" not found`,
+      "session",
+      sessionNameToUse
+    );
   }
 
-  const sessionWorkDir = await deps.sessionDB.getSessionWorkdir(sessionName);
-  const currentBranch = inputBranch || existingSession.branch || "main";
+  const sessionWorkDir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  const currentBranch = branch || existingSession.branch || "main";
 
   if (!params.noStash) {
     await deps.gitService.stashChanges({ sessionWorkDir });
   }
 
-  await deps.gitService.pullLatest({ sessionWorkDir, remote: inputRemote, branch: currentBranch });
+  await deps.gitService.pullLatest({ sessionWorkDir, remote: remote, branch: currentBranch });
   await deps.gitService.mergeBranch({ sessionWorkDir, branchToMerge: currentBranch });
 
   if (!params.noStash) {
@@ -470,7 +498,7 @@ export async function updateSessionFromParams(
   if (!params.noPush) {
     await deps.gitService.pushBranch({
       sessionWorkDir,
-      remote: inputRemote,
+      remote: remote,
       branch: currentBranch,
     });
   }
@@ -481,18 +509,18 @@ export async function updateSessionFromParams(
     noStash,
     noPush,
     workspacePath,
-    repo,
-    branch,
-    remote,
+    repo: _r,
+    branch: _b,
+    remote: _re,
     ...updatesToApply
   } = params;
 
   await sessionDB.updateSession(
-    sessionName,
+    sessionNameToUse,
     updatesToApply as Partial<Omit<SessionRecord, "session">>
   );
 
-  return sessionDB.getSession(sessionName);
+  return sessionDB.getSession(sessionNameToUse);
 }
 
 /**
