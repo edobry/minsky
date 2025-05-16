@@ -21,7 +21,7 @@ import { normalizeTaskId } from "./tasks/utils.js";
 import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
-import { log } from "../utils/logger";
+import { log } from "../utils/logger.js";
 
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
 export type Session = SessionRecord; // Alias for convenience
@@ -77,14 +77,15 @@ export class SessionDB {
 
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
     try {
-      log.debug("Starting writeDb", { dbPath: this.dbPath });
+      log.debug(`Starting writeDb. DB Path: ${this.dbPath}`);
       await this.ensureDbDir();
-      log.debug("DB directory ensured");
+      log.debug("DB directory ensured.");
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-      log.debug("DB file written successfully");
+      log.debug("DB file written successfully.");
     } catch (error) {
-      log.error("Error writing session database", { 
+      log.error("Error writing session database", {
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         dbPath: this.dbPath
       });
     }
@@ -143,12 +144,11 @@ export class SessionDB {
       });
       return found || null;
     } catch (error) {
-      log.error(
-        "Error finding session by task ID", { 
-          error: error instanceof Error ? error.message : String(error),
-          taskId
-        }
-      );
+      log.error("Error finding session by task ID", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        taskId
+      });
       return null;
     }
   }
@@ -158,19 +158,20 @@ export class SessionDB {
       const sessions = await this.readDb();
       const index = sessions.findIndex((s) => s.session === session);
       if (index === -1) {
-        log.debug("Session not found in DB", { session });
+        log.debug(`Session '${session}' not found in DB.`, { session });
         return false;
       }
-      log.debug("Found session in DB", { session, index });
+      log.debug(`Found session '${session}' at index ${index}.`, { session, index });
       sessions.splice(index, 1);
-      log.debug("Session removed from array", { session });
+      log.debug(`Session '${session}' removed from array.`, { session });
       await this.writeDb(sessions);
-      log.debug("writeDb called for session deletion", { session });
+      log.debug(`writeDb called for session '${session}'.`, { session });
       return true;
     } catch (error) {
-      log.error("Error deleting session", { 
-        error: error instanceof Error ? error.message : String(error), 
-        session 
+      log.error(`Error in deleteSession for '${session}'`, {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        session
       });
       return false;
     }
