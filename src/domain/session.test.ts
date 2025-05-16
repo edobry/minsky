@@ -22,10 +22,8 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "delete-session-test.json");
 
-      // No need to ensure parent directory exists as tmpDir is already created
-
-      // Initialize the database
-      const db = new SessionDB(testDbPath);
+      // Initialize the database with a custom path to avoid touching the real DB
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
 
       // Create test sessions
       const sessions: SessionRecord[] = [
@@ -55,20 +53,17 @@ describe("SessionDB", () => {
       // Check that the session was deleted
       expect(result).toBe(true);
 
-      // Check that the session was removed by confirming current count is less than the original count
-      const previousCount = 2; // The test creates 2 sessions initially
+      // Check that the session was removed by confirming current count is one less
       const remainingSessions = await db.listSessions();
-      expect(remainingSessions.length).toBeLessThanOrEqual(previousCount);
+      expect(remainingSessions.length).toBe(1);
     });
 
     test("should return false if session does not exist", async () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "session-not-exist-test.json");
 
-      // No need to ensure parent directory exists as tmpDir is already created
-
-      // Initialize the database with a clean file
-      const db = new SessionDB(testDbPath);
+      // Initialize the database with a custom path
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
 
       // Create and add a test session
       const session: SessionRecord = {
@@ -95,13 +90,11 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const emptyDbPath = join(tmpDir, "empty-session-db.json");
 
-      // No need to ensure parent directory exists as tmpDir is already created
-
       // Ensure database file exists but is empty (empty array)
       writeFileSync(emptyDbPath, JSON.stringify([], null, 2));
 
       // Initialize SessionDB instance with the empty database
-      const db = new SessionDB(emptyDbPath);
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: emptyDbPath });
 
       // Try to delete a session
       const result = await db.deleteSession("non-existent-session");
@@ -115,7 +108,7 @@ describe("SessionDB", () => {
       const nonExistentDbPath = join(tmpDir, "non-existent-dir", "does-not-exist.json");
 
       // Initialize SessionDB instance with a non-existent database file
-      const db = new SessionDB(nonExistentDbPath);
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: nonExistentDbPath });
 
       // Check that deleteSession returns false if the database doesn't exist
       const result = await db.deleteSession("test-session");
@@ -128,10 +121,8 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "find-by-task-id-test.json");
 
-      // No need to ensure parent directory exists as tmpDir is already created
-
       // Initialize with a clean database
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [
@@ -160,12 +151,12 @@ describe("SessionDB", () => {
 
       // Check that the correct session was found
       expect(result).toBeTruthy();
-      if (result) {
-        expect(typeof result.session).toBe("string");
-        expect(typeof result.taskId).toBe("string");
-        if (result.taskId) {
-          expect(result.taskId.includes("#")).toBe(true);
-        }
+      if (result === null) {
+        // This should not happen, but satisfies TypeScript
+        expect(false).toBe(true); 
+      } else {
+        expect(result.session).toEqual("test-session-2");
+        expect(result.taskId).toEqual("#002");
       }
     });
 
@@ -173,10 +164,8 @@ describe("SessionDB", () => {
       // Create a unique DB file for this test
       const testDbPath = join(tmpDir, "no-task-id-test.json");
 
-      // No need to ensure parent directory exists as tmpDir is already created
-
       // Initialize with a clean database
-      const db = new SessionDB(testDbPath);
+      const db = new SessionDB({ baseDir: tmpDir, dbPath: testDbPath });
 
       // Create test sessions with task IDs
       const sessions: SessionRecord[] = [

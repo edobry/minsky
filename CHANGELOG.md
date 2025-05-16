@@ -1,8 +1,8 @@
 import { promises as fs } from "fs";
 import { join, basename, dirname } from "path";
-import * as grayMatterNamespace from "gray-matter";
+import _ as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import * as jsYaml from "js-yaml";
+import _ as jsYaml from "js-yaml";
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
@@ -27,6 +27,7 @@ function customMatterStringify(content: string, data: any): string {
 
 ### Fixed
 
+- Fixed session.test.ts to use Bun test mocking utilities instead of Jest-specific functions, which were causing test failures
 - Fixed incorrect import path in session.ts that was causing "Cannot find module '../utils/workspace.js'" error in `minsky tasks status get` command
 - Fixed interactive status selection in `minsky tasks status set` command so it properly prompts for status when not provided as a command-line argument
 - Task ID normalization now consistently handles task IDs with or without the `#` prefix. This fixes issues with commands like `minsky tasks get 071` and `minsky session start --task 071` where tasks couldn't be found if the ID was provided without the leading `#`.
@@ -46,6 +47,12 @@ function customMatterStringify(content: string, data: any): string {
 - Replaced placeholder tests in git/commit.test.ts, session/commit.test.ts, and session/autoStatusUpdate.test.ts with properly structured tests (#072)
 - Fixed missing variable declarations in startSession.test.ts to avoid linter errors (#072)
 - Fixed `minsky rules create/update` description quoting bug by replacing gray-matter's default stringify function with a custom implementation that uses js-yaml directly. This ensures that descriptions with special characters use double quotes instead of single quotes, and simple descriptions don't have any quotes at all. (#065)
+- Test failures after interface-agnostic architecture PR merge:
+  - Fixed session tests by isolating session database for tests, preventing interaction with real session database
+  - Updated init tests to work with Bun test runner instead of Jest
+  - Refactored test mocking patterns to use centralized mocking utilities from src/utils/test-utils/mocking.ts for improved test consistency and maintainability
+
+_See: SpecStory history (fix-test-failures session) for detailed implementation details._
 
 ### Added
 

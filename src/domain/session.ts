@@ -116,10 +116,10 @@ export class SessionDB {
     const index = sessions.findIndex((s) => s.session === sessionNameArg); // Use renamed arg
     if (index !== -1) {
       const { session, ...restOfOldRecord } = sessions[index]!; // Add non-null assertion
-      sessions[index] = { 
+      sessions[index] = {
         session, // Explicitly keep the original session string
-        ...restOfOldRecord, 
-        ...updates 
+        ...restOfOldRecord,
+        ...updates,
       };
       await this.writeDb(sessions);
     }
@@ -327,7 +327,11 @@ export async function startSessionFromParams(
       const taskInfo = await deps.taskService.getTask(normalizedTaskId);
 
       if (!taskInfo) {
-        throw new ResourceNotFoundError(`Task not found: ${normalizedTaskId}`, "task", normalizedTaskId);
+        throw new ResourceNotFoundError(
+          `Task not found: ${normalizedTaskId}`,
+          "task",
+          normalizedTaskId
+        );
       }
 
       taskId = normalizedTaskId;
@@ -335,7 +339,9 @@ export async function startSessionFromParams(
 
       const existingSession = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
       if (existingSession) {
-        throw new MinskyError(`Session already exists for task ${normalizedTaskId}: ${existingSession.session}`);
+        throw new MinskyError(
+          `Session already exists for task ${normalizedTaskId}: ${existingSession.session}`
+        );
       }
     } else if (name) {
       sessionName = name;
@@ -386,7 +392,9 @@ export async function startSessionFromParams(
       try {
         statusUpdateResult = await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
-        console.warn(`Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
