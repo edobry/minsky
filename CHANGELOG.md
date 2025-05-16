@@ -77,6 +77,8 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 - Restored interactive status prompt in `tasks status set` command that was lost during code refactoring
 - Fixed task ID validation in session commands to properly handle task IDs without the # prefix (e.g., "079" instead of "#079")
 - Fixed TaskService initialization in session commands to use the repository path instead of the state directory, enabling proper task lookup
+- Fixed branch name not showing in session output by properly setting the branch field in session records
+- Refactored task ID validation to reduce code duplication and improve consistency
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization fixes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command fixes._
