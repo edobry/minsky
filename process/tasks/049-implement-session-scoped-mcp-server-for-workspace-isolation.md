@@ -98,6 +98,13 @@ This approach supports several advanced usage scenarios:
    - Document migration from standard tools to session tools
    - Create guides for different session usage patterns
 
+6. **Mandatory Session Tools Rule**
+   - Create a Cursor rule mandating the use of session-specific tools when in a session
+   - Make the rule explicitly require `session_` prefixed tools instead of built-ins
+   - Add clear warnings about the risks of using built-in tools directly
+   - Provide examples showing correct and incorrect tool usage patterns
+   - Ensure the rule is automatically loaded in session contexts
+
 ## Implementation Steps
 
 1. [ ] Core Session Utilities:
@@ -141,12 +148,23 @@ This approach supports several advanced usage scenarios:
    - [ ] Implement logging for session tool operations
    - [ ] Add session tool reference to project documentation
 
-6. [ ] Testing and Validation:
+6. [ ] Cursor Rule Development:
+
+   - [ ] Create a new `session-tools.mdc` rule file:
+     - [ ] Add clear mandate for using session-specific tools
+     - [ ] Include examples of correct and incorrect patterns
+     - [ ] Explain the risks of bypassing session tools
+     - [ ] Provide guidance for transitioning to session tools
+   - [ ] Integrate rule with session workflows
+   - [ ] Add automatic rule loading for session contexts
+
+7. [ ] Testing and Validation:
 
    - [ ] Create unit tests for session path resolution
    - [ ] Implement integration tests for session tools
    - [ ] Add security tests for boundary enforcement
    - [ ] Create end-to-end tests with AI agent simulation
+   - [ ] Validate rule effectiveness with AI agent interactions
 
 ## Verification
 
@@ -156,6 +174,7 @@ This approach supports several advanced usage scenarios:
 - [ ] AI agents can easily use session tools with explicit session parameters
 - [ ] Session workspaces remain isolated with no cross-session interference
 - [ ] Documentation clearly explains the session tool usage pattern
+- [ ] Cursor rule effectively guides AI agents to use session-specific tools
 
 ## Technical Considerations
 
@@ -165,6 +184,7 @@ This approach supports several advanced usage scenarios:
 - **Error Messages**: Provide informative, actionable error messages
 - **Documentation**: Create comprehensive guides for AI agent usage
 - **Performance**: Minimize overhead of session path resolution
+- **Rule Enforcement**: Balance strong guidance with practical flexibility
 
 ## Related Tasks
 
@@ -179,3 +199,4 @@ This approach supports several advanced usage scenarios:
 - 2024-07-14: Updated task specification with detailed design and implementation plan
 - 2024-07-14: Revised specification to clarify centralized MCP approach with session context
 - 2024-07-14: Refined approach to focus on explicit session-specific tools
+- 2024-07-14: Added requirement for Cursor rule mandating use of session-specific tools
