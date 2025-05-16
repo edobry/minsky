@@ -257,8 +257,12 @@ export async function createSessionDeps(options?: {
   const baseDir = getMinskyStateDir();
   const sessionDBInstance = new SessionDB({ baseDir });
   const gitServiceInstance = new GitService(baseDir);
+
+  // Use the provided workspace path or the current directory for task operations
+  // This ensures task lookups happen in the actual repository, not in the state directory
+  const workspacePath = options?.workspacePath || process.cwd();
   const taskServiceInstance = new TaskService({
-    workspacePath: baseDir,
+    workspacePath, // Use the actual repository path, not the state directory
     backend: "markdown",
   });
 
