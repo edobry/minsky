@@ -30,7 +30,20 @@ export const TEST_TIMESTAMPS = {
  * Provides isolation between tests and automatic cleanup
  */
 export function createTempTestDir(prefix = "minsky-test-"): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  try {
+    const tmpDir = path.join(os.tmpdir(), prefix + Math.random().toString(36).substring(2, 10));
+    fs.mkdirSync(tmpDir, { recursive: true });
+    return tmpDir;
+  } catch (err) {
+    console.error("Failed to create temp directory:", err);
+    // Fallback to a directory in the current directory as a last resort
+    const fallbackDir = path.join(
+      process.cwd(),
+      `.tmp-test-${Math.random().toString(36).substring(2, 8)}`
+    );
+    fs.mkdirSync(fallbackDir, { recursive: true });
+    return fallbackDir;
+  }
 }
 
 /**

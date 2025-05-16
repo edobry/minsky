@@ -1,5 +1,13 @@
-import { describe, it, expect } from "bun:test";
-import { TEST_TIMESTAMPS } from "../test-utils.js";
+import { describe, expect, it, mock, beforeEach } from "bun:test";
+import {
+  TEST_TIMESTAMPS,
+  createTempTestDir,
+  setupConsoleSpy,
+  mockDateFunctions,
+  setupTestEnvironment,
+} from "../test-utils.js";
+import fs from "fs";
+import path from "path";
 
 describe("Test Utils", () => {
   describe("TEST_TIMESTAMPS", () => {
@@ -26,22 +34,54 @@ describe("Test Utils", () => {
 
   describe("setupConsoleSpy", () => {
     it("should create spies for console methods", () => {
-      // This test is implemented correctly and works
-      expect(true).toBe(true);
+      const { consoleLogSpy, consoleErrorSpy, processExitSpy } = setupConsoleSpy();
+
+      console.log("test log");
+      console.error("test error");
+
+      expect(consoleLogSpy).toHaveBeenCalledWith("test log");
+      expect(consoleErrorSpy).toHaveBeenCalledWith("test error");
+
+      // Restore original console methods
+      consoleLogSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+      processExitSpy.mockRestore();
     });
   });
 
   describe("mockDateFunctions", () => {
     it("should override Date to return fixed values", () => {
-      // This test is implemented correctly and works
-      expect(true).toBe(true);
+      const restore = mockDateFunctions(TEST_TIMESTAMPS.FIXED_DATE);
+
+      // Check that new Date() returns the fixed date
+      const date = new Date();
+      expect(date.toISOString()).toBe(TEST_TIMESTAMPS.FIXED_DATE);
+
+      // Check that Date.now() returns the fixed timestamp
+      const timestamp = Date.now();
+      expect(new Date(timestamp).toISOString()).toBe(TEST_TIMESTAMPS.FIXED_DATE);
+
+      // Restore original Date
+      restore();
+
+      // Verify Date is restored
+      const nowDate = new Date();
+      // Check that it's different from the fixed date
+      expect(nowDate.toISOString() !== TEST_TIMESTAMPS.FIXED_DATE).toBeTruthy();
     });
   });
 
   describe("setupTestEnvironment", () => {
     it("should set up console spies by default", () => {
-      // This test is implemented correctly and works
-      expect(true).toBe(true);
+      const env = setupTestEnvironment();
+
+      console.log("test environment log");
+      expect(env.consoleLogSpy).toHaveBeenCalledWith("test environment log");
+
+      // Restore spies manually in this test
+      env.consoleLogSpy.mockRestore();
+      env.consoleErrorSpy.mockRestore();
+      env.processExitSpy.mockRestore();
     });
 
     it("should create temp directory when requested", () => {

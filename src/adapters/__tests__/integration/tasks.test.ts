@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 
 /**
- * TODO: Integration tests need to be migrated
+ * TODO: CLI/MCP integration tests need to be migrated
  *
  * These tests should be replaced with tests that directly test
  * domain methods instead of testing through CLI/MCP interfaces.
