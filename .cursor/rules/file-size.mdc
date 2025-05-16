@@ -1,5 +1,5 @@
 ---
-description:
+description: Use when creating or modifying files that exceed 400 lines. Apply alongside domain-oriented-modules when refactoring large files.
 globs:
 alwaysApply: true
 ---

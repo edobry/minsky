@@ -1,5 +1,5 @@
 ---
-description: Use when handling errors or exceptions. Implement thorough error handling that preserves context and ensures resource cleanup
+description: Use when handling errors or exceptions. Apply alongside dont-ignore-errors when implementing error recovery.
 globs:
 alwaysApply: false
 ---

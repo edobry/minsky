@@ -1,5 +1,5 @@
 ---
-description: Use this when any sort of error is encountered
+description: Use when encountering any error. Apply with robust-error-handling for complete error handling strategy.
 globs:
 alwaysApply: false
 ---

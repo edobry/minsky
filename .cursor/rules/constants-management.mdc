@@ -1,5 +1,5 @@
 ---
-description: Use this when working with strings, especially when those strings contain duplication
+description: Use when defining or refactoring string constants or identifiers. Apply when strings are duplicated or represent domain concepts.
 globs:
 alwaysApply: false
 ---

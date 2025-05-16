@@ -1,5 +1,5 @@
 ---
-description: Use when implementing bun:test patterns for mocking, types, and runtime.
+description: REQUIRED: Use when implementing test mocks or fixtures. Always use centralized test utilities over direct API calls.
 globs: **/*.test.ts
 alwaysApply: false
 ---
