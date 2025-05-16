@@ -30,6 +30,6 @@ export function normalizeTaskId(userInput: string): string | null {
     return null;
   }
 
-  // Add the '#' prefix to ensure canonical format
+  // Add the '#' prefix to ensure canonical format - don't pad with zeros
   return `#${normalizedInput}`;
 }

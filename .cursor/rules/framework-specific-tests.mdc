@@ -3,89 +3,182 @@ name: Framework-Specific Testing
 description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
 globs: **/*.test.ts'
 ---
-
 # Framework-Specific Testing
 
-## Bun.js Testing Standards
+## REQUIRED: Use Centralized Test Utilities
 
-### Mocking Standards
-- Prefer `jest.fn()` from bun:test for mocking functions
-- Use `mock.module()` for module-level mocking
-- Always clean up mocks with `mock.restore()` in `afterEach` blocks
+Minsky provides centralized testing utilities that must be used instead of direct bun:test APIs:
 
-### Type vs. Runtime Reconciliation
-- When encountering linter errors for valid bun:test patterns:
-  - Follow runtime documentation over linter suggestions when they conflict
-  - Document any linter errors that are known false positives
-  - Consider adding appropriate ESLint exceptions for known issues
+```typescript
+// ❌ AVOID DIRECT API USAGE
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
 
-### Standard Test Setup Pattern
+// ✅ USE PROJECT UTILITIES
+import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+setupTestMocks();
+const mockFn = createMock();
+```
+
+See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on using these utilities.
+
+## Standard Test Setup
+
+### Import Project Test Utilities
+```typescript
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockObject,
+  createMockFileSystem
+} from "../../utils/test-utils/mocking";
+```
+
+### Setup Pattern
 ```typescript
 describe("Feature under test", () => {
+  // Initialize automatic mock cleanup
+  setupTestMocks();
+
   // Define mock functions
-  const mockDependency = jest.fn();
+  const mockDependency = createMock();
 
   // Mock modules
-  mock.module("../path/to/module", () => ({
+  mockModule("../path/to/module", () => ({
     exportedFunction: mockDependency,
   }));
 
+  // Set up test-specific mocks
   beforeEach(() => {
-    // Reset mock state
     mockDependency.mockClear();
-  });
-
-  afterEach(() => {
-    // Restore all mocks
-    mock.restore();
+    mockDependency.mockReturnValue("default");
   });
 
   test("specific behavior", () => {
-    // Test implementation
-    mockDependency.mockReturnValue("expected");
-    // ... test assertions
+    // Arrange
+    mockDependency.mockReturnValueOnce("expected");
+
+    // Act
+    const result = functionUnderTest();
+
+    // Assert
+    expect(result).toBe("expected");
+    expect(mockDependency).toHaveBeenCalledWith("expected args");
   });
 });
 ```
 
-### Required Test File Structure
-- Import section with all necessary test functions at the top
-- Mock setup section with clear separation of concerns
-- Describe/test blocks with focused assertions
-- Cleanup in appropriate afterEach/afterAll blocks
+## Standard Test Organization
+- Group related tests with descriptive `describe` blocks
+- Use clear, action-oriented test names that explain the expected behavior
+- Divide large test suites into logical sections
+- Follow this structure:
+  1. Import section with necessary test functions and utilities
+  2. `setupTestMocks()` call for automatic cleanup
+  3. Mock setup section with centralized utilities
+  4. Describe/test blocks with focused assertions
 
-### Common Test Patterns
-1. **Mocking Return Values**
-   ```typescript
-   mockFunction.mockReturnValue("fixed value");
-   mockFunction.mockReturnValueOnce("first call only");
-   mockFunction.mockResolvedValue("resolved promise value");
-   mockFunction.mockRejectedValue(new Error("rejection"));
-   ```
+## Common Test Patterns
 
-2. **Verifying Mock Calls**
-   ```typescript
-   expect(mockFunction).toHaveBeenCalled();
-   expect(mockFunction).toHaveBeenCalledTimes(2);
-   expect(mockFunction).toHaveBeenCalledWith("expected arg");
-   expect(mockFunction.mock.calls.length).toBe(2);
-   ```
+### Mocking Return Values
+```typescript
+// For synchronous functions
+mockFunction.mockReturnValue("fixed value");
+mockFunction.mockReturnValueOnce("first call only");
 
-3. **Handling Async Tests**
-   ```typescript
-   test("async operation", async () => {
-     mockFunction.mockResolvedValue({ result: "success" });
-     const result = await functionUnderTest();
-     expect(result).toEqual({ result: "success" });
-   });
-   ```
+// For promises
+mockFunction.mockResolvedValue("resolved promise value");
+mockFunction.mockRejectedValue(new Error("rejection"));
+```
 
-4. **Testing Error Cases**
-   ```typescript
-   test("error handling", async () => {
-     mockFunction.mockRejectedValue(new Error("test error"));
-     await expect(functionUnderTest()).rejects.toThrow("test error");
-   });
-   ```
+### Verifying Mock Calls
+```typescript
+expect(mockFunction).toHaveBeenCalled();
+expect(mockFunction).toHaveBeenCalledTimes(2);
+expect(mockFunction).toHaveBeenCalledWith("expected arg");
+expect(mockFunction.mock.calls.length).toBe(2);
+expect(mockFunction.mock.calls[0][0]).toBe("first argument of first call");
+```
 
-See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.
+### Handling Async Tests
+```typescript
+test("async operation", async () => {
+  mockFunction.mockResolvedValue({ result: "success" });
+  const result = await functionUnderTest();
+  expect(result).toEqual({ result: "success" });
+});
+```
+
+### Testing Error Cases
+```typescript
+test("error handling", async () => {
+  mockFunction.mockRejectedValue(new Error("test error"));
+  await expect(functionUnderTest()).rejects.toThrow("test error");
+});
+```
+
+## Advanced Testing Patterns
+
+### Creating Complex Mock Objects
+```typescript
+// Create a mock service with multiple methods
+const mockService = createMockObject([
+  "getUser",
+  "createUser",
+  "updateUser"
+]);
+
+// Configure specific behaviors
+mockService.getUser.mockReturnValue({ id: 1, name: "User" });
+mockService.createUser.mockImplementation((data) => ({ id: 2, ...data }));
+
+// Use in tests
+const user = mockService.getUser(1);
+expect(user.name).toBe("User");
+```
+
+### Mocking File System Operations
+```typescript
+// Create a mock file system with initial content
+const mockFS = createMockFileSystem({
+  "/path/to/config.json": JSON.stringify({ setting: true }),
+  "/path/to/data.txt": "Initial content"
+});
+
+// Mock the fs module
+mockModule("fs", () => ({
+  existsSync: mockFS.existsSync,
+  readFileSync: mockFS.readFileSync,
+  writeFileSync: mockFS.writeFileSync
+}));
+
+// Test code that uses the file system
+const fs = require("fs");
+expect(fs.existsSync("/path/to/config.json")).toBe(true);
+```
+
+### Mocking Command Execution
+```typescript
+// Create mock for child_process.execSync
+const mockExecSync = createMockExecSync({
+  "git status": "On branch main\nnothing to commit",
+  "git log": "commit abc123\nAuthor: Test User"
+});
+
+// Mock the module
+mockModule("child_process", () => ({
+  execSync: mockExecSync
+}));
+
+// Test code that runs commands
+const { execSync } = require("child_process");
+expect(execSync("git status --short")).toBe("On branch main\nnothing to commit");
+```
+
+See also:
+- `bun-test-patterns` for detailed mocking solutions
+- `test-debugging` for troubleshooting
+- `testing-boundaries` for guidance on what should and shouldn't be tested
+- `test-infrastructure-patterns` for setup patterns

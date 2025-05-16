@@ -2,12 +2,14 @@
  * CLI adapter for git commands
  */
 import { Command } from "commander";
-import { execSync } from "child_process";
-import type { GitPullRequestParams, GitCommitParams } from "../../schemas/git.js";
+import type { GitPullRequestParams, GitCommitParams, GitPushParams } from "../../schemas/git.js";
 import { MinskyError } from "../../errors/index.js";
+import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
 import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
+// Import GitService directly for push functionality
+import { GitService } from "../../domain/git.js";
 
 /**
  * Creates the git pr command
@@ -30,7 +32,7 @@ export function createPrCommand(): Command {
       }) => {
         try {
           // Convert CLI options to domain parameters
-          const _params: GitPullRequestParams = {
+          const params: GitPullRequestParams = {
             repo: options.repo,
             branch: options.branch,
             debug: options.debug ?? false,
@@ -38,34 +40,33 @@ export function createPrCommand(): Command {
             json: options.json,
           };
 
-          // This is kept commented until the domain function is fully implemented
-          // const result = await createPullRequestFromParams(_params);
+          log.debug("Creating PR with params", { params });
 
-          // Temporary implementation using existing CLI command
-          let command = "bun src/cli.ts git pr";
-          if (options.repo) command += ` --repo ${options.repo}`;
-          if (options.branch) command += ` --branch ${options.branch}`;
-          if (options.debug) command += " --debug";
-          if (options.session) command += ` --session ${options.session}`;
-          if (options.json) command += " --json";
+          const result = await createPullRequestFromParams(params);
 
-          const output = execSync(command).toString();
-          console.log(output);
+          // Output result based on format
+          if (options.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            console.log(result.markdown);
+
+            // Display status update information if available
+            if (result.statusUpdateResult) {
+              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+              console.log(
+                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
+              );
+            }
+          }
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
-
-          // Use Bun.exit if available
-          // if (typeof Bun !== "undefined") {
-          // eslint-disable-next-line no-restricted-globals
-          // Bun.exit(1);
-          // } else {
-          // eslint-disable-next-line no-restricted-globals
           process.exit(1);
-          // }
         }
       }
     );
@@ -100,7 +101,7 @@ export function createCommitCommand(): Command {
       }) => {
         try {
           // Convert CLI options to domain parameters
-          const _params: GitCommitParams = {
+          const params: GitCommitParams = {
             message: options.message,
             session: options.session,
             repo: options.repo,
@@ -110,37 +111,76 @@ export function createCommitCommand(): Command {
             json: options.json,
           };
 
-          // This is kept commented until the domain function is fully implemented
-          // const result = await commitChangesFromParams(_params);
+          log.debug("Committing changes with params", { params });
 
-          // Temporary implementation using existing CLI command
-          let command = `bun src/cli.ts git commit -m "${options.message}"`;
-          if (options.session) command += ` --session ${options.session}`;
-          if (options.repo) command += ` --repo ${options.repo}`;
-          if (options.push) command += " --push";
-          if (options.all) command += " --all";
-          if (options.amend) command += " --amend";
-          if (options.stage === false) command += " --no-stage";
-          if (options.verify === false) command += " --no-verify";
-          if (options.json) command += " --json";
+          const result = await commitChangesFromParams(params);
 
-          const output = execSync(command).toString();
-          console.log(output);
+          // Output result based on format
+          if (options.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            log.cli(`Committed changes with message: ${result.message}`);
+            log.cli(`Commit hash: ${result.commitHash}`);
+          }
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError(`Unexpected error: ${String(error)}`);
           }
-
-          // Use Bun.exit if available
-          // if (typeof Bun !== "undefined") {
-          // eslint-disable-next-line no-restricted-globals
-          // Bun.exit(1);
-          // } else {
-          // eslint-disable-next-line no-restricted-globals
           process.exit(1);
-          // }
+        }
+      }
+    );
+}
+
+// Add the push command
+/**
+ * Creates the git push command
+ */
+export function createPushCommand(): Command {
+  return new Command("push")
+    .description("Push changes to remote")
+    .option("--session <session>", "Session to push in")
+    .option("--repo <path>", "Repository path")
+    .option("--remote <remote>", "Remote to push to (defaults to origin)")
+    .option("--force", "Force push (use with caution)")
+    .option("--json", "Output as JSON")
+    .action(
+      async (options: {
+        session?: string;
+        repo?: string;
+        remote?: string;
+        force?: boolean;
+        json?: boolean;
+      }) => {
+        try {
+          // Use GitService directly for push
+          const gitService = new GitService();
+          const result = await gitService.push({
+            session: options.session,
+            repoPath: options.repo,
+            remote: options.remote || "origin",
+            force: options.force ?? false,
+          });
+
+          // Output result based on format
+          if (options.json) {
+            log.agent(JSON.stringify(result, null, 2));
+          } else {
+            log.cli("Successfully pushed changes to remote.");
+          }
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            log.cliError(`Error: ${error.message}`);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
+          } else {
+            log.cliError(`Unexpected error: ${String(error)}`);
+          }
+          process.exit(1);
         }
       }
     );
@@ -154,6 +194,7 @@ export function createGitCommand(): Command {
 
   gitCommand.addCommand(createPrCommand());
   gitCommand.addCommand(createCommitCommand());
+  gitCommand.addCommand(createPushCommand());
 
   return gitCommand;
 }

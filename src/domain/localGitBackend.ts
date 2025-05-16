@@ -24,6 +24,7 @@ import {
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
 import { SessionDB } from "./session.js";
+import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
 
@@ -65,7 +66,11 @@ export class LocalGitBackend implements RepositoryBackend {
     try {
       const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
       if (stderr) {
-        console.warn(`Git command produced stderr: ${stderr}`);
+        log.debug("Git command produced stderr", { 
+          command: cmd, 
+          stderr,
+          cwd: cwd || this.localPath
+        });
       }
       return stdout.trim();
     } catch (error) {

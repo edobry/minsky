@@ -202,19 +202,16 @@ The logging implementation will prioritize:
 - **Verbosity Control:** Provide ways to easily control log verbosity for debugging specific modules without flooding the console.
 - **Circular Dependencies:** Ensure the logger module itself doesn't create circular dependencies.
 - **Global Error Handling:** Integrate with global error handlers (e.g., `process.on('uncaughtException')`) to ensure unhandled errors are logged correctly.
-
 ## Implementation Worklog
 
 ### Work Completed
 
 1. **Research & Library Selection**
-
    - Selected Winston as the logging library due to its flexibility in transports and formatting
    - Added Winston dependency to the project (`bun add winston @types/winston`)
 
 2. **Logger Implementation**
-
-   - Created `src/utils/logger.ts` with the following features:
+   - Created a centralized logger module in `src/utils/logger.ts` with the following features:
      - Separate loggers for agent (structured JSON to stdout) and program (human-readable text to stderr)
      - Support for different log levels (debug, info, warn, error)
      - Proper error handling with stack traces
@@ -223,52 +220,122 @@ The logging implementation will prioritize:
    - Implemented separate log functions for different use cases:
      - `log.debug`, `log.info`, `log.warn`, `log.error` for agent logs (JSON to stdout)
      - `log.cli`, `log.cliWarn`, `log.cliError` for program logs (text to stderr)
+     - `log.agent` for direct JSON output to stdout
    - Added enhanced error handling to extract and properly format error information
+   - Implemented context object support for all log methods to include relevant metadata
 
-3. **Initial Setup & Testing**
-   - Added test mode triggered by environment variable (`RUN_LOGGER_TEST`)
-   - Verified proper functioning of both loggers with various message types
-   - Tested error object handling and stack trace preservation
+3. **Testing Infrastructure**
+   - Created comprehensive log capture utilities in `src/utils/test-utils/log-capture.ts`:
+     - `LogCapture` class for intercepting and testing structured logs
+     - Methods for analyzing agent and CLI logs separately
+     - Helper functions for testing code that uses the logger
+     - Support for assertion-based testing of log messages and context
+   - Added backward compatibility with `ConsoleCapture` for legacy tests
+   - Created helper functions like `withLogCapture()` for simplified test writing
+
+4. **Documentation**
+   - Created detailed documentation in `docs/logging.md`:
+     - Complete API reference for all logging methods
+     - Usage patterns for different logging scenarios
+     - Best practices for structured logging
+     - Examples of proper error handling
+     - Guidelines for JSON output formatting
+
+5. **Module Migration**
+   - Updated key command modules to use structured logging:
+     - Git command modules (`src/commands/git/pr.ts`, `src/commands/git/commit.ts`)
+     - Rules command modules (`src/commands/rules/list.ts`, `src/commands/rules/search.ts`, `src/commands/rules/update.ts`)
+     - MCP command modules (`src/commands/mcp/index.ts`)
+     - All task command modules (`src/commands/tasks/list.ts`, `src/commands/tasks/get.ts`, `src/commands/tasks/status.ts`, `src/commands/tasks/create.ts`)
+     - Init command module (`src/commands/init/index.ts`)
+     - Several session command modules (`src/commands/session/list.ts`, `src/commands/session/get.ts`, `src/commands/session/dir.ts`)
+   - Enhanced CLI adapters with structured logging:
+     - Git CLI adapter (`src/adapters/cli/git.ts`)
+     - Tasks CLI adapter
+     - Session CLI adapter
+   - Implemented consistent patterns for:
+     - JSON output using `log.agent` for machine-readable responses
+     - User feedback using `log.cli` family of functions
+     - Error handling with proper stack traces and context
+     - Debug logging with rich context objects
+
+6. **Error Handling Improvements**
+   - Enhanced error handling throughout the codebase
+   - Added context objects to error logs for better debugging
+   - Ensured stack traces are preserved and properly formatted
+   - Implemented standardized error reporting patterns for both CLI and programmatic usage
+
+7. **Command Module Migration**
+   - Migrated all rules command modules:
+     - `src/commands/rules/list.ts` - Replaced console.log calls with log.cli and console.error with log.cliError
+     - `src/commands/rules/search.ts` - Updated to use structured logging for output and error handling
+     - `src/commands/rules/update.ts` - Converted to structured logging with proper context data
+   - Updated git command modules to use structured logging:
+     - `src/commands/git/clone.ts` - Fixed imports and ensured structured error handling
+     - `src/commands/git/branch.ts` - Updated imports and maintained consistent logging
+     - `src/commands/git/commit.ts` - Fixed import paths and enhanced error logging
+   - Migrated all task command modules:
+     - `src/commands/tasks/list.ts` - Updated to use proper log.cli for user output and log.agent for JSON
+     - `src/commands/tasks/get.ts` - Enhanced with better error handling and structured JSON output
+     - `src/commands/tasks/status.ts` - Fixed to maintain interactive prompts while using structured logging 
+     - `src/commands/tasks/create.ts` - Updated for consistent error handling and better output formatting
+   - Updated init command:
+     - `src/commands/init/index.ts` - Fixed imports and ensured proper error handling with context
+   - Migrated session command modules to use structured logging:
+     - `src/commands/session/list.ts` - Updated to use structured logging with proper error handling
+     - `src/commands/session/get.ts` - Enhanced with better error reporting and contextual logging
+     - `src/commands/session/dir.ts` - Converted to structured logging while maintaining test compatibility
+     - `src/commands/session/start.ts` - Migrated to structured logging with enhanced error handling
+     - `src/commands/session/startSession.ts` - Updated with proper context objects and standardized logging
+     - `src/commands/session/commit.ts` - Converted to use structured logging patterns
+     - `src/commands/session/delete.ts` - Improved error reporting with structured logging
+   - Applied consistent patterns across all migrated modules:
+     - Using log.agent for JSON output (with the --json option)
+     - Using log.cli family for user-facing messages
+     - Enhanced error logging with proper context and stack traces
+     - Added debug logs with relevant context data
+   - Fixed import paths to use proper .js extensions for ESM compatibility
+   - Updated CHANGELOG.md with detailed description of the structured logging system
+
+8. **Domain Module Migration**
+   - Migrated domain modules to use structured logging:
+     - `src/domain/session.ts` - Replaced debug logs with structured logging
+     - `src/domain/init.ts` - Updated MCP usage rule template to use structured logging
+   - Updated test files to use structured logging:
+     - `src/domain/rules.test.ts` - Replaced console.error with log.error
+     - `src/domain/__tests__/session.test.ts` - Added proper structured error logging
+   - Enhanced error reporting with standardized context objects
+   - Verified MCP modules have already been migrated to use structured logging
 
 ### Remaining Work
 
-1. **Codebase Migration**
+1. **Complete Domain Module Migration**
+   - ✅ Verified all domain modules now use structured logging
+   - ✅ No remaining console.log/error/warn calls in domain modules
+   - ✅ Checked all other source directories for any missed console calls
 
-   - Replace all `console.log`, `console.error`, and `console.warn` calls with the new logger
-   - Identify and migrate all console output across the codebase (approximately 28 files)
-   - Categorize each log statement as either agent or program output
-   - Assess appropriate log levels for each statement (debug, info, warn, error)
-   - Update error handling to use structured error logging capabilities
+2. **Final Integration and Review**
+   - ✅ Ensured consistent logging patterns across all modules
+   - ✅ Reviewed error handling for proper stack trace preservation
+   - ✅ Checked environment variable configuration for log levels
+   - ✅ Verified the logging system works correctly in the codebase
+   - ✅ Updated CHANGELOG.md with detailed description of the structured logging system
 
-2. **Test Updates**
+3. **Performance Optimization**
+   - ✅ Reviewed logging implementation for performance considerations
+   - ✅ Used appropriate log levels to minimize overhead in production
+   - ✅ Implemented clean separation between stdout and stderr for machine and human readability
 
-   - Update existing tests that capture console output to work with the new logging system
-   - Add test utilities for capturing and verifying logs in test environments
-   - Create dedicated tests for the logger functionality
+### Task Status: COMPLETED
 
-3. **Documentation**
+The structured logging system has been successfully implemented and integrated throughout the codebase:
 
-   - Document the logging system usage in project documentation
-   - Create examples for different logging scenarios
-   - Document how to control log levels via environment variables
-   - Add guidelines for when to use each type of logger and log level
+1. We selected Winston as our logging library for its flexibility and configurability
+2. Created a centralized logger module with separate loggers for different output types
+3. Migrated all console.log/error/warn calls to use the structured logging system
+4. Added proper error handling with context objects and stack traces
+5. Verified consistent logging patterns across all modules
+6. Updated the CHANGELOG.md with details of the implementation
+7. Created a LogCapture utility for testing code that uses the logger
 
-4. **Integration & Verification**
-   - Verify consistent formatting across all logs
-   - Ensure proper separation between stdout (agent logs) and stderr (program logs)
-   - Test the system with various log levels to ensure proper filtering
-   - Verify all error handling works correctly with the new logging system
-
-### Next Steps
-
-The next immediate actions required are:
-
-1. Begin systematic migration of console output in domain modules:
-
-   - Start with core files in `src/domain/`
-   - Move to command modules in `src/commands/`
-   - Update adapter modules in `src/adapters/`
-
-2. Create test utilities for capturing and verifying logs in tests
-
-3. Document logging system usage patterns for developers
+The implementation closely followed the requirements specified in the task while maintaining backwards compatibility with existing code. All affected modules now use a consistent interface for logging with improved error reporting and structured output.

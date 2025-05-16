@@ -1,0 +1,39 @@
+---
+description: Use when writing or refactoring import statements. Prefer static imports over dynamic imports.
+globs: **/*.ts, **/*.tsx, **/*.js, **/*.jsx
+alwaysApply: false
+---
+# Disallow Dynamic Imports
+
+## Core Principle
+
+Avoid using dynamic `import()` statements in TypeScript code. Prefer static imports for better compile-time analysis, type checking, and code clarity.
+
+Dynamic imports can obscure dependencies, make refactoring harder, and can sometimes lead to unexpected behavior or performance issues if not managed carefully.
+
+## Rationale
+
+- **Static Analysis**: Static imports allow tools to better understand the module graph
+- **Type Safety**: Improves the ability of the TypeScript compiler to check types across modules
+- **Predictability**: Makes code flow easier to follow and debug
+
+## Examples
+
+```typescript
+// ❌ AVOID
+const myModule = await import("./myModule");
+myModule.doSomething();
+
+// ✅ PREFER
+import { doSomething } from "./myModule";
+doSomething();
+```
+
+## Exceptions
+
+There might be rare, specific cases where dynamic imports are necessary:
+- Conditional loading of large optional modules
+- Plugin systems with runtime-determined imports
+- Code-splitting for performance optimization
+
+Such exceptions should be well-justified and documented with comments.

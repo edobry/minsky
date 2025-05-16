@@ -1,11 +1,15 @@
 ---
-description:
+description: Use for test execution requirements and verification protocols. Apply after implementing tests per testing-boundaries
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
-Rule Name: tests
-Description:
-Test Coverage and Quality Requirements:
+# Test Execution and Verification
+
+## Integration with Testing Rule System
+- This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
+- This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
+
+## Test Execution Requirements
 
 1. **When to Run Tests**
    - Run tests after ANY change to:
@@ -22,82 +26,68 @@ Test Coverage and Quality Requirements:
    - For changes to shared utilities or core functionality, run all tests
    - Use `bun test` for the default test suite
    - Use `bun test --coverage` when making significant changes
+   - Use `bun lint:tests` to scan for placeholder tests
 
 3. **Test Success Criteria**
    - All tests must pass (no failures)
    - No new test warnings should be introduced
    - Test coverage should not decrease for modified files
    - Flaky tests should be fixed or marked as such
+   - `bun lint:tests` must pass with exit code 0 (no placeholder tests)
 
-4. **Test Development**
-   - When writing new tests:
-     - Only the new/modified test files should be failing
-     - Document why tests are failing in the commit message
-     - Fix failing tests before completing the change
-   - When modifying existing tests:
-     - Ensure changes maintain or improve test coverage
-     - Update test documentation if behavior changes
-     - Consider adding new tests for edge cases
+## Verification Protocols
 
-5. **Test Environment**
-   - Run tests in the development environment
-   - Ensure all required dependencies are installed
-   - Document any environment-specific requirements
+### Batch Verification
+- After each set of related changes, run all of these checks:
+  ```bash
+  bun lint        # Check code quality
+  bun type-check  # Verify TypeScript types
+  bun test        # Run tests
+  bun lint:tests  # Check for placeholder tests
+  ```
 
-6. **Test Reporting**
-   - Document any skipped tests and why
-   - Note any changes to test coverage
-   - Flag any new test warnings or flaky tests
+### Verification Checkpoints
+- Verification MUST be performed:
+  - Before committing changes
+  - Before opening a pull request
+  - Before marking a task as complete
+  - After resolving merge conflicts
+  - After refactoring shared code
 
-7. **Test Integrity Requirements**
-   - **ABSOLUTELY FORBIDDEN:**
-     - Creating placeholder/mock tests to bypass failures
-     - Creating tests that always pass without testing actual functionality (e.g., `expect(true).toBe(true)`)
-     - Commenting out failing tests instead of fixing them
-     - Using `test.skip()` or similar to avoid test failures
-     - Any practice that hides or ignores test failures
-   - All test failures MUST be properly addressed by either:
-     - Fixing the underlying code issue
-     - Updating test expectations with proper justification
-     - Refactoring the test to properly test the intended behavior
-   - If a test is failing:
-     - Document the failure in detail
-     - Create a plan to fix it
-     - Get approval for the fix approach
-     - Implement the fix
-     - Verify the fix with proper test coverage
-   - Never merge code with:
-     - Failing tests
-     - Placeholder tests
-     - Skipped tests without documented justification
-     - Mock tests that don't actually test functionality
+### Test Pass/Fail Gating
+- Failed tests MUST block further progress
+- You MUST NOT commit, merge, or ship code with failing tests
+- Broken tests MUST be fixed rather than skipped or removed
+- If test failures are expected due to implementation changes, update tests FIRST
 
-8. **ZERO TOLERANCE FOR FAKE TESTS**
-   - There is NEVER an acceptable reason to create fake/mock tests that automatically pass
-   - Tests that use `expect(true).toBe(true)` or similar constructs that don't test actual behavior are strictly prohibited
-   - When encountering test failures:
-     1. First attempt to fix the test properly to test the actual behavior
-     2. If that's not immediately possible, leave the test failing and document why
-     3. If a temporary solution is needed while investigating, use `test.todo()` with detailed explanations
-   - Any PR or commit containing fake tests will be automatically rejected
-   - This is a critical part of maintaining code quality and is non-negotiable
+## Core Principles
+1. **Zero Tolerance for Placeholder Tests**: All tests must meaningfully test actual functionality.
+2. **Test-First Development**: Write tests before implementing features and fixes.
+3. **Isolate Test Dependencies**: Use proper mocking and test isolation techniques.
+4. **Verify All Changes**: Run appropriate tests after any code change.
 
-9. **Enforcement Mechanism**
-   - All test files must be periodically scanned for patterns indicating fake tests
-   - Code review must specifically check for fake/bypassed tests
-   - Automated linting should detect and flag suspicious test patterns
-   - Before submitting changes, verify all tests are properly testing functionality
+## Enforcing Test Quality
 
-This is a zero-tolerance policy. Any violation will require immediate remediation.
+- All pull requests must pass the full test suite
+- Use `bun lint:tests` to detect placeholder tests automatically
+- Pre-commit hooks should prevent committing placeholder tests
+- Code reviews should specifically check for test quality and coverage
+- Periodically review test coverage and address gaps
 
-# Tests
+## Correct Mocking Approaches
 
-## Best Practices Cross-Reference
-- See also: dont-ignore-errors, designing-tests, minsky-workflow, rule-map, testing-boundaries
-- This rule governs: batch verification, verification checkpoints, and test pass/fail gating.
+**IMPORTANT: Always use centralized mocking utilities from `src/utils/test-utils/mocking.ts`**
 
-## Requirements (Revised)
-- You MUST run all relevant tests after any change to source, test, or config files.
-- You MUST NOT proceed with further changes until all tests pass and all errors are fixed.
-- You MUST use batch verification (lint, type check, test) after each set of related changes.
-- You MUST reference this rule when verifying code before merging or marking a task complete.
+```typescript
+// ❌ INCORRECT - Using platform APIs directly
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({}));
+
+// ✅ CORRECT - Using centralized utilities
+import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+setupTestMocks();
+const mockFn = createMock();
+mockModule("../path/to/module", () => ({}));
+```
+
+See [bun-test-patterns](mdc:.cursor/rules/bun-test-patterns.mdc) for comprehensive guidance on mocking utilities.

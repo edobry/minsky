@@ -1,0 +1,47 @@
+---
+description: REQUIRED entry point for all error handling decisions. Use to navigate to specific error handling rules like robust-error-handling or dont-ignore-errors.
+globs:
+alwaysApply: false
+---
+# Error Handling Guidance - Start Here
+
+This rule serves as the entry point for all error handling guidance in the Minsky project. Use it to navigate to the appropriate error handling rules based on your specific scenario.
+
+## Rule Application Matrix
+
+| Scenario | Primary Rules | Supporting Rules |
+|----------|---------------|------------------|
+| General error handling principles | robust-error-handling | dont-ignore-errors |
+| API error handling | robust-error-handling | N/A |
+| Filesystem error handling | robust-error-handling | N/A |
+| CLI error presentation | robust-error-handling | dont-ignore-errors |
+
+## Rule Relationships
+
+### Core Error Handling Rules
+- [**robust-error-handling**](mdc:.cursor/rules/robust-error-handling.mdc): Comprehensive patterns for proper error handling
+- [**dont-ignore-errors**](mdc:.cursor/rules/dont-ignore-errors.mdc): Guidance on ensuring all errors are properly handled
+
+## Key Error Handling Principles
+
+1. **Always Check for Errors**
+   - Never ignore errors from any operation
+   - Handle all error cases explicitly
+   - Provide fallbacks or graceful degradation where appropriate
+
+2. **Preserve Error Context**
+   - Maintain stack traces when re-throwing errors
+   - Add contextual information when propagating errors
+   - Use structured error objects rather than strings
+
+3. **Ensure Resource Cleanup**
+   - Use try/finally blocks to guarantee cleanup
+   - Close file handles, database connections, etc.
+   - Handle errors during cleanup operations
+
+4. **Set Timeouts for Async Operations**
+   - Prevent hanging operations with timeouts
+   - Handle timeout errors gracefully
+   - Provide meaningful timeout error messages
+
+For detailed implementation patterns and examples, refer to the robust-error-handling rule linked above.
