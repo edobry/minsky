@@ -33,8 +33,8 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 
 ### Remaining Work
 - Add tests for missing session domain methods:
-  - updateSessionFromParams
-  - getSessionDirFromParams
+  - ✅ updateSessionFromParams
+  - ✅ getSessionDirFromParams
 - Add tests for missing rules domain methods:
   - updateRule
 - Consider adding tests for other domain modules:
