@@ -64,6 +64,8 @@ const stubSessionDB = {
         repoUrl: "/path/to/main/workspace",
         repoName: "workspace",
         createdAt: new Date().toISOString(),
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
       };
     }
     if (sessionName === "task#027") {
@@ -72,6 +74,8 @@ const stubSessionDB = {
         repoUrl: "/path/to/main/workspace",
         repoName: "minsky",
         createdAt: new Date().toISOString(),
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
       };
     }
     return null;
@@ -294,8 +298,11 @@ describe("Workspace Utils", () => {
       const originalCwd = process.cwd;
       process.cwd = () => sessionPath;
 
-      const mockGetSession = stubSessionDB.getSession as jest.Mock;
-      mockGetSession.mockResolvedValue({
+      // Save original stubSessionDB.getSession
+      const originalGetSession = stubSessionDB.getSession;
+
+      // Override the getSession method directly
+      stubSessionDB.getSession = async () => ({
         repoUrl: "/main/workspace",
         session: "existingSession",
         repoName: "local-repo",
@@ -308,6 +315,9 @@ describe("Workspace Utils", () => {
 
       // Now, we should use the current directory (sessionPath), not the main workspace
       expect(result).toBe(sessionPath);
+
+      // Restore stubSessionDB.getSession
+      stubSessionDB.getSession = originalGetSession;
 
       // Restore process.cwd
       process.cwd = originalCwd;
@@ -455,6 +465,8 @@ describe("getCurrentSessionContext", () => {
       repoName: "repo",
       createdAt: "2024-01-01T00:00:00Z",
       taskId: "#001",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
     };
 
     const result = await getCurrentSessionContext("dummy/path", {
@@ -479,6 +491,8 @@ describe("getCurrentSessionContext", () => {
       repoUrl: "/path/to/repo",
       repoName: "repo",
       createdAt: "2024-01-01T00:00:00Z",
+      backendType: "local",
+      remote: { authMethod: "ssh", depth: 1 },
     };
 
     const result = await getCurrentSessionContext("dummy/path", {

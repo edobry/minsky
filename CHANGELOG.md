@@ -102,35 +102,20 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 
 ### Fixed
 
-- Task #073: Addressed adapter integration test failures
+- Task #083: Fixed bugs in Minsky rules CLI command
 
-  - Marked as DONE as this work was superseded by task #078 which migrated CLI adapter tests
-  - Integration tests in `src/adapters/__tests__/integration/` have been replaced with tests that directly test domain methods instead of testing through CLI/MCP interfaces
-
-- Task #083: Fixed bugs in Minsky rules CLI command (Updated implementation)
-
-  - Fixed file content loading in `--content` parameter by adding a helper function to detect and read file contents
-  - Added proper JSON array parsing for glob patterns with fallback to comma-separated string format
-  - Improved help text to clarify both file content and glob format options
-  - Added error handling for file reading operations
-  - Added comprehensive tests for both fixes
-
-- Task #083: Fixed bugs in Minsky rules CLI command (Previous attempt)
-
-- Task #XXX: Fixed bugs in Minsky rules CLI command
   - Fixed content file loading in `--content` parameter to properly read file contents instead of using the file path as content
   - Improved globs format handling to accept both comma-separated strings and YAML/JSON array formats
   - Added validation for glob formats with clear error messages
   - Added tests for file content loading and different glob format inputs
   - Improved help text for rules command parameters
 
-  - Improved globs format handling to accept both comma-separated strings and JSON array formats
-  - Implemented helper functions to handle file content and glob parsing
-  - Added comprehensive tests for helper functions and CLI integration
-  - Added proper error handling for file reading operations
+- Fixed test suite failures:
 
-_See: SpecStory history [fix-rules-name-parameter](mdc:.specstory/history/fix-rules-name-parameter.md) for rules CLI command bugfixes._
-  
+  - Fixed `Workspace Utils > resolveWorkspacePath > should use current directory when in a session repo` test by correctly stubbing the SessionDB getSession method
+  - Fixed `resolveRepoPath > falls back to current directory if git rev-parse fails` test by ensuring proper process.cwd() expectations
+  - Fixed fs.rm compatibility issues in rules-helpers.test.ts by removing unnecessary cleanup code
+
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks

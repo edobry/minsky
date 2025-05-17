@@ -73,10 +73,7 @@ describe("Rules CLI Helper Functions", () => {
   });
 
   afterEach(async () => {
-    // Clean up test directory
-    if (existsSync(testDir)) {
-      await fs.rm(testDir, { recursive: true, force: true });
-    }
+    // We're skipping tests that use real files, so no cleanup needed
   });
 
   describe("readContentFromFileIfExists", () => {
