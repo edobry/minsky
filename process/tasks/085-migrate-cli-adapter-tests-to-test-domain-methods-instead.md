@@ -15,7 +15,7 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
   - ✅ Create new test file for rules with proper test structure
   - ✅ Ensure tests follow the testing-boundaries rule principles
   - ✅ Remove syntax errors and outdated patterns
-  - 🔄 Restore meaningful test coverage for CLI adapters (partial)
+  - ✅ Restore meaningful test coverage for CLI adapters
   - ✅ Prefer domain-level tests where possible, following project test rules
   - ✅ Ensure all new or migrated tests pass in both the main and session workspaces
   - ✅ Reference SpecStory history for context on why these files were removed
@@ -23,24 +23,19 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 ## Progress
 
 ### Completed
-- Replaced placeholder test in `src/adapters/__tests__/integration/session.test.ts`
-- Created proper tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams)
-- Created new test file for rules domain methods
-- Added tests for rules operations (listRules, getRule, searchRules, createRule)
-- Implemented proper mocking with centralized test utilities
-- Ensured tests follow testing-boundaries rule principles
-- All implemented tests are passing
+- ✅ Replaced placeholder test in `src/adapters/__tests__/integration/session.test.ts`
+- ✅ Created proper tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams, updateSessionFromParams, getSessionDirFromParams)
+- ✅ Created new test file for rules domain methods
+- ✅ Added tests for rules operations (listRules, getRule, searchRules, createRule, updateRule)
+- ✅ Implemented proper mocking with centralized test utilities
+- ✅ Ensured tests follow testing-boundaries rule principles
+- ✅ Created tests for Tasks domain methods (getTaskFromParams, listTasksFromParams, getTaskStatusFromParams, setTaskStatusFromParams)
+- ✅ Created tests for Git domain methods (createPullRequestFromParams, commitChangesFromParams)
+- ✅ Created tests for Workspace domain methods (isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath)
+- ✅ All implemented tests are passing
 
-### Remaining Work
-- Add tests for missing session domain methods:
-  - ✅ updateSessionFromParams
-  - ✅ getSessionDirFromParams
-- Add tests for missing rules domain methods:
-  - ✅ updateRule
-- Consider adding tests for other domain modules:
-  - ✅ Tasks domain methods (getTask, listTasks, updateTaskStatus)
-  - ✅ Git domain methods (clone, checkout, getBranch)
-  - ✅ Workspace domain methods (isSessionRepository, getCurrentSession)
+### Completion Status
+✅ Task completed and ready for review
 
 ## Requirements
 
@@ -52,7 +47,7 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 
 ## Acceptance Criteria
 
-- ✅ New or migrated tests exist for CLI adapter logic (partial - some domain methods still need coverage)
+- ✅ New or migrated tests exist for CLI adapter logic
 - ✅ Tests follow the testing-boundaries rule (testing domain logic, not interfaces)
 - ✅ No syntax errors or placeholder code remain
 - ✅ All tests pass in both main and session workspaces
