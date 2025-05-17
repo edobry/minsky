@@ -1,1 +1,10 @@
 ---
+name: workspace-verification
+description: REQUIRED guidelines for verifying workspace context and command availability before making changes
+globs:
+  - "**/*.ts"
+  - "**/*.js"
+  - "**/*.tsx"
+  - "**/*.jsx"
+---
+workspace-verification-rule-content.md
