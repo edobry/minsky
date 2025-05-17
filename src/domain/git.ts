@@ -104,7 +104,7 @@ export interface GitResult {
 }
 
 export interface PreparePrOptions {
-  session?: string;
+  session: string;
   repoPath?: string;
   baseBranch?: string;
   title?: string;
@@ -1115,57 +1115,61 @@ export class GitService {
 
   async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
     let workdir: string;
-    let prBranch: string;
-    let baseBranch: string = options.baseBranch || "main";
 
-    // 1. Determine working directory and current branch
-    if (options.session) {
-      const record = await this.sessionDb.getSession(options.session);
-      if (!record) {
-        throw new Error(`Session '${options.session}' not found.`);
-      }
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(repoName, options.session);
-      prBranch = options.session; // Session branch is named after the session
-    } else if (options.repoPath) {
-      workdir = options.repoPath;
-      // Get current branch from repo
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      prBranch = branchOut.trim();
-    } else {
-      // Try to infer from current directory
-      workdir = process.cwd();
-      // Get current branch from cwd
-      const { stdout: branchOut } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      prBranch = branchOut.trim();
+    // Session is now required - enforce the session workflow
+    if (!options.session) {
+      throw new MinskyError("Session is required for preparing PR branches");
     }
 
-    // 2. Verify base branch exists
+    // Get session information
+    const record = await this.sessionDb.getSession(options.session);
+    if (!record) {
+      throw new MinskyError(`Session '${options.session}' not found`);
+    }
+
+    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+    workdir = this.getSessionWorkdir(repoName, options.session);
+
+    // Always use the session name as the PR branch
+    const prBranch = options.session;
+    const baseBranch = options.baseBranch || "main";
+
+    // Verify base branch exists
     try {
       await execAsync(`git -C ${workdir} rev-parse --verify ${baseBranch}`);
     } catch (err) {
-      throw new Error(`Base branch '${baseBranch}' does not exist or is not accessible.`);
+      throw new MinskyError(`Base branch '${baseBranch}' does not exist or is not accessible`);
     }
 
-    // 3. Make sure we have the latest from the base branch
+    // Make sure we have the latest from the base branch
     await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
 
-    // 4. Stage all changes
+    // Make sure we're on the session branch
+    try {
+      const { stdout: currentBranch } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      if (currentBranch.trim() !== prBranch) {
+        await execAsync(`git -C ${workdir} checkout ${prBranch}`);
+      }
+    } catch (err) {
+      throw new MinskyError(
+        `Failed to checkout session branch: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Stage all changes
     await this.stageAll(workdir);
 
-    // 5. Check if there are changes to commit
+    // Check if there are changes to commit
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
     if (statusOutput.trim()) {
       // Commit any staged changes if there are any
-      const commitMsg = options.title || `Prepare PR branch ${prBranch}`;
+      const commitMsg = options.title || `Prepare PR branch for session ${prBranch}`;
       await this.commit(commitMsg, workdir);
     }
 
-    // 6. Push changes to the PR branch
+    // Push changes to the PR branch
     await this.push({
       repoPath: workdir,
       remote: "origin",
@@ -1313,7 +1317,7 @@ export async function commitChangesFromParams(params: {
  * Interface-agnostic function to prepare a PR branch
  */
 export async function preparePrFromParams(params: {
-  session?: string;
+  session: string; // Make session required
   repo?: string;
   baseBranch?: string;
   title?: string;

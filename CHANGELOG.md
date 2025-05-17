@@ -81,12 +81,14 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 
 ### Fixed
 
-- Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
+- Fixed `git prepare-pr` command to properly work with session branches
 
-  - Added preparePr method to GitService class that handles PR branch preparation
-  - Added interface-agnostic implementation to support CLI adapter
-  - Fixed error when running the command in session workspaces
+  - Made session parameter required for the domain function
+  - Added session auto-detection like other commands
+  - Ensured the correct session branch is always used
+  - Provided clear error messages when not in a session workspace
 
+- Fixed `git merge-pr` command by implementing the missing `mergePrFromParams` function in the domain layer
 - Fixed session repository path resolution to handle both legacy and new directory structures.
 - Fixed task detection in workspace utilities to handle task IDs with or without the # prefix.
 - Fixed issues in the workspace detection logic to properly identify session repositories.
@@ -145,8 +147,3 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
   - Includes a quick reference guide for test structure best practices
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
-
-- Fixed `git merge-pr` command by implementing the missing `mergePrFromParams` function in the domain layer
-  - Added mergePr method to GitService class that handles PR branch merging
-  - Added interface-agnostic implementation to support CLI adapter
-  - Fixed error when using the command in session workspaces

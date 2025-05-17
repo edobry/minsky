@@ -7,12 +7,75 @@ import { MinskyError } from "../../errors/index.js";
 import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
-import { 
-  createPullRequestFromParams, 
+import {
+  createPullRequestFromParams,
   commitChangesFromParams,
+  preparePrFromParams,
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
+
+/**
+ * Interface-agnostic function to merge a PR branch
+ */
+async function mergePrFromParams(params: {
+  prBranch: string;
+  repo?: string;
+  baseBranch?: string;
+  session?: string;
+}): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  commitHash: string;
+  mergeDate: string;
+  mergedBy: string;
+}> {
+  try {
+    const git = new GitService();
+    const workdir = params.repo || process.cwd();
+    const baseBranch = params.baseBranch || "main";
+
+    // 1. Make sure we're on the base branch
+    await git.execInRepository(workdir, `git checkout ${baseBranch}`);
+
+    // 2. Make sure we have the latest changes
+    await git.execInRepository(workdir, `git pull origin ${baseBranch}`);
+
+    // 3. Merge the PR branch
+    await git.execInRepository(workdir, `git merge --no-ff ${params.prBranch}`);
+
+    // 4. Get the commit hash of the merge
+    const commitHash = (await git.execInRepository(workdir, "git rev-parse HEAD")).trim();
+
+    // 5. Get merge date and author
+    const mergeDate = new Date().toISOString();
+    const mergedBy = (await git.execInRepository(workdir, "git config user.name")).trim();
+
+    // 6. Push the merge to the remote
+    await git.execInRepository(workdir, `git push origin ${baseBranch}`);
+
+    // 7. Delete the PR branch from the remote
+    await git.execInRepository(workdir, `git push origin --delete ${params.prBranch}`);
+
+    return {
+      prBranch: params.prBranch,
+      baseBranch,
+      commitHash,
+      mergeDate,
+      mergedBy,
+    };
+  } catch (error) {
+    log.error("Error merging PR branch", {
+      prBranch: params.prBranch,
+      baseBranch: params.baseBranch,
+      session: params.session,
+      repo: params.repo,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
 
 /**
  * Creates the summary command (renamed from pr)
@@ -34,6 +97,29 @@ export function createSummaryCommand(): Command {
         json?: boolean;
       }) => {
         try {
+          // Auto-detect session if neither repo nor session is provided
+          let autoDetectedSession = false;
+          if (!options.repo && !options.session) {
+            try {
+              // Import getCurrentSessionContext to auto-detect session
+              const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+              const sessionContext = await getCurrentSessionContext(process.cwd());
+
+              if (sessionContext) {
+                options.session = sessionContext.sessionId;
+                autoDetectedSession = true;
+                if (!options.json) {
+                  log.cli(`Auto-detected session: ${options.session}`);
+                }
+              }
+            } catch (error) {
+              // Just log the error but continue - the domain function will handle missing session/repo
+              log.debug("Error auto-detecting session", {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
           // Convert CLI options to domain parameters
           const params: GitPullRequestParams = {
             repo: options.repo,
@@ -65,7 +151,7 @@ export function createSummaryCommand(): Command {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
             // Exit with the specific error code if available
-            if (typeof (error as any).code === 'number') {
+            if (typeof (error as any).code === "number") {
               process.exit((error as any).code);
             }
             process.exit(1);
@@ -85,7 +171,7 @@ export function createSummaryCommand(): Command {
  */
 export function createPreparePrCommand(): Command {
   return new Command("prepare-pr")
-    .description("Prepare a PR branch with a merge commit")
+    .description("Prepare a PR branch with a merge commit for a session")
     .option("--repo <path>", "Path to the git repository")
     .option("--base <branch>", "Base branch for PR (defaults to main)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
@@ -104,13 +190,46 @@ export function createPreparePrCommand(): Command {
         json?: boolean;
       }) => {
         try {
+          // Auto-detect session if not provided
+          let autoDetectedSession = false;
+          if (!options.session) {
+            try {
+              // Import getCurrentSessionContext to auto-detect session
+              const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+              const sessionContext = await getCurrentSessionContext(process.cwd());
+
+              if (sessionContext) {
+                options.session = sessionContext.sessionId;
+                autoDetectedSession = true;
+                if (!options.json) {
+                  log.cli(`Auto-detected session: ${options.session}`);
+                }
+              } else {
+                throw new MinskyError(
+                  "No session specified and not in a session workspace. Use --session to specify a session."
+                );
+              }
+            } catch (error) {
+              if (error instanceof MinskyError) {
+                throw error;
+              }
+              // Just log the error and throw a more descriptive error
+              log.debug("Error auto-detecting session", {
+                error: error instanceof Error ? error.message : String(error),
+              });
+              throw new MinskyError(
+                "Failed to auto-detect session. Please use --session to specify a session."
+              );
+            }
+          }
+
           const params = {
+            session: options.session,
             repo: options.repo,
             baseBranch: options.base,
             title: options.title,
             body: options.body,
             debug: options.debug ?? false,
-            session: options.session,
           };
 
           log.debug("Preparing PR branch with params", { params });
@@ -129,7 +248,7 @@ export function createPreparePrCommand(): Command {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
             // Exit with the specific error code if available
-            if (typeof (error as any).code === 'number') {
+            if (typeof (error as any).code === "number") {
               process.exit((error as any).code);
             }
             process.exit(1);
@@ -156,12 +275,15 @@ export function createMergePrCommand(): Command {
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
     .action(
-      async (prBranch: string, options: {
-        repo?: string;
-        base?: string;
-        session?: string;
-        json?: boolean;
-      }) => {
+      async (
+        prBranch: string,
+        options: {
+          repo?: string;
+          base?: string;
+          session?: string;
+          json?: boolean;
+        }
+      ) => {
         try {
           const params = {
             prBranch,
@@ -188,7 +310,7 @@ export function createMergePrCommand(): Command {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
             // Exit with the specific error code if available
-            if (typeof (error as any).code === 'number') {
+            if (typeof (error as any).code === "number") {
               process.exit((error as any).code);
             }
             process.exit(1);
