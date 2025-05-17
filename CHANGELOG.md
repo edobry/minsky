@@ -6,11 +6,18 @@
 
 ### Added
 
-- Added workspace verification and command usage best practices to be incorporated into session-first-workflow rule:
+- Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
 
-  - Workspace verification: Use terminal CWD info, git status, and directory structure checks to confirm correct workspace
-  - Command verification: Check command availability and options with --help before attempting to use unfamiliar commands
-  - Error handling: Address linter errors in files, attempt to fix straightforward errors, and document complex ones
+  - Modified resolveWorkspacePath function to use the current directory instead of main workspace when in a session
+  - Updated tests to validate the new behavior
+  - This allows the rules CLI (list, get, create, update, etc.) to properly operate on rules in session workspaces
+
+- Added workspace verification best practices as part of Task #078:
+
+  - **Workspace Verification Protocol**: Always verify current directory with pwd/ls, confirm branch with git status, and check directory structure
+  - **Command Verification Protocol**: Check command availability with --help, verify syntax, handle errors properly
+  - **Error Handling Protocol**: Address all linter errors, fix straightforward ones, document complex issues
+  - These practices help prevent accidental changes to main workspace and reduce errors from incorrect command usage
 
 - Task #082 to add context management commands for environment-agnostic AI collaboration, enabling context portability between different AI agents, analyzing and optimizing prompt context, simulating rule loading, and providing model awareness
 

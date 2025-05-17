@@ -139,21 +139,19 @@ export async function getSessionFromRepo(
 }
 
 /**
- * Resolve the main workspace path for task operations
- * This ensures task operations are performed in the main workspace
- * even when executed from a session repository
+ * Resolve the workspace path for task operations
+ * Modified to use the current working directory when in a session repository
+ * This ensures operations use the local rules directory in session workspaces
  *
  * Resolution strategy:
  * 1. Use explicitly provided workspace path if available
- * 2. If in a session repo, use the main workspace path
- * 3. Use current directory as workspace
+ * 2. Use current directory as workspace
  */
 export async function resolveWorkspacePath(
   options?: WorkspaceResolutionOptions,
   deps: TestDependencies = {}
 ): Promise<string> {
-  const { access = fs.access, getSessionFromRepo: getSessionFromRepoFn = getSessionFromRepo } =
-    deps;
+  const { access = fs.access } = deps;
 
   // If workspace path is explicitly provided, use it
   if (options?.workspace) {
@@ -169,20 +167,11 @@ export async function resolveWorkspacePath(
     }
   }
 
-  // Check if current or provided path is a session repository
+  // Use current directory or provided path as workspace
   const checkPath = options?.sessionRepo || process.cwd();
-  const sessionInfo = await getSessionFromRepoFn(checkPath);
 
-  if (sessionInfo) {
-    // Strip file:// protocol if present
-    let mainWorkspace = sessionInfo.mainWorkspace;
-    if (mainWorkspace.startsWith("file://")) {
-      mainWorkspace = mainWorkspace.replace(/^file:\/\//, "");
-    }
-    return mainWorkspace;
-  }
-
-  // If not in a session repo, use current directory
+  // Note: We're no longer redirecting to the main workspace path when in a session
+  // This allows rules commands to operate on the current directory's rules
   return checkPath;
 }
 
@@ -232,9 +221,9 @@ export async function getCurrentSessionContext(
   try {
     const sessionRecord = await db.getSession(currentSessionName);
     if (!sessionRecord) {
-      log.warn("Session record not found in database", { 
+      log.warn("Session record not found in database", {
         sessionName: currentSessionName,
-        cwd
+        cwd,
       });
       return null;
     }
@@ -243,11 +232,11 @@ export async function getCurrentSessionContext(
       taskId: sessionRecord.taskId,
     };
   } catch (error) {
-    log.error("Error fetching session record", { 
-      sessionName: currentSessionName, 
+    log.error("Error fetching session record", {
+      sessionName: currentSessionName,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
-      cwd 
+      cwd,
     });
     return null;
   }
