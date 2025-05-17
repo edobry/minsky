@@ -2,6 +2,8 @@ import { SessionDB } from "./session";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { basename } from "path";
+import { execAsync } from "../utils/exec.js";
+import { getCurrentWorkingDirectory } from "../utils/process.js";
 const execAsync = promisify(exec);
 
 export interface RepoResolutionOptions {
@@ -54,6 +56,6 @@ export async function resolveRepoPath(options: RepoResolutionOptions): Promise<s
     return stdout.trim();
   } catch (error) {
     // If git command fails, fall back to process.cwd()
-    return process.cwd();
+    return getCurrentWorkingDirectory();
   }
 }
