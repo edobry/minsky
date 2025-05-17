@@ -33,7 +33,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
-- [+] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
+- [x] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
 - [x] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
