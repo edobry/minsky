@@ -9,6 +9,7 @@ import type {
   SessionDirParams,
   SessionDeleteParams,
   SessionUpdateParams,
+  SessionApproveParams,
 } from "../../schemas/session.js";
 import { MinskyError } from "../../errors/index.js";
 import {
@@ -18,6 +19,7 @@ import {
   getSessionDirFromParams,
   deleteSessionFromParams,
   updateSessionFromParams,
+  approveSessionFromParams,
 } from "../../domain/index.js";
 
 interface GetCurrentSessionConfig {
@@ -275,6 +277,55 @@ export function createUpdateCommand(): Command {
 }
 
 /**
+ * Creates the session approve command
+ */
+export function createApproveCommand(): Command {
+  return new Command("approve")
+    .description("Approve a session's PR and merge it into the main branch")
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--repo <path>", "Repository path")
+    .option("--json", "Output as JSON")
+    .action(async (name?: string, options?: { task?: string; repo?: string; json?: boolean }) => {
+      try {
+        // Convert CLI options to domain parameters
+        const params: SessionApproveParams = {
+          session: name,
+          task: options?.task,
+          repo: options?.repo,
+          json: options?.json,
+        };
+
+        // Call the domain function
+        const result = await approveSessionFromParams(params);
+
+        // Output result
+        if (options?.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`Session '${result.session}' PR was successfully approved and merged.`);
+          console.log(`Merge commit: ${result.commitHash}`);
+          console.log(`Merged by: ${result.mergedBy}`);
+          console.log(`Merged on: ${result.mergeDate}`);
+          console.log(`Base branch: ${result.baseBranch}`);
+          console.log(`PR branch: ${result.prBranch}`);
+          if (result.taskId) {
+            console.log(`Task ID: ${result.taskId} (status set to DONE)`);
+          }
+        }
+      } catch (error) {
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+          process.exit(1);
+        } else {
+          console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+          process.exit(1);
+        }
+      }
+    });
+}
+
+/**
  * Creates the main session command with all subcommands
  * Accepts an optional getCurrentSession function for testing
  */
@@ -287,6 +338,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createDirCommand());
   sessionCommand.addCommand(createDeleteCommand());
   sessionCommand.addCommand(createUpdateCommand());
+  sessionCommand.addCommand(createApproveCommand());
 
   return sessionCommand;
 }
