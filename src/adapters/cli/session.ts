@@ -20,6 +20,7 @@ import {
   deleteSessionFromParams,
   updateSessionFromParams,
   approveSessionFromParams,
+  preparePrFromParams,
 } from "../../domain/index.js";
 
 interface GetCurrentSessionConfig {
@@ -168,10 +169,32 @@ export function createStartCommand(): Command {
 export function createDirCommand(): Command {
   return new Command("dir")
     .description("Get the session directory")
-    .argument("[name]", "Session name")
+    .argument("[name]", "Session name (auto-detected if in a session workspace)")
     .option("--task <taskId>", "Task ID to match")
     .action(async (name?: string, options?: { task?: string }) => {
       try {
+        // Auto-detect session if not provided
+        let autoDetectedSession = false;
+        if (!name && !options?.task) {
+          try {
+            // Import getCurrentSessionContext to auto-detect session
+            const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+            const sessionContext = await getCurrentSessionContext(process.cwd());
+
+            if (sessionContext?.sessionId) {
+              name = sessionContext.sessionId;
+              autoDetectedSession = true;
+              console.log(`Auto-detected session: ${name}`);
+            }
+          } catch (error) {
+            // Just log the error but continue - the domain function will handle missing session
+            console.error(
+              "Error auto-detecting session",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        }
+
         // Convert CLI options to domain parameters
         const params: SessionDirParams = {
           name,
@@ -238,10 +261,34 @@ export function createDeleteCommand(): Command {
 export function createUpdateCommand(): Command {
   return new Command("update")
     .description("Update session with latest changes from main branch")
-    .argument("[name]", "Session name")
+    .argument("[name]", "Session name (auto-detected if in a session workspace)")
     .option("--json", "Output as JSON")
     .action(async (name?: string, options?: { json?: boolean }) => {
       try {
+        // Auto-detect session if not provided
+        let autoDetectedSession = false;
+        if (!name) {
+          try {
+            // Import getCurrentSessionContext to auto-detect session
+            const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+            const sessionContext = await getCurrentSessionContext(process.cwd());
+
+            if (sessionContext?.sessionId) {
+              name = sessionContext.sessionId;
+              autoDetectedSession = true;
+              if (!options?.json) {
+                console.log(`Auto-detected session: ${name}`);
+              }
+            }
+          } catch (error) {
+            // Just log the error but continue - the domain function will handle missing session
+            console.error(
+              "Error auto-detecting session",
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        }
+
         // Convert CLI options to domain parameters
         const params: SessionUpdateParams = {
           name: name || "", // Provide default empty string
@@ -318,7 +365,9 @@ export function createApproveCommand(): Command {
           console.error(`Error: ${error.message}`);
           process.exit(1);
         } else {
-          console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+          console.error(
+            `Unexpected error: ${error instanceof Error ? error.message : String(error)}`
+          );
           process.exit(1);
         }
       }

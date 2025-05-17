@@ -104,12 +104,13 @@ export interface GitResult {
 }
 
 export interface PreparePrOptions {
-  session: string;
+  session?: string;
   repoPath?: string;
   baseBranch?: string;
   title?: string;
   body?: string;
   debug?: boolean;
+  branchName?: string;
 }
 
 export interface PreparePrResult {
@@ -1115,24 +1116,39 @@ export class GitService {
 
   async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
     let workdir: string;
-
-    // Session is now required - enforce the session workflow
-    if (!options.session) {
-      throw new MinskyError("Session is required for preparing PR branches");
-    }
-
-    // Get session information
-    const record = await this.sessionDb.getSession(options.session);
-    if (!record) {
-      throw new MinskyError(`Session '${options.session}' not found`);
-    }
-
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    workdir = this.getSessionWorkdir(repoName, options.session);
-
-    // Always use the session name as the PR branch
-    const prBranch = options.session;
+    let sourceBranch: string;
     const baseBranch = options.baseBranch || "main";
+
+    // Determine working directory and current branch
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
+      if (!record) {
+        throw new MinskyError(`Session '${options.session}' not found`);
+      }
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(repoName, options.session);
+      sourceBranch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = branchOut.trim();
+    } else {
+      // Try to infer from current directory
+      workdir = process.cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = branchOut.trim();
+    }
+
+    // Create PR branch name with pr/ prefix
+    const prBranchName =
+      options.branchName || (options.title ? this.titleToBranchName(options.title) : sourceBranch);
+    const prBranch = `pr/${prBranchName}`;
 
     // Verify base branch exists
     try {
@@ -1144,17 +1160,20 @@ export class GitService {
     // Make sure we have the latest from the base branch
     await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
 
-    // Make sure we're on the session branch
+    // Create and checkout the PR branch from the current branch
     try {
-      const { stdout: currentBranch } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      if (currentBranch.trim() !== prBranch) {
+      // Check if PR branch already exists locally
+      try {
+        await execAsync(`git -C ${workdir} rev-parse --verify ${prBranch}`);
+        // If it exists, just check it out
         await execAsync(`git -C ${workdir} checkout ${prBranch}`);
+      } catch {
+        // If it doesn't exist, create it from the current branch
+        await execAsync(`git -C ${workdir} checkout -b ${prBranch}`);
       }
     } catch (err) {
       throw new MinskyError(
-        `Failed to checkout session branch: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create/checkout PR branch: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 
@@ -1165,7 +1184,7 @@ export class GitService {
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
     if (statusOutput.trim()) {
       // Commit any staged changes if there are any
-      const commitMsg = options.title || `Prepare PR branch for session ${prBranch}`;
+      const commitMsg = options.title || `Prepare PR branch ${prBranch}`;
       await this.commit(commitMsg, workdir);
     }
 
@@ -1181,6 +1200,19 @@ export class GitService {
       title: options.title,
       body: options.body,
     };
+  }
+
+  /**
+   * Convert a PR title to a branch name
+   * e.g. "feat: add new feature" -> "feat-add-new-feature"
+   */
+  private titleToBranchName(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
+      .replace(/[^\w-]/g, "") // Remove any non-word characters except dashes
+      .replace(/--+/g, "-") // Replace multiple dashes with single dash
+      .replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
@@ -1317,11 +1349,12 @@ export async function commitChangesFromParams(params: {
  * Interface-agnostic function to prepare a PR branch
  */
 export async function preparePrFromParams(params: {
-  session: string; // Make session required
+  session?: string;
   repo?: string;
   baseBranch?: string;
   title?: string;
   body?: string;
+  branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
   try {
@@ -1332,6 +1365,7 @@ export async function preparePrFromParams(params: {
       baseBranch: params.baseBranch,
       title: params.title,
       body: params.body,
+      branchName: params.branchName,
       debug: params.debug,
     });
     return result;

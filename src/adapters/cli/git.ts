@@ -171,7 +171,7 @@ export function createSummaryCommand(): Command {
  */
 export function createPreparePrCommand(): Command {
   return new Command("prepare-pr")
-    .description("Prepare a PR branch with a merge commit for a session")
+    .description("Prepare a PR branch with a merge commit")
     .option("--repo <path>", "Path to the git repository")
     .option("--base <branch>", "Base branch for PR (defaults to main)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
@@ -190,46 +190,13 @@ export function createPreparePrCommand(): Command {
         json?: boolean;
       }) => {
         try {
-          // Auto-detect session if not provided
-          let autoDetectedSession = false;
-          if (!options.session) {
-            try {
-              // Import getCurrentSessionContext to auto-detect session
-              const { getCurrentSessionContext } = await import("../../domain/workspace.js");
-              const sessionContext = await getCurrentSessionContext(process.cwd());
-
-              if (sessionContext) {
-                options.session = sessionContext.sessionId;
-                autoDetectedSession = true;
-                if (!options.json) {
-                  log.cli(`Auto-detected session: ${options.session}`);
-                }
-              } else {
-                throw new MinskyError(
-                  "No session specified and not in a session workspace. Use --session to specify a session."
-                );
-              }
-            } catch (error) {
-              if (error instanceof MinskyError) {
-                throw error;
-              }
-              // Just log the error and throw a more descriptive error
-              log.debug("Error auto-detecting session", {
-                error: error instanceof Error ? error.message : String(error),
-              });
-              throw new MinskyError(
-                "Failed to auto-detect session. Please use --session to specify a session."
-              );
-            }
-          }
-
           const params = {
-            session: options.session,
             repo: options.repo,
             baseBranch: options.base,
             title: options.title,
             body: options.body,
             debug: options.debug ?? false,
+            session: options.session,
           };
 
           log.debug("Preparing PR branch with params", { params });

@@ -35,6 +35,12 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added task context detection and automatic session selection for context-aware commands.
 - Improved error handling with detailed error messages and appropriate exit codes.
 
+- Enhanced PR workflow:
+  - Modified `git prepare-pr` command to create branches with `pr/` prefix
+  - Added new `session pr` command that specifically creates PR branches for sessions
+  - Improved branch naming with automatic conversion from titles to valid branch names
+  - Added session auto-detection for PR commands when run from session workspaces
+
 ### Changed
 
 - Renamed `git pr` command to `git summary` for clearer separation of concerns
@@ -81,14 +87,12 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 
 ### Fixed
 
-- Fixed `git prepare-pr` command to properly work with session branches
+- Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
 
-  - Made session parameter required for the domain function
-  - Added session auto-detection like other commands
-  - Ensured the correct session branch is always used
-  - Provided clear error messages when not in a session workspace
+  - Added preparePr method to GitService class that handles PR branch preparation
+  - Added interface-agnostic implementation to support CLI adapter
+  - Fixed error when running the command in session workspaces
 
-- Fixed `git merge-pr` command by implementing the missing `mergePrFromParams` function in the domain layer
 - Fixed session repository path resolution to handle both legacy and new directory structures.
 - Fixed task detection in workspace utilities to handle task IDs with or without the # prefix.
 - Fixed issues in the workspace detection logic to properly identify session repositories.
