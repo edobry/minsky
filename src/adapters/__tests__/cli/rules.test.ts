@@ -7,6 +7,9 @@ import { createMock, mockModule, setupTestMocks } from "../../../utils/test-util
 // Set up automatic mock cleanup
 setupTestMocks();
 
+// Define a type for mock call arguments to help with type checking
+type MockCallArgs = unknown[];
+
 // Mock dependencies
 const mockResolveWorkspacePath = createMock(() => Promise.resolve("/mock/workspace"));
 const mockRuleService = {
@@ -80,13 +83,9 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Verify that createRule was called with the file content
+      // Verify that createRule was called correctly using toHaveBeenCalledWith
       expect(mockRuleService.createRule).toHaveBeenCalledWith("test-rule", "# Test Rule Content\n\nThis is test content.", {}, {});
       
-      const createRuleArgs = mockRuleService.createRule.mock.calls[0];
-      expect(createRuleArgs[0]).toBe("test-rule");
-      expect(createRuleArgs[1]).toBe("# Test Rule Content\n\nThis is test content.");
-
       // Restore console.log
       console.log = originalConsoleLog;
     });
@@ -105,9 +104,15 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Check the actual arguments that were passed
-      const createRuleArgs = mockRuleService.createRule.mock.calls[0];
-      expect(createRuleArgs[2].globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      // Check that we have at least one call
+      const calls = mockRuleService.createRule.mock.calls as MockCallArgs[];
+      expect(calls.length).toBeGreaterThan(0);
+      
+      // If we have calls, check the arguments (with type safe access)
+      if (calls.length > 0) {
+        const thirdArg = calls[0][2] as { globs?: string[] };
+        expect(thirdArg?.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      }
       
       // Restore console.log
       console.log = originalConsoleLog;
@@ -127,9 +132,15 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Check the actual arguments that were passed
-      const createRuleArgs = mockRuleService.createRule.mock.calls[0];
-      expect(createRuleArgs[2].globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      // Check that we have at least one call
+      const calls = mockRuleService.createRule.mock.calls as MockCallArgs[];
+      expect(calls.length).toBeGreaterThan(0);
+      
+      // If we have calls, check the arguments (with type safe access)
+      if (calls.length > 0) {
+        const thirdArg = calls[0][2] as { globs?: string[] };
+        expect(thirdArg?.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      }
       
       // Restore console.log
       console.log = originalConsoleLog;
@@ -151,10 +162,16 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Check the actual arguments that were passed
-      const updateRuleArgs = mockRuleService.updateRule.mock.calls[0];
-      expect(updateRuleArgs[0]).toBe("test-rule");
-      expect(updateRuleArgs[1].content).toBe("# Test Rule Content\n\nThis is test content.");
+      // Check that we have at least one call
+      const calls = mockRuleService.updateRule.mock.calls as MockCallArgs[];
+      expect(calls.length).toBeGreaterThan(0);
+      
+      // If we have calls, check the arguments (with type safe access)
+      if (calls.length > 0) {
+        expect(calls[0][0]).toBe("test-rule");
+        const secondArg = calls[0][1] as { content?: string };
+        expect(secondArg?.content).toBe("# Test Rule Content\n\nThis is test content.");
+      }
       
       // Restore console.log
       console.log = originalConsoleLog;
@@ -174,9 +191,15 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Check the actual arguments that were passed
-      const updateRuleArgs = mockRuleService.updateRule.mock.calls[0];
-      expect(updateRuleArgs[1].meta.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      // Check that we have at least one call
+      const calls = mockRuleService.updateRule.mock.calls as MockCallArgs[];
+      expect(calls.length).toBeGreaterThan(0);
+      
+      // If we have calls, check the arguments (with type safe access)
+      if (calls.length > 0) {
+        const secondArg = calls[0][1] as { meta?: { globs?: string[] } };
+        expect(secondArg?.meta?.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      }
       
       // Restore console.log
       console.log = originalConsoleLog;
@@ -196,9 +219,15 @@ describe("Rules CLI Commands", () => {
       // Parse the arguments
       await program.parseAsync(["node", "test", ...args]);
 
-      // Check the actual arguments that were passed
-      const updateRuleArgs = mockRuleService.updateRule.mock.calls[0];
-      expect(updateRuleArgs[1].meta.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      // Check that we have at least one call
+      const calls = mockRuleService.updateRule.mock.calls as MockCallArgs[];
+      expect(calls.length).toBeGreaterThan(0);
+      
+      // If we have calls, check the arguments (with type safe access)
+      if (calls.length > 0) {
+        const secondArg = calls[0][1] as { meta?: { globs?: string[] } };
+        expect(secondArg?.meta?.globs).toEqual(["**/*.ts", "**/*.tsx"]);
+      }
       
       // Restore console.log
       console.log = originalConsoleLog;
