@@ -6,6 +6,15 @@
 
 ### Added
 
+- Task #025: Added git approve command for session PR merging
+  - Added `git approve` command to merge PR branches into the base branch
+  - Implemented task metadata storage with merge commit information
+  - Added clean exit codes for error conditions (dirty work tree, merge conflicts, etc.)
+  - Enhanced GitService with PR branch management functionality
+  - Integrated with task metadata to record merge information
+
+_See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025-05-18_git-approve-command.md) for git approve command implementation._
+
 - Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
 
   - Modified resolveWorkspacePath function to use the current directory instead of main workspace when in a session
