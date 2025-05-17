@@ -6,7 +6,7 @@ export * from "./repo-utils";
 export * from "./workspace";
 export * from "./init";
 
-export { createPullRequestFromParams, preparePrFromParams } from "./git.js";
+export { createPullRequestFromParams, preparePrFromParams, mergePrFromParams } from "./git.js";
 
 export {
   listSessionsFromParams,
