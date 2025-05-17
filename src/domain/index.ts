@@ -7,9 +7,7 @@ export * from "./workspace";
 export * from "./init";
 
 export {
-  createPullRequestSummaryFromParams,
-  preparePrFromParams,
-  mergePrFromParams,
+  createPullRequestFromParams,
 } from "./git.js";
 
 export {
