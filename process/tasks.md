@@ -122,3 +122,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [#083](process/tasks/083-fix-bugs-in-minsky-rules-cli-command.md)
+
+- [ ] Extend Auto-Detection to Additional Commands [#084](process/tasks/084-extend-auto-detection-to-additional-commands.md)
