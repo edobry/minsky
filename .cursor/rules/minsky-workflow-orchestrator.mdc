@@ -1,10 +1,124 @@
 ---
-name: Minsky Workflow Orchestrator
 description: REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging
 globs:
-  - "**/*"
-alwaysApply: true
+alwaysApply: false
 ---
+|--------------|--------------|--------------|
+| **Initial Setup** | minsky-cli-usage | When using ANY Minsky CLI command |
+| **Session Management** | minsky-session-management | When creating, navigating, or managing sessions |
+| **Implementation** | task-implementation-workflow | When implementing task requirements |
+| **Status Updates** | task-status-protocol | When checking or updating task status |
+| **PR Preparation** | pr-preparation-workflow | When preparing and submitting PRs |
+| **File Operations** | session-first-workflow | When working with files in a session workspace |
+
+## Workflow Sequence
+
+1. **Task Selection and Status Verification**
+   - First: Check available tasks with `minsky tasks list`
+   - Then: Verify task status with `minsky tasks status get '#<id>'`
+   - Apply: minsky-cli-usage and task-status-protocol
+
+2. **Session Creation and Navigation**
+   - First: Create or re-enter a session for the task
+   - Then: Navigate to the session directory
+   - Apply: minsky-session-management
+
+3. **Task Implementation**
+   - First: Understand task requirements
+   - Then: Implement the solution in the session workspace
+   - Apply: task-implementation-workflow and session-first-workflow
+
+4. **Testing and Verification**
+   - First: Write and run tests for the implementation
+   - Then: Verify that all requirements are met
+   - Apply: task-implementation-workflow and tests
+
+5. **PR Preparation and Submission**
+   - First: Generate PR description
+   - Then: Finalize changes and update task status
+   - Apply: pr-preparation-workflow
+
+6. **PR Approval and Merging**
+   - First: Review PR content thoroughly
+   - Then: Use `minsky git approve` to merge the PR branch
+   - Apply: pr-preparation-workflow
+
+7. **Task Completion**
+   - First: Update task status to DONE after PR is merged
+   - Then: Clean up the session if needed
+   - Apply: task-status-protocol and minsky-session-management
+
+## Error Recovery Checkpoints
+
+| Error Scenario | Rule to Apply | Recovery Action |
+|----------------|---------------|-----------------|
+| **Wrong CLI Command** | minsky-cli-usage | Check command reference and retry |
+| **Path Resolution Issue** | session-first-workflow | Use absolute paths in session workspace |
+| **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
+| **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
+| **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+| **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
+
+## Common Workflow Questions
+
+### Task-Related Questions
+
+- **"What tasks are available?"**
+  → Apply minsky-cli-usage and use `minsky tasks list`
+
+- **"How do I start working on a task?"**
+  → Apply minsky-session-management to create a session
+
+- **"How do I check task status?"**
+  → Apply task-status-protocol and use `minsky tasks status get`
+
+### Session-Related Questions
+
+- **"How do I create a session?"**
+  → Apply minsky-session-management and use `minsky session start`
+
+- **"How do I get back to my session?"**
+  → Apply minsky-session-management and use `minsky session dir`
+
+- **"Why aren't my changes showing up?"**
+  → Apply session-first-workflow to verify you're in the correct workspace
+
+### Implementation Questions
+
+- **"How do I implement a task?"**
+  → Apply task-implementation-workflow for step-by-step guidance
+
+- **"How do I verify my implementation?"**
+  → Apply task-implementation-workflow and tests
+
+- **"How do I create a PR?"**
+  → Apply pr-preparation-workflow for PR creation steps
+
+- **"How do I approve and merge a PR?"**
+  → Apply pr-preparation-workflow and use `minsky git approve` to merge the PR
+
+## Rule Integration Table
+
+| Rule | Primary Purpose | Integrates With |
+|------|-----------------|----------------|
+| minsky-cli-usage | CLI command usage | All workflow rules |
+| minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
+| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
+| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
+| pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
+| session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
+
+## See Also
+- See minsky-cli-usage for CLI command reference
+- See minsky-session-management for session management
+- See task-implementation-workflow for implementing tasks
+- See task-status-protocol for status update procedures
+- See pr-preparation-workflow for PR creation and submission
+- See session-first-workflow for file operations in sessions
+- See task-status-verification for detailed status verification
+- See pr-description-guidelines for PR content guidelines
+- See tests for testing requirements
+
 # Minsky Workflow System
 
 This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
@@ -27,7 +141,6 @@ The following rules form the complete Minsky workflow system:
 - Session creation, navigation, and management
 - Task implementation and verification
 - PR preparation and submission
-- PR approval and merging with the new `git approve` command
 
 ## When to Apply These Rules
 

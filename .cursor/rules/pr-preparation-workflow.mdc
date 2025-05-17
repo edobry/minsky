@@ -81,44 +81,6 @@ minsky tasks status set <task-id> IN-REVIEW
 
 This can happen automatically when using `minsky git pr` unless the `--no-status-update` flag is used.
 
-## PR Approval and Merging
-
-### 1. PR Review
-
-Before approving a PR:
-
-1. **Review the code changes**: Ensure the code implements all task requirements
-2. **Verify tests are passing**: Check that all tests pass successfully
-3. **Review PR description**: Ensure the PR description accurately describes the changes
-
-### 2. Approve and Merge PR
-
-Use the `minsky git approve` command to approve and merge the PR:
-
-```bash
-minsky git approve <branch-name>
-```
-
-or if you're already in a session:
-
-```bash
-minsky git approve
-```
-
-This command will:
-1. Verify the code meets requirements
-2. Merge the branch into main
-3. Update the task status to DONE
-4. Clean up the merged branch
-
-### 3. Verify Merge Success
-
-After running the `git approve` command:
-
-1. **Verify the merge was successful**: Check that the branch was merged into main
-2. **Verify task status is updated**: Ensure the task status is set to DONE
-3. **Verify all related issues are closed**: Check any related issues are properly closed
-
 ## PR Description Format
 
 Follow this format for PR descriptions:
@@ -178,14 +140,6 @@ Use these types for the PR title:
 4. **Document trade-offs**: Explain any trade-offs or alternative approaches considered
 5. **Include testing information**: Describe how the changes were tested and verified
 
-## PR Approval Best Practices
-
-1. **Thorough code review**: Review all code changes carefully
-2. **Verify test coverage**: Ensure adequate test coverage for the changes
-3. **Validate against requirements**: Verify the implementation meets all task requirements
-4. **Check documentation**: Confirm documentation and changelog updates are complete
-5. **Use the git approve command**: Always use `minsky git approve` to merge PRs
-
 ## Integration with Other Rules
 
 - For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
@@ -193,3 +147,4 @@ Use these types for the PR title:
 - For session creation and management, see [minsky-session-management](mdc:.cursor/rules/minsky-session-management.mdc)
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 - For detailed PR description guidelines, see [pr-description-guidelines](mdc:.cursor/rules/pr-description-guidelines.mdc)
+
