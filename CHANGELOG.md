@@ -6,7 +6,7 @@
 
 ### Added
 
-- Task #082 to add context management commands for analyzing and optimizing prompt context usage, simulating rule loading, and providing model awareness
+- Task #082 to add context management commands for environment-agnostic AI collaboration, enabling context portability between different AI agents, analyzing and optimizing prompt context, simulating rule loading, and providing model awareness
 
 _See: SpecStory history [2025-05-16_context-management-commands](.specstory/history/2025-05-16_context-management-commands.md) for context management commands._
 
