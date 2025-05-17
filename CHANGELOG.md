@@ -102,12 +102,14 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 
 ### Fixed
 
-- Task #083: Fixed bugs in Minsky rules CLI command
+- Task #XXX: Fixed bugs in Minsky rules CLI command
   - Fixed content file loading in `--content` parameter to properly read file contents instead of using the file path as content
-  - Improved globs format handling to accept both comma-separated strings and YAML/JSON array formats
-  - Added validation for glob formats with clear error messages
-  - Added tests for file content loading and different glob format inputs
-  - Improved help text for rules command parameters
+  - Improved globs format handling to accept both comma-separated strings and JSON array formats
+  - Implemented helper functions to handle file content and glob parsing
+  - Added comprehensive tests for helper functions and CLI integration
+  - Added proper error handling for file reading operations
+
+_See: SpecStory history [fix-rules-name-parameter](mdc:.specstory/history/fix-rules-name-parameter.md) for rules CLI command bugfixes._
   
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
