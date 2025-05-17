@@ -270,7 +270,7 @@ export class GitService {
     };
   }
 
-  async summary(options: PrOptions): Promise<PrResult> {
+  async pr(options: PrOptions): Promise<PrResult> {
     await this.ensureBaseDir();
 
     const deps: PrDependencies = {
@@ -1059,34 +1059,13 @@ export class GitService {
     log.debug("No task ID could be determined");
     return undefined;
   }
-
-  /**
-   * Execute a command in a repository directory
-   * @param workdir The repository working directory
-   * @param command The command to execute
-   * @returns The stdout of the command
-   */
-  public async execInRepository(workdir: string, command: string): Promise<string> {
-    try {
-      const { stdout } = await execAsync(command, { cwd: workdir });
-      return stdout;
-    } catch (error) {
-      log.error("Command execution failed", {
-        error: error instanceof Error ? error.message : String(error),
-        command,
-        workdir,
-      });
-      throw new MinskyError(
-        `Failed to execute command in repository: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
 }
 
 /**
- * Interface-agnostic function to create a pull request summary
+ * Interface-agnostic function to create a pull request
+ * This implements the interface agnostic command architecture pattern
  */
-export async function createPullRequestSummaryFromParams(params: {
+export async function createPullRequestFromParams(params: {
   session?: string;
   repo?: string;
   branch?: string;
@@ -1096,7 +1075,7 @@ export async function createPullRequestSummaryFromParams(params: {
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
   try {
     const git = new GitService();
-    const result = await git.summary({
+    const result = await git.pr({
       session: params.session,
       repoPath: params.repo,
       branch: params.branch,
@@ -1106,7 +1085,7 @@ export async function createPullRequestSummaryFromParams(params: {
     });
     return result;
   } catch (error) {
-    log.error("Error creating pull request summary", {
+    log.error("Error creating pull request", {
       session: params.session,
       repo: params.repo,
       branch: params.branch,

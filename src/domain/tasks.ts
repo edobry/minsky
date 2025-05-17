@@ -34,11 +34,6 @@ export interface Task {
   status: string;
   specPath?: string; // Path to the task specification document
   worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
-  mergeInfo?: {
-    commitHash: string;
-    mergeDate: string;
-    mergedBy?: string;
-  }; // Information about the merge commit
 }
 
 export interface TaskBackend {
@@ -49,7 +44,6 @@ export interface TaskBackend {
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  setTaskMetadata(id: string, metadata: Partial<Task['mergeInfo']>): Promise<void>;
 }
 
 export interface TaskListOptions {
@@ -165,85 +159,6 @@ export class MarkdownTaskBackend implements TaskBackend {
       return line;
     });
     await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
-  }
-
-  async setTaskMetadata(id: string, metadata: Partial<Task['mergeInfo']>): Promise<void> {
-    // First verify the task exists with our enhanced getTask method
-    const task = await this.getTask(id);
-    if (!task) {
-      // Return silently if task doesn't exist
-      return;
-    }
-
-    // Get the task specification file path
-    const { specPath } = task;
-    if (!specPath) {
-      log.warn(`Task ${id} has no spec path, cannot update metadata`);
-      return;
-    }
-
-    const fullSpecPath = join(this.workspacePath, specPath);
-    
-    try {
-      // Read the spec file content
-      let content = await fs.readFile(fullSpecPath, "utf-8");
-      
-      // Check if frontmatter exists already
-      const frontmatterRegex = /^---\n([\s\S]*?)\n---\n/;
-      const frontmatterMatch = content.match(frontmatterRegex);
-      
-      let newFrontmatter = '';
-      
-      if (frontmatterMatch && frontmatterMatch[1]) {
-        // Parse existing frontmatter
-        const existingFrontmatter = frontmatterMatch[1];
-        const mergeInfoRegex = /merge_info:[\s\S]*?(?=\n\w|$)/;
-        
-        if (existingFrontmatter.match(mergeInfoRegex)) {
-          // Update existing merge_info
-          newFrontmatter = existingFrontmatter.replace(mergeInfoRegex, this.formatMergeInfo(metadata));
-        } else {
-          // Add merge_info to existing frontmatter
-          newFrontmatter = `${existingFrontmatter}\n${this.formatMergeInfo(metadata)}`;
-        }
-        
-        // Replace the frontmatter
-        content = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---\n`);
-      } else {
-        // No existing frontmatter, add it
-        const formattedMergeInfo = this.formatMergeInfo(metadata);
-        content = `---\n${formattedMergeInfo}\n---\n\n${content}`;
-      }
-      
-      // Write the updated content
-      await fs.writeFile(fullSpecPath, content, "utf-8");
-      
-      log.debug(`Updated metadata for task ${id}`, { metadata });
-    } catch (error: unknown) {
-      log.error(`Failed to update metadata for task ${id}`, { 
-        error: error instanceof Error ? error.message : String(error), 
-        specPath: fullSpecPath 
-      });
-      throw new Error(`Failed to update task metadata: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  
-  private formatMergeInfo(metadata: Partial<Task['mergeInfo']>): string {
-    let result = 'merge_info:';
-    
-    if (metadata.commitHash) {
-      result += `\n  commit_hash: ${metadata.commitHash}`;
-    }
-    
-    if (metadata.mergeDate) {
-      result += `\n  merge_date: ${metadata.mergeDate}`;
-    }
-    
-    if (metadata.mergedBy) {
-      result += `\n  merged_by: ${metadata.mergedBy}`;
-    }
-    
-    return result;
   }
 
   private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
@@ -505,10 +420,6 @@ export class GitHubTaskBackend implements TaskBackend {
     log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, status });
   }
 
-  async setTaskMetadata(id: string, metadata: Partial<Task['mergeInfo']>): Promise<void> {
-    log.debug("GitHub task backend not fully implemented", { method: "setTaskMetadata", id, metadata });
-  }
-
   getWorkspacePath(): string {
     return this.workspacePath;
   }
@@ -558,10 +469,6 @@ export class TaskService {
 
   async setTaskStatus(id: string, status: string): Promise<void> {
     return this.currentBackend.setTaskStatus(id, status);
-  }
-
-  async setTaskMetadata(id: string, metadata: Partial<Task['mergeInfo']>): Promise<void> {
-    return this.currentBackend.setTaskMetadata(id, metadata);
   }
 
   getWorkspacePath(): string {

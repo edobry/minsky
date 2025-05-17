@@ -8,10 +8,8 @@ import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
 import { 
-  createPullRequestSummaryFromParams, 
+  createPullRequestFromParams, 
   commitChangesFromParams,
-  preparePrFromParams,
-  mergePrFromParams
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
@@ -47,7 +45,7 @@ export function createSummaryCommand(): Command {
 
           log.debug("Creating PR summary with params", { params });
 
-          const result = await createPullRequestSummaryFromParams(params);
+          const result = await createPullRequestFromParams(params);
 
           // Output result based on format
           if (options.json) {
