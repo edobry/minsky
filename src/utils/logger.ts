@@ -3,8 +3,8 @@ import winston, { format, transports } from "winston";
 import type { TransformableInfo } from "logform";
 
 // Environment variable for log level
-// Set default to "debug" during development to capture detailed logs
-const logLevel = process.env.LOG_LEVEL || "debug";
+// Set default to "info" - explicit LOG_LEVEL="debug" is required for debug logs
+const logLevel = process.env.LOG_LEVEL || "info";
 
 // Common format for agent logs (JSON)
 const agentLogFormat = format.combine(
