@@ -155,10 +155,14 @@ The logging system supports the following levels (from highest to lowest priorit
 - debug
 - silly
 
-Set the log level using the `LOG_LEVEL` environment variable:
+By default, only logs of level `info` and higher are displayed. For debug logs, you must explicitly set the `LOG_LEVEL` environment variable:
 
 ```bash
+# To see debug logs
 LOG_LEVEL=debug minsky command
+
+# To see only errors and warnings
+LOG_LEVEL=warn minsky command
 ```
 
 ## Testing Code That Uses Logging
@@ -378,7 +382,7 @@ try {
 
 The logging system can be configured with environment variables:
 
-- `LOG_LEVEL`: Sets the minimum log level to display (default: 'debug' in development, 'info' in production)
+- `LOG_LEVEL`: Sets the minimum log level to display (default: 'info')
 - `NODE_ENV`: When set to 'production', reduces verbosity
 
 ## Testing with Logs
