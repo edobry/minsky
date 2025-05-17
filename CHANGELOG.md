@@ -18,6 +18,7 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
 
 - Enhanced PR workflow with "prepared-merge" capabilities:
+
   - New `git summary` command (renamed from `git pr`) for PR description generation
   - New `git prepare-pr` command to create PR branches with merge commits
   - New `git merge-pr` command to fast-forward merge PR branches
@@ -72,6 +73,12 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/history/2025-05-17_add-git-approve-command.md) for implementation details._
 
 ### Fixed
+
+- Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
+
+  - Added preparePr method to GitService class that handles PR branch preparation
+  - Added interface-agnostic implementation to support CLI adapter
+  - Fixed error when running the command in session workspaces
 
 - Fixed session repository path resolution to handle both legacy and new directory structures.
 - Fixed task detection in workspace utilities to handle task IDs with or without the # prefix.

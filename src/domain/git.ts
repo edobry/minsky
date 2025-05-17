@@ -103,6 +103,22 @@ export interface GitResult {
   workdir: string;
 }
 
+export interface PreparePrOptions {
+  session?: string;
+  repoPath?: string;
+  baseBranch?: string;
+  title?: string;
+  body?: string;
+  debug?: boolean;
+}
+
+export interface PreparePrResult {
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+}
+
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
@@ -1081,6 +1097,72 @@ export class GitService {
       );
     }
   }
+
+  async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
+    let workdir: string;
+    let prBranch: string;
+    let baseBranch: string = options.baseBranch || "main";
+
+    // 1. Determine working directory and current branch
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
+      if (!record) {
+        throw new Error(`Session '${options.session}' not found.`);
+      }
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(repoName, options.session);
+      prBranch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      prBranch = branchOut.trim();
+    } else {
+      // Try to infer from current directory
+      workdir = process.cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      prBranch = branchOut.trim();
+    }
+
+    // 2. Verify base branch exists
+    try {
+      await execAsync(`git -C ${workdir} rev-parse --verify ${baseBranch}`);
+    } catch (err) {
+      throw new Error(`Base branch '${baseBranch}' does not exist or is not accessible.`);
+    }
+
+    // 3. Make sure we have the latest from the base branch
+    await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
+
+    // 4. Stage all changes
+    await this.stageAll(workdir);
+
+    // 5. Check if there are changes to commit
+    const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+    if (statusOutput.trim()) {
+      // Commit any staged changes if there are any
+      const commitMsg = options.title || `Prepare PR branch ${prBranch}`;
+      await this.commit(commitMsg, workdir);
+    }
+
+    // 6. Push changes to the PR branch
+    await this.push({
+      repoPath: workdir,
+      remote: "origin",
+    });
+
+    return {
+      prBranch,
+      baseBranch,
+      title: options.title,
+      body: options.body,
+    };
+  }
 }
 
 /**
@@ -1155,6 +1237,40 @@ export async function commitChangesFromParams(params: {
       message: params.message,
       all: params.all,
       amend: params.amend,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Interface-agnostic function to prepare a PR branch
+ */
+export async function preparePrFromParams(params: {
+  session?: string;
+  repo?: string;
+  baseBranch?: string;
+  title?: string;
+  body?: string;
+  debug?: boolean;
+}): Promise<PreparePrResult> {
+  try {
+    const git = new GitService();
+    const result = await git.preparePr({
+      session: params.session,
+      repoPath: params.repo,
+      baseBranch: params.baseBranch,
+      title: params.title,
+      body: params.body,
+      debug: params.debug,
+    });
+    return result;
+  } catch (error) {
+    log.error("Error preparing PR branch", {
+      session: params.session,
+      repo: params.repo,
+      baseBranch: params.baseBranch,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
