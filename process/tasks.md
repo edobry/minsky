@@ -101,7 +101,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Fix Test Failures and Remaining Linter Errors [#072](process/tasks/072-fix-test-failures-and-remaining-linter-errors.md)
 
-- [ ] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
+- [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
 - [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
@@ -109,7 +109,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Complete Interface-Agnostic Architecture Migration [#076](process/tasks/076-complete-interface-agnostic-architecture-migration.md)
 
-- [-] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
+- [x] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
 
 - [x] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
 
@@ -122,3 +122,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [#083](process/tasks/083-fix-bugs-in-minsky-rules-cli-command.md)
+
+- [ ] Extend Auto-Detection to Additional Commands [#084](process/tasks/084-extend-auto-detection-to-additional-commands.md)
+
+- [ ] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)

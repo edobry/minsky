@@ -1,4 +1,4 @@
-# Task #074: Extend Auto-Detection to Additional Commands
+# Task #084: Extend Auto-Detection to Additional Commands
 
 ## Context
 
@@ -13,21 +13,25 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 ## Requirements
 
 1. **Extend Auto-Detection to Priority Commands:**
+
    - Update the `tasks status set` command to auto-detect the current task
    - Update the `git pr` command to auto-detect the current session
    - Review and update `session update` and `session cd` commands to use the centralized utility
 
 2. **Maintain Consistency:**
+
    - Use the same `getCurrentSessionContext` utility that was implemented in Task #070
    - Provide similar feedback messages when auto-detection is used
    - Handle error cases consistently across all commands
 
 3. **User Experience:**
+
    - Make task/session IDs optional in command arguments where auto-detection is applicable
    - Preserve the ability to override auto-detection with explicit IDs
    - Provide clear user feedback about auto-detection
 
 4. **Documentation:**
+
    - Update help text for all modified commands to indicate auto-detection capability
    - Ensure consistent terminology across all commands
 
@@ -39,6 +43,7 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 ## Implementation Steps
 
 ### 1. `tasks status set` Command
+
 - [ ] Update argument parsing to make task-id optional in the "set" subcommand
 - [ ] Add auto-detection logic using `getCurrentSessionContext` when task ID is not provided
 - [ ] Add clear feedback message when auto-detection is used
@@ -46,7 +51,8 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 - [ ] Add unit tests for auto-detected task status setting
 - [ ] Update CLI integration tests to verify behavior in and outside session workspace
 
-### 2. `git pr` Command  
+### 2. `git pr` Command
+
 - [ ] Modify argument parsing to make --session and --repo optional
 - [ ] Use `getCurrentSessionContext` to auto-detect session when neither flag is provided
 - [ ] Add feedback message when auto-detection is used
@@ -55,6 +61,7 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 - [ ] Add CLI integration tests for auto-detection scenarios
 
 ### 3. `session update` and Related Commands
+
 - [ ] Review `src/commands/session/update.ts` and migrate to use `getCurrentSessionContext`
 - [ ] Review `src/commands/session/cd.ts` and ensure it's using the centralized utility
 - [ ] Ensure consistent behavior with other auto-detecting commands
@@ -63,6 +70,7 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 - [ ] Add tests specifically for auto-detection scenarios
 
 ## Implementation Strategy
+
 1. Follow the established pattern from `tasks get` and `tasks list`
 2. Use dependency injection for testability
 3. Add clear user feedback for auto-detection
@@ -80,5 +88,6 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 - [ ] All unit and integration tests pass
 
 ## Related Tasks
+
 - Task #070: Auto-Detect Current Session/Task in Minsky CLI (parent task)
-- Task #073: Fix integration test failures in adapter tests 
+- Task #073: Fix integration test failures in adapter tests

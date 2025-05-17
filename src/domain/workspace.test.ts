@@ -303,8 +303,16 @@ describe("Workspace Utils", () => {
       const mockGetCwd = createMock(() => sessionPath);
       (processUtils as any).getCurrentWorkingDirectory = mockGetCwd;
 
+<<<<<<< HEAD
       // Use centralized mock utility
       const stubSession = {
+=======
+      // Save original stubSessionDB.getSession
+      const originalGetSession = stubSessionDB.getSession;
+
+      // Override the getSession method directly
+      stubSessionDB.getSession = async () => ({
+>>>>>>> origin/main
         repoUrl: "/main/workspace",
         session: "existingSession",
         repoName: "local-repo",
@@ -321,8 +329,16 @@ describe("Workspace Utils", () => {
       expect(result).toBe(sessionPath);
       expect(mockGetCwd.mock.calls.length).toBeGreaterThan(0);
 
+<<<<<<< HEAD
       // Restore original function
       (processUtils as any).getCurrentWorkingDirectory = originalGetCwd;
+=======
+      // Restore stubSessionDB.getSession
+      stubSessionDB.getSession = originalGetSession;
+
+      // Restore process.cwd
+      process.cwd = originalCwd;
+>>>>>>> origin/main
     });
 
     test("should use current directory if not in a session repo", async () => {

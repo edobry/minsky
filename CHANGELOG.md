@@ -80,12 +80,19 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 - Fixed error handling in GitService to provide more detailed error messages.
 
 - Task #083: Fixed bugs in Minsky rules CLI command
+
   - Fixed content file loading in `--content` parameter to properly read file contents instead of using the file path as content
   - Improved globs format handling to accept both comma-separated strings and YAML/JSON array formats
   - Added validation for glob formats with clear error messages
   - Added tests for file content loading and different glob format inputs
   - Improved help text for rules command parameters
-  
+
+- Fixed test suite failures:
+
+  - Fixed `Workspace Utils > resolveWorkspacePath > should use current directory when in a session repo` test by correctly stubbing the SessionDB getSession method
+  - Fixed `resolveRepoPath > falls back to current directory if git rev-parse fails` test by ensuring proper process.cwd() expectations
+  - Fixed fs.rm compatibility issues in rules-helpers.test.ts by removing unnecessary cleanup code
+
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
