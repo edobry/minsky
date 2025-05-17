@@ -33,7 +33,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Fix Session Test Failures and Linting Issues [#022](tasks/022-fix-session-test-failures.md)
 - [x] Add task specification path to task object [#023](tasks/023-add-task-spec-path-to-task-object.md)
 - [x] Fix `session dir` command logic [#024](tasks/024-fix-session-dir-command-logic.md)
-- [ ] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
+- [+] Add `git approve` command for session PR merging [#025](tasks/025-add-git-approve-command.md)
 - [x] Fix task spec paths to use standardized format [#026](tasks/026-fix-task-spec-paths.md)
 - [x] Auto-detect Session Context in Session Commands [#027](tasks/027-autodetect-session-in-commands.md)
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
@@ -111,8 +111,12 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
 
-- [ ] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
+- [-] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
 
 - [-] Revisit GitService Testing Strategy [#079](process/tasks/079-revisit-gitservice-testing-strategy.md)
 
 - [ ] Review Workspace and Repository Path Concepts [#080](process/tasks/080-review-workspace-and-repository-path-concepts.md)
+
+- [ ] Disable Debug Logs Unless Debug Log Level is Explicitly Set [#081](process/tasks/081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
+
+- [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
