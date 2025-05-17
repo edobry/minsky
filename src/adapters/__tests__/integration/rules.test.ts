@@ -251,4 +251,116 @@ describe("Rules Domain Methods", () => {
       expect(result.name).toBe(meta.name);
     });
   });
+
+  describe("updateRule", () => {
+    test("updates rule content", async () => {
+      // Arrange
+      const ruleId = "test-rule-1";
+      const updatedContent = "# Updated Rule Content\n\nThis content has been updated";
+      const options = { content: updatedContent };
+      const ruleOptions = { format: "cursor" as const };
+      
+      const updatedRule = {
+        ...mockRules[0],
+        content: updatedContent
+      };
+      
+      mockUpdateRule.mockResolvedValue(updatedRule);
+      
+      // Act
+      const result = await mockUpdateRule(ruleId, options, ruleOptions);
+      
+      // Assert
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options, ruleOptions);
+      expect(result.content).toBe(updatedContent);
+      expect(result.id).toBe(ruleId);
+    });
+
+    test("updates rule metadata", async () => {
+      // Arrange
+      const ruleId = "test-rule-1";
+      const updatedMeta = { 
+        name: "Updated Rule Name",
+        description: "Updated rule description",
+        globs: ["**/*.tsx", "**/*.jsx"]
+      };
+      const options = { meta: updatedMeta };
+      
+      const updatedRule = {
+        ...mockRules[0],
+        ...updatedMeta
+      };
+      
+      mockUpdateRule.mockResolvedValue(updatedRule);
+      
+      // Act
+      const result = await mockUpdateRule(ruleId, options);
+      
+      // Assert
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
+      expect(result.name).toBe(updatedMeta.name);
+      expect(result.description).toBe(updatedMeta.description);
+      expect(result.globs).toEqual(updatedMeta.globs);
+    });
+
+    test("updates both content and metadata", async () => {
+      // Arrange
+      const ruleId = "test-rule-1";
+      const updatedContent = "# Updated Content and Metadata\n\nBoth content and metadata updated";
+      const updatedMeta = { 
+        name: "Fully Updated Rule",
+        tags: ["updated", "test"] 
+      };
+      const options = { 
+        content: updatedContent,
+        meta: updatedMeta
+      };
+      
+      const updatedRule = {
+        ...mockRules[0],
+        content: updatedContent,
+        ...updatedMeta
+      };
+      
+      mockUpdateRule.mockResolvedValue(updatedRule);
+      
+      // Act
+      const result = await mockUpdateRule(ruleId, options);
+      
+      // Assert
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
+      expect(result.content).toBe(updatedContent);
+      expect(result.name).toBe(updatedMeta.name);
+      expect(result.tags).toEqual(updatedMeta.tags);
+    });
+
+    test("throws error when rule not found", async () => {
+      // Arrange
+      const ruleId = "non-existent";
+      const options = { content: "Updated content" };
+      
+      const error = new Error(`Rule not found: ${ruleId}`);
+      mockUpdateRule.mockRejectedValue(error);
+      
+      // Act & Assert
+      await expect(mockUpdateRule(ruleId, options))
+        .rejects
+        .toThrow(`Rule not found: ${ruleId}`);
+    });
+
+    test("returns unchanged rule when no options provided", async () => {
+      // Arrange
+      const ruleId = "test-rule-1";
+      const options = {}; // Empty options
+      
+      mockUpdateRule.mockResolvedValue(mockRules[0]);
+      
+      // Act
+      const result = await mockUpdateRule(ruleId, options);
+      
+      // Assert
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
+      expect(result).toEqual(mockRules[0]);
+    });
+  });
 }); 

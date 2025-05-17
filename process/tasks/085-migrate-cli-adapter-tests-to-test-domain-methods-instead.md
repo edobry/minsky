@@ -36,7 +36,7 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
   - ✅ updateSessionFromParams
   - ✅ getSessionDirFromParams
 - Add tests for missing rules domain methods:
-  - updateRule
+  - ✅ updateRule
 - Consider adding tests for other domain modules:
   - Tasks domain methods (getTask, listTasks, updateTaskStatus)
   - Git domain methods (clone, checkout, getBranch)
