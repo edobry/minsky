@@ -111,4 +111,14 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Implement Structured Logging System [#077](process/tasks/077-implement-structured-logging-system.md)
 
-- [ ] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
+- [x] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
+
+- [-] Revisit GitService Testing Strategy [#079](process/tasks/079-revisit-gitservice-testing-strategy.md)
+
+- [ ] Review Workspace and Repository Path Concepts [#080](process/tasks/080-review-workspace-and-repository-path-concepts.md)
+
+- [ ] Disable Debug Logs Unless Debug Log Level is Explicitly Set [#081](process/tasks/081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
+
+- [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
+
+- [ ] Fix Bugs in Minsky Rules CLI Command [#083](process/tasks/083-fix-bugs-in-minsky-rules-cli-command.md)

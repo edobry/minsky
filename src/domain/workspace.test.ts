@@ -283,22 +283,34 @@ describe("Workspace Utils", () => {
       fs.access = originalAccess;
     });
 
-    test("should use main workspace path if in a session repo", async () => {
+    test("should use current directory when in a session repo", async () => {
       const home = process.env.HOME || "";
       const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
       const sessionPath = join(xdgStateHome, "minsky", "git", "local", "repo", "existingSession");
 
       mockExecOutput.stdout = sessionPath;
 
-      const result = await resolveWorkspacePath(
-        { sessionRepo: "/some/session/path" },
-        { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
-      );
-      expect(mockExecAsync.calls[0]).toEqual([
-        "git rev-parse --show-toplevel",
-        { cwd: "/some/repo/path" },
-      ]);
-      expect(result).toBe("/some/session/path");
+      // Mock process.cwd to return the session path
+      const originalCwd = process.cwd;
+      process.cwd = () => sessionPath;
+
+      const mockGetSession = stubSessionDB.getSession as jest.Mock;
+      mockGetSession.mockResolvedValue({
+        repoUrl: "/main/workspace",
+        session: "existingSession",
+        repoName: "local-repo",
+        createdAt: new Date().toISOString(),
+        backendType: "local",
+        remote: { authMethod: "ssh", depth: 1 },
+      });
+
+      const result = await resolveWorkspacePath();
+
+      // Now, we should use the current directory (sessionPath), not the main workspace
+      expect(result).toBe(sessionPath);
+
+      // Restore process.cwd
+      process.cwd = originalCwd;
     });
 
     test("should use current directory if not in a session repo", async () => {
