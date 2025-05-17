@@ -1,34 +1,47 @@
-# test(#085): Migrate CLI adapter tests to test domain methods instead
+# Pull Request for branch `task#085`
 
-## Summary
+## Commits
+5c99d9b9 docs(#085): Update CHANGELOG with test migration details
+dd834345 test(#085): Add tests for Git and Workspace domain methods
+a2857318 feat: add new feature
+3665494f feat: add new feature
+537a48bb feat: add new feature
+25a7b848 test(#085): Add tests for Tasks domain methods
+b8dc3f5f test(#085): Add tests for updateRule domain method
+5e610fa4 test(#085): Add tests for getSessionDirFromParams domain method
+d544ec8b test(#085): Add additional domain method tests for startSession and createRule
+af243134 docs: Update task #085 spec with progress and remaining work
+33e49857 test(#085): Migrate CLI adapter tests to test domain methods instead
 
-Migrated CLI/MCP integration tests to use domain methods directly instead of testing through interfaces. This follows the testing-boundaries rule which emphasizes testing domain logic rather than interfaces. The change ensures better test coverage for the core functionality while maintaining proper test isolation.
 
-## Changes
+## Modified Files (Showing changes from merge-base with main)
+CHANGELOG.md
+process/tasks.md
+process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md
+process/tasks/085/pr.md
+src/adapters/__tests__/integration/git.test.ts
+src/adapters/__tests__/integration/rules.test.ts
+src/adapters/__tests__/integration/session.test.ts
+src/adapters/__tests__/integration/session.test.ts.bak
+src/adapters/__tests__/integration/tasks.test.ts
+src/adapters/__tests__/integration/workspace.test.ts
 
-### Added
-- New domain method tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams)
-- New domain method tests for rules operations (listRules, getRule, searchRules, createRule)
-- Proper mocking patterns using centralized test utilities
 
-### Changed
-- Replaced placeholder tests with proper domain method tests
-- Improved test structure following project testing best practices
-- Migrated tests to focus on domain logic instead of CLI/MCP interfaces
-- Updated task specification with progress tracking and remaining work items
+## Stats
+CHANGELOG.md                                       |  19 +
+ process/tasks.md                                   |   2 +-
+ ...adapter-tests-to-test-domain-methods-instead.md |  58 ++-
+ process/tasks/085/pr.md                            |  34 ++
+ src/adapters/__tests__/integration/git.test.ts     | 168 ++++++++
+ src/adapters/__tests__/integration/rules.test.ts   | 366 +++++++++++++++++
+ src/adapters/__tests__/integration/session.test.ts | 434 ++++++++++++++++++++-
+ .../__tests__/integration/session.test.ts.bak      |  17 +
+ src/adapters/__tests__/integration/tasks.test.ts   | 265 +++++++++++++
+ .../__tests__/integration/workspace.test.ts        | 235 +++++++++++
+ 10 files changed, 1563 insertions(+), 35 deletions(-)
+## Uncommitted changes in working directory
+M	process/tasks/085/pr.md
 
-### Removed
-- Placeholder tests that were using expect(true).toBe(true)
-- Removed unnecessary direct testing of interface implementations
 
-## Testing
 
-All tests have been run and pass both in the task workspace. The tests properly isolate domain logic from interface implementation details, making them more maintainable and less prone to breaking when interface details change.
-
-## Checklist
-
-- [x] All requirements implemented
-- [x] All tests pass
-- [x] Code quality is acceptable
-- [x] Documentation is updated
-- [x] Changelog is updated 
+Task #085 status updated: IN-REVIEW → IN-REVIEW
