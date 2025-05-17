@@ -119,6 +119,21 @@ export interface PreparePrResult {
   body?: string;
 }
 
+export interface MergePrOptions {
+  prBranch: string;
+  repoPath?: string;
+  baseBranch?: string;
+  session?: string;
+}
+
+export interface MergePrResult {
+  prBranch: string;
+  baseBranch: string;
+  commitHash: string;
+  mergeDate: string;
+  mergedBy: string;
+}
+
 export class GitService {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
@@ -1163,6 +1178,56 @@ export class GitService {
       body: options.body,
     };
   }
+
+  async mergePr(options: MergePrOptions): Promise<MergePrResult> {
+    let workdir: string;
+    const baseBranch = options.baseBranch || "main";
+
+    // 1. Determine working directory
+    if (options.session) {
+      const record = await this.sessionDb.getSession(options.session);
+      if (!record) {
+        throw new Error(`Session '${options.session}' not found.`);
+      }
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = this.getSessionWorkdir(repoName, options.session);
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
+    } else {
+      // Try to infer from current directory
+      workdir = process.cwd();
+    }
+
+    // 2. Make sure we're on the base branch
+    await this.execInRepository(workdir, `git checkout ${baseBranch}`);
+
+    // 3. Make sure we have the latest changes
+    await this.execInRepository(workdir, `git pull origin ${baseBranch}`);
+
+    // 4. Merge the PR branch
+    await this.execInRepository(workdir, `git merge --no-ff ${options.prBranch}`);
+
+    // 5. Get the commit hash of the merge
+    const commitHash = (await this.execInRepository(workdir, "git rev-parse HEAD")).trim();
+
+    // 6. Get merge date and author
+    const mergeDate = new Date().toISOString();
+    const mergedBy = (await this.execInRepository(workdir, "git config user.name")).trim();
+
+    // 7. Push the merge to the remote
+    await this.execInRepository(workdir, `git push origin ${baseBranch}`);
+
+    // 8. Delete the PR branch from the remote
+    await this.execInRepository(workdir, `git push origin --delete ${options.prBranch}`);
+
+    return {
+      prBranch: options.prBranch,
+      baseBranch,
+      commitHash,
+      mergeDate,
+      mergedBy,
+    };
+  }
 }
 
 /**
@@ -1271,6 +1336,37 @@ export async function preparePrFromParams(params: {
       session: params.session,
       repo: params.repo,
       baseBranch: params.baseBranch,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Interface-agnostic function to merge a PR branch
+ */
+export async function mergePrFromParams(params: {
+  prBranch: string;
+  repo?: string;
+  baseBranch?: string;
+  session?: string;
+}): Promise<MergePrResult> {
+  try {
+    const git = new GitService();
+    const result = await git.mergePr({
+      prBranch: params.prBranch,
+      repoPath: params.repo,
+      baseBranch: params.baseBranch,
+      session: params.session,
+    });
+    return result;
+  } catch (error) {
+    log.error("Error merging PR branch", {
+      prBranch: params.prBranch,
+      baseBranch: params.baseBranch,
+      session: params.session,
+      repo: params.repo,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });

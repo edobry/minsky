@@ -145,3 +145,8 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
   - Includes a quick reference guide for test structure best practices
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
+
+- Fixed `git merge-pr` command by implementing the missing `mergePrFromParams` function in the domain layer
+  - Added mergePr method to GitService class that handles PR branch merging
+  - Added interface-agnostic implementation to support CLI adapter
+  - Fixed error when using the command in session workspaces
