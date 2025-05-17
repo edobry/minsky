@@ -8,9 +8,7 @@ import {
   type PushOptions,
   type PushResult,
   createPullRequestFromParams,
-  commitChangesFromParams,
-  preparePrFromParams,
-  mergePrFromParams
+  commitChangesFromParams
 } from "../../../domain/git.js";
 import {
   createMock,
@@ -28,30 +26,22 @@ const mockBranch = createMock();
 const mockPush = createMock();
 const mockCreatePullRequestFromParams = createMock();
 const mockCommitChangesFromParams = createMock();
-const mockPreparePrFromParams = createMock();
-const mockMergePrFromParams = createMock();
 const mockExecInRepository = createMock();
 
-// Mock implementation of the GitService
-const mockGitServiceImpl = {
-  clone: mockClone,
-  branch: mockBranch,
-  push: mockPush,
-  execInRepository: mockExecInRepository
-};
+// Create mock implementation before using mockModule
+class MockGitService {
+  clone = mockClone;
+  branch = mockBranch;
+  push = mockPush;
+  execInRepository = mockExecInRepository;
+}
 
 // Mock the Git module
 mockModule("../../../domain/git.js", () => {
   return {
-    GitService: class MockGitService {
-      constructor() {
-        return mockGitServiceImpl;
-      }
-    },
+    GitService: MockGitService,
     createPullRequestFromParams: mockCreatePullRequestFromParams,
-    commitChangesFromParams: mockCommitChangesFromParams,
-    preparePrFromParams: mockPreparePrFromParams,
-    mergePrFromParams: mockMergePrFromParams
+    commitChangesFromParams: mockCommitChangesFromParams
   };
 });
 
@@ -63,8 +53,6 @@ describe("Git Domain Methods", () => {
     mockPush.mockReset();
     mockCreatePullRequestFromParams.mockReset();
     mockCommitChangesFromParams.mockReset();
-    mockPreparePrFromParams.mockReset();
-    mockMergePrFromParams.mockReset();
     mockExecInRepository.mockReset();
   });
 
