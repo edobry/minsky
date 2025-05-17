@@ -803,8 +803,8 @@ export async function approveSessionFromParams(
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
   log.debug("Session workdir", { sessionWorkdir });
 
-  // Determine PR branch name (pr/<feature-branch>)
-  const featureBranch = sessionRecord.branch || sessionNameToUse;
+  // Determine PR branch name (pr/<session-name>)
+  const featureBranch = sessionNameToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
@@ -836,7 +836,7 @@ export async function approveSessionFromParams(
     // Delete the PR branch
     await deps.gitService.execInRepository(sessionWorkdir, `git push origin --delete ${prBranch}`);
 
-    // Get merge info
+    // Create merge info
     const mergeInfo = {
       session: sessionNameToUse,
       commitHash,
@@ -850,17 +850,10 @@ export async function approveSessionFromParams(
     // Update task metadata and status if we have a task ID
     if (taskId) {
       try {
-        // Update task metadata - we need to use the task backend directly since we haven't
-        // added the method to the TaskService yet
+        // Update task metadata - we need to use the task backend directly
         const taskBackend = await deps.taskService.getBackendForTask(taskId);
         if (taskBackend && typeof taskBackend.setTaskMetadata === "function") {
-          await taskBackend.setTaskMetadata(taskId, {
-            commitHash,
-            mergeDate,
-            mergedBy,
-            baseBranch,
-            prBranch,
-          });
+          await taskBackend.setTaskMetadata(taskId, mergeInfo);
         }
 
         // Update task status to DONE

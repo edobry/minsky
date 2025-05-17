@@ -25,15 +25,23 @@ import {
 } from "../schemas/tasks.js";
 import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
 import { z } from "zod";
+import matter from "gray-matter";
 const execAsync = promisify(exec);
 
 export interface Task {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   status: string;
   specPath?: string; // Path to the task specification document
   worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
+  mergeInfo?: {
+    commitHash?: string;
+    mergeDate?: string;
+    mergedBy?: string;
+    baseBranch?: string;
+    prBranch?: string;
+  };
 }
 
 export interface TaskBackend {
@@ -44,6 +52,7 @@ export interface TaskBackend {
   setTaskStatus(id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
+  setTaskMetadata?(id: string, metadata: any): Promise<void>;
 }
 
 export interface TaskListOptions {
@@ -390,6 +399,59 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     return task;
   }
+
+  /**
+   * Update task metadata stored in the task specification file
+   * @param id Task ID
+   * @param metadata Task metadata to update
+   */
+  async setTaskMetadata(id: string, metadata: any): Promise<void> {
+    // First verify the task exists
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new ResourceNotFoundError(`Task "${id}" not found`, "task", id);
+    }
+
+    // Find the specification file path
+    if (!task.specPath) {
+      log.warn("No specification file found for task", { id });
+      return;
+    }
+
+    const specFilePath = join(this.workspacePath, task.specPath);
+
+    try {
+      // Read the spec file
+      const fileContent = await fs.readFile(specFilePath, "utf8");
+
+      // Parse the file with frontmatter
+      const parsed = matter(fileContent);
+
+      // Update the merge info in the frontmatter
+      const data = parsed.data || {};
+      data.merge_info = {
+        ...data.merge_info,
+        ...metadata,
+      };
+
+      // Serialize the updated frontmatter and content
+      const updatedContent = matter.stringify(parsed.content, data);
+
+      // Write back to the file
+      await fs.writeFile(specFilePath, updatedContent, "utf8");
+
+      log.debug("Updated task metadata", { id, specFilePath, metadata });
+    } catch (error) {
+      log.error("Failed to update task metadata", {
+        error: error instanceof Error ? error.message : String(error),
+        id,
+        specFilePath,
+      });
+      throw new Error(
+        `Failed to update task metadata: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
@@ -477,6 +539,29 @@ export class TaskService {
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     return this.currentBackend.createTask(specPath, options);
+  }
+
+  /**
+   * Get the backend for a specific task
+   * @param id Task ID
+   * @returns The appropriate task backend for the task, or null if not found
+   */
+  async getBackendForTask(id: string): Promise<TaskBackend | null> {
+    // Normalize the task ID
+    const normalizedId = normalizeTaskId(id);
+    if (!normalizedId) {
+      return null;
+    }
+
+    // Try to find the task in each backend
+    for (const backend of this.backends) {
+      const task = await backend.getTask(normalizedId);
+      if (task) {
+        return backend;
+      }
+    }
+
+    return null;
   }
 }
 
