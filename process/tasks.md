@@ -120,3 +120,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Disable Debug Logs Unless Debug Log Level is Explicitly Set [#081](process/tasks/081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
 - [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
+
+- [ ] Fix Bugs in Minsky Rules CLI Command [#083](process/tasks/083-fix-bugs-in-minsky-rules-cli-command.md)
