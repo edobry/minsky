@@ -1,0 +1,8 @@
+---
+name: globs-test-2
+description: Test with JSON array globs
+globs:
+  - "[\"**/*.ts\""
+  - "\"**/*.tsx\"]"
+---
+Test content

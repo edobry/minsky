@@ -1,0 +1,8 @@
+---
+name: globs-test-1
+description: Test with comma-separated globs
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+---
+Test content
