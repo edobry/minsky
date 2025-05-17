@@ -21,6 +21,7 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
 } from "../../domain/index.js";
+import { SessionDB } from "../../domain/session.js";
 
 interface GetCurrentSessionConfig {
   getCurrentSession: () => Promise<string | null>;
@@ -127,7 +128,7 @@ export function createStartCommand(): Command {
           repo: options?.repo,
           task: options?.task,
           quiet: options?.quiet || false,
-          noStatusUpdate: false
+          noStatusUpdate: false,
         };
 
         // Call the domain function
@@ -139,12 +140,13 @@ export function createStartCommand(): Command {
         // Output result
         if (options?.quiet) {
           // Get the session repo path for the quiet output
-          const sessionDB = new (await import("../../domain/session.js")).SessionDB();
+          const sessionDB = new SessionDB();
           const repoPath = await sessionDB.getRepoPath(sessionRecord);
           console.log(repoPath);
         } else {
           console.log(`Session '${sessionRecord.session}' created successfully.`);
-          console.log(`Session directory: ${await (new (await import("../../domain/session.js")).SessionDB()).getRepoPath(sessionRecord)}`);
+          const sessionDB = new SessionDB();
+          console.log(`Session directory: ${await sessionDB.getRepoPath(sessionRecord)}`);
           console.log(`Branch: ${sessionRecord.branch}`);
         }
       } catch (error) {
