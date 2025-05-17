@@ -154,3 +154,10 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
   - Includes a quick reference guide for test structure best practices
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
+
+- Migrated CLI adapter tests to test domain methods directly instead of through interfaces
+- Improved test structure following project testing best practices
+- Removed placeholder tests and replaced them with proper domain method tests
+- Implemented proper mocking patterns using centralized test utilities
+
+_See: Task #085 for migrating CLI adapter tests to test domain methods instead_
