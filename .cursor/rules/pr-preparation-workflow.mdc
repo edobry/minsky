@@ -7,4 +7,6 @@ globs:
   - "**/*.js"
 alwaysApply: true
 ---
-pr-workflow-content.md
+# PR Preparation Workflow
+
+This rule provides guidelines for preparing, reviewing, and merging pull requests (PRs) in the Minsky workflow.
