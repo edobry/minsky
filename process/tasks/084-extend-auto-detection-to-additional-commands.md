@@ -15,8 +15,8 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 1. **Extend Auto-Detection to Priority Commands:**
 
    - Update the `tasks status set` command to auto-detect the current task
-   - Update the `git pr` command to auto-detect the current session
-   - Review and update `session update` and `session cd` commands to use the centralized utility
+   - Update the `git summary` command to auto-detect the current session
+   - Review and update `session update` and `session dir` commands to use the centralized utility
 
 2. **Maintain Consistency:**
 
@@ -51,7 +51,7 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 - [ ] Add unit tests for auto-detected task status setting
 - [ ] Update CLI integration tests to verify behavior in and outside session workspace
 
-### 2. `git pr` Command
+### 2. `git summary` Command
 
 - [ ] Modify argument parsing to make --session and --repo optional
 - [ ] Use `getCurrentSessionContext` to auto-detect session when neither flag is provided
@@ -62,8 +62,8 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 
 ### 3. `session update` and Related Commands
 
-- [ ] Review `src/commands/session/update.ts` and migrate to use `getCurrentSessionContext`
-- [ ] Review `src/commands/session/cd.ts` and ensure it's using the centralized utility
+- [ ] Review `src/adapters/cli/session.ts` update command implementation and migrate to use `getCurrentSessionContext`
+- [ ] Review `src/adapters/cli/session.ts` dir command implementation and ensure it's using the centralized utility
 - [ ] Ensure consistent behavior with other auto-detecting commands
 - [ ] Standardize feedback messages across all session commands
 - [ ] Update existing tests to verify consistent behavior
@@ -80,8 +80,8 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 ## Verification
 
 - [ ] `minsky tasks status set` works without task ID when run from session workspace
-- [ ] `minsky git pr` works without session/repo flags when run from session workspace
-- [ ] `minsky session update` and `minsky session cd` use the centralized `getCurrentSessionContext`
+- [ ] `minsky git summary` works without session/repo flags when run from session workspace
+- [ ] `minsky session update` and `minsky session dir` use the centralized `getCurrentSessionContext`
 - [ ] All commands provide consistent feedback when auto-detection is used
 - [ ] All commands handle errors consistently when auto-detection fails
 - [ ] All commands preserve the ability to override auto-detection with explicit IDs

@@ -6,6 +6,13 @@
 
 ### Added
 
+- Task #084: Extended auto-detection to additional commands
+
+  - Updated task spec to reflect current command structure
+  - Will extend auto-detection for `tasks status set`, `git summary`, and session commands
+  - Will use the centralized `getCurrentSessionContext` utility across more commands
+  - Will standardize user feedback and error handling for all auto-detecting commands
+
 - Task #025: Added git approve command for session PR merging
   - Added `git approve` command to merge PR branches into the base branch
   - Implemented task metadata storage with merge commit information
