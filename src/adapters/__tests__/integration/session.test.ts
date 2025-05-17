@@ -28,6 +28,7 @@ setupTestMocks();
 const mockGetSessionFromParams = createMock();
 const mockListSessionsFromParams = createMock();
 const mockDeleteSessionFromParams = createMock();
+const mockStartSessionFromParams = createMock();
 
 // Mock the domain session module
 mockModule("../../../domain/session.js", () => {
@@ -36,6 +37,7 @@ mockModule("../../../domain/session.js", () => {
     getSessionFromParams: mockGetSessionFromParams,
     listSessionsFromParams: mockListSessionsFromParams,
     deleteSessionFromParams: mockDeleteSessionFromParams,
+    startSessionFromParams: mockStartSessionFromParams,
   };
 });
 
@@ -98,6 +100,7 @@ describe("Session Domain Methods", () => {
     mockGetSessionFromParams.mockReset();
     mockListSessionsFromParams.mockReset();
     mockDeleteSessionFromParams.mockReset();
+    mockStartSessionFromParams.mockReset();
   });
 
   describe("getSessionFromParams", () => {
@@ -212,6 +215,78 @@ describe("Session Domain Methods", () => {
       await expect(mockDeleteSessionFromParams(params))
         .rejects
         .toThrow("Session name must be provided");
+    });
+  });
+
+  describe("startSessionFromParams", () => {
+    test("starts a new session with name parameter", async () => {
+      // Arrange
+      const sessionResult = {
+        sessionRecord: {
+          session: "new-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          branch: "new-session"
+        },
+        cloneResult: { workdir: "/path/to/workdir" },
+        branchResult: { branch: "new-session" }
+      };
+      mockStartSessionFromParams.mockResolvedValue(sessionResult);
+      const params = { 
+        name: "new-session",
+        repo: "https://github.com/test/repo.git"
+      };
+      
+      // Act
+      const result = await mockStartSessionFromParams(params);
+      
+      // Assert
+      expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.session).toBe("new-session");
+      expect(result.cloneResult?.workdir).toBe("/path/to/workdir");
+    });
+
+    test("starts a new session with task parameter", async () => {
+      // Arrange
+      const sessionResult = {
+        sessionRecord: {
+          session: "task#123",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          branch: "task#123",
+          taskId: "123"
+        },
+        cloneResult: { workdir: "/path/to/workdir" },
+        branchResult: { branch: "task#123" },
+        statusUpdateResult: { id: "123", status: "IN-PROGRESS" }
+      };
+      mockStartSessionFromParams.mockResolvedValue(sessionResult);
+      const params = { 
+        task: "123",
+        repo: "https://github.com/test/repo.git"
+      };
+      
+      // Act
+      const result = await mockStartSessionFromParams(params);
+      
+      // Assert
+      expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.taskId).toBe("123");
+      expect(result.statusUpdateResult?.status).toBe("IN-PROGRESS");
+    });
+
+    test("throws error when required parameters are missing", async () => {
+      // Arrange
+      const error = new Error("Missing required parameters: repo");
+      mockStartSessionFromParams.mockRejectedValue(error);
+      const params = { name: "new-session" }; // Missing repo parameter
+      
+      // Act & Assert
+      await expect(mockStartSessionFromParams(params))
+        .rejects
+        .toThrow("Missing required parameters: repo");
     });
   });
 }); 

@@ -24,20 +24,18 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 
 ### Completed
 - Replaced placeholder test in `src/adapters/__tests__/integration/session.test.ts`
-- Created proper tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams)
+- Created proper tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams)
 - Created new test file for rules domain methods
-- Added tests for rules operations (listRules, getRule, searchRules)
+- Added tests for rules operations (listRules, getRule, searchRules, createRule)
 - Implemented proper mocking with centralized test utilities
 - Ensured tests follow testing-boundaries rule principles
 - All implemented tests are passing
 
 ### Remaining Work
 - Add tests for missing session domain methods:
-  - startSessionFromParams
   - updateSessionFromParams
   - getSessionDirFromParams
 - Add tests for missing rules domain methods:
-  - createRule
   - updateRule
 - Consider adding tests for other domain modules:
   - Tasks domain methods (getTask, listTasks, updateTaskStatus)

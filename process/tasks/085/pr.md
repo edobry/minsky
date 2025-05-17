@@ -7,14 +7,15 @@ Migrated CLI/MCP integration tests to use domain methods directly instead of tes
 ## Changes
 
 ### Added
-- New domain method tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams)
-- New domain method tests for rules operations (listRules, getRule, searchRules)
+- New domain method tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams)
+- New domain method tests for rules operations (listRules, getRule, searchRules, createRule)
 - Proper mocking patterns using centralized test utilities
 
 ### Changed
 - Replaced placeholder tests with proper domain method tests
 - Improved test structure following project testing best practices
 - Migrated tests to focus on domain logic instead of CLI/MCP interfaces
+- Updated task specification with progress tracking and remaining work items
 
 ### Removed
 - Placeholder tests that were using expect(true).toBe(true)

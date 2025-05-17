@@ -159,5 +159,6 @@ _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/hi
 - Improved test structure following project testing best practices
 - Removed placeholder tests and replaced them with proper domain method tests
 - Implemented proper mocking patterns using centralized test utilities
+- Added comprehensive domain method tests for session and rules operations
 
 _See: Task #085 for migrating CLI adapter tests to test domain methods instead_

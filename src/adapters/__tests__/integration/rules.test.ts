@@ -177,4 +177,78 @@ describe("Rules Domain Methods", () => {
       expect(result.length).toBe(0);
     });
   });
+
+  describe("createRule", () => {
+    test("creates a new rule with content and metadata", async () => {
+      // Arrange
+      const ruleId = "new-rule";
+      const content = "# New Rule\n\nThis is a new rule content";
+      const meta = {
+        name: "New Test Rule",
+        description: "A rule created for testing",
+        globs: ["**/*.ts"],
+        alwaysApply: false
+      };
+      const options = { format: "cursor" as const };
+      
+      mockCreateRule.mockResolvedValue({
+        id: ruleId,
+        ...meta,
+        content,
+        format: "cursor",
+        path: "/path/to/new-rule.mdc"
+      });
+      
+      // Act
+      const result = await mockCreateRule(ruleId, content, meta, options);
+      
+      // Assert
+      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, options);
+      expect(result.id).toBe(ruleId);
+      expect(result.content).toBe(content);
+      expect(result.name).toBe(meta.name);
+      expect(result.format).toBe("cursor");
+    });
+
+    test("throws error when rule already exists and overwrite is false", async () => {
+      // Arrange
+      const ruleId = "existing-rule";
+      const content = "# Existing Rule\n\nThis rule already exists";
+      const meta = { name: "Existing Rule" };
+      const options = { format: "cursor" as const, overwrite: false };
+      
+      const error = new Error(`Rule '${ruleId}' already exists and overwrite is not enabled`);
+      mockCreateRule.mockRejectedValue(error);
+      
+      // Act & Assert
+      await expect(mockCreateRule(ruleId, content, meta, options))
+        .rejects
+        .toThrow(`Rule '${ruleId}' already exists and overwrite is not enabled`);
+    });
+
+    test("overwrites existing rule when overwrite is true", async () => {
+      // Arrange
+      const ruleId = "existing-rule";
+      const content = "# Updated Rule\n\nThis rule has been updated";
+      const meta = { name: "Updated Rule" };
+      const options = { format: "cursor" as const, overwrite: true };
+      
+      mockCreateRule.mockResolvedValue({
+        id: ruleId,
+        ...meta,
+        content,
+        format: "cursor",
+        path: "/path/to/existing-rule.mdc"
+      });
+      
+      // Act
+      const result = await mockCreateRule(ruleId, content, meta, options);
+      
+      // Assert
+      expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, options);
+      expect(result.id).toBe(ruleId);
+      expect(result.content).toBe(content);
+      expect(result.name).toBe(meta.name);
+    });
+  });
 }); 
