@@ -6,6 +6,12 @@
 
 ### Added
 
+- Added workspace verification and command usage best practices to be incorporated into session-first-workflow rule:
+
+  - Workspace verification: Use terminal CWD info, git status, and directory structure checks to confirm correct workspace
+  - Command verification: Check command availability and options with --help before attempting to use unfamiliar commands
+  - Error handling: Address linter errors in files, attempt to fix straightforward errors, and document complex ones
+
 - Task #082 to add context management commands for environment-agnostic AI collaboration, enabling context portability between different AI agents, analyzing and optimizing prompt context, simulating rule loading, and providing model awareness
 
 _See: SpecStory history [2025-05-16_context-management-commands](.specstory/history/2025-05-16_context-management-commands.md) for context management commands._

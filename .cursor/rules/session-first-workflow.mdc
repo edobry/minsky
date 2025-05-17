@@ -119,4 +119,36 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
   // edit_file(target_file = absolutePathInSession, code_edit = "...your code edit...", instructions = "...");
   ```
 
+## 9. Session Workspace Verification and Command Usage
+
+### 9.1. Mandatory Workspace Verification
+
+Before starting any work in a session:
+
+- **Verify Current Working Directory:** Use terminal CWD information, `pwd`, or `ls` commands to confirm you're in the correct session workspace.
+- **Confirm with Git Status:** Run `git status` to verify you're in the correct branch for the task.
+- **Directory Structure Check:** Verify the directory structure matches what's expected for a session workspace (standard project structure).
+
+### 9.2. Command Verification Protocol
+
+When using CLI commands, especially Minsky-specific commands:
+
+- **Verify Command Availability:** Always check command availability with `--help` before attempting to use unfamiliar commands.
+- **Confirm Command Options:** For Minsky commands, verify syntax and options with `minsky <command> --help` rather than assuming command structure.
+- **Handle Command Errors:** If a command fails, verify syntax using help before proceeding.
+
+### 9.3. Error Verification and Handling
+
+When working with code and tests:
+
+- **Address All Linter Errors:** Acknowledge all linter errors in files you modify.
+- **Fix Straightforward Errors:** Attempt to fix straightforward linter errors before committing.
+- **Document Complex Issues:** For complex linter errors, explicitly document limitations or reasoning when they can't be fixed immediately.
+
+## 10. Rationale
+
+- This ensures all work happens in the correct workspace, preventing accidental changes to the main workspace.
+- It promotes proper command usage, reducing errors and workflow disruptions.
+- It improves code quality by addressing linter issues proactively.
+
 ---

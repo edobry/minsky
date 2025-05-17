@@ -8,3 +8,9 @@ alwaysApply: true
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
 
 - **Automatically Commit and Push Task Management Changes:** Always automatically commit and push changes to the repository after performing task management operations (creating tasks, updating task status, etc.) without waiting for an explicit request to do so.
+
+- **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
+
+- **Verify Command Availability and Syntax:** Before attempting to use a command, especially Minsky-specific commands, check command availability with `--help` first rather than assuming command structure.
+
+- **Address All Linter Errors:** Acknowledge all linter errors in files. Attempt to fix straightforward errors, and explicitly state limitations with more complex errors rather than ignoring them.

@@ -1,0 +1,80 @@
+---
+description: REQUIRED guidelines for verifying workspace context and command availability before making changes
+globs:
+alwaysApply: false
+---
+# Workspace Verification
+
+## When to Apply This Rule
+
+Always verify your workspace context and command availability before making any changes to code, configuration, or documentation.
+
+## Core Requirements
+
+- **Verify workspace context** before starting any work
+- **Confirm command availability and syntax** before running commands
+- **Address all linter errors** in modified files
+- **Apply alongside session-first-workflow and minsky-cli-usage rules**
+
+## Workspace Verification Protocol
+
+Before starting any work in a session:
+
+- **Verify Current Working Directory:** Use terminal CWD information, `pwd`, or `ls` commands to confirm you're in the correct session workspace
+- **Confirm with Git Status:** Run `git status` to verify you're in the correct branch for the task
+- **Directory Structure Check:** Verify the directory structure matches what's expected for a session workspace
+
+## Command Verification Protocol
+
+When using CLI commands, especially Minsky-specific commands:
+
+- **Verify Command Availability:** Always check command availability with `--help` before attempting to use unfamiliar commands
+- **Confirm Command Options:** For Minsky commands, verify syntax and options with `minsky <command> --help`
+- **Handle Command Errors:** If a command fails, verify syntax using help before proceeding
+
+## Error Handling Protocol
+
+When working with code and tests:
+
+- **Address All Linter Errors:** Acknowledge all linter errors in files you modify
+- **Fix Straightforward Errors:** Attempt to fix straightforward linter errors before committing
+- **Document Complex Issues:** For complex linter errors, explicitly state limitations when they can't be fixed immediately
+
+## Examples
+
+### ✅ PREFER
+
+```typescript
+// First verify workspace
+$ pwd
+/Users/dev/.local/state/minsky/git/local-minsky/sessions/task#123
+
+// Then verify command availability and options
+$ minsky rules --help
+Commands:
+  minsky rules list                List all rules
+  minsky rules get <name>          Get a rule by name
+  minsky rules create <name>       Create a new rule
+  minsky rules update <name>       Update an existing rule
+
+// Then proceed with command
+$ minsky rules list
+```
+
+### ❌ AVOID
+
+```typescript
+// Assuming command structure without verification
+$ minsky rule list
+Error: Unknown command: rule
+
+// Making changes without verifying workspace
+$ pwd
+/Users/dev/Projects/minsky  // Main workspace, not session workspace!
+$ vi src/domain/workspace.ts  // Modifying main workspace file!
+```
+
+## Related Rules
+
+- Apply alongside [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc) for complete session management protocol
+- Apply with [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) when working with Minsky CLI commands
