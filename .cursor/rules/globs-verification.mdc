@@ -1,0 +1,8 @@
+---
+name: globs-verification
+description: Testing JSON array glob parsing
+globs:
+  - "**/*.md"
+  - "**/*.ts"
+---
+Test glob parsing
