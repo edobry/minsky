@@ -49,6 +49,11 @@ export async function resolveRepoPath(options: RepoResolutionOptions): Promise<s
     return record.repoUrl;
   }
   // Fallback: use current git repo
-  const { stdout } = await execAsync("git rev-parse --show-toplevel");
-  return stdout.trim();
+  try {
+    const { stdout } = await execAsync("git rev-parse --show-toplevel");
+    return stdout.trim();
+  } catch (error) {
+    // If git command fails, fall back to process.cwd()
+    return process.cwd();
+  }
 }

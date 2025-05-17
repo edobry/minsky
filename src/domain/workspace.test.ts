@@ -294,15 +294,17 @@ describe("Workspace Utils", () => {
       const originalCwd = process.cwd;
       process.cwd = () => sessionPath;
 
-      const mockGetSession = stubSessionDB.getSession as jest.Mock;
-      mockGetSession.mockResolvedValue({
+      // Use Bun compatible mock instead of Jest mock
+      const stubSession = {
         repoUrl: "/main/workspace",
         session: "existingSession",
         repoName: "local-repo",
         createdAt: new Date().toISOString(),
         backendType: "local",
         remote: { authMethod: "ssh", depth: 1 },
-      });
+      };
+      
+      stubSessionDB.getSession = mock(() => Promise.resolve(stubSession));
 
       const result = await resolveWorkspacePath();
 
