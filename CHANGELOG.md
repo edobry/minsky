@@ -6,6 +6,10 @@
 
 ### Added
 
+- Task #082 to add context management commands for analyzing and optimizing prompt context usage, simulating rule loading, and providing model awareness
+
+_See: SpecStory history [2025-05-16_context-management-commands](.specstory/history/2025-05-16_context-management-commands.md) for context management commands._
+
 - Initial Bun+TypeScript project setup for the minsky CLI tool
 - Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
 - `git clone` command: clone a repo into an isolated workspace, with session support
@@ -22,10 +26,17 @@
 - Shared `resolveRepoPath` utility in `src/domain/repo-utils.ts` for resolving repo paths from CLI options, session DB, or git context
 - Comprehensive domain-level tests for all `tasks` logic and repo path resolution
 - Task #080 to review workspace and repository path concepts for consistency
-- Added task #081 to disable debug logs unless debug log level is explicitly set
+- Enhanced PR workflow with a streamlined approach to creating and merging pull requests:
+  - Renamed `git pr` to `git summary` to maintain original PR description functionality
+  - Added `git prepare-pr` for creating PR branches with prepared merge commits
+  - Added `git merge-pr` for merging PR branches via fast-forward
+  - Added `session approve` for integrating PR merging with task status updates
+  - Implemented task metadata storage using YAML frontmatter
+  - Added comprehensive error handling with specific exit codes
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
+_See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/history/2025-05-17_pr-workflow-implementation.md) for PR workflow implementation._
 
 ### Changed
 
@@ -39,6 +50,7 @@ _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specs
 - Ensured all code and tests follow best practices for modularity and separation of concerns
 - Improved CLI output format by removing timestamps and log level indicators for better user experience
 - Updated command-organization rule to reflect the interface-agnostic architecture with domain logic, interface adapters, and command entry points
+- **Breaking Change**: Removed the original `git pr` command, replacing it with `git summary` with identical functionality
 - Overhauled testing rules system with improved rule organization and relationships:
   - Created testing-router rule as a central entry point for all testing guidance
   - Enhanced testing-boundaries rule with clear guidance on what to test vs. not test
