@@ -1059,6 +1059,28 @@ export class GitService {
     log.debug("No task ID could be determined");
     return undefined;
   }
+
+  /**
+   * Execute a command in a repository directory
+   * @param workdir The repository working directory
+   * @param command The command to execute
+   * @returns The stdout of the command
+   */
+  public async execInRepository(workdir: string, command: string): Promise<string> {
+    try {
+      const { stdout } = await execAsync(command, { cwd: workdir });
+      return stdout;
+    } catch (error) {
+      log.error("Command execution failed", {
+        error: error instanceof Error ? error.message : String(error),
+        command,
+        workdir,
+      });
+      throw new MinskyError(
+        `Failed to execute command in repository: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
 }
 
 /**

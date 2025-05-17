@@ -17,50 +17,23 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 
 - Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
 
-  - Modified resolveWorkspacePath function to use the current directory instead of main workspace when in a session
-  - Updated tests to validate the new behavior
-  - This allows the rules CLI (list, get, create, update, etc.) to properly operate on rules in session workspaces
+- Enhanced PR workflow with "prepared-merge" capabilities:
+  - New `git summary` command (renamed from `git pr`) for PR description generation
+  - New `git prepare-pr` command to create PR branches with merge commits
+  - New `git merge-pr` command to fast-forward merge PR branches
+  - New `session approve` command to approve PRs and update task status
 
-- Added workspace verification best practices as part of Task #078:
-
-  - **Workspace Verification Protocol**: Always verify current directory with pwd/ls, confirm branch with git status, and check directory structure
-  - **Command Verification Protocol**: Check command availability with --help, verify syntax, handle errors properly
-  - **Error Handling Protocol**: Address all linter errors, fix straightforward ones, document complex issues
-  - These practices help prevent accidental changes to main workspace and reduce errors from incorrect command usage
-
-- Task #082 to add context management commands for environment-agnostic AI collaboration, enabling context portability between different AI agents, analyzing and optimizing prompt context, simulating rule loading, and providing model awareness
-
-_See: SpecStory history [2025-05-16_context-management-commands](.specstory/history/2025-05-16_context-management-commands.md) for context management commands._
-
-- Initial Bun+TypeScript project setup for the minsky CLI tool
-- Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
-- `git clone` command: clone a repo into an isolated workspace, with session support
-- `git branch` command: create a new branch in a session's repo
-- `git pr` command: generate a markdown PR document with commit history, file changes, and stats, comparing against the correct base branch (remote HEAD, upstream, main, or master)
-- `session` commands: `start`, `list`, `get`, `cd` for managing and navigating agent sessions
-- Session database in `$XDG_STATE_HOME/minsky/session-db.json` to track sessions, repos, and branches
-- Support for both remote and local repo cloning in session start
-- Debug logging for the `git pr` command, enabled via `--debug` and output to stderr only
-- Test coverage for PR base branch detection and diff/stat generation
-- New `tasks` command with `list`, `get`, and `status` (with `get` and `set`) subcommands for task management
-- Support for multiple task backends (Markdown file, placeholder for GitHub Issues)
-- Robust Markdown checklist parser for `process/tasks.md` supporting code block skipping, description aggregation, and malformed line filtering
-- Shared `resolveRepoPath` utility in `src/domain/repo-utils.ts` for resolving repo paths from CLI options, session DB, or git context
-- Comprehensive domain-level tests for all `tasks` logic and repo path resolution
-- Task #080 to review workspace and repository path concepts for consistency
-- Enhanced PR workflow with a streamlined approach to creating and merging pull requests:
-  - Renamed `git pr` to `git summary` to maintain original PR description functionality
-  - Added `git prepare-pr` for creating PR branches with prepared merge commits
-  - Added `git merge-pr` for merging PR branches via fast-forward
-  - Added `session approve` for integrating PR merging with task status updates
-  - Implemented task metadata storage using YAML frontmatter
-  - Added comprehensive error handling with specific exit codes
-
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
-_See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/history/2025-05-17_pr-workflow-implementation.md) for PR workflow implementation._
+- New workspace verification rules to ensure correct file paths and command execution environments.
+- Added task context detection and automatic session selection for context-aware commands.
+- Improved error handling with detailed error messages and appropriate exit codes.
 
 ### Changed
+
+- Renamed `git pr` command to `git summary` for clearer separation of concerns
+- Extended TaskService to store merge metadata in task specifications
+- Updated task status to DONE automatically when PRs are merged through session approve
+- Improved log messages to provide better context for errors and operations
+- Enhanced session management to support PR workflow and preserve task history
 
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
 - PR output now includes both committed and uncommitted (working directory) changes
@@ -96,11 +69,15 @@ _See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/histo
   - Removed redundant self-improvement-router rule and consolidated router functionality into self-improvement rule
   - Added descriptive frontmatter to template-literals and test-expectations rules
 
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization changes._
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
-_See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/2024-05-15_testing-rules-update.md) for rule refactoring._
+_See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/history/2025-05-17_add-git-approve-command.md) for implementation details._
 
 ### Fixed
+
+- Fixed session repository path resolution to handle both legacy and new directory structures.
+- Fixed task detection in workspace utilities to handle task IDs with or without the # prefix.
+- Fixed issues in the workspace detection logic to properly identify session repositories.
+- Fixed inconsistent task ID normalization throughout the codebase.
+- Fixed error handling in GitService to provide more detailed error messages.
 
 - Task #083: Fixed bugs in Minsky rules CLI command
 

@@ -1,5 +1,5 @@
 ---
-description: REQUIRED entry point for understanding the Minsky workflow system
+description: REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging
 globs:
 alwaysApply: false
 ---
@@ -38,7 +38,12 @@ alwaysApply: false
    - Then: Finalize changes and update task status
    - Apply: pr-preparation-workflow
 
-6. **Task Completion**
+6. **PR Approval and Merging**
+   - First: Review PR content thoroughly
+   - Then: Use `minsky git approve` to merge the PR branch
+   - Apply: pr-preparation-workflow
+
+7. **Task Completion**
    - First: Update task status to DONE after PR is merged
    - Then: Clean up the session if needed
    - Apply: task-status-protocol and minsky-session-management
@@ -52,6 +57,7 @@ alwaysApply: false
 | **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
 | **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
 | **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+| **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
 
 ## Common Workflow Questions
 
@@ -87,6 +93,9 @@ alwaysApply: false
 
 - **"How do I create a PR?"**
   → Apply pr-preparation-workflow for PR creation steps
+
+- **"How do I approve and merge a PR?"**
+  → Apply pr-preparation-workflow and use `minsky git approve` to merge the PR
 
 ## Rule Integration Table
 
@@ -142,6 +151,7 @@ These workflow rules should be applied:
 - When creating or managing sessions
 - When implementing task requirements
 - When preparing pull requests
+- When approving and merging pull requests
 
 ## Supporting Rules
 
@@ -177,6 +187,14 @@ When preparing work for review, focus on:
 1. PR preparation guidelines (pr-preparation-workflow)
 2. Task status updates (task-status-protocol)
 
+### When Approving PRs
+
+When approving and merging pull requests:
+
+1. Review PR content and ensure it meets standards
+2. Use the `minsky git approve` command to merge the PR branch
+3. Verify successful merge and task status updates
+
 ## Workflow Sequence
 
 1. **Task Selection and Status Verification**
@@ -204,7 +222,12 @@ When preparing work for review, focus on:
    - Then: Finalize changes and update task status
    - Apply: pr-preparation-workflow
 
-6. **Task Completion**
+6. **PR Approval and Merging**
+   - First: Review PR content thoroughly
+   - Then: Use `minsky git approve` to merge the PR branch
+   - Apply: pr-preparation-workflow
+
+7. **Task Completion**
    - First: Update task status to DONE after PR is merged
    - Then: Clean up the session if needed
    - Apply: task-status-protocol and minsky-session-management
@@ -218,6 +241,7 @@ When preparing work for review, focus on:
 | **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
 | **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
 | **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+| **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
 
 ## Common Workflow Questions
 
@@ -253,6 +277,9 @@ When preparing work for review, focus on:
 
 - **"How do I create a PR?"**
   → Apply pr-preparation-workflow for PR creation steps
+
+- **"How do I approve and merge a PR?"**
+  → Apply pr-preparation-workflow and use `minsky git approve` to merge the PR
 
 ## Rule Integration Table
 

@@ -1,7 +1,11 @@
 ---
 name: PR Preparation Workflow
-description: REQUIRED workflow for preparing and submitting pull requests
+description: REQUIRED workflow for preparing and submitting pull requests including the git approve command for PR merging
 globs:
+  - "**/*.md"
+  - "**/*.ts"
+  - "**/*.js"
+alwaysApply: true
 ---
 # PR Preparation Workflow
 
@@ -144,4 +148,3 @@ Use these types for the PR title:
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 - For detailed PR description guidelines, see [pr-description-guidelines](mdc:.cursor/rules/pr-description-guidelines.mdc)
 
-4. **Documentation is updated**: Ensure task documentation and changelog are updated

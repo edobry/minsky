@@ -716,3 +716,175 @@ export async function deleteSessionFromParams(params: SessionDeleteParams): Prom
 
   return sessionDB.deleteSession(name);
 }
+
+/**
+ * Approves and merges a session PR branch
+ */
+export async function approveSessionFromParams(
+  params: {
+    session?: string;
+    task?: string;
+    repo?: string;
+    json?: boolean;
+  },
+  depsInput?: SessionDeps
+): Promise<{
+  session: string;
+  commitHash: string;
+  mergeDate: string;
+  mergedBy: string;
+  baseBranch: string;
+  prBranch: string;
+  taskId?: string;
+}> {
+  const deps =
+    depsInput ||
+    (await createSessionDeps({
+      workspacePath: params.repo || process.cwd(),
+    }));
+
+  log.debug("Session approve called with params", params);
+
+  let sessionNameToUse = params.session;
+  let taskId: string | undefined;
+
+  // Try to get session from task ID if provided
+  if (params.task && !sessionNameToUse) {
+    const normalizedTaskId = normalizeAndValidateTaskId(params.task);
+    taskId = normalizedTaskId;
+
+    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    if (!session) {
+      throw new ResourceNotFoundError(
+        `No session found for task ${normalizedTaskId}`,
+        "task",
+        normalizedTaskId
+      );
+    }
+    sessionNameToUse = session.session;
+    log.debug("Using session from task ID", {
+      taskId: normalizedTaskId,
+      session: sessionNameToUse,
+    });
+  }
+
+  // If session is still not set, try to detect it from repo path
+  if (!sessionNameToUse && params.repo) {
+    const sessionContext = await deps.workspaceUtils.getCurrentSessionContext(params.repo);
+    if (sessionContext) {
+      sessionNameToUse = sessionContext.sessionId;
+      taskId = sessionContext.taskId;
+      log.debug("Using detected session from repo path", { session: sessionNameToUse, taskId });
+    }
+  }
+
+  // Validate that we have a session to work with
+  if (!sessionNameToUse) {
+    throw new ValidationError("No session detected. Please provide a session name or task ID");
+  }
+
+  // Get the session record
+  const sessionRecord = await deps.sessionDB.getSession(sessionNameToUse);
+  if (!sessionRecord) {
+    throw new ResourceNotFoundError(
+      `Session "${sessionNameToUse}" not found`,
+      "session",
+      sessionNameToUse
+    );
+  }
+
+  // If no taskId from params, use the one from session record
+  if (!taskId && sessionRecord.taskId) {
+    taskId = sessionRecord.taskId;
+    log.debug("Using task ID from session record", { taskId });
+  }
+
+  // Get session workdir
+  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  log.debug("Session workdir", { sessionWorkdir });
+
+  // Determine PR branch name (pr/<session-name>)
+  const featureBranch = sessionNameToUse;
+  const prBranch = `pr/${featureBranch}`;
+  const baseBranch = "main"; // Default base branch, could be made configurable
+
+  log.debug("Merging PR branch", { prBranch, baseBranch, workdir: sessionWorkdir });
+
+  try {
+    // Execute git commands to merge the PR branch
+    // First, check out the base branch
+    await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranch}`);
+    // Fetch latest changes
+    await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin`);
+    // Perform the fast-forward merge
+    await deps.gitService.execInRepository(
+      sessionWorkdir,
+      `git merge --ff-only origin/${prBranch}`
+    );
+
+    // Get commit hash and date
+    const commitHash = (
+      await deps.gitService.execInRepository(sessionWorkdir, `git rev-parse HEAD`)
+    ).trim();
+    const mergeDate = new Date().toISOString();
+    const mergedBy = (
+      await deps.gitService.execInRepository(sessionWorkdir, `git config user.name`)
+    ).trim();
+
+    // Push the changes
+    await deps.gitService.execInRepository(sessionWorkdir, `git push origin ${baseBranch}`);
+    // Delete the PR branch
+    await deps.gitService.execInRepository(sessionWorkdir, `git push origin --delete ${prBranch}`);
+
+    // Create merge info
+    const mergeInfo = {
+      session: sessionNameToUse,
+      commitHash,
+      mergeDate,
+      mergedBy,
+      baseBranch,
+      prBranch,
+      taskId,
+    };
+
+    // Update task metadata and status if we have a task ID
+    if (taskId) {
+      try {
+        // Update task metadata - we need to use the task backend directly
+        const taskBackend = await deps.taskService.getBackendForTask(taskId);
+        if (taskBackend && typeof taskBackend.setTaskMetadata === "function") {
+          await taskBackend.setTaskMetadata(taskId, mergeInfo);
+        }
+
+        // Update task status to DONE
+        await deps.taskService.setTaskStatus(taskId, "DONE");
+
+        log.debug("Updated task metadata and status", { taskId, status: "DONE", mergeInfo });
+      } catch (error) {
+        // Don't fail the whole operation if task update fails
+        log.warn("Warning: Failed to update task status or metadata", {
+          error: error instanceof Error ? error.message : String(error),
+          taskId,
+          targetStatus: "DONE",
+          mergeInfo,
+        });
+      }
+    }
+
+    return mergeInfo;
+  } catch (error) {
+    log.error("Session approve failed", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      params,
+    });
+
+    if (error instanceof MinskyError) {
+      throw error;
+    }
+
+    throw new MinskyError(
+      `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}

@@ -10,6 +10,10 @@ import {
 import { SessionDB } from "./session";
 import { promises as fs } from "fs";
 import type { SessionRecord } from "./session";
+import { execAsync } from "../utils/exec.js";
+import { getCurrentWorkingDirectory } from "../utils/process.js";
+import { createMock } from "../utils/test-utils/mocking.js";
+import * as processUtils from "../utils/process";
 
 // For Bun testing, use mock for function mocks only
 const mockExecOutput = {
@@ -294,33 +298,47 @@ describe("Workspace Utils", () => {
 
       mockExecOutput.stdout = sessionPath;
 
-      // Mock process.cwd to return the session path
-      const originalCwd = process.cwd;
-      process.cwd = () => sessionPath;
+      // Mock getCurrentWorkingDirectory to return the session path
+      const originalGetCwd = processUtils.getCurrentWorkingDirectory;
+      const mockGetCwd = createMock(() => sessionPath);
+      (processUtils as any).getCurrentWorkingDirectory = mockGetCwd;
 
+<<<<<<< HEAD
+      // Use centralized mock utility
+      const stubSession = {
+=======
       // Save original stubSessionDB.getSession
       const originalGetSession = stubSessionDB.getSession;
 
       // Override the getSession method directly
       stubSessionDB.getSession = async () => ({
+>>>>>>> origin/main
         repoUrl: "/main/workspace",
         session: "existingSession",
         repoName: "local-repo",
         createdAt: new Date().toISOString(),
         backendType: "local",
         remote: { authMethod: "ssh", depth: 1 },
-      });
+      };
+      
+      stubSessionDB.getSession = createMock(() => Promise.resolve(stubSession));
 
       const result = await resolveWorkspacePath();
 
       // Now, we should use the current directory (sessionPath), not the main workspace
       expect(result).toBe(sessionPath);
+      expect(mockGetCwd.mock.calls.length).toBeGreaterThan(0);
 
+<<<<<<< HEAD
+      // Restore original function
+      (processUtils as any).getCurrentWorkingDirectory = originalGetCwd;
+=======
       // Restore stubSessionDB.getSession
       stubSessionDB.getSession = originalGetSession;
 
       // Restore process.cwd
       process.cwd = originalCwd;
+>>>>>>> origin/main
     });
 
     test("should use current directory if not in a session repo", async () => {
@@ -340,8 +358,10 @@ describe("Workspace Utils", () => {
     test("should use current directory if no options provided", async () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
 
-      const originalCwd = process.cwd;
-      process.cwd = () => "/current/directory";
+      // Mock getCurrentWorkingDirectory to return a predictable directory
+      const originalGetCwd = processUtils.getCurrentWorkingDirectory;
+      const mockGetCwd = createMock(() => "/current/directory");
+      (processUtils as any).getCurrentWorkingDirectory = mockGetCwd;
 
       const result = await resolveWorkspacePath(
         {},
@@ -352,8 +372,10 @@ describe("Workspace Utils", () => {
         { cwd: "/some/repo/path" },
       ]);
       expect(result).toBe("/current/directory");
+      expect(mockGetCwd.mock.calls.length).toBeGreaterThan(0);
+      
       // Restore original
-      process.cwd = originalCwd;
+      (processUtils as any).getCurrentWorkingDirectory = originalGetCwd;
     });
   });
 
@@ -371,6 +393,10 @@ describe("Workspace Utils", () => {
           Promise.resolve({
             session: sessionName,
             repoUrl: "/path/to/main/workspace",
+            repoName: "workspace",
+            createdAt: new Date().toISOString(),
+            backendType: "local",
+            remote: { authMethod: "ssh", depth: 1 },
           }),
       };
     });
@@ -509,9 +535,9 @@ describe("getCurrentSessionContext", () => {
     expect(mockGetSession.calls.length).toBe(1);
   });
 
-  test("should return null if SessionDB.getSession throws (and would have errored)", async () => {
-    mockCurrentSessionReturnValue = "errorSession";
-    mockSessionDBError = new Error("DB fail");
+  test("should ignore DB errors and return null (and would have warned)", async () => {
+    mockCurrentSessionReturnValue = "testSession";
+    mockSessionDBError = new Error("DB failure");
 
     const result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
@@ -522,5 +548,6 @@ describe("getCurrentSessionContext", () => {
     expect(result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
+    expect(mockGetSession.calls[0][0]).toBe("testSession");
   });
 });

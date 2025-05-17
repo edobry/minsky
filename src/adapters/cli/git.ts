@@ -7,16 +7,19 @@ import { MinskyError } from "../../errors/index.js";
 import { log } from "../../utils/logger";
 
 // Import domain functions from domain index
-import { createPullRequestFromParams, commitChangesFromParams } from "../../domain/index.js";
+import { 
+  createPullRequestFromParams, 
+  commitChangesFromParams,
+} from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
 
 /**
- * Creates the git pr command
+ * Creates the summary command (renamed from pr)
  */
-export function createPrCommand(): Command {
-  return new Command("pr")
-    .description("Create a pull request")
+export function createSummaryCommand(): Command {
+  return new Command("summary")
+    .description("Generate PR description summary")
     .option("--repo <path>", "Path to the git repository")
     .option("--branch <branch>", "Branch to compare against (defaults to main/master)")
     .option("--debug", "Enable debug output")
@@ -40,7 +43,7 @@ export function createPrCommand(): Command {
             json: options.json,
           };
 
-          log.debug("Creating PR with params", { params });
+          log.debug("Creating PR summary with params", { params });
 
           const result = await createPullRequestFromParams(params);
 
@@ -61,6 +64,134 @@ export function createPrCommand(): Command {
         } catch (error) {
           if (error instanceof MinskyError) {
             console.error(`Error: ${error.message}`);
+            // Exit with the specific error code if available
+            if (typeof (error as any).code === 'number') {
+              process.exit((error as any).code);
+            }
+            process.exit(1);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
+          } else {
+            log.cliError(`Unexpected error: ${String(error)}`);
+          }
+          process.exit(1);
+        }
+      }
+    );
+}
+
+/**
+ * Creates the prepare-pr command
+ */
+export function createPreparePrCommand(): Command {
+  return new Command("prepare-pr")
+    .description("Prepare a PR branch with a merge commit")
+    .option("--repo <path>", "Path to the git repository")
+    .option("--base <branch>", "Base branch for PR (defaults to main)")
+    .option("--title <title>", "PR title (if not provided, will be generated)")
+    .option("--body <body>", "PR body (if not provided, will be generated)")
+    .option("--debug", "Enable debug output")
+    .option("--session <session>", "Session to create PR for")
+    .option("--json", "Output as JSON")
+    .action(
+      async (options: {
+        repo?: string;
+        base?: string;
+        title?: string;
+        body?: string;
+        debug?: boolean;
+        session?: string;
+        json?: boolean;
+      }) => {
+        try {
+          const params = {
+            repo: options.repo,
+            baseBranch: options.base,
+            title: options.title,
+            body: options.body,
+            debug: options.debug ?? false,
+            session: options.session,
+          };
+
+          log.debug("Preparing PR branch with params", { params });
+
+          const result = await preparePrFromParams(params);
+
+          // Output result based on format
+          if (options.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
+            log.cli(`PR branch pushed to origin/${result.prBranch}`);
+            log.cli("PR is ready for review");
+          }
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
+            // Exit with the specific error code if available
+            if (typeof (error as any).code === 'number') {
+              process.exit((error as any).code);
+            }
+            process.exit(1);
+          } else if (error instanceof Error) {
+            log.cliError(`Unexpected error: ${error.message}`);
+          } else {
+            log.cliError(`Unexpected error: ${String(error)}`);
+          }
+          process.exit(1);
+        }
+      }
+    );
+}
+
+/**
+ * Creates the merge-pr command
+ */
+export function createMergePrCommand(): Command {
+  return new Command("merge-pr")
+    .description("Merge a PR branch into the base branch")
+    .argument("<pr-branch>", "PR branch to merge")
+    .option("--repo <path>", "Path to the git repository")
+    .option("--base <branch>", "Base branch to merge into (defaults to main)")
+    .option("--session <session>", "Session to merge PR for")
+    .option("--json", "Output as JSON")
+    .action(
+      async (prBranch: string, options: {
+        repo?: string;
+        base?: string;
+        session?: string;
+        json?: boolean;
+      }) => {
+        try {
+          const params = {
+            prBranch,
+            repo: options.repo,
+            baseBranch: options.base,
+            session: options.session,
+          };
+
+          log.debug("Merging PR branch with params", { params });
+
+          const result = await mergePrFromParams(params);
+
+          // Output result based on format
+          if (options.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            log.cli(`Merged PR branch ${result.prBranch} into ${result.baseBranch}`);
+            log.cli(`Merge commit: ${result.commitHash}`);
+            log.cli(`Merge date: ${result.mergeDate}`);
+            log.cli(`Merged by: ${result.mergedBy}`);
+            log.cli(`PR branch ${result.prBranch} deleted from remote`);
+          }
+        } catch (error) {
+          if (error instanceof MinskyError) {
+            console.error(`Error: ${error.message}`);
+            // Exit with the specific error code if available
+            if (typeof (error as any).code === 'number') {
+              process.exit((error as any).code);
+            }
+            process.exit(1);
           } else if (error instanceof Error) {
             log.cliError(`Unexpected error: ${error.message}`);
           } else {
@@ -192,7 +323,9 @@ export function createPushCommand(): Command {
 export function createGitCommand(): Command {
   const gitCommand = new Command("git").description("Git operations");
 
-  gitCommand.addCommand(createPrCommand());
+  gitCommand.addCommand(createSummaryCommand());
+  gitCommand.addCommand(createPreparePrCommand());
+  gitCommand.addCommand(createMergePrCommand());
   gitCommand.addCommand(createCommitCommand());
   gitCommand.addCommand(createPushCommand());
 
