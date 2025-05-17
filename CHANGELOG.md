@@ -60,6 +60,12 @@ _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specs
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
 _See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/history/2025-05-17_pr-workflow-implementation.md) for PR workflow implementation._
 
+- Added tests for Session domain methods: getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams, updateSessionFromParams, getSessionDirFromParams
+- Added tests for Rules domain methods: listRules, getRule, searchRules, createRule, updateRule
+- Added tests for Tasks domain methods: getTaskFromParams, listTasksFromParams, getTaskStatusFromParams, setTaskStatusFromParams
+- Added tests for Git domain methods: createPullRequestFromParams, commitChangesFromParams
+- Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
+
 ### Changed
 
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
@@ -99,6 +105,11 @@ _See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/histo
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for CLI and organization changes._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
 _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/2024-05-15_testing-rules-update.md) for rule refactoring._
+
+- Migrated CLI adapter tests to test domain methods instead of interfaces
+- Improved test module isolation using centralized test utilities
+
+_See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
 
