@@ -23,22 +23,26 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      mergePr: mock((options: any) => Promise.resolve({
-        commitHash: "abcdef123456",
-        mergeDate: "2025-05-16T12:34:56Z",
-        mergedBy: "Test User",
-        baseBranch: "main",
-        prBranch: "pr/test-session"
-      }))
+      execInRepository: mock((workdir, command) => {
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        return Promise.resolve("");
+      })
     };
 
     const mockTaskService = {
       setTaskStatus: mock((id: string, status: string) => Promise.resolve()),
-      setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      getBackendForTask: mock((id: string) => Promise.resolve({
+        setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      }))
     };
 
     const mockWorkspaceUtils = {
-      getCurrentSession: mock((repoPath: string) => Promise.resolve(null))
+      getCurrentSessionContext: mock((repoPath: string) => Promise.resolve(null))
     };
 
     // Create test dependencies
@@ -57,16 +61,8 @@ describe("Session Approve", () => {
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("test-session");
-    expect(mockGitService.mergePr).toHaveBeenCalledWith({
-      prBranch: "pr/test-session",
-      repoPath: "/test/workdir/test-repo/sessions/test-session"
-    });
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", TASK_STATUS.DONE);
-    expect(mockTaskService.setTaskMetadata).toHaveBeenCalledWith("#123", {
-      commitHash: "abcdef123456",
-      mergeDate: "2025-05-16T12:34:56Z",
-      mergedBy: "Test User"
-    });
+    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
     expect(resultBySession.session).toBe("test-session");
     expect(resultBySession.taskId).toBe("#123");
@@ -75,9 +71,9 @@ describe("Session Approve", () => {
     mockSessionDB.getSession.mockClear();
     mockSessionDB.getSessionByTaskId.mockClear();
     mockSessionDB.getSessionWorkdir.mockClear();
-    mockGitService.mergePr.mockClear();
+    mockGitService.execInRepository.mockClear();
     mockTaskService.setTaskStatus.mockClear();
-    mockTaskService.setTaskMetadata.mockClear();
+    mockTaskService.getBackendForTask.mockClear();
 
     // Test by task ID
     const resultByTask = await approveSessionFromParams({
@@ -86,8 +82,8 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
-    expect(mockGitService.mergePr).toHaveBeenCalled();
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", TASK_STATUS.DONE);
+    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultByTask.taskId).toBe("#123");
   });
 
@@ -104,22 +100,29 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      mergePr: mock((options: any) => Promise.resolve({
-        commitHash: "abcdef123456",
-        mergeDate: "2025-05-16T12:34:56Z",
-        mergedBy: "Test User",
-        baseBranch: "main",
-        prBranch: "pr/current-session"
-      }))
+      execInRepository: mock((workdir, command) => {
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        return Promise.resolve("");
+      })
     };
 
     const mockTaskService = {
       setTaskStatus: mock((id: string, status: string) => Promise.resolve()),
-      setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      getBackendForTask: mock((id: string) => Promise.resolve({
+        setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      }))
     };
 
     const mockWorkspaceUtils = {
-      getCurrentSession: mock((repoPath: string) => Promise.resolve("current-session"))
+      getCurrentSessionContext: mock((repoPath: string) => Promise.resolve({
+        sessionId: "current-session",
+        taskId: "123"
+      }))
     };
 
     // Create test dependencies
@@ -136,9 +139,9 @@ describe("Session Approve", () => {
     }, testDeps);
 
     // Verify
-    expect(mockWorkspaceUtils.getCurrentSession).toHaveBeenCalledWith("/test/repo/path");
+    expect(mockWorkspaceUtils.getCurrentSessionContext).toHaveBeenCalledWith("/test/repo/path");
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("current-session");
-    expect(mockGitService.mergePr).toHaveBeenCalled();
+    expect(mockGitService.execInRepository).toHaveBeenCalled();
     expect(result.session).toBe("current-session");
   });
 
@@ -171,7 +174,7 @@ describe("Session Approve", () => {
       gitService: {},
       taskService: {},
       workspaceUtils: {
-        getCurrentSession: mock((repoPath: string) => Promise.resolve(null))
+        getCurrentSessionContext: mock((repoPath: string) => Promise.resolve(null))
       }
     };
 
@@ -194,18 +197,22 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      mergePr: mock((options: any) => Promise.resolve({
-        commitHash: "abcdef123456",
-        mergeDate: "2025-05-16T12:34:56Z",
-        mergedBy: "Test User",
-        baseBranch: "main",
-        prBranch: "pr/test-session"
-      }))
+      execInRepository: mock((workdir, command) => {
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        return Promise.resolve("");
+      })
     };
 
     const mockTaskService = {
       setTaskStatus: mock((id: string, status: string) => Promise.reject(new Error("Task update failed"))),
-      setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      getBackendForTask: mock((id: string) => Promise.resolve({
+        setTaskMetadata: mock((id: string, metadata: any) => Promise.resolve())
+      }))
     };
 
     // Create test dependencies
