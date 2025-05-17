@@ -57,6 +57,9 @@ _See: SpecStory history [2025-05-17_pr-workflow-implementation](.specstory/histo
 - PR output now includes both committed and uncommitted (working directory) changes
 - README rewritten for clarity and idiomatic open source style
 - All debug output is now opt-in and sent to stderr
+- Changed default log level from "debug" to "info" to reduce noise in normal operation (Task #081)
+  - Debug logs are now only output when LOG_LEVEL is explicitly set to "debug"
+  - Documentation updated to clarify how to enable debug logging when needed
 - Refactored code to move repo path resolution logic out of `tasks.ts` into a shared utility module
 - Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options
 - Improved error handling and user feedback for invalid status values in `tasks status set`
