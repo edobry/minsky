@@ -9,3 +9,33 @@ export function exit(code: number): never {
   // eslint-disable-next-line no-restricted-globals
   process.exit(code);
 }
+
+// Store the original process.cwd() function to allow resetting
+let currentWorkingDirectoryImpl = () => {
+  // eslint-disable-next-line no-restricted-globals
+  return process.cwd();
+};
+
+/**
+ * A utility function that abstracts process.cwd() functionality
+ * This allows for easier mocking and testing of directory-related functionality
+ * @returns The current working directory
+ */
+export function getCurrentWorkingDirectory(): string {
+  return currentWorkingDirectoryImpl();
+}
+
+/**
+ * For testing only: Override the implementation of getCurrentWorkingDirectory
+ * @param mockImpl The mock implementation to use
+ * @returns A function to restore the original implementation
+ */
+export function mockCurrentWorkingDirectory(mockImpl: () => string): () => void {
+  const originalImpl = currentWorkingDirectoryImpl;
+  currentWorkingDirectoryImpl = mockImpl;
+  
+  // Return a function to restore the original
+  return () => {
+    currentWorkingDirectoryImpl = originalImpl;
+  };
+}
