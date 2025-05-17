@@ -7,19 +7,4 @@ alwaysApply: true
 ---
 # Minsky Workflow System
 
-This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
-
-## Workflow Sequence
-
-6. **PR Review and Approval**
-   - First: Address review comments
-   - Then: Approve and merge the PR using `minsky git approve`
-   - Apply: pr-preparation-workflow
-
-### PR-Related Questions
-
-- **"How do I approve and merge a PR?"**
-  → Apply pr-preparation-workflow and use `minsky git approve <pr-branch>`
-
-- **"How do I update task metadata after merging?"**
-  → The `git approve` command automatically updates task metadata when used with `--taskId`
+This rule provides an overview of the workflow system with git approve for PR merging.

@@ -9,31 +9,4 @@ alwaysApply: true
 ---
 # PR Preparation Workflow
 
-This rule provides guidelines for preparing, reviewing, and merging pull requests (PRs) in the Minsky workflow.
-
-## Core Principles
-
-- Always verify implementation completeness before creating a PR
-- Generate PR descriptions using the Minsky CLI
-- Keep PR descriptions clear, comprehensive, and well-structured
-- Follow the approval and merging process using the git approve command
-- Update task status appropriately throughout the PR lifecycle
-
-## PR Approval and Merging
-
-### 2. Merging the PR
-
-Once approved, use the Minsky CLI to merge the PR branch:
-
-```bash
-# With task ID
-minsky git approve <pr-branch> --taskId <task-id>
-
-# In a session
-minsky git approve <pr-branch>
-```
-
-This will:
-- Merge the PR branch into the base branch
-- Store the merge commit hash and date in the task metadata
-- Update the task status to reflect the merge
+This rule provides guidelines for preparing, reviewing, and merging PRs with git approve command.
