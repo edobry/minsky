@@ -6,6 +6,15 @@
 
 ### Added
 
+- Task #025: Added git approve command for session PR merging
+  - Added `git approve` command to merge PR branches into the base branch
+  - Implemented task metadata storage with merge commit information
+  - Added clean exit codes for error conditions (dirty work tree, merge conflicts, etc.)
+  - Enhanced GitService with PR branch management functionality
+  - Integrated with task metadata to record merge information
+
+_See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025-05-18_git-approve-command.md) for git approve command implementation._
+
 - Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
 
   - Modified resolveWorkspacePath function to use the current directory instead of main workspace when in a session
@@ -90,6 +99,13 @@ _See: SpecStory history [2024-05-15_testing-rules-update](.specstory/history/202
 
 ### Fixed
 
+- Task #083: Fixed bugs in Minsky rules CLI command
+  - Fixed content file loading in `--content` parameter to properly read file contents instead of using the file path as content
+  - Improved globs format handling to accept both comma-separated strings and YAML/JSON array formats
+  - Added validation for glob formats with clear error messages
+  - Added tests for file content loading and different glob format inputs
+  - Improved help text for rules command parameters
+  
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
