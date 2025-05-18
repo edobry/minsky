@@ -11,7 +11,9 @@
   - Modified PR workflow to guarantee a proper merge commit for reviews
   - Added `session pr` command for creating PR branches directly from session workspace
   - Added descriptive command help for `prepare-pr` to clarify merge commit workflow
-  - Enabled auto-detection for session in PR commands
+  - Used original branch name with pr/ prefix for PR branch naming
+  - Ensured PR title is used as merge commit message
+  - Added initial tests for the functionality (will need further improvements)
 
 ### Added
 

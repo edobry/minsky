@@ -1145,9 +1145,8 @@ export class GitService {
       sourceBranch = branchOut.trim();
     }
 
-    // Create PR branch name with pr/ prefix
-    const prBranchName =
-      options.branchName || (options.title ? this.titleToBranchName(options.title) : sourceBranch);
+    // Create PR branch name with pr/ prefix - use the provided branch name or just prefix the source branch
+    const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
 
     // Verify base branch exists

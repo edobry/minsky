@@ -1,45 +1,46 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, jest } from "bun:test";
 import { createPrCommand } from "../../../adapters/cli/session";
 import { Command } from "commander";
-import * as domain from "../../../domain"; 
-import { getCurrentSessionContext } from "../../../domain/workspace";
+import * as domain from "../../../domain";
+import * as workspace from "../../../domain/workspace";
 
-// Mock the domain module
-mock.module("../../../domain/index.js", () => ({
-  preparePrFromParams: mock(() => Promise.resolve({
+describe("Session PR Command", () => {
+  // Mock domain dependencies
+  const preparePrFromParamsMock = jest.fn().mockResolvedValue({
     prBranch: "pr/test-branch",
     baseBranch: "main",
     title: "Test PR Title"
-  })),
-  // Include other exports that might be used
-  ...domain
-}));
-
-// Mock the workspace module
-mock.module("../../../domain/workspace.js", () => ({
-  getCurrentSessionContext: mock(() => Promise.resolve({
+  });
+  
+  // Mock workspace dependencies
+  const getCurrentSessionContextMock = jest.fn().mockResolvedValue({
     sessionId: "test-session",
     workspacePath: "/test/session/path"
-  }))
-}));
-
-describe("Session PR Command", () => {
+  });
+  
   // Capture console output
   const originalConsoleLog = console.log;
   const consoleOutput: string[] = [];
 
   beforeEach(() => {
+    // Set up mocks
+    (domain as any).preparePrFromParams = preparePrFromParamsMock;
+    (workspace as any).getCurrentSessionContext = getCurrentSessionContextMock;
+    
     // Mock console.log to capture output
     console.log = (...args: any[]) => {
       consoleOutput.push(args.join(" "));
     };
     consoleOutput.length = 0;
+    
+    // Clear mock call history
+    preparePrFromParamsMock.mockClear();
+    getCurrentSessionContextMock.mockClear();
   });
 
   afterEach(() => {
     // Restore original console.log
     console.log = originalConsoleLog;
-    mock.restoreAll();
   });
 
   test("session pr command creates PR with auto-detected session", async () => {
@@ -63,7 +64,7 @@ describe("Session PR Command", () => {
     command.action = originalAction;
     
     // Make sure we captured the action function
-    expect(actionFn).not.toBeNull();
+    expect(actionFn !== null).toBe(true);
     
     // Call the action function with sample options
     if (actionFn) {
@@ -76,11 +77,11 @@ describe("Session PR Command", () => {
     }
     
     // Verify that getCurrentSessionContext was called
-    expect((getCurrentSessionContext as any).mock.calls.length).toBe(1);
+    expect(getCurrentSessionContextMock.mock.calls.length).toBeGreaterThan(0);
     
     // Verify that preparePrFromParams was called with expected parameters
-    expect((domain.preparePrFromParams as any).mock.calls.length).toBe(1);
-    expect((domain.preparePrFromParams as any).mock.calls[0][0]).toEqual({
+    expect(preparePrFromParamsMock.mock.calls.length).toBeGreaterThan(0);
+    expect(preparePrFromParamsMock.mock.calls[0][0]).toEqual({
       session: "test-session",
       baseBranch: "main",
       title: "Test PR Title",
@@ -91,13 +92,18 @@ describe("Session PR Command", () => {
     
     // Verify appropriate output was produced
     expect(consoleOutput.length).toBeGreaterThan(0);
-    expect(consoleOutput.some(line => line.includes("Auto-detected session: test-session"))).toBe(true);
-    expect(consoleOutput.some(line => line.includes("Created PR branch pr/test-branch"))).toBe(true);
+    
+    // Find lines containing expected output
+    const sessionDetectedLine = consoleOutput.find(line => line.includes("Auto-detected session: test-session"));
+    const branchCreatedLine = consoleOutput.find(line => line.includes("Created PR branch pr/test-branch"));
+    
+    expect(sessionDetectedLine !== undefined).toBe(true);
+    expect(branchCreatedLine !== undefined).toBe(true);
   });
 
   test("session pr command handles missing session context", async () => {
     // Override getCurrentSessionContext to return null
-    (getCurrentSessionContext as any).mockImplementation(() => Promise.resolve(null));
+    getCurrentSessionContextMock.mockResolvedValueOnce(null);
     
     // Create and capture the command action
     const command = createPrCommand();
@@ -112,7 +118,7 @@ describe("Session PR Command", () => {
     createPrCommand();
     command.action = originalAction;
     
-    expect(actionFn).not.toBeNull();
+    expect(actionFn !== null).toBe(true);
     
     // Execute the action with no session context
     if (actionFn) {
@@ -127,8 +133,10 @@ describe("Session PR Command", () => {
       }
       
       // Should throw an error about missing session
-      expect(error).not.toBeNull();
-      expect(error?.message).toContain("Could not auto-detect session");
+      expect(error !== null).toBe(true);
+      if (error) {
+        expect(error.message.includes("Could not auto-detect session")).toBe(true);
+      }
     }
   });
 }); 
