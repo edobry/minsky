@@ -12,7 +12,8 @@
   - Added `session pr` command for creating PR branches directly from session workspace
   - Added descriptive command help for `prepare-pr` to clarify merge commit workflow
   - Used original branch name with pr/ prefix for PR branch naming
-  - Ensured PR title is used as merge commit message
+  - Ensured PR title is used as merge commit title
+  - Added PR body as merge commit body when provided
   - Added initial tests for the functionality (will need further improvements)
 
 ### Added
