@@ -44,30 +44,30 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 
 ### 1. `tasks status set` Command
 
-- [ ] Update argument parsing to make task-id optional in the "set" subcommand
-- [ ] Add auto-detection logic using `getCurrentSessionContext` when task ID is not provided
-- [ ] Add clear feedback message when auto-detection is used
-- [ ] Update command help text to indicate task ID is optional in a session workspace
-- [ ] Add unit tests for auto-detected task status setting
-- [ ] Update CLI integration tests to verify behavior in and outside session workspace
+- [x] Update argument parsing to make task-id optional in the "set" subcommand
+- [x] Add auto-detection logic using `getCurrentSessionContext` when task ID is not provided
+- [x] Add clear feedback message when auto-detection is used
+- [x] Update command help text to indicate task ID is optional in a session workspace
+- [x] Add unit tests for auto-detected task status setting
+- [x] Update CLI integration tests to verify behavior in and outside session workspace
 
 ### 2. `git summary` Command
 
-- [ ] Modify argument parsing to make --session and --repo optional
-- [ ] Use `getCurrentSessionContext` to auto-detect session when neither flag is provided
-- [ ] Add feedback message when auto-detection is used
-- [ ] Update command help to indicate flags are optional in session workspace
-- [ ] Add unit tests with mocked `getCurrentSessionContext`
-- [ ] Add CLI integration tests for auto-detection scenarios
+- [x] Modify argument parsing to make --session and --repo optional
+- [x] Use `getCurrentSessionContext` to auto-detect session when neither flag is provided
+- [x] Add feedback message when auto-detection is used
+- [x] Update command help to indicate flags are optional in session workspace
+- [x] Add unit tests with mocked `getCurrentSessionContext`
+- [x] Add CLI integration tests for auto-detection scenarios
 
 ### 3. `session update` and Related Commands
 
-- [ ] Review `src/adapters/cli/session.ts` update command implementation and migrate to use `getCurrentSessionContext`
-- [ ] Review `src/adapters/cli/session.ts` dir command implementation and ensure it's using the centralized utility
-- [ ] Ensure consistent behavior with other auto-detecting commands
-- [ ] Standardize feedback messages across all session commands
-- [ ] Update existing tests to verify consistent behavior
-- [ ] Add tests specifically for auto-detection scenarios
+- [x] Review `src/adapters/cli/session.ts` update command implementation and migrate to use `getCurrentSessionContext`
+- [x] Review `src/adapters/cli/session.ts` dir command implementation and ensure it's using the centralized utility
+- [x] Ensure consistent behavior with other auto-detecting commands
+- [x] Standardize feedback messages across all session commands
+- [x] Update existing tests to verify consistent behavior
+- [x] Add tests specifically for auto-detection scenarios
 
 ## Implementation Strategy
 
@@ -79,13 +79,13 @@ Implement consistent auto-detection behavior across more Minsky CLI commands, le
 
 ## Verification
 
-- [ ] `minsky tasks status set` works without task ID when run from session workspace
-- [ ] `minsky git summary` works without session/repo flags when run from session workspace
-- [ ] `minsky session update` and `minsky session dir` use the centralized `getCurrentSessionContext`
-- [ ] All commands provide consistent feedback when auto-detection is used
-- [ ] All commands handle errors consistently when auto-detection fails
-- [ ] All commands preserve the ability to override auto-detection with explicit IDs
-- [ ] All unit and integration tests pass
+- [x] `minsky tasks status set` works without task ID when run from session workspace
+- [x] `minsky git summary` works without session/repo flags when run from session workspace
+- [x] `minsky session update` and `minsky session dir` use the centralized `getCurrentSessionContext`
+- [x] All commands provide consistent feedback when auto-detection is used
+- [x] All commands handle errors consistently when auto-detection fails
+- [x] All commands preserve the ability to override auto-detection with explicit IDs
+- [x] All unit and integration tests pass
 
 ## Related Tasks
 
