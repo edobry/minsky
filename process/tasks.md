@@ -125,4 +125,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Extend Auto-Detection to Additional Commands [#084](process/tasks/084-extend-auto-detection-to-additional-commands.md)
 
-- [ ] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)
+- [x] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)

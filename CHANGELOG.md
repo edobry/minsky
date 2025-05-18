@@ -41,6 +41,12 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
   - Improved branch naming with automatic conversion from titles to valid branch names
   - Added session auto-detection for PR commands when run from session workspaces
 
+- Added tests for Session domain methods: getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams, updateSessionFromParams, getSessionDirFromParams
+- Added tests for Rules domain methods: listRules, getRule, searchRules, createRule, updateRule
+- Added tests for Tasks domain methods: getTaskFromParams, listTasksFromParams, getTaskStatusFromParams, setTaskStatusFromParams
+- Added tests for Git domain methods: createPullRequestFromParams, commitChangesFromParams
+- Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
+
 ### Changed
 
 - Renamed `git pr` command to `git summary` for clearer separation of concerns
@@ -84,6 +90,11 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
   - Added descriptive frontmatter to template-literals and test-expectations rules
 
 _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/history/2025-05-17_add-git-approve-command.md) for implementation details._
+
+- Migrated CLI adapter tests to test domain methods instead of interfaces
+- Improved test module isolation using centralized test utilities
+
+_See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
 
@@ -151,3 +162,11 @@ _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/hist
   - Includes a quick reference guide for test structure best practices
 
 _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
+
+- Migrated CLI adapter tests to test domain methods directly instead of through interfaces
+- Improved test structure following project testing best practices
+- Removed placeholder tests and replaced them with proper domain method tests
+- Implemented proper mocking patterns using centralized test utilities
+- Added comprehensive domain method tests for session and rules operations
+
+_See: Task #085 for migrating CLI adapter tests to test domain methods instead_
