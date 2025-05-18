@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Enhanced PR workflow with improved merge commit functionality:
+  - Improved `git prepare-pr` to create PR branches directly from base branch
+  - Modified PR workflow to guarantee a proper merge commit for reviews
+  - Added `session pr` command for creating PR branches directly from session workspace
+  - Added descriptive command help for `prepare-pr` to clarify merge commit workflow
+  - Used original branch name with pr/ prefix for PR branch naming
+  - Ensured PR title is used as merge commit message
+  - Added initial tests for the functionality (will need further improvements)
+
 ### Added
 
 - Task #084: Extended auto-detection to additional commands
@@ -35,6 +46,7 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added task context detection and automatic session selection for context-aware commands.
 - Improved error handling with detailed error messages and appropriate exit codes.
 
+<<<<<<< HEAD
 - Enhanced PR workflow:
   - Modified `git prepare-pr` command to create branches with `pr/` prefix
   - Added new `session pr` command that specifically creates PR branches for sessions
@@ -47,6 +59,8 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added tests for Git domain methods: createPullRequestFromParams, commitChangesFromParams
 - Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
 
+=======
+>>>>>>> pr-merge-commit-fix
 ### Changed
 
 - Renamed `git pr` command to `git summary` for clearer separation of concerns

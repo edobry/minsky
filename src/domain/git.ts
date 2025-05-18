@@ -1145,9 +1145,8 @@ export class GitService {
       sourceBranch = branchOut.trim();
     }
 
-    // Create PR branch name with pr/ prefix
-    const prBranchName =
-      options.branchName || (options.title ? this.titleToBranchName(options.title) : sourceBranch);
+    // Create PR branch name with pr/ prefix - use the provided branch name or just prefix the source branch
+    const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
 
     // Verify base branch exists
@@ -1160,39 +1159,64 @@ export class GitService {
     // Make sure we have the latest from the base branch
     await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
 
-    // Create and checkout the PR branch from the current branch
-    try {
-      // Check if PR branch already exists locally
-      try {
-        await execAsync(`git -C ${workdir} rev-parse --verify ${prBranch}`);
-        // If it exists, just check it out
-        await execAsync(`git -C ${workdir} checkout ${prBranch}`);
-      } catch {
-        // If it doesn't exist, create it from the current branch
-        await execAsync(`git -C ${workdir} checkout -b ${prBranch}`);
-      }
-    } catch (err) {
-      throw new MinskyError(
-        `Failed to create/checkout PR branch: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-
-    // Stage all changes
+    // Stage all changes in the current branch
     await this.stageAll(workdir);
 
-    // Check if there are changes to commit
+    // Check if there are changes to commit before creating the PR branch
     const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
     if (statusOutput.trim()) {
-      // Commit any staged changes if there are any
-      const commitMsg = options.title || `Prepare PR branch ${prBranch}`;
+      // Commit any staged changes
+      const commitMsg = options.title || `Prepare branch ${sourceBranch} for PR`;
       await this.commit(commitMsg, workdir);
     }
 
-    // Push changes to the PR branch
-    await this.push({
-      repoPath: workdir,
-      remote: "origin",
-    });
+    // Create or checkout the PR branch
+    try {
+      // Check if PR branch already exists locally
+      let prBranchExists = false;
+      try {
+        await execAsync(`git -C ${workdir} rev-parse --verify ${prBranch}`);
+        prBranchExists = true;
+      } catch {
+        // Branch doesn't exist, that's expected
+      }
+
+      if (prBranchExists) {
+        // If it exists, delete it (force recreate for a clean PR branch)
+        await execAsync(`git -C ${workdir} branch -D ${prBranch}`);
+      }
+
+      // Create the PR branch from the base branch to start clean
+      await execAsync(`git -C ${workdir} checkout -b ${prBranch} origin/${baseBranch}`);
+
+      // Create a merge commit by merging the source branch into the PR branch
+      // --no-ff ensures a merge commit is created even if it could be fast-forwarded
+      const mergeTitle = options.title || `Merge ${sourceBranch} into ${prBranch} for review`;
+      
+      // If a body is provided, create a commit message with both title and body
+      let mergeMessage = mergeTitle;
+      if (options.body) {
+        mergeMessage = `${mergeTitle}\n\n${options.body}`;
+      }
+      
+      await execAsync(`git -C ${workdir} merge --no-ff -m "${mergeMessage}" ${sourceBranch}`);
+    } catch (err) {
+      throw new MinskyError(
+        `Failed to create PR branch with merge commit: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Push the PR branch with the merge commit
+    try {
+      await execAsync(`git -C ${workdir} push -f origin ${prBranch}`);
+    } catch (err) {
+      throw new MinskyError(
+        `Failed to push PR branch: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Return to the original branch
+    await execAsync(`git -C ${workdir} checkout ${sourceBranch}`);
 
     return {
       prBranch,

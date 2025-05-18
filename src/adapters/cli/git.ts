@@ -11,6 +11,7 @@ import {
   createPullRequestFromParams,
   commitChangesFromParams,
   preparePrFromParams,
+  mergePrFromParams as domainMergePrFromParams
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
@@ -171,11 +172,14 @@ export function createSummaryCommand(): Command {
  */
 export function createPreparePrCommand(): Command {
   return new Command("prepare-pr")
-    .description("Prepare a PR branch with a merge commit")
+    .description(
+      "Prepare a PR branch with a merge commit. Creates a pr/<name> branch from the base branch, merges your changes with a merge commit for review, and then returns to your source branch. This creates an explicit merge commit to make PR review and approval workflows easier."
+    )
     .option("--repo <path>", "Path to the git repository")
     .option("--base <branch>", "Base branch for PR (defaults to main)")
-    .option("--title <title>", "PR title (if not provided, will be generated)")
-    .option("--body <body>", "PR body (if not provided, will be generated)")
+    .option("--title <title>", "PR title (also used for merge commit message)")
+    .option("--body <body>", "PR body")
+    .option("--branch <n>", "Branch name to use (without pr/ prefix)")
     .option("--debug", "Enable debug output")
     .option("--session <session>", "Session to create PR for")
     .option("--json", "Output as JSON")
@@ -185,6 +189,7 @@ export function createPreparePrCommand(): Command {
         base?: string;
         title?: string;
         body?: string;
+        branch?: string;
         debug?: boolean;
         session?: string;
         json?: boolean;
@@ -195,6 +200,7 @@ export function createPreparePrCommand(): Command {
             baseBranch: options.base,
             title: options.title,
             body: options.body,
+            branch: options.branch,
             debug: options.debug ?? false,
             session: options.session,
           };

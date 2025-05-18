@@ -375,6 +375,81 @@ export function createApproveCommand(): Command {
 }
 
 /**
+ * Creates the session pr command
+ */
+export function createPrCommand(): Command {
+  return new Command("pr")
+    .description("Create a PR branch for this session with a merge commit for review")
+    .option("--base <branch>", "Base branch for PR (defaults to main)")
+    .option("--title <title>", "PR title (also used for merge commit message)")
+    .option("--body <body>", "PR body")
+    .option("--branch <name>", "Branch name to use (without pr/ prefix)")
+    .option("--debug", "Enable debug output")
+    .option("--json", "Output as JSON")
+    .action(async (options: {
+      base?: string;
+      title?: string;
+      body?: string;
+      branch?: string;
+      debug?: boolean;
+      json?: boolean;
+    }) => {
+      try {
+        // Auto-detect session if in a session directory
+        let session: string | undefined;
+        try {
+          // Import getCurrentSessionContext to auto-detect session
+          const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+          const sessionContext = await getCurrentSessionContext(process.cwd());
+
+          if (sessionContext?.sessionId) {
+            session = sessionContext.sessionId;
+            if (!options.json) {
+              console.log(`Auto-detected session: ${session}`);
+            }
+          }
+        } catch (error) {
+          // Just log the error but continue - the user will need to provide --session
+          console.error(
+            "Error auto-detecting session",
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+
+        if (!session) {
+          throw new MinskyError("Could not auto-detect session. Make sure you're in a session directory.");
+        }
+
+        // Call preparePrFromParams with the session parameter
+        const result = await preparePrFromParams({
+          session,
+          baseBranch: options.base,
+          title: options.title,
+          body: options.body,
+          branchName: options.branch,
+          debug: options.debug,
+        });
+
+        // Output result based on format
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
+          console.log(`PR branch pushed to origin/${result.prBranch}`);
+          console.log("PR is ready for review");
+        }
+      } catch (error) {
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+        } else {
+          console.error(`Unexpected error: ${error}`);
+        }
+        process.exit(1);
+      }
+    });
+}
+
+/**
  * Creates the main session command with all subcommands
  * Accepts an optional getCurrentSession function for testing
  */
@@ -388,6 +463,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createDeleteCommand());
   sessionCommand.addCommand(createUpdateCommand());
   sessionCommand.addCommand(createApproveCommand());
+  sessionCommand.addCommand(createPrCommand());
 
   return sessionCommand;
 }
