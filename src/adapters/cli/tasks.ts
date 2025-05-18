@@ -255,7 +255,7 @@ export function createStatusCommand(): Command {
   statusCommand
     .command("set")
     .description("Set the status of a task")
-    .argument("<task-id>", "ID of the task")
+    .argument("[task-id]", "ID of the task (auto-detected if in a session workspace)")
     // The linter error for TASK_STATUS here seems incorrect, Object.values(TASK_STATUS) is a valid value usage.
     .argument("[status]", `New status for the task (${Object.values(TASK_STATUS).join(" | ")})`)
     .option("--session <session>", "Session name to use for repo resolution")
@@ -265,7 +265,7 @@ export function createStatusCommand(): Command {
     .option("--json", "Output confirmation as JSON") // Added for consistency, might not be used by domain
     .action(
       async (
-        taskId: string,
+        taskId: string | undefined,
         status: string | undefined, // status comes as a string from commander or undefined if not provided
         options: {
           session?: string;
@@ -275,6 +275,35 @@ export function createStatusCommand(): Command {
           json?: boolean;
         }
       ) => {
+        let autoDetectedTask = false;
+
+        // Auto-detect task ID if not provided
+        if (!taskId) {
+          try {
+            // Import getCurrentSessionContext to auto-detect session and task
+            const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+            const sessionContext = await getCurrentSessionContext(process.cwd());
+
+            if (sessionContext?.taskId) {
+              taskId = sessionContext.taskId;
+              autoDetectedTask = true;
+              if (!options.json) {
+                log.cli(`Auto-detected task: ${taskId}`);
+              }
+            } else {
+              log.cliError("No task ID provided and could not auto-detect from current session.");
+              log.cliError(
+                "Please specify a task ID or run from a session workspace with an associated task."
+              );
+              exit(1);
+            }
+          } catch (error) {
+            log.cliError("Error while trying to auto-detect task:");
+            log.error("Error details for task auto-detection", error as Error);
+            exit(1);
+          }
+        }
+
         // If status is not provided, prompt for it interactively
         if (!status) {
           // Check if we're in a non-interactive environment

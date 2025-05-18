@@ -35,12 +35,6 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added task context detection and automatic session selection for context-aware commands.
 - Improved error handling with detailed error messages and appropriate exit codes.
 
-- Enhanced PR workflow:
-  - Modified `git prepare-pr` command to create branches with `pr/` prefix
-  - Added new `session pr` command that specifically creates PR branches for sessions
-  - Improved branch naming with automatic conversion from titles to valid branch names
-  - Added session auto-detection for PR commands when run from session workspaces
-
 ### Changed
 
 - Renamed `git pr` command to `git summary` for clearer separation of concerns
