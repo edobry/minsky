@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Enhanced PR workflow with improved merge commit functionality:
+  - Improved `git prepare-pr` to create PR branches directly from base branch
+  - Modified PR workflow to guarantee a proper merge commit for reviews
+  - Added `session pr` command for creating PR branches directly from session workspace
+  - Added descriptive command help for `prepare-pr` to clarify merge commit workflow
+  - Enabled auto-detection for session in PR commands
+
 ### Added
 
 - Task #084: Extended auto-detection to additional commands
