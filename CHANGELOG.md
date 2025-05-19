@@ -35,10 +35,14 @@ _See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/his
 _See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
 
 - Task #093: Implement consistent CLI error handling across all commands
-  - Will create a centralized error handling utility for CLI commands
-  - Will standardize error message format and content across command groups
-  - Will improve user experience by showing concise, helpful error messages
-  - Will maintain detailed error logging for debugging purposes
+  - Created a centralized error handling utility in `src/adapters/cli/utils/error-handler.ts`
+  - Added type-specific error handling for different error categories (validation, resource not found, etc.)
+  - Implemented consistent output formatting with the new `outputResult` utility
+  - Added debug mode detection to show detailed error information only when needed
+  - Refactored session, tasks, git, and init commands to use the centralized error handler
+  - Improved user experience by providing clear, concise error messages
+
+_See: SpecStory history [2025-06-18_implement-consistent-cli-error-handling](mdc:.specstory/history/2025-06-18_implement-consistent-cli-error-handling.md) for error handling implementation._
 
 - Task #092: Add session pr command and improve git prepare-pr interface
   - Implemented a new `session pr` command that automatically detects session context
