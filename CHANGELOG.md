@@ -107,6 +107,17 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 
 ### Changed
 
+- Task #089: Aligned CLI Commands with Revised Concepts
+  - Updated CLI command options and descriptions to use the new terminology from Task #086
+  - Renamed `--workspace` parameter to `--upstream-repo` across all commands
+  - Changed "Repository path" to "Repository URI" in command descriptions
+  - Updated "main workspace" and "main branch" references to "upstream repository" and "upstream branch"
+  - Standardized parameter naming conventions across all CLI commands
+  - Updated schemas to reflect the revised concepts terminology
+  - Improved default branch detection to work with repositories using non-main default branches
+
+_See: SpecStory history from task #086 for formalization of core concepts._
+
 - Renamed `git pr` command to `git summary` for clearer separation of concerns
 - Extended TaskService to store merge metadata in task specifications
 - Updated task status to DONE automatically when PRs are merged through session approve
