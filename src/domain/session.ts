@@ -1049,7 +1049,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
             backend: "markdown",
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.info(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(`Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
         }
