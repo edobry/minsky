@@ -2,6 +2,8 @@ import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
+import { existsSync as syncExists, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -18,13 +20,81 @@ import { GitService, type BranchOptions } from "./git.js";
 import { TaskService, TASK_STATUS } from "./tasks.js";
 import { isSessionWorkspace } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
-import { getCurrentSession } from "./workspace.js";
+import { getCurrentSession, getSessionFromWorkspace } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
 import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import { preparePrFromParams } from "./git.js";
+import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams } from "./git.js";
+import { getCurrentWorkingDirectory } from "../utils/process.js";
+
+/**
+ * Session resolution options.
+ */
+export interface SessionResolutionOptions {
+  /**
+   * Explicit session name
+   */
+  sessionName?: string;
+  
+  /**
+   * Task ID to resolve the session from
+   */
+  taskId?: string;
+  
+  /**
+   * Whether to auto-detect the session from the current directory
+   * Default: true if no other options are provided
+   */
+  autoDetect?: boolean;
+  
+  /**
+   * Current working directory for auto-detection
+   * Default: process.cwd()
+   */
+  cwd?: string;
+}
+
+/**
+ * Resolved session information.
+ */
+export interface ResolvedSession {
+  /**
+   * Session name
+   */
+  name: string;
+  
+  /**
+   * Repository URI associated with the session
+   */
+  repositoryUri: string;
+  
+  /**
+   * Normalized repository name (org/repo or local/repo)
+   */
+  repositoryName: string;
+  
+  /**
+   * Workspace path for the session
+   */
+  workspacePath: string;
+  
+  /**
+   * Associated task ID, if any
+   */
+  taskId?: string;
+  
+  /**
+   * When the session was created
+   */
+  createdAt: string;
+  
+  /**
+   * Type of repository backend
+   */
+  backendType?: "local" | "remote" | "github";
+}
 
 /**
  * Helper function to normalize and validate a task ID
@@ -401,7 +471,6 @@ export async function startSessionFromParams(
   try {
     log.debug("Starting session with params", {
       name,
-      repoUrl,
       task,
       inputBranch,
       noStatusUpdate,
@@ -520,31 +589,17 @@ export async function startSessionFromParams(
     await deps.sessionDB.addSession(sessionRecord);
     log.debug("Added session to database");
 
-    const cloneOptions = {
+    // Now clone the repo
+    const gitCloneResult = await deps.gitService.clone({
       repoUrl,
-      sessionName,
-      workdir: repoPath,
-      branch: actualBranchName,
-      depth: 1,
+      session: sessionName,
+    });
+    
+    // Convert to our interface
+    const cloneResult = {
+      repoPath: gitCloneResult.workdir,
+      success: true
     };
-
-    log.debug("Starting git clone operation", { cloneOptions });
-    try {
-      const cloneResult = await deps.gitService.clone({
-        ...cloneOptions,
-        session: sessionName,
-      });
-      log.debug("Git clone completed successfully", { cloneResult });
-    } catch (error) {
-      log.error("Git clone failed", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        cloneOptions,
-      });
-      throw new MinskyError(
-        `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
 
     let statusUpdateResult;
     if (taskId && !noStatusUpdate) {
@@ -657,11 +712,11 @@ export async function updateSessionFromParams(
     await deps.gitService.popStash(sessionWorkDir);
   }
 
+  // Push changes if needed
   if (!params.noPush) {
     await deps.gitService.push({
-      session: sessionName,
       repoPath: sessionWorkDir,
-      remote: inputRemote,
+      remote: inputRemote || "origin"
     });
   }
 
@@ -979,7 +1034,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
             backend: "markdown",
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.info(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(`Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -996,4 +1051,73 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     });
     throw error;
   }
+}
+
+/**
+ * Resolves a session reference to a specific session and its workspace path.
+ * 
+ * Resolution strategy:
+ * 1. If session name is explicitly provided, use it
+ * 2. If task ID is specified, find the associated session
+ * 3. If auto-detection is enabled, try to find session from current directory
+ * 4. Otherwise throw an error
+ * 
+ * @param options Resolution options
+ * @returns Resolved session information
+ * @throws ValidationError if session cannot be resolved
+ */
+export async function resolveSession(
+  options: SessionResolutionOptions = {}
+): Promise<ResolvedSession> {
+  const { sessionName, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
+  
+  let sessionId: string | null = null;
+  
+  // 1. Try to resolve from explicit session name
+  if (sessionName) {
+    sessionId = sessionName;
+  }
+  // 2. Try to resolve from task ID
+  else if (taskId) {
+    const normalizedTaskId = taskId.startsWith('#') ? taskId : `#${taskId}`;
+    const sessionDb = new SessionDB();
+    const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
+    if (!sessionRecord) {
+      throw new ValidationError(`No session found for task: ${taskId}`);
+    }
+    sessionId = sessionRecord.session;
+  }
+  // 3. Try auto-detection from current directory
+  else if (autoDetect) {
+    sessionId = await getCurrentSession(cwd);
+    if (!sessionId) {
+      throw new ValidationError('Not in a session workspace');
+    }
+  }
+  // 4. No resolution method available
+  else {
+    throw new ValidationError('Cannot resolve session: no session name, task ID provided, and auto-detection is disabled');
+  }
+  
+  // Fetch the session details
+  const sessionDb = new SessionDB();
+  const sessionRecord = await sessionDb.getSession(sessionId);
+  
+  if (!sessionRecord) {
+    throw new ValidationError(`Session not found: ${sessionId}`);
+  }
+  
+  // Get the workspace path
+  const workspacePath = await sessionDb.getRepoPath(sessionRecord);
+  
+  // Return the resolved session information
+  return {
+    name: sessionRecord.session,
+    repositoryUri: sessionRecord.repoUrl,
+    repositoryName: sessionRecord.repoName,
+    workspacePath,
+    taskId: sessionRecord.taskId,
+    createdAt: sessionRecord.createdAt,
+    backendType: sessionRecord.backendType as "local" | "remote" | "github" | undefined
+  };
 }

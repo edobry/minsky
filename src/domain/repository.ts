@@ -3,6 +3,12 @@
  * Defines the contract for different repository backends (local, remote, GitHub).
  */
 import { normalizeRepoName } from './repo-utils.js';
+import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from './uri-utils.js';
+import type { RepositoryUri } from './uri-utils.js';
+import { SessionDB } from './session.js';
+import { getCurrentWorkingDirectory } from '../utils/process.js';
+import { ValidationError, MinskyError } from '../errors/index.js';
+import { existsSync } from 'fs';
 
 /**
  * Repository backend types supported by the system.
@@ -11,6 +17,73 @@ export enum RepositoryBackendType {
   LOCAL = 'local',
   REMOTE = 'remote',
   GITHUB = 'github',
+}
+
+/**
+ * Repository resolution options.
+ */
+export interface RepositoryResolutionOptions {
+  /**
+   * Explicit repository URI or path
+   */
+  uri?: string;
+  
+  /**
+   * Session name to resolve the repository from
+   */
+  session?: string;
+  
+  /**
+   * Task ID to resolve the repository from
+   */
+  taskId?: string;
+  
+  /**
+   * Whether to auto-detect the repository from the current directory
+   * Default: true if no other options are provided
+   */
+  autoDetect?: boolean;
+  
+  /**
+   * Current working directory for auto-detection
+   * Default: process.cwd()
+   */
+  cwd?: string;
+}
+
+/**
+ * Resolved repository information.
+ */
+export interface ResolvedRepository {
+  /**
+   * The repository URI
+   */
+  uri: string;
+  
+  /**
+   * The normalized repository name (org/repo or local/repo)
+   */
+  name: string;
+  
+  /**
+   * Whether this is a local repository
+   */
+  isLocal: boolean;
+  
+  /**
+   * The repository path for local repositories
+   */
+  path?: string;
+  
+  /**
+   * The repository backend type
+   */
+  backendType: RepositoryBackendType;
+  
+  /**
+   * Repository format (HTTPS, SSH, etc.)
+   */
+  format: UriFormat;
 }
 
 /**
@@ -355,5 +428,130 @@ export async function createRepositoryBackend(
     default: {
       throw new Error(`Unsupported repository backend type: ${config.type}`);
     }
+  }
+}
+
+/**
+ * Resolves a repository reference to a canonical URI and normalized name.
+ * 
+ * Resolution strategy:
+ * 1. If explicit URI is provided, use it
+ * 2. If session is specified, get repository from the session
+ * 3. If task ID is specified, find the associated session's repository
+ * 4. If auto-detection is enabled, try to find repository from current directory
+ * 5. Otherwise throw an error
+ * 
+ * @param options Resolution options
+ * @returns Resolved repository information
+ * @throws ValidationError if repository cannot be resolved
+ */
+export async function resolveRepository(
+  options: RepositoryResolutionOptions = {}
+): Promise<ResolvedRepository> {
+  const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
+  
+  let repositoryUri: string | undefined;
+  let backendType = RepositoryBackendType.LOCAL;
+  
+  // 1. Try to resolve from explicit URI
+  if (uri) {
+    repositoryUri = uri;
+  }
+  // 2. Try to resolve from session
+  else if (session) {
+    const sessionDb = new SessionDB();
+    const sessionRecord = await sessionDb.getSession(session);
+    if (!sessionRecord) {
+      throw new ValidationError(`Session not found: ${session}`);
+    }
+    repositoryUri = sessionRecord.repoUrl;
+    backendType = sessionRecord.backendType as RepositoryBackendType || RepositoryBackendType.LOCAL;
+  }
+  // 3. Try to resolve from task ID
+  else if (taskId) {
+    const normalizedTaskId = taskId.startsWith('#') ? taskId : `#${taskId}`;
+    const sessionDb = new SessionDB();
+    const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
+    if (!sessionRecord) {
+      throw new ValidationError(`No session found for task: ${taskId}`);
+    }
+    repositoryUri = sessionRecord.repoUrl;
+    backendType = sessionRecord.backendType as RepositoryBackendType || RepositoryBackendType.LOCAL;
+  }
+  // 4. Try auto-detection from current directory
+  else if (autoDetect) {
+    repositoryUri = await detectRepositoryFromCwd(cwd);
+    if (!repositoryUri) {
+      throw new ValidationError('No Git repository found in current directory');
+    }
+  }
+  // 5. No resolution method available
+  else {
+    throw new ValidationError('Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled');
+  }
+  
+  // Normalize the repository URI
+  try {
+    const normalized = normalizeRepositoryUri(repositoryUri as string, { 
+      validateLocalExists: true,
+      ensureFullyQualified: true
+    });
+    
+    // Determine backend type based on URI format
+    if (normalized.isLocal) {
+      backendType = RepositoryBackendType.LOCAL;
+    } else {
+      // Default to GITHUB for remote repositories unless specified otherwise
+      if (backendType === RepositoryBackendType.LOCAL) {
+        backendType = RepositoryBackendType.GITHUB;
+      }
+    }
+    
+    // For local repositories, extract the path
+    let path: string | undefined;
+    if (normalized.isLocal) {
+      path = normalized.format === UriFormat.FILE
+        ? normalized.uri.replace(/^file:\/\//, '')
+        : normalized.uri;
+    }
+    
+    return {
+      uri: normalized.uri,
+      name: normalized.name,
+      isLocal: normalized.isLocal,
+      path,
+      backendType,
+      format: normalized.format
+    };
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      throw error;
+    }
+    throw new ValidationError(`Invalid repository URI: ${repositoryUri}`);
+  }
+}
+
+/**
+ * Deprecated: Use resolveRepository instead.
+ * This is kept for backward compatibility.
+ */
+export async function resolveRepoPath(options: { session?: string; repo?: string; }): Promise<string> {
+  console.warn('resolveRepoPath is deprecated. Use resolveRepository instead.');
+  
+  try {
+    const repository = await resolveRepository({
+      uri: options.repo,
+      session: options.session,
+      autoDetect: true
+    });
+    
+    if (repository.isLocal) {
+      return repository.path || '';
+    } else {
+      // For backward compatibility, return the URI for remote repositories
+      return repository.uri;
+    }
+  } catch (error) {
+    throw new MinskyError(`Failed to resolve repository path: ${error instanceof Error ? error.message : String(error)}`);
   }
 } 
