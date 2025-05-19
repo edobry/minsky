@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Task #095: Fix git prepare-pr Branch Naming Issues
+
   - Improved the `git prepare-pr` command to consistently use the git branch name for PR branch naming
   - Ensured PR branch names are always in the format `pr/<current-git-branch-name>` regardless of title parameter
   - Maintained separation between branch naming (from git) and commit messages (from title parameter)
@@ -35,12 +36,14 @@ _See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/his
 _See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
 
 - Task #093: Implement consistent CLI error handling across all commands
+
   - Will create a centralized error handling utility for CLI commands
   - Will standardize error message format and content across command groups
   - Will improve user experience by showing concise, helpful error messages
   - Will maintain detailed error logging for debugging purposes
 
 - Task #092: Add session pr command and improve git prepare-pr interface
+
   - Implemented a new `session pr` command that automatically detects session context
   - Improved the `git prepare-pr` command interface for better consistency with other commands
   - Updated PR preparation workflow documentation to match actual commands available
@@ -100,6 +103,12 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - PR output now includes both committed and uncommitted (working directory) changes
 - README rewritten for clarity and idiomatic open source style
 - All debug output is now opt-in and sent to stderr
+- Aligned GitHub repository backend implementation with unified interface:
+  - Fixed type compatibility between RepositoryStatus and RepoStatus interfaces
+  - Standardized method signatures across different backend implementations
+  - Improved code reuse by leveraging existing GitService methods
+  - Enhanced security by using system Git credentials instead of embedding tokens in URLs
+  - Reduced duplication through consistent interface patterns
 - Changed default log level from "debug" to "info" to reduce noise in normal operation (Task #081)
   - Debug logs are now only output when LOG_LEVEL is explicitly set to "debug"
   - Documentation updated to clarify how to enable debug logging when needed
@@ -196,8 +205,6 @@ _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-me
 
 _See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/history/2025-05-16_22-06-test-error-fixing.md) for test error fixing._
 
-### Added
-
 - Enhanced testing-boundaries rule with comprehensive guidance on what to test and what NOT to test:
   - Added explicit prohibition against testing framework internals
   - Added explicit prohibition against testing console output directly
@@ -219,8 +226,14 @@ _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/hi
 
 _See: Task #085 for migrating CLI adapter tests to test domain methods instead_
 
-## [0.8.0] - 2024-04-24
+- Refactored GitHub repository backend implementation for better security, usability, and type safety
+- Updated repository interfaces to provide consistent typing across different backend implementations
+- Improved error handling in repository operations with descriptive error messages
+- Changed authentication approach to use system Git credentials instead of embedding tokens in URLs
 
-### Added
+_See: This task was implemented as part of Task #014._
 
-... [existing entries]
+- Fixed missing command creator functions in `session.ts` that caused "createListCommand is not defined" error
+  - Added createListCommand, createGetCommand, createDirCommand, createDeleteCommand, createUpdateCommand, and createApproveCommand functions
+  - Fixed parameter types to match the schema definitions
+  - Restored ability to use tasks status set command

@@ -100,7 +100,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - [x] Implement GitHub-specific repository operations
    - [x] Add GitHub authentication handling
 
-4. [x] Update Session Management
+4. [ ] Update Session Management
 
    - [x] Add backend configuration to session settings
    - [x] Modify session creation to use configured backend
@@ -108,13 +108,12 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 5. [ ] Add Configuration Support
 
-   - [x] Add repository backend options to session commands
-   - [x] Add remote Git configuration options
-   - [x] Add GitHub configuration options
+   - [ ] Add Remote Git configuration options
+   - [ ] Add GitHub configuration options
    - [ ] Implement configuration validation
    - [ ] Add configuration documentation
 
-6. [x] Update CLI Commands
+6. [ ] Update CLI Commands
 
    - [x] Add backend option to session commands
    - [x] Add Remote Git-specific options
@@ -127,7 +126,7 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
    - [x] Tests for LocalGitBackend
    - [x] Tests for RemoteGitBackend
    - [x] Tests for GitHubBackend
-   - [ ] Integration tests for session creation with different backends
+   - [ ] Integration tests for session creation
    - [ ] Test error handling scenarios
 
 8. [ ] Update Documentation
@@ -178,43 +177,48 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 - 2025-05-13: Enhanced startSession.ts to properly handle remote repository options
 - 2025-05-13: Modified GitService's clone method to support different backend types and their configurations
 - 2025-05-13: Added backend type detection based on repository URL format
+- 2025-05-16: Fixed type errors in repository backend interfaces (Promise<r> → Promise<Result>)
+- 2025-05-16: Fixed branch variable declaration in git.ts to allow reassignment
+- 2025-05-16: Added placeholder tests for repository backend implementations
+- 2025-05-16: Implemented missing interfaces in git.ts for better type safety
+- 2025-05-16: Implemented proper push and pull methods for RemoteGitBackend
+- 2025-05-16: Added robust configuration validation in repository backend factory
+- 2025-05-16: Updated CHANGELOG.md with repository backend support changes
+- 2025-05-16: Enhanced type safety across all repository implementation files
+- 2025-05-16: Fixed import extension in index.ts to resolve linter error
 
 ## Remaining Work
 
-1. **Polishing and Bug Fixes**
+1. **Backend-specific Session Configuration**
 
-   - [ ] Fix circular dependency issues in repository backend imports
-   - [ ] Fix type issues with Result interface implementation in backends
-   - [ ] Complete implementation of push/pull operations in GitHub backend
-   - [ ] Ensure proper error handling for all backend operations
-   - [ ] Standardize return types across all backends
+   - Leverage Git's own credential system for authentication
+   - Document how authentication works with different repository types
+   - Add support for GitHub personal access tokens as a command-line option
+   - Store backend-specific options in session records (already implemented)
+   - Consider adding session-level overrides for backend options
 
-2. **Testing**
+2. **Session Integration**
 
-   - [ ] Create comprehensive integration tests for each backend type
-   - [ ] Test authentication methods with different repository sources
-   - [ ] Test error handling scenarios (network failures, permission issues)
-   - [ ] Create test fixtures for remote repository operations
-   - [ ] Test backward compatibility with existing sessions
+   - Test end-to-end workflows with different repository backends
+   - Add proper error handling for backend-specific failures
+   - Test authentication methods with remote repositories
+   - Create example workflows for different repository backend scenarios
 
-3. **Documentation**
+3. **Fix Linting Errors**
 
-   - [ ] Add comprehensive documentation in README for repository backends
-   - [ ] Create examples for each backend type
-   - [ ] Document configuration options and their default values
-   - [ ] Add troubleshooting guide for common repository issues
-   - [ ] Update CLI command help text with backend options
+   - Fix parameter typing in git.ts for the dependency injection methods
+   - Address string quote style issues in updated files (doublequote vs singlequote)
+   - Fix property typing issues with SessionRecord interface
 
-4. **Configuration and Migration**
+4. **Testing**
 
-   - [ ] Create migration utility for existing sessions to use explicit backend type
-   - [ ] Add global configuration options for default repository backends
-   - [ ] Implement backend auto-detection improvements
-   - [ ] Add validation for configuration options
+   - Expand tests with real-world repository scenarios
+   - Complete integration tests between session management and repository backends
+   - Add tests for error handling scenarios
+   - Ensure full test coverage for new functionality
 
-5. **Enhance GitHub Integration**
-
-   - [ ] Complete GitHub API integration for PR creation
-   - [ ] Add support for GitHub Enterprise
-   - [ ] Implement token management and refresh
-   - [ ] Add GitHub status reporting
+5. **Documentation**
+   - Add comprehensive documentation for all backend types
+   - Include examples for common use cases (local, GitHub, remote)
+   - Document Git credential configuration for different backends
+   - Create user guides for working with different repository types
