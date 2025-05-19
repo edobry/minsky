@@ -35,24 +35,8 @@ async function mergePrFromParams(params: {
     const git = new GitService();
     const workdir = params.repo || process.cwd();
     
-    // If baseBranch is not provided, try to determine the default branch dynamically
-    let baseBranch = params.baseBranch;
-    if (!baseBranch) {
-      try {
-        // Try to get the default branch from the remote's HEAD ref
-        const defaultBranchCmd = "git symbolic-ref refs/remotes/origin/HEAD --short";
-        const defaultBranch = await git.execInRepository(workdir, defaultBranchCmd);
-        // Format is usually "origin/main", so we need to remove the "origin/" prefix
-        baseBranch = defaultBranch.trim().replace(/^origin\//, '');
-        log.debug(`Detected default branch: ${baseBranch}`);
-      } catch (error) {
-        // Fallback to 'main' if we can't determine the default branch
-        log.debug("Could not determine default branch, falling back to 'main'", { 
-          error: error instanceof Error ? error.message : String(error)
-        });
-        baseBranch = "main";
-      }
-    }
+    // If baseBranch is not provided, use the fetchDefaultBranch method to determine it
+    const baseBranch = params.baseBranch || await git.fetchDefaultBranch(workdir);
 
     // 1. Make sure we're on the base branch
     await git.execInRepository(workdir, `git checkout ${baseBranch}`);
