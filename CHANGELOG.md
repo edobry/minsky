@@ -251,3 +251,7 @@ _See: This task was implemented as part of Task #014._
   - Added createListCommand, createGetCommand, createDirCommand, createDeleteCommand, createUpdateCommand, and createApproveCommand functions
   - Fixed parameter types to match the schema definitions
   - Restored ability to use tasks status set command
+
+### Changed
+- Updated README-MCP.md to remove documentation for unimplemented task commands (tasks.filter, tasks.update, tasks.delete, tasks.info) and moved them to the "Planned Features" section
+- Commented out test blocks for unimplemented task command features in MCP integration tests
