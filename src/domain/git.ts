@@ -223,7 +223,7 @@ export class GitService {
     }
     
     // Determine branch
-    const branch = options.branch;
+    let branch = options.branch;
     if (!branch) {
       // Try to get the current branch
       const { stdout: branchOut } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
