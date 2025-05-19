@@ -5,11 +5,13 @@
       "name": "minsky",
       "dependencies": {
         "@clack/prompts": "^0.10.1",
+        "@types/logform": "^1.10.1",
         "@types/winston": "^2.4.4",
         "commander": "^13.1.0",
         "fastmcp": "^1.27.4",
         "fs-extra": "^11.3.0",
         "gray-matter": "^4.0.3",
+        "logform": "^2.7.0",
         "winston": "^3.17.0",
         "zod": "^3.24.4",
       },
@@ -111,6 +113,8 @@
     "@types/js-yaml": ["@types/js-yaml@4.0.9", "", {}, "sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg=="],
 
     "@types/json5": ["@types/json5@0.0.29", "", {}, "sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ=="],
+
+    "@types/logform": ["@types/logform@1.10.1", "", { "dependencies": { "logform": "*" } }, "sha512-7PFeU3gNsaG80dNWIl9FafSCnc4oYRXlyJ4yM38i0hMuqJaIMGSARS16QKTKfN4nZmNkA2Yy1z3h1WkJxgGbmA=="],
 
     "@types/node": ["@types/node@22.15.17", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-wIX2aSZL5FE+MR0JlvF87BNVrtFWf6AE6rxSE9X7OwnVvoyCQjpzSRJ+M87se/4QCkCiebQAqrJ0y6fwIyi7nw=="],
 

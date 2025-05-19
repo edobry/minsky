@@ -16,6 +16,7 @@ import {
   GitOperationError,
   ensureError,
 } from "../../../errors/index.js";
+import { log, isHumanMode, isStructuredMode } from "../../../utils/logger.js";
 
 /**
  * Determines if debug mode is enabled based on environment variables
@@ -30,67 +31,87 @@ export const isDebugMode = (): boolean =>
  *
  * - Provides concise, user-friendly error messages
  * - Shows detailed error information only in debug mode
- * - Format messages differently based on error type
+ * - Format messages differently based on error type and environment
  *
  * @param error Any error caught during command execution
  */
 export function handleCliError(error: unknown): never {
   const normalizedError = ensureError(error);
-
+  
+  // In human mode, use programLogger for all user-facing errors
+  // In structured mode, use both loggers as configured
+  
   // Format error message based on type
   if (error instanceof ValidationError) {
-    console.error(`Validation error: ${normalizedError.message}`);
+    // Use cliError for human-readable output (stderr)
+    log.cliError(`Validation error: ${normalizedError.message}`);
+    
     // Show validation details in debug mode
     if (isDebugMode() && error.errors) {
-      console.error("\nValidation details:", error.errors);
+      log.cliError("\nValidation details:", error.errors);
     }
   } else if (error instanceof ResourceNotFoundError) {
-    console.error(`Not found: ${normalizedError.message}`);
+    log.cliError(`Not found: ${normalizedError.message}`);
     if (error.resourceType && error.resourceId) {
-      console.error(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
+      log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
     }
   } else if (error instanceof ServiceUnavailableError) {
-    console.error(`Service unavailable: ${normalizedError.message}`);
+    log.cliError(`Service unavailable: ${normalizedError.message}`);
     if (error.serviceName) {
-      console.error(`Service: ${error.serviceName}`);
+      log.cliError(`Service: ${error.serviceName}`);
     }
   } else if (error instanceof FileSystemError) {
-    console.error(`File system error: ${normalizedError.message}`);
+    log.cliError(`File system error: ${normalizedError.message}`);
     if (error.path) {
-      console.error(`Path: ${error.path}`);
+      log.cliError(`Path: ${error.path}`);
     }
   } else if (error instanceof ConfigurationError) {
-    console.error(`Configuration error: ${normalizedError.message}`);
+    log.cliError(`Configuration error: ${normalizedError.message}`);
     if (error.configKey) {
-      console.error(`Key: ${error.configKey}`);
+      log.cliError(`Key: ${error.configKey}`);
     }
   } else if (error instanceof GitOperationError) {
-    console.error(`Git operation failed: ${normalizedError.message}`);
+    log.cliError(`Git operation failed: ${normalizedError.message}`);
     if (error.command) {
-      console.error(`Command: ${error.command}`);
+      log.cliError(`Command: ${error.command}`);
     }
   } else if (error instanceof MinskyError) {
-    console.error(`Error: ${normalizedError.message}`);
+    log.cliError(`Error: ${normalizedError.message}`);
   } else {
-    console.error(`Unexpected error: ${normalizedError.message}`);
+    log.cliError(`Unexpected error: ${normalizedError.message}`);
   }
 
   // Show detailed debug information only in debug mode
   if (isDebugMode()) {
-    console.error("\nDebug information:");
+    log.cliError("\nDebug information:");
     if (normalizedError.stack) {
-      console.error(normalizedError.stack);
+      log.cliError(normalizedError.stack);
     }
 
     // Log cause chain if available
     if (normalizedError instanceof MinskyError && normalizedError.cause) {
-      console.error("\nCaused by:");
+      log.cliError("\nCaused by:");
       const cause = normalizedError.cause;
       if (cause instanceof Error) {
-        console.error(cause.stack || cause.message);
+        log.cliError(cause.stack || cause.message);
       } else {
-        console.error(cause);
+        log.cliError(String(cause));
       }
+    }
+  }
+
+  // In structured mode, also log to agent logger for machine consumption
+  // Only do this if we're in structured mode to prevent double-logging
+  if (isStructuredMode()) {
+    if (error instanceof MinskyError) {
+      // For Minsky errors, we can log with additional context
+      log.error("CLI operation failed", error);
+    } else {
+      // For other errors, log with basic information
+      log.error("CLI operation failed", {
+        message: normalizedError.message,
+        stack: normalizedError.stack,
+      });
     }
   }
 
@@ -108,10 +129,18 @@ export function outputResult<T>(
   options: { json?: boolean; formatter?: (result: T) => void }
 ): void {
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    // For JSON output, use agent logger to ensure it goes to stdout
+    // This ensures machine-readable output is separated from human-readable messages
+    if (isStructuredMode()) {
+      // In structured mode, log to agent logger
+      log.agent("Command result", { result });
+    } else {
+      // In human mode or when json is explicitly requested, write directly to stdout
+      console.log(JSON.stringify(result, null, 2));
+    }
   } else if (options.formatter) {
     options.formatter(result);
   } else {
-    console.log(result);
+    log.cli(String(result));
   }
 }

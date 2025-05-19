@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #099: Implement Environment-Aware Logging
+  - Added environment-aware logging system with HUMAN and STRUCTURED modes
+  - Implemented automatic detection of terminal environments to set appropriate logging mode
+  - Added MINSKY_LOG_MODE environment variable for explicit mode control
+  - Added ENABLE_AGENT_LOGS flag to enable JSON logs in HUMAN mode if needed
+  - Updated error handling to prevent double-logging
+  - Modified CLI adapters to use appropriate logging methods based on mode
+  - Created comprehensive documentation in docs/logging.md
+  - Added tests for the logging mode detection logic
+
+_See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.specstory/history/2025-05-19_implement-environment-aware-logging.md) for logging implementation._
+
 - Task #052: Add Remaining Task Management Commands to MCP
   - Added the following new task management commands to the MCP server:
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
