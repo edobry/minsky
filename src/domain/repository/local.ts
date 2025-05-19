@@ -3,7 +3,8 @@ import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "../session.js";
-import { normalizeRepoName } from "../repo-utils.js";
+import { normalizeRepositoryURI } from "../repository-uri.js";
+import { isLocalRepositoryURI } from "../repository-uri.js";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -43,7 +44,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky", "git");
     this.repoUrl = config.repoUrl;
-    this.repoName = normalizeRepoName(config.repoUrl);
+    this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = new SessionDB();
     this.config = config;
   }

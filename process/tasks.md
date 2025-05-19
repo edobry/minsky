@@ -131,7 +131,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
 
-- [ ] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
+- [+] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
 
 - [-] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
 

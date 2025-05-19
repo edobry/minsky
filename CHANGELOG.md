@@ -257,3 +257,20 @@ _See: This task was implemented as part of Task #014._
 - Removed test blocks for unimplemented task command features in MCP integration tests
 - Identified missing MCP adapters for init and rules commands
 - Added MCP adapters for init and rules commands to align with CLI implementations
+
+- Standardized Repository URI handling with new repository-uri.ts module
+  - Support for HTTPS URLs, SSH URLs, file:// URIs, local paths, and GitHub shorthand notation
+  - URI parsing, normalization, validation, and conversion
+  - Full test coverage 
+
+### Changed
+- Updated repository backends (GitHub, Remote, Local) to use the new URI handling system
+- Improved repository name normalization with better error handling
+- Repository URI detection and validation
+- Removed deprecated normalizeRepoName function in favor of normalizeRepositoryURI
+
+### Fixed
+- Inconsistent handling of repository references
+- Confusion between file paths and URLs in repository references
+
+_See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-handling](mdc:.specstory/history/2025-05-19_20-36-task-88-standardize-repository-uri-handling.md) for task #88 implementation._

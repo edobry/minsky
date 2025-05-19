@@ -3,7 +3,7 @@ import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
 import { SessionDB } from "../session.js";
-import { normalizeRepoName } from "../repo-utils.js";
+import { normalizeRepositoryURI } from "../repository-uri.js";
 import { GitService } from "../git.js";
 import type { RepositoryStatus, ValidationResult } from "../repository.js";
 import type {
@@ -60,7 +60,7 @@ export class GitHubBackend implements RepositoryBackend {
       throw new Error("Repository URL is required for GitHub backend");
     }
 
-    this.repoName = normalizeRepoName(this.repoUrl);
+    this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = new SessionDB();
     this.gitService = new GitService(this.baseDir);
   }
