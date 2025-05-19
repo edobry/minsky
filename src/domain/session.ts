@@ -564,7 +564,9 @@ export async function startSessionFromParams(
       );
     }
   } catch (error) {
-    log.error("Session start failed", {
+    // Use debug level for detailed error logging instead of error level
+    // This keeps the information for debugging but prevents it from showing in regular CLI output
+    log.debug("Session start failed (detailed)", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       params,

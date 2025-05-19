@@ -98,6 +98,12 @@ _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-me
 
 ### Fixed
 
+- Improved error handling in session start command:
+  - Replaced verbose error logging with concise, user-friendly error messages
+  - Changed detailed error logging from error to debug level to prevent excessive output
+  - Enhanced CLI adapter error handling for better presentation of errors
+  - Fixed error message formatting to consistently display useful information
+
 - Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
 
   - Added preparePr method to GitService class that handles PR branch preparation
