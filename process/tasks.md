@@ -142,3 +142,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
 - [ ] Implement Consistent CLI Error Handling Across All Commands [#093](process/tasks/093-implement-consistent-cli-error-handling-across-all-commands.md)
+
+- [ ] Implement Google Tasks Backend [#094](process/tasks/094-implement-google-tasks-backend.md)

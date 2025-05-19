@@ -6,6 +6,15 @@
 
 ### Added
 
+- Task #094: Implement Google Tasks Backend
+  - Will implement a Google Tasks backend for the Minsky task management system
+  - Will provide integration with Google's task management API
+  - Will support authentication with Google OAuth2
+  - Will map between Minsky task statuses and Google Tasks
+  - Will extend TaskService to support Google Tasks as a backend option
+
+_See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/history/2025-06-02_add-google-tasks-backend.md) for task creation._
+
 - Task #086: Formalized Core Minsky Concepts and Relationships
   - Created comprehensive documentation of core concepts in `src/domain/concepts.md`
   - Added migration guide in `src/domain/migration-guide.md`
