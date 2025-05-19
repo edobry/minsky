@@ -291,3 +291,9 @@ _See: This task was implemented as part of Task #014._
 - Confusion between file paths and URLs in repository references
 
 _See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-handling](mdc:.specstory/history/2025-05-19_20-36-task-88-standardize-repository-uri-handling.md) for task #88 implementation._
+
+- Fixed environment-aware logging to properly handle debug logs in HUMAN mode
+  - Prevented "no transports" warnings when running CLI commands in terminal
+  - Added `systemDebug` method for important system debugging that works in all modes
+  - Updated logger documentation with best practices for debug logging
+  - Improved auto-detection of terminal environment

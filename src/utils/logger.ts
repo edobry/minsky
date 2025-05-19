@@ -134,13 +134,57 @@ export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (message: string, context?: LogContext) => agentLogger.info(message, context),
-  debug: (message: string, context?: LogContext) => agentLogger.debug(message, context),
-  warn: (message: string, context?: LogContext) => agentLogger.warn(message, context),
+  agent: (message: string, context?: LogContext) => {
+    // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      return;
+    }
+    agentLogger.info(message, context);
+  },
+  debug: (message: string, context?: LogContext) => {
+    // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      // No-op in HUMAN mode to prevent "no transports" warning
+      return;
+    }
+    // Otherwise, use agentLogger as normal
+    agentLogger.debug(message, context);
+  },
+  warn: (message: string, context?: LogContext) => {
+    // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      return;
+    }
+    agentLogger.warn(message, context);
+  },
   error: (
     message: string,
     context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
   ) => {
+    // For errors, in HUMAN mode route to programLogger.error instead of suppressing
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      // Format the error for the programLogger
+      if (context instanceof Error) {
+        programLogger.error(`${message}: ${context.message}`);
+        if (context.stack) {
+          programLogger.error(context.stack);
+        }
+      } else if (
+        typeof context === "object" &&
+        context !== null &&
+        (context.originalError || context.stack)
+      ) {
+        programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
+        if (context.stack) {
+          programLogger.error(context.stack);
+        }
+      } else {
+        programLogger.error(message, context);
+      }
+      return;
+    }
+
+    // In STRUCTURED mode or if agent logs explicitly enabled, use agentLogger
     if (context instanceof Error) {
       agentLogger.error(message, {
         originalError: context.message,
@@ -168,6 +212,12 @@ export const log = {
   },
   // Add additional CLI-oriented debug log
   cliDebug: (message: string, ...args: any[]) => programLogger.debug(message, ...args),
+  // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
+  // Use this for important system debugging that should always be visible when debug level is set
+  systemDebug: (message: string, ...args: any[]) => {
+    // Always log to programLogger (stderr) regardless of mode
+    programLogger.debug(message, ...args);
+  },
   // Expose log mode information
   mode: currentLogMode,
   isStructuredMode,
@@ -208,6 +258,7 @@ if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("This is a CLI message.");
   log.cliWarn("This is a CLI warning.");
   log.cliError("This is a CLI error.");
+  log.systemDebug("This is a system debug message that works in all modes.");
 
   console.log("\n--- Environment Information ---");
   console.log(`Current Log Mode: ${log.mode}`);
