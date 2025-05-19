@@ -61,6 +61,13 @@ Options:
 
 - `-r, --repo <repo-url>`: URL of the repository to clone (optional if in a git repository)
 - `-t, --task <task-id>`: Task ID to associate with this session
+- `--backend <type>`: Repository backend type (local, remote, github)
+- `--repo-url <url>`: Remote repository URL for remote/github backends
+- `--auth-method <method>`: Authentication method (ssh, https, token)
+- `--clone-depth <depth>`: Clone depth for remote repositories
+- `--github-token <token>`: GitHub access token for authentication
+- `--github-owner <owner>`: GitHub repository owner/organization
+- `--github-repo <repo>`: GitHub repository name
 
 #### `minsky session list [options]`
 
@@ -206,6 +213,65 @@ MCP allows AI agents to:
 
 For detailed documentation on using MCP with Minsky, see [README-MCP.md](./README-MCP.md).
 
+## Repository Backend Support
+
+Minsky supports multiple repository backends, allowing you to work with different sources of Git repositories:
+
+### Available Backends
+
+1. **Local Git (default)** - For local filesystem repositories
+2. **Remote Git** - For any remote Git repository URL
+3. **GitHub** - Special handling for GitHub repositories with API integration
+
+### Using Repository Backends
+
+When starting a session, you can specify the backend type and related options:
+
+```bash
+# Start a session with a local repository (default)
+minsky session start my-session --repo /path/to/local/repo
+
+# Start a session with a remote Git repository
+minsky session start my-session --backend remote --repo-url https://example.com/repo.git
+
+# Start a session with GitHub repository
+minsky session start my-session --backend github --github-owner octocat --github-repo hello-world
+```
+
+### Backend-specific Options
+
+#### Common Options
+- `--backend <type>` - Repository backend type (local, remote, github)
+- `--repo-url <url>` - Remote repository URL for remote/github backends
+
+#### Remote Git Options
+- `--auth-method <method>` - Authentication method (ssh, https, token)
+- `--clone-depth <depth>` - Clone depth for remote repositories
+
+#### GitHub Options
+- `--github-token <token>` - GitHub access token for authentication
+- `--github-owner <owner>` - GitHub repository owner/organization
+- `--github-repo <repo>` - GitHub repository name
+
+### Examples
+
+```bash
+# Start a session with a GitHub repository using token authentication
+minsky session start github-project --backend github \
+  --github-owner microsoft --github-repo vscode \
+  --github-token ghp_xxxxxxxxxxxx
+
+# Start a session with a remote Git repository using SSH authentication
+minsky session start remote-project --backend remote \
+  --repo-url git@gitlab.com:group/project.git \
+  --auth-method ssh
+
+# Start a session with a remote Git repository with shallow clone
+minsky session start shallow-clone --backend remote \
+  --repo-url https://bitbucket.org/user/repo.git \
+  --clone-depth 1
+```
+
 ## Example Workflows
 
 ### Basic Development Flow
@@ -238,6 +304,25 @@ minsky session start auth-ui --repo https://github.com/org/project.git
 ```
 
 Each agent works in its own isolated environment and can generate PR documents to share their changes. Tasks can be listed and updated per session or repo.
+
+### Remote Repository Workflow
+
+```bash
+# Start a session with a GitHub repository
+minsky session start github-feature --backend github \
+  --github-owner octocat --github-repo hello-world
+
+# Work in the session
+cd $(minsky session dir github-feature)
+
+# Make changes, then push to GitHub
+git add .
+git commit -m "Add new feature"
+minsky git push
+
+# Generate PR document
+minsky git summary > PR.md
+```
 
 ## Future Plans
 

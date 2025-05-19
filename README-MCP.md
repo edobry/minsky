@@ -46,8 +46,44 @@ The Minsky MCP server exposes the following tools:
 - `session.list`: List all sessions
 - `session.get`: Get details for a specific session
 - `session.start`: Start a new session
+  - Supports repository backend options (see below)
 - `session.commit`: Commit changes in a session
 - `session.push`: Push changes in a session
+
+### Repository Backend Support
+
+When using the `session.start` tool, you can specify different repository backends:
+
+```json
+{
+  "name": "session.start",
+  "params": {
+    "name": "my-session",
+    "backend": "github",
+    "githubOwner": "octocat",
+    "githubRepo": "hello-world",
+    "githubToken": "ghp_xxxxxxxxxxxx"
+  }
+}
+```
+
+#### Backend Types
+
+- `local` (default): For local filesystem repositories
+- `remote`: For any remote Git repository URL
+- `github`: Special handling for GitHub repositories with API integration
+
+#### Backend-Specific Parameters
+
+For `remote` backend:
+- `repoUrl`: URL of the remote repository
+- `authMethod`: Authentication method (`ssh`, `https`, or `token`)
+- `cloneDepth`: Clone depth for shallow clones
+
+For `github` backend:
+- `githubOwner`: Owner/organization name
+- `githubRepo`: Repository name
+- `githubToken`: GitHub access token for authentication
 
 ## Usage Examples
 
