@@ -108,3 +108,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
 
 - [ ] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
+
+- [ ] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
