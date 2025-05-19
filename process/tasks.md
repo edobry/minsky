@@ -127,7 +127,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)
 
-- [-] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
+- [x] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
 
 - [ ] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
 

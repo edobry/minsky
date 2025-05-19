@@ -7,29 +7,35 @@ import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
 
+/**
+ * Options for resolving a workspace path
+ */
 export interface WorkspaceResolutionOptions {
+  /** Explicit filesystem path to a workspace */
   workspace?: string;
-  sessionRepo?: string;
+  /** Path to a session workspace */
+  sessionWorkspace?: string;
 }
 
 // For dependency injection in tests
 export interface TestDependencies {
   execAsync?: typeof execAsync;
   access?: typeof fs.access;
-  getSessionFromRepo?: typeof getSessionFromRepo;
+  getSessionFromRepo?: typeof getSessionFromWorkspace;
 }
 
 /**
- * Detects if the current directory is inside a session repository
- * @returns true if in a session repo, false otherwise
+ * Detects if the current directory is inside a session workspace
+ * @param workspacePath The path to check
+ * @returns true if in a session workspace, false otherwise
  */
-export async function isSessionRepository(
-  repoPath: string,
+export async function isSessionWorkspace(
+  workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if the git root contains a session marker
@@ -62,21 +68,21 @@ export async function isSessionRepository(
 }
 
 /**
- * Get session information from a repository path
- * @param repoPath The path to check
+ * Get session information from a workspace path
+ * @param workspacePath The path to check
  * @returns Information about the session if found, null otherwise
  */
-export async function getSessionFromRepo(
-  repoPath: string,
+export async function getSessionFromWorkspace(
+  workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{
   session: string;
-  mainWorkspace: string;
+  upstreamRepository: string;
 } | null> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: repoPath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if this is in the minsky sessions directory structure
@@ -131,7 +137,7 @@ export async function getSessionFromRepo(
 
     return {
       session: sessionName,
-      mainWorkspace: sessionRecord.repoUrl,
+      upstreamRepository: sessionRecord.repoUrl,
     };
   } catch (error) {
     return null;
@@ -140,7 +146,7 @@ export async function getSessionFromRepo(
 
 /**
  * Resolve the workspace path for task operations
- * Modified to use the current working directory when in a session repository
+ * Modified to use the current working directory when in a session workspace
  * This ensures operations use the local rules directory in session workspaces
  *
  * Resolution strategy:
@@ -168,29 +174,29 @@ export async function resolveWorkspacePath(
   }
 
   // Use current directory or provided path as workspace
-  const checkPath = options?.sessionRepo || process.cwd();
+  const checkPath = options?.sessionWorkspace || process.cwd();
 
-  // Note: We're no longer redirecting to the main workspace path when in a session
+  // Note: We're no longer redirecting to the upstream repository path when in a session
   // This allows rules commands to operate on the current directory's rules
   return checkPath;
 }
 
 /**
- * Returns the current session name if in a session repository, or null otherwise.
- * Uses getSessionFromRepo to extract the session context from the current working directory.
+ * Returns the current session name if in a session workspace, or null otherwise.
+ * Uses getSessionFromWorkspace to extract the session context from the current working directory.
  */
 export async function getCurrentSession(
   cwd: string = process.cwd(),
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<string | null> {
-  const sessionInfo = await getSessionFromRepo(cwd, execAsyncFn, sessionDbOverride);
+  const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
   return sessionInfo ? sessionInfo.session : null;
 }
 
 /**
- * Returns the current session ID and associated task ID if in a session repository, or null otherwise.
- * Uses getSessionFromRepo to extract the session context from the current working directory
+ * Returns the current session ID and associated task ID if in a session workspace, or null otherwise.
+ * Uses getSessionFromWorkspace to extract the session context from the current working directory
  * and then queries the SessionDB for the taskId.
  */
 export async function getCurrentSessionContext(

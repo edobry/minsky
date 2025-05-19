@@ -17,6 +17,29 @@ Minsky helps AI agents collaborate on codebases by leveraging the same tools hum
 
 The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
 
+## Core Concepts
+
+Minsky operates around three key concepts:
+
+### Repository
+
+A **Repository** is a Git repository identified by an upstream URI. From Minsky's perspective, upstream repositories are considered read-only sources of truth.
+
+### Session
+
+A **Session** is a persistent workstream with metadata and an associated workspace. It represents a unit of work, typically tied to a specific task.
+
+### Workspace
+
+A **Workspace** is the filesystem location where a session's working copy exists. It is the physical manifestation of a session on disk.
+
+These concepts form a clear relationship:
+- Each **Session** is associated with exactly one upstream **Repository**
+- Each **Session** has exactly one **Workspace**
+- A **Repository** can be referenced by multiple **Sessions**
+
+For detailed documentation on Minsky concepts and their relationships, see [src/domain/concepts.md](./src/domain/concepts.md).
+
 ## Installation
 
 ```bash

@@ -2,15 +2,15 @@
 
 ## Context
 
-The codebase currently has multiple approaches to resolving workspaces, repositories, and sessions, creating inconsistency and potential for bugs. Task #080 identified that different strategies are used for similar goals, with no unified approach. This task aims to create a consistent resolution strategy based on the formalized concepts.
+The codebase currently has multiple approaches to resolving workspaces, repositories, and sessions, creating inconsistency and potential for bugs. Task #080 identified that different strategies are used for similar goals, with no unified approach. Task #086 has now formalized the core concepts and relationships in `src/domain/concepts.md` and provided a migration guide in `src/domain/migration-guide.md`. This task aims to implement the unified resolution strategy described in those documents.
 
 ## Requirements
 
 1. **Unified Resolution API**
 
-   - Create consistent functions for resolving core entities:
-     - `resolveRepository(options)`: Resolves to a repository
-     - `resolveSession(options)`: Resolves to a session
+   - Create consistent functions for resolving core entities as defined in the concepts document:
+     - `resolveRepository(options)`: Resolves to a repository with URI and name
+     - `resolveSession(options)`: Resolves to a session with workspace path
    - Support multiple resolution sources:
      - Explicit path/URI specified by user
      - Session name
@@ -19,18 +19,18 @@ The codebase currently has multiple approaches to resolving workspaces, reposito
 
 2. **Repository Resolution**
 
-   - Support multiple URI formats:
+   - Implement the URI handling specification from `src/domain/concepts.md` section 4:
      - HTTPS URLs (https://github.com/org/repo.git)
      - SSH URLs (git@github.com:org/repo.git)
      - Local paths with file:// schema
      - Plain filesystem paths (automatically converted to file:// URIs)
      - Shorthand notation (org/repo for GitHub repositories)
+   - Implement auto-detection rules from `src/domain/concepts.md` section 5
    - Maintain backward compatibility with existing code
-   - Handle repository auto-detection from current directory
 
 3. **Session Resolution**
 
-   - Create a consistent approach to resolving sessions
+   - Create a consistent approach to resolving sessions based on the concepts document
    - Support resolution from:
      - Session name
      - Task ID
@@ -51,17 +51,17 @@ The codebase currently has multiple approaches to resolving workspaces, reposito
 
 1. [ ] Update `src/domain/repository.ts`:
 
-   - [ ] Create `resolveRepository(options)` function
-   - [ ] Implement URI normalization and validation
+   - [ ] Create `resolveRepository(options)` function following the migration guide
+   - [ ] Implement URI normalization and validation as specified in concepts.md
    - [ ] Support multiple URI formats
    - [ ] Add auto-detection from current directory
    - [ ] Add comprehensive JSDoc comments
 
 2. [ ] Update `src/domain/session.ts`:
 
-   - [ ] Create `resolveSession(options)` function
+   - [ ] Create `resolveSession(options)` function following the migration guide
    - [ ] Support resolution from session name, task ID, and current directory
-   - [ ] Refactor `isSessionRepository` for clearer detection
+   - [ ] Use the new terminology (`isSessionWorkspace` instead of `isSessionRepository`)
    - [ ] Add comprehensive JSDoc comments
 
 3. [ ] Create utility functions:
@@ -77,6 +77,7 @@ The codebase currently has multiple approaches to resolving workspaces, reposito
    - [ ] Add tests for edge cases and error handling
 
 5. [ ] Update existing code to use new resolution functions:
+   - [ ] Follow the migration strategy in `src/domain/migration-guide.md`
    - [ ] Identify all places that resolve repositories or sessions
    - [ ] Gradually migrate to the new functions
    - [ ] Maintain backward compatibility
