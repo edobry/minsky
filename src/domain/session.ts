@@ -29,115 +29,77 @@ import { log } from "../utils/logger.js";
 import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams } from "./git.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 
-/**
- * Session resolution options.
- */
-export interface SessionResolutionOptions {
-  /**
-   * Explicit session name
-   */
-  sessionName?: string;
-  
-  /**
-   * Task ID to resolve the session from
-   */
-  taskId?: string;
-  
-  /**
-   * Whether to auto-detect the session from the current directory
-   * Default: true if no other options are provided
-   */
-  autoDetect?: boolean;
-  
-  /**
-   * Current working directory for auto-detection
-   * Default: process.cwd()
-   */
-  cwd?: string;
-}
-
-/**
- * Resolved session information.
- */
-export interface ResolvedSession {
-  /**
-   * Session name
-   */
-  name: string;
-  
-  /**
-   * Repository URI associated with the session
-   */
-  repositoryUri: string;
-  
-  /**
-   * Normalized repository name (org/repo or local/repo)
-   */
-  repositoryName: string;
-  
-  /**
-   * Workspace path for the session
-   */
-  workspacePath: string;
-  
-  /**
-   * Associated task ID, if any
-   */
-  taskId?: string;
-  
-  /**
-   * When the session was created
-   */
+export interface SessionRecord {
+  session: string;
+  repoName: string;
+  repoUrl: string;
   createdAt: string;
-  
-  /**
-   * Type of repository backend
-   */
+  taskId?: string;
+  repoPath?: string; // Add repoPath to the interface
+  backendType?: "local" | "remote" | "github"; // Added for repository backend support
+  github?: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+  };
+  remote?: {
+    authMethod?: "ssh" | "https" | "token";
+    depth?: number;
+  };
+}
+
+export interface Session {
+  session: string;
+  repoUrl?: string;
+  repoName?: string;
+  branch?: string;
+  createdAt?: string;
+  taskId?: string;
+  repoPath?: string;
   backendType?: "local" | "remote" | "github";
+  github?: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+  };
+  remote?: {
+    authMethod?: "ssh" | "https" | "token";
+    depth?: number;
+  };
+}
+
+// Interface for GitService.clone result
+interface CloneResult {
+  workdir: string;
+  session: string;
+  repoPath?: string; // For backward compatibility
+  success?: boolean; // For backward compatibility
+  message?: string; // For backward compatibility
 }
 
 /**
- * Helper function to normalize and validate a task ID
- * @param taskId The raw task ID to normalize and validate
- * @returns The normalized task ID
- * @throws ValidationError if the task ID is invalid
+ * In-memory cache of session database
  */
-function normalizeAndValidateTaskId(taskId: string): string {
-  const normalized = normalizeTaskId(taskId);
-  if (!normalized) {
-    throw new ValidationError(
-      `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-    );
-  }
-
-  // Skip the schema validation since normalizeTaskId already ensures it's in the correct format
-  // This avoids issues with the regex pattern in taskIdSchema
-  return normalized;
-}
-
-export type SessionRecord = z.infer<typeof sessionRecordSchema>;
-export type Session = SessionRecord; // Alias for convenience
-
-export interface SessionResult {
-  sessionRecord: SessionRecord;
-  cloneResult?: { workdir: string };
-  branchResult?: { branch: string };
-  statusUpdateResult?: any;
-}
+const sessionDbCache: Session[] | null = null;
 
 /**
  * Session database operations
- * A Session is a persistent workstream with metadata and an associated workspace.
  */
 export class SessionDB {
   private readonly dbPath: string;
-  private readonly baseDir: string;
+  private readonly baseDir: string; // Add baseDir property
 
-  constructor(options?: { baseDir?: string; dbPath?: string }) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    const minskyStateDir = join(xdgStateHome, "minsky");
-    this.dbPath = options?.dbPath || join(minskyStateDir, "session-db.json");
-    this.baseDir = options?.baseDir || join(minskyStateDir, "git");
+  constructor(dbPath?: string) {
+    const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+
+    if (dbPath) {
+      this.dbPath = dbPath;
+      // For custom dbPath, set baseDir based on a parallel directory structure
+      this.baseDir = join(dbPath, "..", "..", "git");
+    } else {
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
+    }
   }
 
   private async ensureDbDir(): Promise<void> {
@@ -153,66 +115,35 @@ export class SessionDB {
       const data = await readFile(this.dbPath, "utf8");
       const sessions = JSON.parse(data);
 
-      // Normalize and migrate session records
-      let normalizedCount = 0;
-      const normalizedSessions = sessions.map((session: SessionRecord) => {
-        let wasNormalized = false;
-
-        // Ensure repoName exists
+      // Migrate existing sessions to include repoName
+      return sessions.map((session: SessionRecord) => {
         if (!session.repoName && session.repoUrl) {
           session.repoName = normalizeRepoName(session.repoUrl);
-          wasNormalized = true;
         }
-
-        // Ensure branch field exists - default to session name if missing
-        if (!session.branch && session.session) {
-          session.branch = session.session;
-          wasNormalized = true;
-        }
-
-        if (wasNormalized) {
-          normalizedCount++;
-        }
-
         return session;
       });
-
-      // If any records were normalized, save them back to disk
-      if (normalizedCount > 0) {
-        log.debug(`Normalized ${normalizedCount} session records with missing fields`);
-        this.writeDb(normalizedSessions).catch((err) => {
-          log.error("Failed to save normalized session records", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-
-      return normalizedSessions;
     } catch (e) {
       return [];
     }
   }
 
+  // Alias for readDb to maintain backward compatibility with tests
   async getSessions(): Promise<SessionRecord[]> {
     return this.readDb();
   }
 
   private async writeDb(sessions: SessionRecord[]): Promise<void> {
     try {
-      log.debug(`Starting writeDb. DB Path: ${this.dbPath}`);
       await this.ensureDbDir();
-      log.debug("DB directory ensured.");
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-      log.debug("DB file written successfully.");
     } catch (error) {
-      log.error("Error writing session database", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        dbPath: this.dbPath,
-      });
+      console.error(
+        `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
+  // Alias for writeDb to maintain backward compatibility with tests
   async saveSessions(sessions: SessionRecord[]): Promise<void> {
     return this.writeDb(sessions);
   }
@@ -233,60 +164,33 @@ export class SessionDB {
   }
 
   async updateSession(
-    sessionNameArg: string, // Renamed to avoid conflict with session property
+    session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
     const sessions = await this.readDb();
-    const index = sessions.findIndex((s) => s.session === sessionNameArg); // Use renamed arg
+    const index = sessions.findIndex((s) => s.session === session);
     if (index !== -1) {
-      const { session, ...restOfOldRecord } = sessions[index]!; // Add non-null assertion
-      sessions[index] = {
-        session, // Explicitly keep the original session string
-        ...restOfOldRecord,
-        ...updates,
-      };
+      const { session: _, ...safeUpdates } = updates as any;
+      sessions[index] = { ...sessions[index], ...safeUpdates };
       await this.writeDb(sessions);
     }
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
     try {
-      if (!taskId) {
-        return null;
-      }
-
-      // Use normalizeTaskId directly (doesn't throw exceptions)
-      const normalizedInputId = normalizeTaskId(taskId);
-      if (!normalizedInputId) {
-        log.debug(`Invalid task ID format: ${taskId}`);
-        return null;
-      }
-
-      // Extract the numeric part for numeric comparison
-      const inputNumericId = normalizedInputId.replace(/^#/, "");
-
+      // Normalize both stored and input task IDs to allow matching with or without #
+      const normalize = (id: string | undefined) => {
+        if (!id) return undefined;
+        return id.startsWith("#") ? id : `#${id}`;
+      };
       const sessions = await this.readDb();
-      const found = sessions.find((s) => {
-        if (!s.taskId) return false;
-
-        // Normalize the stored task ID
-        const normalizedStoredId = normalizeTaskId(s.taskId);
-        if (!normalizedStoredId) return false;
-
-        // Extract the numeric part for comparison
-        const storedNumericId = normalizedStoredId.replace(/^#/, "");
-
-        // Compare as numbers to handle leading zeros properly
-        return parseInt(storedNumericId, 10) === parseInt(inputNumericId, 10);
-      });
-
-      return found || null;
+      const normalizedInput = normalize(taskId);
+      const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
+      return found || null; // Ensure we return null, not undefined
     } catch (error) {
-      log.error("Error finding session by task ID", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        taskId,
-      });
+      console.error(
+        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
+      );
       return null;
     }
   }
@@ -296,132 +200,153 @@ export class SessionDB {
       const sessions = await this.readDb();
       const index = sessions.findIndex((s) => s.session === session);
       if (index === -1) {
-        log.debug(`Session '${session}' not found in DB.`, { session });
         return false;
       }
-      log.debug(`Found session '${session}' at index ${index}.`, { session, index });
       sessions.splice(index, 1);
-      log.debug(`Session '${session}' removed from array.`, { session });
       await this.writeDb(sessions);
-      log.debug(`writeDb called for session '${session}'.`, { session });
       return true;
     } catch (error) {
-      log.error(`Error in deleteSession for '${session}'`, {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        session,
-      });
+      console.error(
+        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
+      );
       return false;
     }
   }
 
   /**
-   * Gets the workspace path for a session
-   * @param record Session record
-   * @returns Path to the session workspace
+   * Gets the repository path for a session, checking both legacy and new paths
+   * @param record The session record or session result
+   * @returns The repository path
    */
-  async getRepoPath(record: SessionRecord): Promise<string> {
-    const path = this.getNewSessionRepoPath(record.repoName, record.session);
-    if (await this.repoExists(path)) {
-      return path;
+  async getRepoPath(record: SessionRecord | any): Promise<string> {
+    // Add defensive checks for the input to avoid paths[1] error
+    if (!record) {
+      throw new Error("Session record is required");
     }
 
-    // Fall back to legacy path format
+    // Special handling for SessionResult type returned by startSessionFromParams
+    if (record.sessionRecord) {
+      return this.getRepoPath(record.sessionRecord);
+    }
+
+    // Special handling for CloneResult
+    if (record.cloneResult && record.cloneResult.workdir) {
+      return record.cloneResult.workdir;
+    }
+
+    // Handle case when repoName or session is missing
+    if (!record.repoName || !record.session) {
+      // If we have repoPath, use it directly
+      if (record.repoPath) {
+        return record.repoPath;
+      }
+      // For workdir in some objects
+      if (record.workdir) {
+        return record.workdir;
+      }
+      throw new Error("Invalid session record: missing repoName or session");
+    }
+
+    // Check for new path first (with sessions subdirectory)
+    const newPath = join(this.baseDir, record.repoName, "sessions", record.session);
     const legacyPath = join(this.baseDir, record.repoName, record.session);
-    return legacyPath;
+
+    // If the record already has a repoPath, use that
+    if (record.repoPath) {
+      return record.repoPath;
+    }
+
+    // Check if the sessions subdirectory structure exists
+    if (await this.repoExists(newPath)) {
+      return newPath;
+    }
+
+    // Fall back to legacy path
+    if (await this.repoExists(legacyPath)) {
+      return legacyPath;
+    }
+
+    // Default to new path structure even if it doesn"t exist yet
+    return newPath;
   }
 
+  /**
+   * Check if a repository exists at the given path
+   * @param path The repository path to check
+   * @returns true if the repository exists
+   */
   private async repoExists(path: string): Promise<boolean> {
     try {
       await access(path);
       return true;
-    } catch (e) {
+    } catch (err) {
       return false;
     }
   }
 
   /**
-   * Gets the path for a new session workspace
-   * @param repoName Normalized repository name
-   * @param sessionId Session identifier
-   * @returns Path to the session workspace
+   * Get the new repository path with sessions subdirectory for a session
+   * @param repoName The repository name
+   * @param sessionId The session ID
+   * @returns The new repository path
    */
   getNewSessionRepoPath(repoName: string, sessionId: string): string {
     return join(this.baseDir, repoName, "sessions", sessionId);
   }
 
   /**
-   * Gets the working directory for a session
-   * @param sessionName Session identifier
-   * @returns Path to the session workspace
+   * Get the working directory for a session
+   * For backward compatibility with tests
+   * @param sessionName The session name
+   * @returns The working directory path
    */
   async getSessionWorkdir(sessionName: string): Promise<string> {
-    const record = await this.getSession(sessionName);
-    if (!record) {
-      throw new ResourceNotFoundError(`Session not found: ${sessionName}`, "session", sessionName);
+    const session = await this.getSession(sessionName);
+    if (!session) {
+      throw new Error(`Session "${sessionName}" not found.`);
     }
-    return this.getRepoPath(record);
+    return this.getRepoPath(session);
   }
 
+  /**
+   * Migrate all sessions to use the sessions subdirectory structure
+   * This is called once to migrate existing repositories
+   */
   async migrateSessionsToSubdirectory(): Promise<void> {
     const sessions = await this.readDb();
     let modified = false;
+
     for (const session of sessions) {
+      // Skip sessions that already have a repoPath
       if (session.repoPath && session.repoPath.includes("/sessions/")) {
         continue;
       }
+
       const legacyPath = join(this.baseDir, session.repoName, session.session);
       const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
+
+      // Check if legacy path exists
       if (await this.repoExists(legacyPath)) {
+        // Create new path directory structure
         await mkdir(join(this.baseDir, session.repoName, "sessions"), { recursive: true });
+
+        // Move repository to new location
         try {
           await rename(legacyPath, newPath);
+          // Update session record
           session.repoPath = newPath;
           modified = true;
         } catch (err) {
-          // Failed migration is handled silently
+          console.error(`Failed to migrate session ${session.session}:`, err);
         }
       }
     }
+
+    // Save changes
     if (modified) {
       await this.writeDb(sessions);
     }
   }
-}
-
-export type SessionDeps = {
-  sessionDB: SessionDB;
-  gitService: GitService;
-  taskService: TaskService;
-  workspaceUtils: typeof WorkspaceUtils;
-};
-
-function getMinskyStateDir(): string {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-  return join(xdgStateHome, "minsky", "git");
-}
-
-export async function createSessionDeps(options?: {
-  workspacePath?: string;
-}): Promise<SessionDeps> {
-  const baseDir = getMinskyStateDir();
-  const sessionDBInstance = new SessionDB({ baseDir });
-  const gitServiceInstance = new GitService(baseDir);
-
-  // Use the provided workspace path or the current directory for task operations
-  // This ensures task lookups happen in the actual repository, not in the state directory
-  const workspacePath = options?.workspacePath || process.cwd();
-  const taskServiceInstance = new TaskService({
-    workspacePath, // Use the actual repository path, not the state directory
-    backend: "markdown",
-  });
-
-  return {
-    sessionDB: sessionDBInstance,
-    gitService: gitServiceInstance,
-    taskService: taskServiceInstance,
-    workspaceUtils: WorkspaceUtils,
-  };
 }
 
 /**
@@ -429,366 +354,445 @@ export async function createSessionDeps(options?: {
  */
 export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
   const { name, task } = params;
-  const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
-  if (task && !name) {
-    // First normalize the task ID
-    const normalizedTaskId = normalizeAndValidateTaskId(task);
 
-    return sessionDB.getSessionByTaskId(normalizedTaskId);
+  // If task is provided but no name, find session by task ID
+  if (task && !name) {
+    const normalizedTaskId = taskIdSchema.parse(task);
+    return new SessionDB().getSessionByTaskId(normalizedTaskId);
   }
-  if (params.name) {
-    return sessionDB.getSession(params.name);
+
+  // If name is provided, get by name
+  if (name) {
+    return new SessionDB().getSession(name);
   }
-  return null;
+
+  // No name or task - error case
+  throw new ResourceNotFoundError("You must provide either a session name or task ID");
 }
 
 /**
  * Lists all sessions based on parameters
  */
 export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  const sessionDB = new SessionDB({ baseDir: getMinskyStateDir() });
-  return sessionDB.listSessions();
+  return new SessionDB().listSessions();
 }
 
 /**
- * Create a new session or find an existing one based on the provided parameters
- * @param params Session start parameters
- * @param depsInput Optional dependency injection for testing
- * @returns The session result, including session record and clone/branch results if applicable
+ * Starts a new session based on parameters
  */
-export async function startSessionFromParams(
-  params: SessionStartParams,
-  depsInput?: SessionDeps
-): Promise<SessionResult> {
-  const deps = depsInput || (await createSessionDeps({ workspacePath: params.workspace }));
+export async function startSessionFromParams(params: SessionStartParams): Promise<Session> {
+  // Validate parameters using Zod schema (already done by type)
+  const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
 
-  log.debug("Session start with params", params);
-
-  const { name, repo, task, branch: inputBranch, noStatusUpdate, quiet, json } = params;
-  let repoUrl: string;
-  let repoPathToUse: string;
+  // Convert dependencies for dependency injection pattern
+  const deps = {
+    gitService: new GitService(),
+    sessionDB: new SessionDB(),
+    taskService: null as TaskService | null,
+    resolveRepoPath,
+    isSessionRepository: isSessionWorkspace,
+  };
 
   try {
     log.debug("Starting session with params", {
       name,
       task,
-      inputBranch,
+      inputBranch: branch,
       noStatusUpdate,
       quiet,
       json,
     });
 
     const currentDir = process.env.PWD || process.cwd();
-    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
+    const isInSession = await deps.isSessionRepository(currentDir);
     if (isInSession) {
       throw new MinskyError(
         "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
       );
     }
 
-    if (params.repo) {
-      repoPathToUse = params.repo;
-      repoUrl = params.repo;
-    } else {
-      // No repo provided, try to infer from current directory
-      try {
-        repoPathToUse = await resolveRepoPath({});
-        // repoUrl is the same as repoPathToUse in this case
-        repoUrl = repoPathToUse;
-      } catch (error) {
-        throw new MinskyError(
-          "Could not determine repository path. Please provide a --repo parameter or run from a git repository."
-        );
-      }
-    }
-
+    // Determine repo URL or path first
+    let repoUrl = repo;
     if (!repoUrl) {
-      throw new ValidationError("Repository URL is required");
-    }
-
-    log.debug("Using repoUrl", { repoUrl });
-    log.debug("Resolved repoPathToUse", { repoPathToUse });
-
-    if (!repoPathToUse) {
-      throw new MinskyError(
-        "Repository path could not be determined. Please specify with --repo or run from within a Git repository."
-      );
-    }
-
-    const repoName = normalizeRepoName(repoPathToUse);
-    const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-    log.debug("Normalized repo name", { repoName, normalizedRepoName });
-
-    let taskId: string | undefined = undefined;
-    let sessionName: string;
-
-    if (task) {
-      // First normalize the task ID
-      const normalizedTaskId = normalizeAndValidateTaskId(task);
-
-      const taskInfo = await deps.taskService.getTask(normalizedTaskId);
-
-      if (!taskInfo) {
-        throw new ResourceNotFoundError(
-          `Task not found: ${normalizedTaskId}`,
-          "task",
-          normalizedTaskId
-        );
-      }
-
-      taskId = normalizedTaskId;
-      sessionName = `task#${normalizedTaskId.replace(/^#/, "")}`;
-
-      const existingSession = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
-      if (existingSession) {
+      try {
+        repoUrl = await deps.resolveRepoPath({});
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
         throw new MinskyError(
-          `Session already exists for task ${normalizedTaskId}: ${existingSession.session}`
+          `--repo is required (not in a git repo and no --repo provided): ${error.message}`
         );
       }
-    } else if (name) {
-      sessionName = name;
-
-      const existingSession = await deps.sessionDB.getSession(name);
-      if (existingSession) {
-        throw new MinskyError(`Session already exists with name: ${name}`);
-      }
-    } else {
-      throw new ValidationError("Either a session name or task ID must be provided");
     }
 
-    const actualBranchName = inputBranch || sessionName;
-    log.debug("Using branch name", { actualBranchName });
+    // Initialize task service with the repository information
+    deps.taskService = new TaskService({
+      workspacePath: repoUrl,
+      backend: "markdown", // Default to markdown backend
+    });
 
+    // Determine the session name using task ID if provided
+    let sessionName = name;
+    let taskId: string | undefined = task;
+
+    if (taskId && !sessionName) {
+      // Normalize the task ID format using Zod validation
+      const normalizedTaskId = taskIdSchema.parse(taskId);
+      taskId = normalizedTaskId;
+
+      // Verify the task exists
+      const taskObj = await deps.taskService.getTask(taskId);
+      if (!taskObj) {
+        throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+      }
+
+      // Use the task ID as the session name
+      sessionName = `task${taskId}`;
+    }
+
+    if (!sessionName) {
+      throw new ValidationError("Either session name or task ID must be provided");
+    }
+
+    // Check if session already exists
+    const existingSession = await deps.sessionDB.getSession(sessionName);
+    if (existingSession) {
+      throw new MinskyError(`Session '${sessionName}' already exists`);
+    }
+
+    // Check if a session already exists for this task
+    if (taskId) {
+      const existingSessions = await deps.sessionDB.listSessions();
+      const taskSession = existingSessions.find((s: SessionRecord) => {
+        const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
+        const normalizedInputTaskId = taskId?.startsWith("#") ? taskId : `#${taskId}`;
+        return normalizedSessionTaskId === normalizedInputTaskId;
+      });
+
+      if (taskSession) {
+        throw new MinskyError(
+          `A session for task ${taskId} already exists: '${taskSession.session}'`
+        );
+      }
+    }
+
+    // Extract the repository name
+    const repoName = normalizeRepoName(repoUrl);
+
+    // First record the session in the DB
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
-      repoName: normalizedRepoName,
+      repoName,
       createdAt: new Date().toISOString(),
-      backendType: "local",
-      branch: actualBranchName,
-      remote: {
-        authMethod: "ssh",
-        depth: 1,
-      },
+      taskId,
     };
 
-    if (taskId) {
-      sessionRecord.taskId = taskId;
-    }
-
-    log.debug("Created session record", { sessionRecord });
-
-    const repoPath = deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName);
-    sessionRecord.repoPath = repoPath;
-    log.debug("Session directory path", { repoPath });
-
-    // Ensure the session directory exists before git operations
-    await mkdir(repoPath, { recursive: true });
-    log.debug("Created session directory");
-
     await deps.sessionDB.addSession(sessionRecord);
-    log.debug("Added session to database");
 
     // Now clone the repo
     const gitCloneResult = await deps.gitService.clone({
       repoUrl,
       session: sessionName,
     });
-    
-    // Convert to our interface
+
+    // Convert to our interface - correct handling of workdir
     const cloneResult = {
-      repoPath: gitCloneResult.workdir,
-      success: true
+      workdir: gitCloneResult.workdir,
+      success: true,
     };
 
     let statusUpdateResult;
+
+    // Create a branch based on the session name
+    const branchName = branch || sessionName;
+    const branchResult = await deps.gitService.branch({
+      session: sessionName,
+      branch: branchName,
+    });
+
+    // Update task status to IN-PROGRESS if requested and if we have a task ID
     if (taskId && !noStatusUpdate) {
       try {
-        log.debug("Updating task status", { taskId, status: TASK_STATUS.IN_PROGRESS });
-        statusUpdateResult = await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+        // Get the current status first
+        const previousStatus = await deps.taskService.getTaskStatus(taskId);
+
+        // Update the status to IN-PROGRESS
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
-        log.warn("Warning: Failed to update task status", {
-          error: error instanceof Error ? error.message : String(error),
-          taskId,
-          targetStatus: TASK_STATUS.IN_PROGRESS,
-        });
+        // Log the error but don't fail the session creation
+        console.error(
+          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
-    const branchCmdOptions: BranchOptions = { session: sessionName, branch: actualBranchName };
-    log.debug("Starting git branch operation", { branchCmdOptions });
-
-    try {
-      const branchResult = await deps.gitService.branch(branchCmdOptions);
-      log.debug("Git branch completed successfully", { branchResult });
-
-      return {
-        sessionRecord,
-        cloneResult: { workdir: repoPath },
-        branchResult: { branch: branchResult.branch },
-      };
-    } catch (error) {
-      log.error("Git branch failed", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        branchCmdOptions,
-      });
-      throw new MinskyError(
-        `Failed to create branch: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+    // Return the session record
+    return {
+      session: sessionName,
+      repoUrl,
+      repoName,
+      branch: branchName,
+      createdAt: sessionRecord.createdAt,
+      taskId,
+      repoPath: cloneResult.workdir, // Use workdir instead of repoPath
+    };
   } catch (error) {
-    log.error("Session start failed", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      params,
-    });
-
     if (error instanceof MinskyError) {
       throw error;
-    }
-    throw new MinskyError(
-      `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-}
-
-/**
- * Updates an existing session based on parameters
- */
-export async function updateSessionFromParams(
-  params: SessionUpdateParams,
-  depsInput?: SessionDeps
-): Promise<SessionRecord | null> {
-  const deps =
-    depsInput ||
-    (await createSessionDeps({
-      workspacePath: params.workspace || params.repo || process.cwd(),
-    }));
-  const { name: sessionName, task: taskParam, branch: inputBranch, remote: inputRemote } = params;
-  const sessionDB = deps.sessionDB;
-
-  let sessionNameToUse = sessionName;
-
-  if (params.task && !sessionName) {
-    // First normalize the task ID
-    const normalizedTaskId = normalizeAndValidateTaskId(params.task);
-
-    const session = await sessionDB.getSessionByTaskId(normalizedTaskId);
-    if (!session) {
-      throw new ResourceNotFoundError(
-        `No session found for task ${normalizedTaskId}`,
-        "task",
-        normalizedTaskId
+    } else {
+      throw new MinskyError(
+        `Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
+        error
       );
     }
-    sessionNameToUse = session.session;
   }
-
-  if (!sessionNameToUse) {
-    throw new ValidationError("Either session name or task ID must be provided");
-  }
-
-  const existingSession = await sessionDB.getSession(sessionNameToUse);
-  if (!existingSession) {
-    throw new ResourceNotFoundError(
-      `Session "${sessionNameToUse}" not found`,
-      "session",
-      sessionNameToUse
-    );
-  }
-
-  const sessionWorkDir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
-  const currentBranch = inputBranch || existingSession.branch || "main";
-
-  if (!params.noStash) {
-    await deps.gitService.stashChanges(sessionWorkDir);
-  }
-
-  await deps.gitService.pullLatest(sessionWorkDir, inputRemote);
-  await deps.gitService.mergeBranch(sessionWorkDir, currentBranch);
-
-  if (!params.noStash) {
-    await deps.gitService.popStash(sessionWorkDir);
-  }
-
-  // Push changes if needed
-  if (!params.noPush) {
-    await deps.gitService.push({
-      repoPath: sessionWorkDir,
-      remote: inputRemote || "origin"
-    });
-  }
-
-  const {
-    name: _n,
-    task: _t,
-    noStash,
-    noPush,
-    repo: _r,
-    branch: _b,
-    remote: _re,
-    ...updatesToApply
-  } = params;
-
-  await sessionDB.updateSession(
-    sessionNameToUse,
-    updatesToApply as Partial<Omit<SessionRecord, "session">>
-  );
-
-  return sessionDB.getSession(sessionNameToUse);
-}
-
-/**
- * Gets the directory path for a session based on parameters
- */
-export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
-  const { name, task } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
-
-  let session: SessionRecord | null = null;
-
-  if (task && !name) {
-    // First normalize the task ID
-    const normalizedTaskId = normalizeAndValidateTaskId(task);
-
-    session = await sessionDB.getSessionByTaskId(normalizedTaskId);
-    if (!session) {
-      throw new ResourceNotFoundError(
-        `No session found for task ${normalizedTaskId}`,
-        "task",
-        normalizedTaskId
-      );
-    }
-  } else if (name) {
-    session = await sessionDB.getSession(name);
-    if (!session) {
-      throw new ResourceNotFoundError(`Session "${name}" not found`, "session", name);
-    }
-  } else {
-    throw new ResourceNotFoundError("You must provide either a session name or task ID");
-  }
-
-  return await sessionDB.getRepoPath(session);
 }
 
 /**
  * Deletes a session based on parameters
  */
 export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
-  const { name, force } = params;
-  const sessionDB = new SessionDB({ baseDir: params.repo || params.workspace });
+  const { name, task } = params;
+
+  if (task && !name) {
+    // Find session by task ID
+    const normalizedTaskId = taskIdSchema.parse(task);
+    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+
+    if (!session) {
+      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
+    }
+
+    // Delete by name
+    return new SessionDB().deleteSession(session.session);
+  }
 
   if (!name) {
-    throw new ValidationError("Session name must be provided");
+    throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  const existingSession = await sessionDB.getSession(name);
-  if (!existingSession) {
-    throw new ResourceNotFoundError(`Session "${name}" not found`, "session", name);
+  return new SessionDB().deleteSession(name);
+}
+
+/**
+ * Gets session directory based on parameters
+ */
+export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
+  let sessionName: string;
+
+  if (params.task && !params.name) {
+    // Find session by task ID
+    const normalizedTaskId = taskIdSchema.parse(params.task);
+    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+
+    if (!session) {
+      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
+    }
+
+    sessionName = session.session;
+  } else if (params.name) {
+    sessionName = params.name;
+  } else {
+    throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  return sessionDB.deleteSession(name);
+  const session = await new SessionDB().getSession(sessionName);
+
+  if (!session) {
+    throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
+  }
+
+  // Get repo path from session
+  const repoPath = session.repoPath;
+
+  if (!repoPath) {
+    throw new MinskyError(`Session "${sessionName}" does not have a repository path`);
+  }
+
+  return repoPath;
+}
+
+/**
+ * Updates a session based on parameters
+ */
+export async function updateSessionFromParams(params: SessionUpdateParams): Promise<void> {
+  const { name, branch, remote, noStash, noPush } = params;
+
+  // Input validation
+  if (!name) {
+    throw new ValidationError("Session name is required");
+  }
+
+  // Convert dependencies for dependency injection pattern
+  const deps = {
+    gitService: new GitService(),
+    sessionDB: new SessionDB(),
+    getCurrentSession,
+  };
+
+  try {
+    // Get session record
+    const sessionRecord = await deps.sessionDB.getSession(name);
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+    }
+
+    // Get session working directory
+    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+
+    // Stash changes if needed
+    if (!noStash) {
+      await deps.gitService.stashChanges(workdir);
+    }
+
+    let stashError: unknown;
+
+    try {
+      // Pull latest changes
+      await deps.gitService.pullLatest(workdir, remote || "origin");
+
+      // Merge specified branch
+      const branchToMerge = branch || "main";
+      const mergeResult = await deps.gitService.mergeBranch(workdir, branchToMerge);
+
+      if (mergeResult.conflicts) {
+        throw new MinskyError(
+          `Merge conflicts detected when merging ${branchToMerge}. Please resolve conflicts manually.`
+        );
+      }
+
+      // Push changes if needed
+      if (!noPush) {
+        await deps.gitService.push({
+          repoPath: workdir,
+          remote: remote || "origin",
+        });
+      }
+    } finally {
+      // Always try to restore stashed changes
+      if (!noStash) {
+        try {
+          await deps.gitService.popStash(workdir);
+        } catch (error) {
+          stashError = error;
+        }
+      }
+    }
+
+    // Handle stash error outside finally block
+    if (stashError) {
+      console.error("Failed to restore stashed changes:", stashError);
+      throw new MinskyError(
+        "Session was updated, but failed to restore stashed changes. Please resolve manually.",
+        stashError
+      );
+    }
+  } catch (error) {
+    if (error instanceof MinskyError) {
+      throw error;
+    } else {
+      throw new MinskyError(
+        `Failed to update session: ${error instanceof Error ? error.message : String(error)}`,
+        error
+      );
+    }
+  }
+}
+
+/**
+ * Interface-agnostic function for creating a PR for a session
+ */
+export async function sessionPrFromParams(params: SessionPrParams): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+}> {
+  try {
+    // Determine the session name
+    let sessionName = params.session;
+    const sessionDb = new SessionDB();
+
+    // If no session name provided but task ID is, try to find the session by task ID
+    if (!sessionName && params.task) {
+      const taskId = params.task;
+      const sessionRecord = await sessionDb.getSessionByTaskId(taskId);
+      if (sessionRecord) {
+        sessionName = sessionRecord.session;
+      } else {
+        throw new MinskyError(`No session found for task ID ${taskId}`);
+      }
+    }
+
+    // If still no session name, try to detect from current directory
+    if (!sessionName) {
+      try {
+        // Get current directory
+        const currentDir = process.cwd();
+        // Extract session name from path - assuming standard path format
+        const pathParts = currentDir.split("/");
+        const sessionsIndex = pathParts.indexOf("sessions");
+        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+          sessionName = pathParts[sessionsIndex + 1];
+        }
+      } catch (error) {
+        // If detection fails, throw error
+        throw new MinskyError(
+          "Could not detect session from current directory. Please specify a session name or task ID."
+        );
+      }
+
+      if (!sessionName) {
+        throw new MinskyError(
+          "Could not detect session from current directory. Please specify a session name or task ID."
+        );
+      }
+    }
+
+    log.debug(`Creating PR for session: ${sessionName}`, {
+      session: sessionName,
+      title: params.title,
+      baseBranch: params.baseBranch,
+    });
+
+    // Call the prepare-pr function with the session name
+    const result = await preparePrFromParams({
+      session: sessionName,
+      title: params.title,
+      body: params.body,
+      baseBranch: params.baseBranch,
+      debug: params.debug,
+    });
+
+    // Update task status to IN-REVIEW if associated with a task
+    if (!params.noStatusUpdate) {
+      const sessionRecord = await sessionDb.getSession(sessionName);
+      if (sessionRecord?.taskId) {
+        try {
+          const taskService = new TaskService({
+            workspacePath: process.cwd(),
+            backend: "markdown",
+          });
+          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+        } catch (error) {
+          log.warn(
+            `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    log.error("Error creating PR for session", {
+      session: params.session,
+      task: params.task,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
 }
 
 /**
@@ -801,7 +805,12 @@ export async function approveSessionFromParams(
     repo?: string;
     json?: boolean;
   },
-  depsInput?: SessionDeps
+  depsInput?: {
+    sessionDB: SessionDB;
+    gitService: GitService;
+    taskService: TaskService;
+    workspaceUtils: typeof WorkspaceUtils;
+  }
 ): Promise<{
   session: string;
   commitHash: string;
@@ -811,44 +820,40 @@ export async function approveSessionFromParams(
   prBranch: string;
   taskId?: string;
 }> {
-  const deps =
-    depsInput ||
-    (await createSessionDeps({
+  const deps = depsInput || {
+    sessionDB: new SessionDB(),
+    gitService: new GitService(),
+    taskService: new TaskService({
       workspacePath: params.repo || process.cwd(),
-    }));
-
-  log.debug("Session approve called with params", params);
+      backend: "markdown",
+    }),
+    workspaceUtils: WorkspaceUtils,
+  };
 
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
-    const normalizedTaskId = normalizeAndValidateTaskId(params.task);
-    taskId = normalizedTaskId;
+    const taskIdToUse = taskIdSchema.parse(params.task);
+    taskId = taskIdToUse;
 
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    const session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
-        `No session found for task ${normalizedTaskId}`,
+        `No session found for task ${taskIdToUse}`,
         "task",
-        normalizedTaskId
+        taskIdToUse
       );
     }
     sessionNameToUse = session.session;
-    log.debug("Using session from task ID", {
-      taskId: normalizedTaskId,
-      session: sessionNameToUse,
-    });
   }
 
   // If session is still not set, try to detect it from repo path
   if (!sessionNameToUse && params.repo) {
-    const sessionContext = await deps.workspaceUtils.getCurrentSessionContext(params.repo);
+    const sessionContext = await deps.workspaceUtils.getCurrentSession(params.repo);
     if (sessionContext) {
-      sessionNameToUse = sessionContext.sessionId;
-      taskId = sessionContext.taskId;
-      log.debug("Using detected session from repo path", { session: sessionNameToUse, taskId });
+      sessionNameToUse = sessionContext;
     }
   }
 
@@ -870,19 +875,15 @@ export async function approveSessionFromParams(
   // If no taskId from params, use the one from session record
   if (!taskId && sessionRecord.taskId) {
     taskId = sessionRecord.taskId;
-    log.debug("Using task ID from session record", { taskId });
   }
 
   // Get session workdir
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
-  log.debug("Session workdir", { sessionWorkdir });
 
   // Determine PR branch name (pr/<session-name>)
   const featureBranch = sessionNameToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
-
-  log.debug("Merging PR branch", { prBranch, baseBranch, workdir: sessionWorkdir });
 
   try {
     // Execute git commands to merge the PR branch
@@ -921,203 +922,26 @@ export async function approveSessionFromParams(
       taskId,
     };
 
-    // Update task metadata and status if we have a task ID
+    // Update task status to DONE if we have a task ID
     if (taskId) {
       try {
-        // Update task metadata - we need to use the task backend directly
-        const taskBackend = await deps.taskService.getBackendForTask(taskId);
-        if (taskBackend && typeof taskBackend.setTaskMetadata === "function") {
-          await taskBackend.setTaskMetadata(taskId, mergeInfo);
-        }
-
-        // Update task status to DONE
-        await deps.taskService.setTaskStatus(taskId, "DONE");
-
-        log.debug("Updated task metadata and status", { taskId, status: "DONE", mergeInfo });
+        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
       } catch (error) {
         // Don't fail the whole operation if task update fails
-        log.warn("Warning: Failed to update task status or metadata", {
-          error: error instanceof Error ? error.message : String(error),
-          taskId,
-          targetStatus: "DONE",
-          mergeInfo,
-        });
+        console.error(
+          `Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
     return mergeInfo;
   } catch (error) {
-    log.error("Session approve failed", {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      params,
-    });
-
     if (error instanceof MinskyError) {
       throw error;
-    }
-
-    throw new MinskyError(
-      `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-}
-
-/**
- * Interface-agnostic function for creating a PR for a session
- */
-export async function sessionPrFromParams(params: SessionPrParams): Promise<{
-  prBranch: string;
-  baseBranch: string;
-  title?: string;
-  body?: string;
-}> {
-  try {
-    // Determine the session name
-    let sessionName = params.session;
-    const sessionDb = new SessionDB();
-    
-    // If no session name provided but task ID is, try to find the session by task ID
-    if (!sessionName && params.task) {
-      const taskId = params.task;
-      const sessionRecord = await sessionDb.getSessionByTaskId(taskId);
-      if (sessionRecord) {
-        sessionName = sessionRecord.session;
-      } else {
-        throw new MinskyError(`No session found for task ID ${taskId}`);
-      }
-    }
-    
-    // If still no session name, try to detect from current directory
-    if (!sessionName) {
-      try {
-        // Get current directory
-        const currentDir = process.cwd();
-        // Extract session name from path - assuming standard path format
-        const pathParts = currentDir.split('/');
-        const sessionsIndex = pathParts.indexOf('sessions');
-        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-          sessionName = pathParts[sessionsIndex + 1];
-        }
-      } catch (error) {
-        // If detection fails, throw error
-        throw new MinskyError("Could not detect session from current directory. Please specify a session name or task ID.");
-      }
-      
-      if (!sessionName) {
-        throw new MinskyError("Could not detect session from current directory. Please specify a session name or task ID.");
-      }
-    }
-
-    log.debug(`Creating PR for session: ${sessionName}`, {
-      session: sessionName,
-      title: params.title,
-      baseBranch: params.baseBranch,
-    });
-
-    // Call the prepare-pr function with the session name
-    const result = await preparePrFromParams({
-      session: sessionName,
-      title: params.title,
-      body: params.body,
-      baseBranch: params.baseBranch,
-      debug: params.debug,
-    });
-
-    // Update task status to IN-REVIEW if associated with a task
-    if (!params.noStatusUpdate) {
-      const sessionRecord = await sessionDb.getSession(sessionName);
-      if (sessionRecord?.taskId) {
-        try {
-          const taskService = new TaskService({
-            workspacePath: process.cwd(),
-            backend: "markdown",
-          });
-          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
-        } catch (error) {
-          log.warn(`Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    }
-    
-    return result;
-  } catch (error) {
-    log.error("Error creating PR for session", {
-      session: params.session,
-      task: params.task,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    throw error;
-  }
-}
-
-/**
- * Resolves a session reference to a specific session and its workspace path.
- * 
- * Resolution strategy:
- * 1. If session name is explicitly provided, use it
- * 2. If task ID is specified, find the associated session
- * 3. If auto-detection is enabled, try to find session from current directory
- * 4. Otherwise throw an error
- * 
- * @param options Resolution options
- * @returns Resolved session information
- * @throws ValidationError if session cannot be resolved
- */
-export async function resolveSession(
-  options: SessionResolutionOptions = {}
-): Promise<ResolvedSession> {
-  const { sessionName, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
-  
-  let sessionId: string | null = null;
-  
-  // 1. Try to resolve from explicit session name
-  if (sessionName) {
-    sessionId = sessionName;
-  }
-  // 2. Try to resolve from task ID
-  else if (taskId) {
-    const normalizedTaskId = taskId.startsWith('#') ? taskId : `#${taskId}`;
-    const sessionDb = new SessionDB();
-    const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
-    if (!sessionRecord) {
-      throw new ValidationError(`No session found for task: ${taskId}`);
-    }
-    sessionId = sessionRecord.session;
-  }
-  // 3. Try auto-detection from current directory
-  else if (autoDetect) {
-    sessionId = await getCurrentSession(cwd);
-    if (!sessionId) {
-      throw new ValidationError('Not in a session workspace');
+    } else {
+      throw new MinskyError(
+        `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
-  // 4. No resolution method available
-  else {
-    throw new ValidationError('Cannot resolve session: no session name, task ID provided, and auto-detection is disabled');
-  }
-  
-  // Fetch the session details
-  const sessionDb = new SessionDB();
-  const sessionRecord = await sessionDb.getSession(sessionId);
-  
-  if (!sessionRecord) {
-    throw new ValidationError(`Session not found: ${sessionId}`);
-  }
-  
-  // Get the workspace path
-  const workspacePath = await sessionDb.getRepoPath(sessionRecord);
-  
-  // Return the resolved session information
-  return {
-    name: sessionRecord.session,
-    repositoryUri: sessionRecord.repoUrl,
-    repositoryName: sessionRecord.repoName,
-    workspacePath,
-    taskId: sessionRecord.taskId,
-    createdAt: sessionRecord.createdAt,
-    backendType: sessionRecord.backendType as "local" | "remote" | "github" | undefined
-  };
 }
