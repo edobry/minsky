@@ -22,7 +22,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
 - [x] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [x] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
-- [+] Add Repository Backend Support for Remote Git Repositories [#014](tasks/014-add-repository-backend-support.md)
+- [-] Add Repository Backend Support for Remote Git Repositories [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
@@ -50,7 +50,7 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-commands.md)
 - [x] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
 - [ ] Write Test Suite for Cursor Rules [#041](process/tasks/041-write-test-suite-for-cursor-rules.md)
-- [ ] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
+- [-] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
 - [x] Add Session Information to Task Details [#043](tasks/043-add-session-information-to-task-details.md)
 - [x] Fix Remaining Test Failures in Minsky [#044](process/tasks/044-fix-remaining-test-failures-in-minsky.md)
 - [ ] Setup Documentation Tooling [#045](process/tasks/045-setup-documentation-tooling.md)
@@ -115,7 +115,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Revisit GitService Testing Strategy [#079](process/tasks/079-revisit-gitservice-testing-strategy.md)
 
-- [ ] Review Workspace and Repository Path Concepts [#080](process/tasks/080-review-workspace-and-repository-path-concepts.md)
+- [-] Review Workspace and Repository Path Concepts [#080](process/tasks/080-review-workspace-and-repository-path-concepts.md)
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [#081](process/tasks/081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
@@ -127,4 +127,14 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)
 
-- [ ] Add `session pr` Command and Improve `git prepare-pr` Interface [#086](process/tasks/086-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
+- [ ] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
+
+- [ ] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
+
+- [ ] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
+
+- [ ] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
+
+- [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
+
+- [ ] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)

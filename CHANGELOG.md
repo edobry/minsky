@@ -6,11 +6,6 @@
 
 ### Added
 
-- Task #086: Create task for adding `session pr` command and improving `git prepare-pr` interface
-  - Will implement a new `session pr` command that automatically detects session context
-  - Will review the `git prepare-pr` command for interface consistency and improvements
-  - Will update PR preparation workflow documentation to match actual commands
-
 - Task #084: Extended auto-detection to additional commands
 
   - Updated task spec to reflect current command structure
@@ -41,7 +36,6 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Improved error handling with detailed error messages and appropriate exit codes.
 
 - Enhanced PR workflow:
-
   - Modified `git prepare-pr` command to create branches with `pr/` prefix
   - Added new `session pr` command that specifically creates PR branches for sessions
   - Improved branch naming with automatic conversion from titles to valid branch names
@@ -103,12 +97,6 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
-
-- Improved error handling in session start command to display cleaner, less verbose error messages
-  - Changed error logging level for verbose session error details from error to debug
-  - Updated CLI adapter to show only essential error messages to the user
-  - Prevented unnecessary stack traces and JSON output in terminal
-  - Maintained detailed logging for debugging purposes
 
 - Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
 
