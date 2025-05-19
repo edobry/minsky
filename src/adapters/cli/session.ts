@@ -21,6 +21,7 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
 } from "../../domain/index.js";
+import { handleCliError, outputResult } from "./utils/index.js";
 
 interface GetCurrentSessionConfig {
   getCurrentSession: () => Promise<string | null>;
@@ -45,6 +46,20 @@ export function createListCommand(): Command {
         // Call the domain function
         const sessions = await listSessionsFromParams(params);
 
+<<<<<<< HEAD
+        // Output result using the utility function
+        outputResult(result, {
+          json: options.json,
+          formatter: (sessions) => {
+            sessions.forEach((session) => {
+              console.log(`Session: ${session.session}`);
+              console.log(`  Repo: ${session.repoPath}`);
+              console.log(`  Created: ${session.createdAt}`);
+              console.log();
+            });
+          },
+        });
+=======
         // Format and display the results
         if (options?.json) {
           process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
@@ -58,13 +73,9 @@ export function createListCommand(): Command {
             console.log(`- ${session.session}: ${session.branch}`);
           });
         }
+>>>>>>> origin/main
       } catch (error) {
-        if (error instanceof MinskyError) {
-          console.error(`Error: ${error.message}`);
-        } else {
-          console.error(`Unexpected error: ${error}`);
-        }
-        process.exit(1);
+        handleCliError(error);
       }
     });
 }
@@ -90,6 +101,25 @@ export function createGetCommand(): Command {
         // Call the domain function
         const session = await getSessionFromParams(params);
 
+<<<<<<< HEAD
+        // Format output using the utility function
+        outputResult(result, {
+          json: options?.json,
+          formatter: (session) => {
+            if (session) {
+              console.log(`Session: ${session.session}`);
+              console.log(`Repo: ${session.repoPath}`);
+              console.log(`Branch: ${session.branch}`);
+              console.log(`Created: ${session.createdAt}`);
+              if (session.taskId) {
+                console.log(`Task ID: ${session.taskId}`);
+              }
+            } else {
+              console.log("Session not found");
+            }
+          },
+        });
+=======
         // Format and display the result
         if (options?.json) {
           process.stdout.write(`${JSON.stringify(session, null, 2)}\n`);
@@ -100,13 +130,9 @@ export function createGetCommand(): Command {
             console.log(`Task: ${session.taskId}`);
           }
         }
+>>>>>>> origin/main
       } catch (error) {
-        if (error instanceof MinskyError) {
-          console.error(`Error: ${error.message}`);
-        } else {
-          console.error(`Unexpected error: ${error}`);
-        }
-        process.exit(1);
+        handleCliError(error);
       }
     });
 }
@@ -219,8 +245,15 @@ export function createStartCommand(): Command {
             process.exit(1);
           }
         }
+<<<<<<< HEAD
+      } catch (error) {
+        handleCliError(error);
+      }
+    });
+=======
       )
   );
+>>>>>>> origin/main
 }
 
 /**
@@ -242,15 +275,14 @@ export function createDirCommand(): Command {
         // Call the domain function
         const result = await getSessionDirFromParams(params);
 
+<<<<<<< HEAD
+        // Output result
+=======
         // Output the session directory
+>>>>>>> origin/main
         console.log(result);
       } catch (error) {
-        if (error instanceof MinskyError) {
-          console.error(`Error: ${error.message}`);
-        } else {
-          console.error(`Unexpected error: ${error}`);
-        }
-        process.exit(1);
+        handleCliError(error);
       }
     });
 }
@@ -261,6 +293,32 @@ export function createDirCommand(): Command {
 export function createDeleteCommand(): Command {
   return new Command("delete")
     .description("Delete a session")
+<<<<<<< HEAD
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--force", "Force delete even if the session workspace is dirty")
+    .action(
+      async (
+        name?: string,
+        options?: { task?: string; force?: boolean }
+      ) => {
+        try {
+          // Convert CLI options to domain parameters
+          const params: SessionDeleteParams = {
+            name,
+            task: options?.task,
+            force: options?.force || false,
+          };
+
+          // Call the domain function
+          const deleted = await deleteSessionFromParams(params);
+
+          // Output result
+          console.log(`Session deleted successfully.`);
+        } catch (error) {
+          handleCliError(error);
+        }
+=======
     .argument("<name>", "Session name")
     .option("--repo <path>", "Repository path")
     .option("--force", "Force deletion even if session has uncommitted changes")
@@ -285,8 +343,9 @@ export function createDeleteCommand(): Command {
           console.error(`Unexpected error: ${error}`);
         }
         process.exit(1);
+>>>>>>> origin/main
       }
-    });
+    );
 }
 
 /**
@@ -294,6 +353,38 @@ export function createDeleteCommand(): Command {
  */
 export function createUpdateCommand(): Command {
   return new Command("update")
+<<<<<<< HEAD
+    .description("Update session with latest changes from main branch")
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--force", "Force update even if the session workspace is dirty")
+    .action(
+      async (
+        name?: string,
+        options?: { task?: string; force?: boolean }
+      ) => {
+        try {
+          // Convert CLI options to domain parameters
+          const params: SessionUpdateParams = {
+            name,
+            task: options?.task,
+            force: options?.force || false,
+          };
+
+          // Call the domain function
+          const result = await updateSessionFromParams(params);
+
+          // Output result
+          if (result) {
+            console.log(`Session ${result.session} updated successfully.`);
+            console.log(`Branch: ${result.branch}`);
+          } else {
+            console.log("Session update failed or no result returned.");
+          }
+        } catch (error) {
+          handleCliError(error);
+        }
+=======
     .description("Update session metadata")
     .argument("[name]", "Session name")
     .option("--repo <path>", "Repository path")
@@ -324,8 +415,9 @@ export function createUpdateCommand(): Command {
           console.error(`Unexpected error: ${error}`);
         }
         process.exit(1);
+>>>>>>> origin/main
       }
-    });
+    );
 }
 
 /**
@@ -335,6 +427,61 @@ export function createApproveCommand(): Command {
   return new Command("approve")
     .description("Approve a session")
     .argument("[name]", "Session name")
+<<<<<<< HEAD
+    .option("--task <taskId>", "Task ID to match")
+    .option("--task-status <status>", "Task status to set after merge (default: DONE)")
+    .option("--yes", "Automatically confirm all prompts")
+    .option("--no-cleanup", "Don't cleanup the session after merging")
+    .option("--no-push", "Don't push changes to the remote repository")
+    .option("--no-status-update", "Don't update the task status")
+    .option("--title <title>", "Title for the merge commit")
+    .option(
+      "--message <message>",
+      "Message for the merge commit (will be combined with title if provided)"
+    )
+    .action(
+      async (
+        name?: string,
+        options?: {
+          task?: string;
+          taskStatus?: string;
+          yes?: boolean;
+          cleanup?: boolean;
+          push?: boolean;
+          statusUpdate?: boolean;
+          title?: string;
+          message?: string;
+        }
+      ) => {
+        try {
+          // Build a proper merge message from title and message if provided
+          let mergeMessage: string | undefined;
+          if (options?.title || options?.message) {
+            mergeMessage = [options.title, options.message].filter(Boolean).join("\n\n");
+          }
+
+          // Convert CLI options to domain parameters
+          const params: SessionApproveParams = {
+            name,
+            task: options?.task,
+            taskStatus: options?.taskStatus,
+            autoConfirm: options?.yes || false,
+            cleanup: options?.cleanup !== false,
+            push: options?.push !== false,
+            updateTaskStatus: options?.statusUpdate !== false,
+            mergeMessage,
+          };
+
+          // Call the domain function with the parameters
+          const result = await approveSessionFromParams(params);
+
+          // Output result
+          console.log(`Session ${result.session} approved and merged successfully.`);
+          console.log(`Merged into: ${result.baseBranch}`);
+          console.log(`Merge commit: ${result.commitHash}`);
+        } catch (error) {
+          handleCliError(error);
+=======
     .option("--repo <path>", "Repository path")
     .option("--no-status-update", "Skip updating task status")
     .action(async (name?: string, options?: { repo?: string; statusUpdate?: boolean }) => {
@@ -357,10 +504,11 @@ export function createApproveCommand(): Command {
           console.error(`Error: ${error.message}`);
         } else {
           console.error(`Unexpected error: ${error}`);
+>>>>>>> origin/main
         }
         process.exit(1);
       }
-    });
+    );
 }
 
 /**
@@ -371,24 +519,37 @@ export function createPrCommand(): Command {
     .description("Create a PR for a session")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
+<<<<<<< HEAD
+    .option("--no-status-update", "Don't update the task status")
+=======
     .option("--title <title>", "PR title (if not provided, will be generated)")
     .option("--body <body>", "PR body (if not provided, will be generated)")
     .option("--base-branch <branch>", "Base branch for PR (defaults to main)")
     .option("--debug", "Enable debug output")
     .option("--no-status-update", "Skip updating task status")
+>>>>>>> origin/main
     .action(
       async (
         name?: string,
         options?: {
           task?: string;
+<<<<<<< HEAD
+=======
           title?: string;
           body?: string;
           baseBranch?: string;
           debug?: boolean;
+>>>>>>> origin/main
           statusUpdate?: boolean;
         }
       ) => {
         try {
+<<<<<<< HEAD
+          const params = {
+            session: name,
+            task: options?.task,
+            updateTaskStatus: options?.statusUpdate !== false,
+=======
           // Convert CLI options to domain parameters
           const params = {
             session: name,
@@ -398,11 +559,26 @@ export function createPrCommand(): Command {
             baseBranch: options?.baseBranch,
             debug: options?.debug || false,
             noStatusUpdate: options?.statusUpdate === false,
+>>>>>>> origin/main
           };
 
           // Call the domain function
           const result = await sessionPrFromParams(params);
 
+<<<<<<< HEAD
+          // Generate a PR description from the result
+          const prDescription = `# Pull Request: ${result.title || `Merge ${result.prBranch} into ${result.baseBranch}`}
+
+${result.body || ""}
+
+## Base Branch: ${result.baseBranch}
+## PR Branch: ${result.prBranch}`;
+
+          // Output the PR description
+          console.log(prDescription);
+        } catch (error) {
+          handleCliError(error);
+=======
           // Output result
           console.log(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
           console.log("PR branch pushed to origin");
@@ -414,18 +590,19 @@ export function createPrCommand(): Command {
             console.error(`Unexpected error: ${error}`);
           }
           process.exit(1);
+>>>>>>> origin/main
         }
       }
     );
 }
 
 /**
- * Creates the main session command with all subcommands
- * Accepts an optional getCurrentSession function for testing
+ * Creates the session command
  */
 export function createSessionCommand(config?: GetCurrentSessionConfig): Command {
   const sessionCommand = new Command("session").description("Session management operations");
 
+  // Add all the session subcommands
   sessionCommand.addCommand(createListCommand());
   sessionCommand.addCommand(createGetCommand());
   sessionCommand.addCommand(createStartCommand());

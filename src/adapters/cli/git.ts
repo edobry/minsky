@@ -14,6 +14,7 @@ import {
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
+import { handleCliError, outputResult } from "./utils/index.js";
 
 /**
  * Interface-agnostic function to merge a PR branch
@@ -134,33 +135,22 @@ export function createSummaryCommand(): Command {
           const result = await createPullRequestFromParams(params);
 
           // Output result based on format
-          if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            console.log(result.markdown);
+          outputResult(result, {
+            json: options.json,
+            formatter: (result) => {
+              console.log(result.markdown);
 
-            // Display status update information if available
-            if (result.statusUpdateResult) {
-              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
-              console.log(
-                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
-              );
+              // Display status update information if available
+              if (result.statusUpdateResult) {
+                const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+                console.log(
+                  `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
+                );
+              }
             }
-          }
+          });
         } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-            // Exit with the specific error code if available
-            if (typeof (error as any).code === "number") {
-              process.exit((error as any).code);
-            }
-            process.exit(1);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -204,27 +194,16 @@ export function createPreparePrCommand(): Command {
           const result = await preparePrFromParams(params);
 
           // Output result based on format
-          if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
-            log.cli(`PR branch pushed to origin/${result.prBranch}`);
-            log.cli("PR is ready for review");
-          }
-        } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-            // Exit with the specific error code if available
-            if (typeof (error as any).code === "number") {
-              process.exit((error as any).code);
+          outputResult(result, {
+            json: options.json,
+            formatter: (result) => {
+              log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
+              log.cli(`PR branch pushed to origin/${result.prBranch}`);
+              log.cli("PR is ready for review");
             }
-            process.exit(1);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
+          });
+        } catch (error) {
+          handleCliError(error);
         }
       }
     );
@@ -264,29 +243,18 @@ export function createMergePrCommand(): Command {
           const result = await mergePrFromParams(params);
 
           // Output result based on format
-          if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            log.cli(`Merged PR branch ${result.prBranch} into ${result.baseBranch}`);
-            log.cli(`Merge commit: ${result.commitHash}`);
-            log.cli(`Merge date: ${result.mergeDate}`);
-            log.cli(`Merged by: ${result.mergedBy}`);
-            log.cli(`PR branch ${result.prBranch} deleted from remote`);
-          }
-        } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-            // Exit with the specific error code if available
-            if (typeof (error as any).code === "number") {
-              process.exit((error as any).code);
+          outputResult(result, {
+            json: options.json,
+            formatter: (result) => {
+              log.cli(`Merged PR branch ${result.prBranch} into ${result.baseBranch}`);
+              log.cli(`Merge commit: ${result.commitHash}`);
+              log.cli(`Merge date: ${result.mergeDate}`);
+              log.cli(`Merged by: ${result.mergedBy}`);
+              log.cli(`PR branch ${result.prBranch} deleted from remote`);
             }
-            process.exit(1);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
+          });
+        } catch (error) {
+          handleCliError(error);
         }
       }
     );
@@ -336,21 +304,15 @@ export function createCommitCommand(): Command {
           const result = await commitChangesFromParams(params);
 
           // Output result based on format
-          if (options.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            log.cli(`Committed changes with message: ${result.message}`);
-            log.cli(`Commit hash: ${result.commitHash}`);
-          }
+          outputResult(result, {
+            json: options.json,
+            formatter: (result) => {
+              log.cli(`Committed changes with message: ${result.message}`);
+              log.cli(`Commit hash: ${result.commitHash}`);
+            }
+          });
         } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -387,20 +349,14 @@ export function createPushCommand(): Command {
           });
 
           // Output result based on format
-          if (options.json) {
-            log.agent(JSON.stringify(result, null, 2));
-          } else {
-            log.cli("Successfully pushed changes to remote.");
-          }
+          outputResult(result, {
+            json: options.json,
+            formatter: () => {
+              log.cli("Successfully pushed changes to remote.");
+            }
+          });
         } catch (error) {
-          if (error instanceof MinskyError) {
-            log.cliError(`Error: ${error.message}`);
-          } else if (error instanceof Error) {
-            log.cliError(`Unexpected error: ${error.message}`);
-          } else {
-            log.cliError(`Unexpected error: ${String(error)}`);
-          }
-          process.exit(1);
+          handleCliError(error);
         }
       }
     );
