@@ -7,7 +7,7 @@ This document describes the workflow for creating and merging pull requests usin
 The enhanced PR workflow offers a streamlined approach to creating and merging pull requests. The workflow includes the following steps:
 
 1. Create a PR summary to review changes (`git summary`)
-2. Prepare a PR with a pre-created merge commit (`git prepare-pr`)
+2. Prepare a PR with a pre-created merge commit (`session pr` or `git prepare-pr`)
 3. Approve and merge the prepared PR (`session approve` or `git merge-pr`)
 
 This workflow is designed to minimize merge conflicts and ensure that merges occur via fast-forward only, resulting in a cleaner, more linear commit history.
@@ -42,6 +42,33 @@ This will generate a formatted PR description with:
 
 The command will also automatically update the task status to "IN_REVIEW" if a task is associated with the session.
 
+### `session pr`
+
+Creates a PR branch for a session with a pre-created merge commit that is ready for fast-forward merge.
+
+```bash
+minsky session pr [session-name] [options]
+```
+
+**Options:**
+- `--task <taskId>`: Task ID to match (if not providing session name)
+- `--title <title>`: PR title (if not provided, will be generated)
+- `--body <body>`: PR body (if not provided, will be generated)
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
+- `--debug`: Enable debug output
+- `--no-status-update`: Skip updating task status
+
+**Example:**
+```bash
+minsky session pr my-feature --title "Add new feature X"
+```
+
+This command:
+1. Creates a new branch from the base branch (typically main)
+2. Uses the current git branch for naming the PR branch (format: `pr/<branch-name>`)
+3. Pushes the PR branch to the remote repository
+4. Updates the task status to IN-REVIEW (if associated with a task)
+
 ### `git prepare-pr`
 
 Creates a PR branch with a pre-created merge commit that is ready for fast-forward merge.
@@ -52,7 +79,7 @@ minsky git prepare-pr [options]
 
 **Options:**
 - `--repo <path>`: Path to the repository
-- `--base-branch <branch>`: Base branch for the PR (defaults to main)
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
 - `--title <title>`: PR title (if not provided, will be generated)
 - `--body <body>`: PR body (if not provided, will be generated)
 - `--debug`: Enable debug output
@@ -65,10 +92,10 @@ minsky git prepare-pr --session my-feature --title "Add new feature X"
 
 This command:
 1. Creates a new branch from the base branch (typically main)
-2. Merges your feature branch into this PR branch with a no-fast-forward merge
+2. Uses the current git branch for naming the PR branch (format: `pr/<branch-name>`)
 3. Pushes the PR branch to the remote repository
 
-The naming convention for PR branches is `pr/<feature-branch-name>`.
+The naming convention for PR branches is `pr/<branch-name>`.
 
 ### `git merge-pr`
 
@@ -142,12 +169,12 @@ The PR workflow commands use specific exit codes to indicate common failure cond
 
 2. Prepare a PR branch:
    ```bash
-   minsky git prepare-pr --session my-feature
+   minsky session pr
    ```
 
 3. Review the PR and when ready to merge:
    ```bash
-   minsky session approve --session my-feature
+   minsky session approve
    ```
 
 ### Manual Workflow
@@ -179,4 +206,4 @@ If you prefer more control:
 - **Clean History**: Ensures a linear commit history with meaningful merge commits
 - **Reduced Conflicts**: Conflicts are resolved during PR branch preparation, not during merging
 - **Consistent Process**: Standardizes the PR workflow across all projects
-- **Task Integration**: Automatically updates task status and records merge metadata 
+- **Task Integration**: Automatically updates task status and records merge metadata

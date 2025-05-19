@@ -146,3 +146,23 @@ export const sessionApproveParamsSchema = z
  * Type for session approve parameters
  */
 export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
+
+/**
+ * Schema for session PR parameters
+ */
+export const sessionPrParamsSchema = z
+  .object({
+    session: sessionNameSchema.optional().describe("Name of the session"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
+    title: z.string().optional().describe("PR title (if not provided, will be generated)"),
+    body: z.string().optional().describe("PR body (if not provided, will be generated)"),
+    baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
+    debug: flagSchema("Enable debug output"),
+    noStatusUpdate: flagSchema("Skip updating task status"),
+  })
+  .merge(commonCommandOptionsSchema);
+
+/**
+ * Type for session PR parameters
+ */
+export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
