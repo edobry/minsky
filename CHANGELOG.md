@@ -6,6 +6,11 @@
 
 ### Added
 
+- Task #086: Create task for adding `session pr` command and improving `git prepare-pr` interface
+  - Will implement a new `session pr` command that automatically detects session context
+  - Will review the `git prepare-pr` command for interface consistency and improvements
+  - Will update PR preparation workflow documentation to match actual commands
+
 - Task #084: Extended auto-detection to additional commands
 
   - Updated task spec to reflect current command structure
