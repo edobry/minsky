@@ -133,7 +133,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
 
-- [ ] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
+- [-] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
@@ -149,4 +149,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
 
-- [-] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
+- [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)

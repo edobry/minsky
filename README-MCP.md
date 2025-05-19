@@ -124,6 +124,63 @@ For `github` backend:
 - `githubRepo`: Repository name
 - `githubToken`: GitHub access token for authentication
 
+### Rules Management
+
+- `rules.list`: List all rules in the workspace
+  - Parameters:
+    - `format` (optional): Filter by rule format (cursor or generic)
+    - `tag` (optional): Filter by tag
+    - `debug` (optional): Show debug information
+
+- `rules.get`: Get a specific rule by ID
+  - Parameters:
+    - `id`: Rule ID to retrieve
+    - `format` (optional): Preferred rule format (cursor or generic)
+    - `debug` (optional): Show debug information
+
+- `rules.create`: Create a new rule
+  - Parameters:
+    - `id`: ID of the rule to create
+    - `content` (optional): Content of the rule (or path to file containing content)
+    - `description` (optional): Description of the rule
+    - `name` (optional): Display name of the rule (defaults to ID)
+    - `globs` (optional): Glob patterns to match files (comma-separated string or array)
+    - `tags` (optional): Comma-separated list of tags for the rule
+    - `format` (optional): Format of the rule file (defaults to 'cursor')
+    - `overwrite` (optional): Overwrite existing rule if it exists
+
+- `rules.update`: Update an existing rule
+  - Parameters:
+    - `id`: ID of the rule to update
+    - `content` (optional): New content of the rule (or path to file containing content)
+    - `description` (optional): New description of the rule
+    - `name` (optional): New display name of the rule
+    - `globs` (optional): New glob patterns to match files
+    - `tags` (optional): New comma-separated list of tags for the rule
+    - `format` (optional): New format of the rule file
+
+- `rules.search`: Search for rules by content
+  - Parameters:
+    - `query`: Search query
+    - `format` (optional): Filter by rule format (cursor or generic)
+    - `tag` (optional): Filter by tag
+    - `debug` (optional): Show debug information
+
+### Initialization
+
+- `init`: Initialize a project for Minsky
+  - Parameters:
+    - `repoPath` (optional): Repository path (defaults to current directory)
+    - `backend` (optional): Task backend type (tasks.md or tasks.csv)
+    - `ruleFormat` (optional): Rule format (cursor or generic)
+    - `mcp` (optional): MCP configuration options
+      - `enabled` (optional): Enable MCP configuration
+      - `transport` (optional): MCP transport type (stdio, sse, httpStream)
+      - `port` (optional): Port for MCP network transports
+      - `host` (optional): Host for MCP network transports
+    - `mcpOnly` (optional): Only configure MCP, skip other initialization steps
+    - `overwrite` (optional): Overwrite existing files
+
 ## Usage Examples
 
 ### Using Minsky MCP with Claude

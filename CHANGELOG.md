@@ -254,4 +254,6 @@ _See: This task was implemented as part of Task #014._
 
 ### Changed
 - Updated README-MCP.md to remove documentation for unimplemented task commands (tasks.filter, tasks.update, tasks.delete, tasks.info) and moved them to the "Planned Features" section
-- Commented out test blocks for unimplemented task command features in MCP integration tests
+- Removed test blocks for unimplemented task command features in MCP integration tests
+- Identified missing MCP adapters for init and rules commands
+- Added MCP adapters for init and rules commands to align with CLI implementations

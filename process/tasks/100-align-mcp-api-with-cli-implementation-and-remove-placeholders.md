@@ -33,6 +33,14 @@ This misalignment creates confusion about what functionality is actually availab
    - Document unimplemented but planned commands in a dedicated "Future Work" or "Roadmap" section
    - Make it clear which commands are planned but not yet available
 
+## Additional Requirements
+
+1. The MCP server is missing adapters for CLI commands that exist in the CLI adapter:
+   - `init` commands: Create a new MCP adapter for initialization commands
+   - `rules` commands: Create a new MCP adapter for rules management
+
+These should be implemented as thin wrappers around domain functions, similar to how the tasks, git, and session adapters work.
+
 ## Implementation Steps
 
 1. [ ] Audit Current Command Alignment
