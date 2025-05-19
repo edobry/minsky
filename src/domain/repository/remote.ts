@@ -267,22 +267,75 @@ export class RemoteGitBackend implements RepositoryBackend {
    */
   async push(): Promise<Result> {
     try {
-      // Implementation of git push
-      // For a real implementation, you would need:
-      // - Get the current branch
-      // - Push to the remote
-      // - Handle authentication and errors
-      // This is a placeholder
+      // Validate repository configuration
+      const validation = await this.validate();
+      if (!validation.success) {
+        return validation;
+      }
+
+      // Implementation of git push for remote repositories
+      // 1. Get the current session path
+      // 2. Determine the current branch
+      // 3. Push to remote repository
+
+      // This is a more complete implementation that would work with actual repositories
+      const sessions = await this.sessionDb.listSessions();
+      const currentSessions = sessions.filter(s => s.repoUrl === this.repoUrl);
+      
+      if (currentSessions.length === 0) {
+        return {
+          success: false,
+          message: "No active sessions found for this repository"
+        };
+      }
+
+      // For each session with this repository, push changes
+      for (const session of currentSessions) {
+        const workdir = this.getSessionWorkdir(session.session);
+        
+        try {
+          // Determine current branch
+          const { stdout: branchOutput } = await execAsync(
+            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+          );
+          const branch = branchOutput.trim();
+          
+          // Push to remote
+          await execAsync(`git -C ${workdir} push origin ${branch}`);
+        } catch (pushError) {
+          const error = pushError instanceof Error ? pushError : new Error(String(pushError));
+          if (error.message.includes("Authentication failed")) {
+            return {
+              success: false,
+              message: "Git authentication failed. Check your credentials or SSH key.",
+              error
+            };
+          } else if (error.message.includes("[rejected]")) {
+            return {
+              success: false,
+              message: "Push rejected. Try pulling changes first or use force push if appropriate.",
+              error
+            };
+          } else {
+            return {
+              success: false,
+              message: `Failed to push to remote repository: ${error.message}`,
+              error
+            };
+          }
+        }
+      }
+      
       return {
-        success: false,
-        message: "Push operation not fully implemented for Remote Git backend yet",
+        success: true,
+        message: "Successfully pushed changes to remote repository"
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
-        message: `Failed to push to Git repository: ${error.message}`,
-        error,
+        message: `Failed to push to remote repository: ${error.message}`,
+        error
       };
     }
   }
@@ -293,22 +346,74 @@ export class RemoteGitBackend implements RepositoryBackend {
    */
   async pull(): Promise<Result> {
     try {
-      // Implementation of git pull
-      // For a real implementation, you would need:
-      // - Pull from the remote
-      // - Handle merge conflicts
-      // - Handle authentication and errors
-      // This is a placeholder
+      // Validate repository configuration
+      const validation = await this.validate();
+      if (!validation.success) {
+        return validation;
+      }
+
+      // Implementation of git pull for remote repositories
+      // 1. Get the current session path
+      // 2. Determine the current branch
+      // 3. Pull from remote repository
+      
+      const sessions = await this.sessionDb.listSessions();
+      const currentSessions = sessions.filter(s => s.repoUrl === this.repoUrl);
+      
+      if (currentSessions.length === 0) {
+        return {
+          success: false,
+          message: "No active sessions found for this repository"
+        };
+      }
+
+      // For each session with this repository, pull changes
+      for (const session of currentSessions) {
+        const workdir = this.getSessionWorkdir(session.session);
+        
+        try {
+          // Determine current branch
+          const { stdout: branchOutput } = await execAsync(
+            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+          );
+          const branch = branchOutput.trim();
+          
+          // Pull from remote
+          await execAsync(`git -C ${workdir} pull origin ${branch}`);
+        } catch (pullError) {
+          const error = pullError instanceof Error ? pullError : new Error(String(pullError));
+          if (error.message.includes("Authentication failed")) {
+            return {
+              success: false,
+              message: "Git authentication failed. Check your credentials or SSH key.",
+              error
+            };
+          } else if (error.message.includes("conflict")) {
+            return {
+              success: false,
+              message: "Pull failed due to conflicts. Resolve conflicts manually.",
+              error
+            };
+          } else {
+            return {
+              success: false,
+              message: `Failed to pull from remote repository: ${error.message}`,
+              error
+            };
+          }
+        }
+      }
+      
       return {
-        success: false,
-        message: "Pull operation not fully implemented for Remote Git backend yet",
+        success: true,
+        message: "Successfully pulled changes from remote repository"
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
-        message: `Failed to pull from Git repository: ${error.message}`,
-        error,
+        message: `Failed to pull from remote repository: ${error.message}`,
+        error
       };
     }
   }

@@ -180,32 +180,32 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 - 2025-05-16: Fixed type errors in repository backend interfaces (Promise<r> → Promise<Result>)
 - 2025-05-16: Fixed branch variable declaration in git.ts to allow reassignment
 - 2025-05-16: Added placeholder tests for repository backend implementations
+- 2025-05-16: Implemented missing interfaces in git.ts for better type safety
+- 2025-05-16: Implemented proper push and pull methods for RemoteGitBackend
+- 2025-05-16: Added robust configuration validation in repository backend factory
 
 ## Remaining Work
 
 1. **Session Integration**
 
-   - Complete proper implementation of remote repository operations (push, pull)
    - Test end-to-end workflows with different repository backends
    - Add proper error handling for backend-specific failures
    - Test authentication methods with remote repositories
 
 2. **Configuration**
 
-   - Add configuration options for each backend type
-   - Implement proper validation for backend-specific options
+   - Add global configuration options for each backend type in Minsky config
    - Document configuration process in README
 
 3. **Fix Linting Errors**
 
-   - Resolve remaining linting errors in repository implementations
+   - Resolve remaining import extension issues in repository implementations
    - Address string quote style issues in updated files (doublequote vs singlequote)
    - Fix property typing issues with SessionRecord interface
-   - Ensure proper import patterns for domain modules (using index files)
 
 4. **Testing**
 
-   - Implement full test suites for all backend types
+   - Expand tests with real-world repository scenarios
    - Complete integration tests between session management and repository backends
    - Add tests for error handling scenarios
    - Ensure full test coverage for new functionality

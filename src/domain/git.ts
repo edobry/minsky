@@ -9,6 +9,52 @@ import { createRepositoryBackend, RepositoryBackendType } from './repository/ind
 import type { RepositoryBackendConfig } from './repository/index.js';
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
+const execAsync = promisify(childExec);
+
+// Define missing interfaces
+export interface GitStatus {
+  modified: string[];
+  untracked: string[];
+  deleted: string[];
+}
+
+export interface StashResult {
+  workdir: string;
+  stashed: boolean;
+}
+
+export interface PullResult {
+  workdir: string;
+  updated: boolean;
+}
+
+export interface MergeResult {
+  workdir: string;
+  merged: boolean;
+  conflicts?: boolean;
+}
+
+export interface PushOptions {
+  session?: string;
+  repoPath?: string;
+  remote?: string;
+  force?: boolean;
+  branch?: string;
+  debug?: boolean;
+}
+
+export interface PushResult {
+  workdir: string;
+  pushed: boolean;
+  message?: string;
+}
+
+export interface PrDependencies {
+  execAsync: (command: string) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (name: string) => Promise<any>;
+  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSessionByTaskId: (taskId: string) => Promise<any>;
+}
 
 export interface CloneOptions {
   repoUrl: string;
@@ -86,7 +132,7 @@ export class GitService {
     await mkdir(this.baseDir, { recursive: true });
   }
 
-  private getSessionWorkdir(repoName: string, session: string): string {
+  getSessionWorkdir(repoName: string, session: string): string {
     // Use the new path structure with sessions subdirectory
     return join(this.baseDir, repoName, 'sessions', session);
   }
@@ -186,7 +232,7 @@ export class GitService {
   }
 
   // Exposed for testing with dependency injection
-  async prWithDependencies(options: PrOptions, deps: PrTestDependencies): Promise<PrResult> {
+  async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
     await this.ensureBaseDir();
     
     if (!options.session && !options.repoPath && !options.taskId) {
@@ -341,12 +387,22 @@ export class GitService {
       return { stdout: '' };
     });
 
+    // Get untracked files
+    const { stdout: untrackedOut } = await deps.execAsync(
+      `git -C ${workdir} ls-files --others --exclude-standard`
+    ).catch((err) => {
+      if (options.debug) {
+        console.error(`[DEBUG] Failed to get untracked files: ${err}`);
+      }
+      return { stdout: '' };
+    });
+    
     // Format untracked files to match git diff format (prefix with A for added)
     const untrackedFiles = untrackedOut
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map(file => `A\t${file}`);
+      .map((file: string) => `A\t${file}`);
     
     // Combine committed, uncommitted and untracked changes
     const allChanges = new Set([
@@ -566,6 +622,15 @@ export class GitService {
       // Try to merge the branch
       try {
         await execAsync(`git -C ${workdir} merge ${branch}`);
+        
+        // Get new commit hash
+        const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+        
+        // Return whether any changes were merged
+        return {
+          workdir,
+          merged: beforeHash.trim() !== afterHash.trim()
+        };
       } catch (err) {
         // Check if there are merge conflicts
         const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
@@ -576,7 +641,6 @@ export class GitService {
         }
         throw err;
       }
-      return { stdout: '' };
     } catch (err) {
       throw new Error(`Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -599,7 +663,7 @@ export class GitService {
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
       workdir = this.getSessionWorkdir(repoName, options.session);
-      branch = options.session; // Session branch is named after the session
+      branch = options.branch || options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
@@ -617,18 +681,15 @@ export class GitService {
     const { stdout: remotesOut } = await execAsync(`git -C ${workdir} remote`);
     const remotes = remotesOut
       .split("\n")
-      .map((r) => r.trim())
+      .map((r: string) => r.trim())
       .filter(Boolean);
     if (!remotes.includes(remote)) {
       throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
     }
 
-    // Debug output
-    if (options.debug) {
-      console.error(`[DEBUG] Running diff stats command: git -C ${workdir} diff --shortstat ${mergeBase} ${branch}`);
-      console.error(`[DEBUG] Stat output:`, statOut);
-      console.error(`[DEBUG] Working directory stat:`, wdStatOut);
-    }
+    // 3. Prepare push command
+    const forceFlag = options.force ? " --force" : "";
+    const pushCmd = `git -C ${workdir} push ${remote} ${branch}${forceFlag}`;
 
     // 4. Execute push
     try {
@@ -683,9 +744,9 @@ export class GitService {
     if (taskIdMatch && taskIdMatch[1]) {
       const taskId = `#${taskIdMatch[1]}`;
       if (options.debug) {
-        console.error(`[DEBUG] Failed to get commit log: ${err}`);
+        console.error(`[DEBUG] Parsed task ID from branch name: ${taskId}`);
       }
-      return { stdout: '' };
+      return taskId;
     }
 
     // No task ID could be determined

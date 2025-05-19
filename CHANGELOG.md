@@ -160,6 +160,12 @@
   - Added createTaskFromParams domain function to complete the task command set
   - All functions follow consistent interface patterns with dependency injection for testing
   - Merged latest changes from main branch and resolved conflicts in git.ts
+- Repository Backend architecture supporting multiple git repository sources
+- LocalGitBackend for local repository operations
+- RemoteGitBackend for remote git repositories
+- GitHubBackend foundation for GitHub-specific features
+- Configuration validation for each backend type
+- Enhanced session start command with repository backend options
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
@@ -225,6 +231,9 @@ _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.sp
     - `getChangeStats`
   - Improved error handling in all extracted methods
   - Reduced cognitive complexity while maintaining full test coverage
+- Refactored GitService to use the new repository backend architecture
+- Improved error handling for git operations
+- Enhanced type safety in git-related operations
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
