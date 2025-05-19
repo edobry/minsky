@@ -39,7 +39,7 @@ The Minsky Model Context Protocol (MCP) server currently supports task managemen
 1. [x] Create Git Tools Module
 
    - [x] Create `src/mcp/tools/git.ts` file (Already existed as adapter-based version in `src/adapters/mcp/git.ts`)
-   - [x] Implement `registerGitTools` function 
+   - [x] Implement `registerGitTools` function
    - [x] Define command mapping structure
 
 2. [x] Implement Core Git Commands
@@ -100,20 +100,24 @@ The Minsky Model Context Protocol (MCP) server currently supports task managemen
 The implementation followed these principles:
 
 1. **Interface-Agnostic Domain Functions**
+
    - Created domain-level interface-agnostic functions for all Git operations
    - Functions follow the "FromParams" naming pattern established in the codebase
    - All functions properly propagate errors and include comprehensive logging
 
 2. **MCP Adapter**
+
    - Extended the existing registerGitTools function to add new commands
    - Used Zod schemas for parameter validation
    - Maintained consistent patterns for error handling and response formatting
 
 3. **Documentation**
+
    - Updated README-MCP.md with detailed information about the Git commands
    - Included parameter listings and descriptions
 
 4. **Session-First Workflow**
+
    - All changes were made in the session workspace using absolute paths
    - Followed session-first workflow principles to maintain workspace isolation
    - Used proper verification to ensure changes were made in the correct workspace
@@ -123,3 +127,33 @@ The implementation followed these principles:
      - `git.status`: Get status of a repository 
      - `git.log`: View commit history
      - `git.list-branches`: List all branches in a repository
+
+## Abstraction Improvements and Observations
+
+During implementation, several observations were made about the current adapter patterns:
+
+1. **Interface-Agnostic Pattern Consistency**
+
+   - The "FromParams" pattern provides a clean separation between interface-specific code (CLI/MCP) and domain logic
+   - This pattern should be consistently applied across all commands to maintain uniformity
+
+2. **Potential Abstraction Improvements**
+
+   - Consider creating a shared adapter utility layer to avoid duplication between CLI and MCP adapters
+   - Use of a command registry pattern could streamline adding commands to both CLI and MCP interfaces
+
+3. **Error Handling Patterns**
+
+   - MCP adapters use direct error propagation, while CLI adapters use `handleCliError` helper
+   - A common error handling strategy could be established for both adapter types
+
+4. **Parameter Validation**
+
+   - Both adapters rely on Zod schemas, but implement validation differently
+   - Could create shared schema definitions that both adapters reference
+
+5. **Response Formatting**
+   - CLI adapters use the `outputResult` helper for consistent formatting
+   - MCP adapters could benefit from a similar helper to ensure consistent JSON responses
+
+These observations could inform future refactoring work to improve the overall architecture and reduce duplication between adapter implementations.

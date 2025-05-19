@@ -59,8 +59,8 @@ This file tracks work items for the project. Each task follows this format:
 - [-] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
 - [ ] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
-- [+] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
-- [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
+- [-] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
+- [-] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
 - [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
@@ -129,7 +129,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
 
-- [ ] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
+- [-] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
 
 - [ ] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
 
@@ -146,3 +146,9 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Implement Google Tasks Backend [#094](process/tasks/094-implement-google-tasks-backend.md)
 
 - [x] Fix git prepare-pr Branch Naming Issues [#095](process/tasks/095-fix-git-prepare-pr-branch-naming-issues.md)
+
+- [ ] Improve CLI Adapter Structure for Shared Options [#096](process/tasks/096-improve-cli-adapter-structure-for-shared-options.md)
+
+- [ ] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
+
+- [ ] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
