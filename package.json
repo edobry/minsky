@@ -39,7 +39,7 @@
     "@clack/prompts": "^0.10.1",
     "@types/logform": "^1.10.1",
     "@types/winston": "^2.4.4",
-    "commander": "^13.1.0",
+    "commander": "^14.0.0",
     "fastmcp": "^1.27.4",
     "fs-extra": "^11.3.0",
     "gray-matter": "^4.0.3",
