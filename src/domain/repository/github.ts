@@ -1,9 +1,11 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { exec } from "child_process";
 import { promisify } from "util";
+import { exec } from "child_process";
 import { SessionDB } from "../session.js";
 import { normalizeRepoName } from "../repo-utils.js";
+import { GitService } from "../git.js";
+import type { RepositoryStatus } from "../repository.js";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -31,10 +33,10 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly baseDir: string;
   private readonly repoUrl: string;
   private readonly repoName: string;
-  private readonly token?: string;
   private readonly owner?: string;
   private readonly repo?: string;
   private sessionDb: SessionDB;
+  private gitService: GitService;
 
   /**
    * Create a new GitHubBackend instance
@@ -45,20 +47,14 @@ export class GitHubBackend implements RepositoryBackend {
     this.baseDir = join(xdgStateHome, "minsky", "git");
 
     // Extract GitHub-specific options
-    this.token = config.github?.token;
     this.owner = config.github?.owner;
     this.repo = config.github?.repo;
 
-    // Construct repo URL with token if provided
-    if (this.token && this.owner && this.repo) {
-      // Use HTTPS with token in URL
-      this.repoUrl = `https://${this.token}@github.com/${this.owner}/${this.repo}.git`;
-    } else {
-      // Use provided URL or construct from owner/repo if available
-      this.repoUrl =
-        config.repoUrl ||
-        (this.owner && this.repo ? `https://github.com/${this.owner}/${this.repo}.git` : "");
-    }
+    // Set the repo URL using the provided URL or construct from owner/repo if available
+    // Note: We don't embed tokens in the URL, letting Git use the system's credentials
+    this.repoUrl =
+      config.repoUrl ||
+      (this.owner && this.repo ? `https://github.com/${this.owner}/${this.repo}.git` : "");
 
     if (!this.repoUrl) {
       throw new Error("Repository URL is required for GitHub backend");
@@ -66,6 +62,7 @@ export class GitHubBackend implements RepositoryBackend {
 
     this.repoName = normalizeRepoName(this.repoUrl);
     this.sessionDb = new SessionDB();
+    this.gitService = new GitService(this.baseDir);
   }
 
   /**
@@ -109,8 +106,12 @@ export class GitHubBackend implements RepositoryBackend {
     const workdir = this.getSessionWorkdir(session);
 
     try {
-      // Clone the repository
-      await execAsync(`git clone ${this.repoUrl} ${workdir}`);
+      // Use GitService's clone method to delegate credential handling to Git
+      const result = await this.gitService.clone({
+        repoUrl: this.repoUrl,
+        session,
+        backend: "github"
+      });
 
       return {
         workdir,
@@ -121,7 +122,7 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Provide more informative error messages for common GitHub issues
       if (error.message.includes("Authentication failed")) {
-        throw new Error("GitHub authentication failed. Check your token or credentials.");
+        throw new Error("GitHub authentication failed. Check your Git credentials.");
       } else if (error.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`
@@ -147,7 +148,7 @@ export class GitHubBackend implements RepositoryBackend {
     const workdir = this.getSessionWorkdir(session);
 
     try {
-      // Create the branch in the specified session's repo
+      // Create branch using direct Git command since GitService doesn't have createBranch
       await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
       return {
@@ -166,7 +167,7 @@ export class GitHubBackend implements RepositoryBackend {
    * to comply with the RepositoryBackend interface that doesn't take a session parameter
    * @returns Object with repository status information
    */
-  async getStatus(): Promise<RepoStatus> {
+  async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
@@ -176,8 +177,9 @@ export class GitHubBackend implements RepositoryBackend {
         throw new Error("No session found for this repository");
       }
       
-      // Forward to the version that takes a session parameter
-      return this.getStatusForSession(repoSession.session);
+      // Get status for the session and convert to RepositoryStatus
+      const repoStatus = await this.getStatusForSession(repoSession.session);
+      return this.convertToRepositoryStatus(repoStatus);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get GitHub repository status: ${error.message}`);
@@ -193,12 +195,15 @@ export class GitHubBackend implements RepositoryBackend {
     const workdir = this.getSessionWorkdir(session);
 
     try {
-      // Get current branch
+      // Use GitService to get repository status
+      const gitStatus = await this.gitService.getStatus(workdir);
+      
+      // Get additional information directly since GitStatus doesn't have it
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
       const branch = branchOutput.trim();
-
+      
       // Get ahead/behind counts
       let ahead = 0;
       let behind = 0;
@@ -214,50 +219,32 @@ export class GitHubBackend implements RepositoryBackend {
       } catch {
         // If no upstream branch is set, this will fail - that's okay
       }
-
-      // Get modified files
-      const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-      const dirty = statusOutput.trim().length > 0;
-      const modifiedFiles = statusOutput
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line: string) => ({
-          status: line.substring(0, 2).trim(),
-          file: line.substring(3),
-        }));
-
+      
       // Get remote information
       const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote -v`);
-      const remotesList = remoteOutput
+      const remotes = remoteOutput
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line: string) => {
-          const parts = line.split("\t");
-          if (parts.length < 2) return { name: "", url: "" };
-
-          const name = parts[0] || ""; // Ensure name is always a string
-          const urlInfo = parts[1] || "";
-          const url = urlInfo.split(" ")[0] || "";
-
-          return { name, url };
-        });
-
-      // Extract remote names for RepoStatus
-      const remotes = remotesList.map((r) => r.name).filter((name) => name !== "");
-
+        .map((line: string) => line.split("\t")[0] || "")
+        .filter((name, index, self) => name && self.indexOf(name) === index);
+      
+      // Convert GitService status to our RepoStatus format
       return {
         branch,
         ahead,
         behind,
-        dirty,
+        dirty: gitStatus.modified.length > 0 || gitStatus.untracked.length > 0 || gitStatus.deleted.length > 0,
         remotes,
         // Include GitHub specific information
         workdir,
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
-        modifiedFiles,
+        modifiedFiles: [
+          ...gitStatus.modified.map(file => ({ status: "M", file })),
+          ...gitStatus.untracked.map(file => ({ status: "??", file })),
+          ...gitStatus.deleted.map(file => ({ status: "D", file }))
+        ],
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -310,9 +297,8 @@ export class GitHubBackend implements RepositoryBackend {
       // If owner/repo are provided, validate them
       if (this.owner && this.repo) {
         // Use curl to check if the repo exists without cloning
-        const command = this.token
-          ? `curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${this.token}" https://api.github.com/repos/${this.owner}/${this.repo}`
-          : `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
+        // Note: Using public API without token for validation only
+        const command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
 
         const { stdout } = await execAsync(command);
         const statusCode = parseInt(stdout.trim(), 10);
@@ -325,7 +311,7 @@ export class GitHubBackend implements RepositoryBackend {
         } else if (statusCode === 401 || statusCode === 403) {
           return {
             success: false,
-            message: "GitHub authentication failed. Check your token or credentials.",
+            message: "GitHub API rate limit or permissions issue. The repo may still be valid.",
           };
         } else if (statusCode !== 200) {
           return {
@@ -369,18 +355,18 @@ export class GitHubBackend implements RepositoryBackend {
       const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
       
-      // Get current branch
-      const { stdout: branchOutput } = await execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      const currentBranch = branchOutput.trim();
-      
-      // Execute standard git push command
-      await execAsync(`git -C ${workdir} push origin ${currentBranch}`);
+      // Use GitService for pushing changes
+      const pushResult = await this.gitService.push({
+        session: sessionName,
+        repoPath: workdir,
+        remote: "origin"
+      });
       
       return {
-        success: true,
-        message: `Successfully pushed to repository branch ${currentBranch}`,
+        success: pushResult.pushed,
+        message: pushResult.pushed 
+          ? "Successfully pushed to repository" 
+          : "No changes to push or push failed",
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -412,12 +398,14 @@ export class GitHubBackend implements RepositoryBackend {
       const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
       
-      // Execute standard git pull command
-      await execAsync(`git -C ${workdir} pull origin`);
+      // Use GitService for pulling changes
+      const pullResult = await this.gitService.pullLatest(workdir);
       
       return {
         success: true,
-        message: "Successfully pulled changes from repository",
+        message: pullResult.updated 
+          ? "Successfully pulled changes from repository" 
+          : "Already up-to-date. No changes pulled.",
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -447,7 +435,8 @@ export class GitHubBackend implements RepositoryBackend {
       const sessionName = repoSession.session;
       const workdir = this.getSessionWorkdir(sessionName);
       
-      // Execute the checkout command
+      // Use GitService method if available, otherwise use direct command
+      // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -464,10 +453,26 @@ export class GitHubBackend implements RepositoryBackend {
       type: "github",
       repoUrl: this.repoUrl,
       github: {
-        token: this.token,
         owner: this.owner,
         repo: this.repo
       }
+    };
+  }
+
+  /**
+   * Convert RepoStatus to RepositoryStatus
+   * This handles the interface mismatch between the two status types
+   */
+  private convertToRepositoryStatus(status: RepoStatus): RepositoryStatus {
+    // Extract modified file names from the modifiedFiles objects
+    const modifiedFiles = status.modifiedFiles || [];
+    const changes = modifiedFiles.map((m: { status: string; file: string }) => `${m.status} ${m.file}`);
+    
+    return {
+      clean: !status.dirty,
+      changes,
+      branch: status.branch,
+      tracking: status.remotes && status.remotes.length > 0 ? status.remotes[0] : undefined
     };
   }
 }
