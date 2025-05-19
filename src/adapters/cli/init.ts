@@ -7,6 +7,7 @@ import { initializeProjectFromParams } from "../../domain/index.js";
 import * as p from "@clack/prompts";
 import { exit } from "../../utils/process.js";
 import type { InitParams } from "../../schemas/init.js";
+import { handleCliError, outputResult } from "./utils/index.js";
 
 /**
  * Creates the init command
@@ -153,7 +154,7 @@ export function createInitCommand(): Command {
                 const portText = await p.text({
                   message: "Enter port for MCP server",
                   initialValue: "8080",
-                  validate(value) {
+                  validate(value: string) {
                     const port = parseInt(value, 10);
                     if (isNaN(port) || port < 1 || port > 65535) {
                       return "Please enter a valid port number (1-65535)";
@@ -208,12 +209,7 @@ export function createInitCommand(): Command {
           await initializeProjectFromParams(params);
           p.outro('Project initialized for Minsky.');
         } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-          } else {
-            console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-          }
-          exit(1);
+          handleCliError(error);
         }
       }
     );
