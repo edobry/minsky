@@ -50,6 +50,45 @@ The Minsky MCP server exposes the following tools:
 - `session.commit`: Commit changes in a session
 - `session.push`: Push changes in a session
 
+### Git Operations
+
+- `git.clone`: Clone a repository
+  - Parameters: 
+    - `url`: URL of the Git repository to clone (required)
+    - `session`: Session identifier for the clone (optional)
+    - `destination`: Target directory for the clone (optional)
+    - `branch`: Branch to checkout after cloning (optional)
+
+- `git.branch`: Create a branch in a repository
+  - Parameters:
+    - `session`: Session to create branch in (required)
+    - `name`: Name of the branch to create (required)
+
+- `git.commit`: Commit changes
+  - Parameters:
+    - `message`: Commit message (required)
+    - `session`: Session to commit changes for (optional)
+    - `repo`: Path to the repository (optional)
+    - `amend`: Amend the previous commit (optional)
+    - `all`: Stage all changes (optional)
+    - `noStage`: Skip staging changes (optional)
+
+- `git.push`: Push changes to a remote repository
+  - Parameters:
+    - `session`: Session to push changes for (optional)
+    - `repo`: Path to the repository (optional)
+    - `remote`: Remote to push to (defaults to origin) (optional)
+    - `force`: Force push (use with caution) (optional)
+
+- `git.pr`: Create a pull request
+  - Parameters:
+    - `session`: Session to create PR from (optional)
+    - `repo`: Path to the repository (optional)
+    - `branch`: Branch to create PR for (optional)
+    - `taskId`: Task ID associated with this PR (optional)
+    - `debug`: Enable debug logging (optional)
+    - `noStatusUpdate`: Skip updating task status (optional)
+
 ### Repository Backend Support
 
 When using the `session.start` tool, you can specify different repository backends:

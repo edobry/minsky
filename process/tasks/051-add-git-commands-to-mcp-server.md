@@ -93,6 +93,7 @@ The Minsky Model Context Protocol (MCP) server currently supports task managemen
 3. 2024-05-19: Implemented Git commands in MCP adapter (clone, branch, push)
 4. 2024-05-19: Updated README-MCP.md with documentation for Git commands
 5. 2024-05-19: Remaining work: Create tests for Git MCP tools
+6. 2024-05-19: Fixed implementation to follow session-first workflow by using absolute paths in session workspace
 
 ## Implementation Strategy
 
@@ -115,9 +116,15 @@ The implementation followed these principles:
    - Updated README-MCP.md with detailed information about the Git commands
    - Included parameter listings and descriptions
 
-4. **Future Improvements**
+4. **Session-First Workflow**
+
+   - All changes were made in the session workspace using absolute paths
+   - Followed session-first workflow principles to maintain workspace isolation
+   - Used proper verification to ensure changes were made in the correct workspace
+
+5. **Future Improvements**
    - Consider adding more Git operations like:
-     - `git.status`: Get status of a repository
+     - `git.status`: Get status of a repository 
      - `git.log`: View commit history
      - `git.list-branches`: List all branches in a repository
 
