@@ -34,7 +34,7 @@ interface GetCurrentSessionConfig {
 export function createListCommand(): Command {
   return new Command("list")
     .description("List available sessions")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--json", "Output sessions as JSON")
     .action(async (options?: { repo?: string; json?: boolean }) => {
       try {
@@ -267,7 +267,7 @@ export function createDeleteCommand(): Command {
     .description("Delete a session")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--force", "Force deletion even if session has uncommitted changes")
     .action(async (name?: string, options?: { task?: string; repo?: string; force?: boolean }) => {
       try {
@@ -295,10 +295,10 @@ export function createDeleteCommand(): Command {
  */
 export function createUpdateCommand(): Command {
   return new Command("update")
-    .description("Update session with latest changes from main branch")
+    .description("Update session with latest changes from upstream branch")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--force", "Force update even if the session workspace is dirty")
     .action(async (name?: string, options?: { task?: string; repo?: string; force?: boolean }) => {
       try {
@@ -334,10 +334,10 @@ export function createUpdateCommand(): Command {
  */
 export function createApproveCommand(): Command {
   return new Command("approve")
-    .description("Approve a session's PR and merge it into the main branch")
+    .description("Approve a session's PR and merge it into the upstream branch")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--task-status <status>", "Task status to set after merge (default: DONE)")
     .option("--yes", "Automatically confirm all prompts")
     .option("--no-cleanup", "Don't cleanup the session after merging")
@@ -407,7 +407,7 @@ export function createPrCommand(): Command {
     .option("--task <taskId>", "Task ID to match")
     .option("--title <title>", "PR title (if not provided, will be generated)")
     .option("--body <body>", "PR body (if not provided, will be generated)")
-    .option("--base-branch <branch>", "Base branch for PR (defaults to main)")
+    .option("--base-branch <branch>", "Base branch for PR (defaults to upstream branch)")
     .option("--debug", "Enable debug output")
     .option("--no-status-update", "Don't update the task status")
     .action(
