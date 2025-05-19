@@ -129,7 +129,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
 
-- [ ] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
+- [-] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
 
 - [ ] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
 
