@@ -4,13 +4,18 @@ import { promisify } from "util";
 import { basename } from "path";
 import { execAsync as execAsyncUtil } from "../utils/exec.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
-import { normalizeRepositoryURI } from "./repository-uri.js";
+import { normalizeRepositoryURI, normalizeRepoName } from "./repository-uri.js";
 const execAsync = promisify(exec);
 
 export interface RepoResolutionOptions {
   session?: string;
   repo?: string;
 }
+
+/**
+ * @deprecated Use normalizeRepositoryURI from repository-uri.ts instead
+ */
+export { normalizeRepoName };
 
 export async function resolveRepoPath(options: RepoResolutionOptions): Promise<string> {
   if (options.repo) {
