@@ -1417,3 +1417,92 @@ export async function mergePrFromParams(params: {
     throw error;
   }
 }
+
+/**
+ * Interface-agnostic function to clone a repository
+ */
+export async function cloneFromParams(params: {
+  url: string;
+  session?: string;
+  destination?: string;
+  branch?: string;
+}): Promise<CloneResult> {
+  try {
+    const git = new GitService();
+    const result = await git.clone({
+      repoUrl: params.url,
+      session: params.session,
+      destination: params.destination,
+      branch: params.branch,
+    });
+    return result;
+  } catch (error) {
+    log.error("Error cloning repository", {
+      url: params.url,
+      session: params.session,
+      destination: params.destination,
+      branch: params.branch,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Interface-agnostic function to create a branch
+ */
+export async function branchFromParams(params: {
+  session: string;
+  name: string;
+}): Promise<BranchResult> {
+  try {
+    const git = new GitService();
+    const result = await git.branch({
+      session: params.session,
+      branch: params.name,
+    });
+    return result;
+  } catch (error) {
+    log.error("Error creating branch", {
+      session: params.session,
+      name: params.name,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Interface-agnostic function to push changes to a remote repository
+ */
+export async function pushFromParams(params: {
+  session?: string;
+  repo?: string;
+  remote?: string;
+  force?: boolean;
+  debug?: boolean;
+}): Promise<PushResult> {
+  try {
+    const git = new GitService();
+    const result = await git.push({
+      session: params.session,
+      repoPath: params.repo,
+      remote: params.remote,
+      force: params.force,
+      debug: params.debug,
+    });
+    return result;
+  } catch (error) {
+    log.error("Error pushing changes", {
+      session: params.session,
+      repo: params.repo,
+      remote: params.remote,
+      force: params.force,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
