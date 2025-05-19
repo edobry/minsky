@@ -1145,10 +1145,16 @@ export class GitService {
       sourceBranch = branchOut.trim();
     }
 
-    // Create PR branch name with pr/ prefix
-    const prBranchName =
-      options.branchName || (options.title ? this.titleToBranchName(options.title) : sourceBranch);
+    // Create PR branch name with pr/ prefix - always use the current git branch name
+    // Fix for task #95: Don't use title for branch naming
+    const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
+    
+    log.debug(`Creating PR branch using git branch as basis`, { 
+      sourceBranch,
+      prBranch,
+      usedProvidedBranchName: Boolean(options.branchName)
+    });
 
     // Verify base branch exists
     try {

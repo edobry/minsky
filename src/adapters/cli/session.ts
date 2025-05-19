@@ -20,7 +20,7 @@ import {
   deleteSessionFromParams,
   updateSessionFromParams,
   approveSessionFromParams,
-  preparePrFromParams,
+  sessionPrFromParams,
 } from "../../domain/index.js";
 
 interface GetCurrentSessionConfig {
@@ -375,6 +375,57 @@ export function createApproveCommand(): Command {
 }
 
 /**
+ * Creates the session PR command
+ */
+export function createPrCommand(): Command {
+  return new Command("pr")
+    .description("Create a PR for a session")
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--title <title>", "PR title (if not provided, will be generated)")
+    .option("--body <body>", "PR body (if not provided, will be generated)")
+    .option("--base-branch <branch>", "Base branch for PR (defaults to main)")
+    .option("--debug", "Enable debug output")
+    .option("--no-status-update", "Skip updating task status")
+    .action(async (name?: string, options?: { 
+      task?: string; 
+      title?: string;
+      body?: string;
+      baseBranch?: string;
+      debug?: boolean;
+      statusUpdate?: boolean;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters
+        const params = {
+          session: name,
+          task: options?.task,
+          title: options?.title,
+          body: options?.body,
+          baseBranch: options?.baseBranch,
+          debug: options?.debug || false,
+          noStatusUpdate: options?.statusUpdate === false,
+        };
+
+        // Call the domain function
+        const result = await sessionPrFromParams(params);
+
+        // Output result
+        console.log(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
+        console.log("PR branch pushed to origin");
+        console.log("PR is ready for review");
+      } catch (error) {
+        if (error instanceof MinskyError) {
+          console.error(`Error: ${error.message}`);
+        } else {
+          console.error(`Unexpected error: ${error}`);
+        }
+        process.exit(1);
+      }
+    });
+}
+
+/**
  * Creates the main session command with all subcommands
  * Accepts an optional getCurrentSession function for testing
  */
@@ -388,6 +439,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createDeleteCommand());
   sessionCommand.addCommand(createUpdateCommand());
   sessionCommand.addCommand(createApproveCommand());
+  sessionCommand.addCommand(createPrCommand());
 
   return sessionCommand;
 }

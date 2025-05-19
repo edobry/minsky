@@ -11,6 +11,8 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
+  SessionApproveParams,
+  SessionPrParams,
 } from "../schemas/session.js";
 import { GitService, type BranchOptions } from "./git.js";
 import { TaskService, TASK_STATUS } from "./tasks.js";
@@ -22,6 +24,7 @@ import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
+import { preparePrFromParams } from "./git.js";
 
 /**
  * Helper function to normalize and validate a task ID
@@ -902,5 +905,95 @@ export async function approveSessionFromParams(
     throw new MinskyError(
       `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
     );
+  }
+}
+
+/**
+ * Interface-agnostic function for creating a PR for a session
+ */
+export async function sessionPrFromParams(params: SessionPrParams): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+}> {
+  try {
+    // Determine the session name
+    let sessionName = params.session;
+    const sessionDb = new SessionDB();
+    
+    // If no session name provided but task ID is, try to find the session by task ID
+    if (!sessionName && params.task) {
+      const taskId = params.task;
+      const sessionRecord = await sessionDb.getSessionByTaskId(taskId);
+      if (sessionRecord) {
+        sessionName = sessionRecord.session;
+      } else {
+        throw new MinskyError(`No session found for task ID ${taskId}`);
+      }
+    }
+    
+    // If still no session name, try to detect from current directory
+    if (!sessionName) {
+      try {
+        // Get current directory
+        const currentDir = process.cwd();
+        // Extract session name from path - assuming standard path format
+        const pathParts = currentDir.split('/');
+        const sessionsIndex = pathParts.indexOf('sessions');
+        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+          sessionName = pathParts[sessionsIndex + 1];
+        }
+      } catch (error) {
+        // If detection fails, throw error
+        throw new MinskyError("Could not detect session from current directory. Please specify a session name or task ID.");
+      }
+      
+      if (!sessionName) {
+        throw new MinskyError("Could not detect session from current directory. Please specify a session name or task ID.");
+      }
+    }
+
+    log.debug(`Creating PR for session: ${sessionName}`, {
+      session: sessionName,
+      title: params.title,
+      baseBranch: params.baseBranch,
+    });
+
+    // Call the prepare-pr function with the session name
+    const result = await preparePrFromParams({
+      session: sessionName,
+      title: params.title,
+      body: params.body,
+      baseBranch: params.baseBranch,
+      debug: params.debug,
+    });
+
+    // Update task status to IN-REVIEW if associated with a task
+    if (!params.noStatusUpdate) {
+      const sessionRecord = await sessionDb.getSession(sessionName);
+      if (sessionRecord?.taskId) {
+        try {
+          const taskService = new TaskService({
+            workspacePath: process.cwd(),
+            backend: "markdown",
+          });
+          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          log.info(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+        } catch (error) {
+          log.warn(`Failed to update task status: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    log.error("Error creating PR for session", {
+      session: params.session,
+      task: params.task,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
   }
 }

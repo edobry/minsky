@@ -1,17 +1,19 @@
 # Changelog
 
-> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+All notable changes to the Minsky project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Added
 
 - Task #095: Fix git prepare-pr Branch Naming Issues
-
-  - Will improve the `git prepare-pr` command to consistently use the git branch name for PR branch naming
-  - Will ensure PR branch names are always in the format `pr/<current-git-branch-name>` regardless of title parameter
-  - Will maintain separation between branch naming (from git) and commit messages (from title parameter)
-  - Will enhance documentation to clarify PR branch naming behavior
+  - Improved the `git prepare-pr` command to consistently use the git branch name for PR branch naming
+  - Ensured PR branch names are always in the format `pr/<current-git-branch-name>` regardless of title parameter
+  - Maintained separation between branch naming (from git) and commit messages (from title parameter)
+  - Enhanced documentation to clarify PR branch naming behavior
 
 - Task #094: Implement Google Tasks Backend
   - Will implement a Google Tasks backend for the Minsky task management system
@@ -33,17 +35,16 @@ _See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/his
 _See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
 
 - Task #093: Implement consistent CLI error handling across all commands
-
   - Will create a centralized error handling utility for CLI commands
   - Will standardize error message format and content across command groups
   - Will improve user experience by showing concise, helpful error messages
   - Will maintain detailed error logging for debugging purposes
 
 - Task #092: Add session pr command and improve git prepare-pr interface
-
-  - Will implement a new `session pr` command that automatically detects session context
-  - Will review the `git prepare-pr` command for interface consistency and improvements
-  - Will update PR preparation workflow documentation to match actual commands
+  - Implemented a new `session pr` command that automatically detects session context
+  - Improved the `git prepare-pr` command interface for better consistency with other commands
+  - Updated PR preparation workflow documentation to match actual commands available
+  - Added clear user feedback and error handling for the new command
 
 - Task #084: Extended auto-detection to additional commands
 
@@ -217,3 +218,9 @@ _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/hi
 - Added comprehensive domain method tests for session and rules operations
 
 _See: Task #085 for migrating CLI adapter tests to test domain methods instead_
+
+## [0.8.0] - 2024-04-24
+
+### Added
+
+... [existing entries]
