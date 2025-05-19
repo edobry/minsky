@@ -8,6 +8,12 @@
 
 export * from "./RepositoryBackend";
 
+// Import ValidationResult from parent repository.ts file
+import { ValidationResult, RepositoryStatus } from "../repository.js";
+
+// Re-export for backward compatibility
+export { ValidationResult, RepositoryStatus };
+
 /**
  * Configuration for repository backends
  */
@@ -149,23 +155,22 @@ export interface RepositoryBackend {
 
   /**
    * Get the repository status
-   * @param session Session identifier
    * @returns Object containing repository status information
    */
-  getStatus(session: string): Promise<RepoStatus>;
+  getStatus(): Promise<RepositoryStatus>;
 
   /**
    * Get the repository path
    * @param session Session identifier
    * @returns Full path to the repository
    */
-  getPath(session: string): Promise<string>;
+  getPath(session?: string): Promise<string>;
 
   /**
    * Validate the repository configuration
    * @returns Promise that resolves with result if the repository is valid, or rejects with an error
    */
-  validate(): Promise<Result>;
+  validate(): Promise<ValidationResult>;
 
   /**
    * Push changes to remote repository
@@ -207,41 +212,6 @@ export interface Result {
    * Optional error
    */
   error?: Error;
-}
-
-/**
- * Repository status
- */
-export interface RepoStatus {
-  /**
-   * Current branch
-   */
-  branch: string;
-
-  /**
-   * Number of commits ahead of remote
-   */
-  ahead: number;
-
-  /**
-   * Number of commits behind remote
-   */
-  behind: number;
-
-  /**
-   * Whether the working directory is dirty
-   */
-  dirty: boolean;
-
-  /**
-   * List of remotes
-   */
-  remotes: string[];
-
-  /**
-   * Additional properties
-   */
-  [key: string]: unknown;
 }
 
 /**

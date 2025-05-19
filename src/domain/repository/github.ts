@@ -5,7 +5,7 @@ import { exec } from "child_process";
 import { SessionDB } from "../session.js";
 import { normalizeRepoName } from "../repo-utils.js";
 import { GitService } from "../git.js";
-import type { RepositoryStatus } from "../repository.js";
+import type { RepositoryStatus, ValidationResult } from "../repository.js";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -177,28 +177,13 @@ export class GitHubBackend implements RepositoryBackend {
         throw new Error("No session found for this repository");
       }
       
-      // Get status for the session and convert to RepositoryStatus
-      const repoStatus = await this.getStatusForSession(repoSession.session);
-      return this.convertToRepositoryStatus(repoStatus);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get GitHub repository status: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get repository status for a specific session
-   * @param session Session identifier
-   * @returns Object with repository status information
-   */
-  async getStatusForSession(session: string): Promise<RepoStatus> {
-    const workdir = this.getSessionWorkdir(session);
-
-    try {
+      // Forward to the version that takes a session parameter
+      const workdir = this.getSessionWorkdir(repoSession.session);
+      
       // Use GitService to get repository status
       const gitStatus = await this.gitService.getStatus(workdir);
       
-      // Get additional information directly since GitStatus doesn't have it
+      // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
@@ -229,27 +214,51 @@ export class GitHubBackend implements RepositoryBackend {
         .map((line: string) => line.split("\t")[0] || "")
         .filter((name, index, self) => name && self.indexOf(name) === index);
       
-      // Convert GitService status to our RepoStatus format
+      const dirty = gitStatus.modified.length > 0 || gitStatus.untracked.length > 0 || gitStatus.deleted.length > 0;
+      
+      // Create both original and new properties for the unified interface
+      const modifiedFiles = [
+        ...gitStatus.modified.map(file => ({ status: "M", file })),
+        ...gitStatus.untracked.map(file => ({ status: "??", file })),
+        ...gitStatus.deleted.map(file => ({ status: "D", file }))
+      ];
+      
+      // Extract string representation for original interface
+      const changes = modifiedFiles.map(m => `${m.status} ${m.file}`);
+      
       return {
+        // Original properties
+        clean: !dirty,
+        changes,
         branch,
+        tracking: remotes.length > 0 ? remotes[0] : undefined,
+        
+        // Extended properties
         ahead,
         behind,
-        dirty: gitStatus.modified.length > 0 || gitStatus.untracked.length > 0 || gitStatus.deleted.length > 0,
+        dirty,
         remotes,
-        // Include GitHub specific information
+        modifiedFiles,
+        
+        // Additional GitHub-specific information
         workdir,
         gitHubOwner: this.owner,
-        gitHubRepo: this.repo,
-        modifiedFiles: [
-          ...gitStatus.modified.map(file => ({ status: "M", file })),
-          ...gitStatus.untracked.map(file => ({ status: "??", file })),
-          ...gitStatus.deleted.map(file => ({ status: "D", file }))
-        ],
+        gitHubRepo: this.repo
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get GitHub repository status: ${error.message}`);
     }
+  }
+
+  /**
+   * Get repository status for a specific session
+   * @param session Session identifier
+   * @returns Object with repository status information
+   */
+  async getStatusForSession(session: string): Promise<RepositoryStatus> {
+    const workdir = this.getSessionWorkdir(session);
+    return this.getStatus(); // Reuse the existing implementation
   }
 
   /**
@@ -284,12 +293,14 @@ export class GitHubBackend implements RepositoryBackend {
    * Validate the repository configuration
    * @returns Promise that resolves with result if the repository is valid
    */
-  async validate(): Promise<Result> {
+  async validate(): Promise<ValidationResult> {
     try {
       // Validate required fields
       if (!this.repoUrl) {
         return {
+          valid: false,
           success: false,
+          issues: ["Repository URL is required for GitHub backend"],
           message: "Repository URL is required for GitHub backend",
         };
       }
@@ -305,30 +316,39 @@ export class GitHubBackend implements RepositoryBackend {
 
         if (statusCode === 404) {
           return {
+            valid: false,
             success: false,
+            issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
         } else if (statusCode === 401 || statusCode === 403) {
           return {
+            valid: false,
             success: false,
+            issues: ["GitHub API rate limit or permissions issue. The repo may still be valid."],
             message: "GitHub API rate limit or permissions issue. The repo may still be valid.",
           };
         } else if (statusCode !== 200) {
           return {
+            valid: false,
             success: false,
+            issues: [`Failed to validate GitHub repository: HTTP ${statusCode}`],
             message: `Failed to validate GitHub repository: HTTP ${statusCode}`,
           };
         }
       }
 
       return {
+        valid: true,
         success: true,
         message: "GitHub repository validated successfully",
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
+        valid: false,
         success: false,
+        issues: [`Failed to validate GitHub repository: ${error.message}`],
         message: `Failed to validate GitHub repository: ${error.message}`,
         error,
       };
@@ -456,23 +476,6 @@ export class GitHubBackend implements RepositoryBackend {
         owner: this.owner,
         repo: this.repo
       }
-    };
-  }
-
-  /**
-   * Convert RepoStatus to RepositoryStatus
-   * This handles the interface mismatch between the two status types
-   */
-  private convertToRepositoryStatus(status: RepoStatus): RepositoryStatus {
-    // Extract modified file names from the modifiedFiles objects
-    const modifiedFiles = status.modifiedFiles || [];
-    const changes = modifiedFiles.map((m: { status: string; file: string }) => `${m.status} ${m.file}`);
-    
-    return {
-      clean: !status.dirty,
-      changes,
-      branch: status.branch,
-      tracking: status.remotes && status.remotes.length > 0 ? status.remotes[0] : undefined
     };
   }
 }

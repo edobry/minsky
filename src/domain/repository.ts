@@ -20,6 +20,12 @@ export interface RepositoryStatus {
   changes: string[];
   branch: string;
   tracking?: string;
+  ahead?: number;
+  behind?: number;
+  dirty?: boolean;
+  remotes?: string[];
+  modifiedFiles?: Array<{ status: string; file: string }>;
+  [key: string]: unknown;
 }
 
 /**
@@ -57,6 +63,10 @@ export interface GitHubConfig extends Omit<RemoteGitConfig, 'type'> {
 export interface ValidationResult {
   valid: boolean;
   issues?: string[];
+  // Additional fields to align with Result interface
+  success?: boolean;
+  message?: string;
+  error?: Error;
 }
 
 /**
@@ -95,9 +105,9 @@ export interface RepositoryBackend {
   
   /**
    * Get the local path of the repository.
-   * @returns The local repository path
+   * @returns The local repository path (or Promise resolving to path)
    */
-  getPath(): string;
+  getPath(): string | Promise<string>;
   
   /**
    * Validate the repository configuration.
