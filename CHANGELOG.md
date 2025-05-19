@@ -217,3 +217,10 @@ _See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/hi
 - Added comprehensive domain method tests for session and rules operations
 
 _See: Task #085 for migrating CLI adapter tests to test domain methods instead_
+
+- Refactored GitHub repository backend implementation for better security, usability, and type safety
+- Updated repository interfaces to provide consistent typing across different backend implementations
+- Improved error handling in repository operations with descriptive error messages
+- Changed authentication approach to use system Git credentials instead of embedding tokens in URLs
+
+_See: This task was implemented as part of Task #014._
