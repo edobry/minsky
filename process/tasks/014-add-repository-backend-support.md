@@ -185,21 +185,17 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 - 2025-05-16: Added robust configuration validation in repository backend factory
 - 2025-05-16: Updated CHANGELOG.md with repository backend support changes
 - 2025-05-16: Enhanced type safety across all repository implementation files
+- 2025-05-16: Fixed import extension in index.ts to resolve linter error
 
 ## Remaining Work
 
-1. **Repository Configuration System**
+1. **Backend-specific Session Configuration**
 
-   - Create a global configuration system to store default settings for repository backends
-   - Support configuration at different scopes: global, per-repository, per-session
-   - Store settings for:
-     - Authentication methods (SSH, HTTPS, token)
-     - Connection settings (timeout, retry attempts)
-     - Clone settings (depth, branch naming patterns)
-     - Default repository URLs
-   - Implement configuration API for reading and applying configuration values
-   - Integrate with `minsky init` to detect and set up repository configs
-   - Create a dedicated command for updating repository configuration
+   - Leverage Git's own credential system for authentication
+   - Document how authentication works with different repository types
+   - Add support for GitHub personal access tokens as a command-line option
+   - Store backend-specific options in session records (already implemented)
+   - Consider adding session-level overrides for backend options
 
 2. **Session Integration**
 
@@ -210,7 +206,6 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 3. **Fix Linting Errors**
 
-   - Fix the import extension issue in index.ts (`./RepositoryBackend.ts` → `./RepositoryBackend`)
    - Fix parameter typing in git.ts for the dependency injection methods
    - Address string quote style issues in updated files (doublequote vs singlequote)
    - Fix property typing issues with SessionRecord interface
@@ -225,5 +220,5 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 5. **Documentation**
    - Add comprehensive documentation for all backend types
    - Include examples for common use cases (local, GitHub, remote)
-   - Document configuration system and setup requirements
+   - Document Git credential configuration for different backends
    - Create user guides for working with different repository types
