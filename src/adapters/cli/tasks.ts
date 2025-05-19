@@ -21,10 +21,11 @@ import {
   normalizeTaskId,
   TASK_STATUS,
 } from "../../domain/tasks.js";
-import { MinskyError } from "../../errors/index.js";
+import { MinskyError, ValidationError } from "../../errors/index.js";
 import * as p from "@clack/prompts";
 import { log } from "../../utils/logger";
 import { z } from "zod"; // Add import for z namespace
+import { handleCliError, outputResult, isDebugMode } from "./utils/index.js";
 
 // Helper for exiting process consistently
 function exit(code: number): never {
@@ -114,9 +115,7 @@ export function createListCommand(): Command {
             });
           }
         } catch (error) {
-          log.cliError("Error listing tasks:");
-          log.error("Error details for listing tasks", error as Error);
-          exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -149,10 +148,9 @@ export function createGetCommand(): Command {
           // Normalize the task ID before passing to domain
           const normalizedTaskId = normalizeTaskId(taskId);
           if (!normalizedTaskId) {
-            log.cliError(
+            throw new ValidationError(
               `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
             );
-            exit(1);
           }
 
           // Convert CLI options to domain parameters
@@ -169,25 +167,23 @@ export function createGetCommand(): Command {
           const task = await getTaskFromParams(params);
 
           // Format and display the result
-          if (options.json) {
-            // For JSON output, write directly to stdout
-            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
-          } else {
-            log.cli(`Task ${task.id}:`);
-            log.cli(`Title: ${task.title}`);
-            log.cli(`Status: ${task.status}`);
-            if (task.specPath) {
-              log.cli(`Spec: ${task.specPath}`);
+          outputResult(task, {
+            json: options.json,
+            formatter: (task) => {
+              log.cli(`Task ${task.id}:`);
+              log.cli(`Title: ${task.title}`);
+              log.cli(`Status: ${task.status}`);
+              if (task.specPath) {
+                log.cli(`Spec: ${task.specPath}`);
+              }
+              if (task.description) {
+                log.cli("\nDescription:");
+                log.cli(task.description);
+              }
             }
-            if (task.description) {
-              log.cli("\nDescription:");
-              log.cli(task.description);
-            }
-          }
+          });
         } catch (error) {
-          log.cliError("Error getting task:");
-          log.error("Error details for getting task", error as Error);
-          exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -235,18 +231,16 @@ export function createStatusCommand(): Command {
           const status = await getTaskStatusFromParams(params);
 
           // Format and display the result
-          if (options.json) {
-            // For JSON output, write directly to stdout
-            process.stdout.write(`${JSON.stringify({ taskId, status }, null, 2)}\n`);
-          } else {
-            // Normalize the ID for display to ensure consistent formatting
-            const displayId = normalizeTaskId(taskId) || taskId;
-            log.cli(`Status of task ${displayId}: ${status}`);
-          }
+          outputResult({ taskId, status }, {
+            json: options.json,
+            formatter: (result) => {
+              // Normalize the ID for display to ensure consistent formatting
+              const displayId = normalizeTaskId(result.taskId) || result.taskId;
+              log.cli(`Status of task ${displayId}: ${result.status}`);
+            }
+          });
         } catch (error) {
-          log.cliError("Error getting task status:");
-          log.error("Error details for getting task status", error as Error);
-          exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -279,10 +273,9 @@ export function createStatusCommand(): Command {
         if (!status) {
           // Check if we're in a non-interactive environment
           if (!process.stdout.isTTY) {
-            log.cliError(
+            throw new ValidationError(
               `Status is required in non-interactive mode.\nValid options are: ${Object.values(TASK_STATUS).join(", ")}`
             );
-            exit(1);
           }
 
           try {
@@ -314,24 +307,21 @@ export function createStatusCommand(): Command {
             // Handle cancellation
             if (p.isCancel(statusChoice)) {
               p.cancel("Operation cancelled");
-              exit(0);
+              process.exit(0);
             }
 
             // Set the chosen status
             status = statusChoice.toString();
           } catch (error) {
-            log.cliError("Error getting task status for prompt:");
-            log.error("Error details for getting task status", error as Error);
-            exit(1);
+            handleCliError(error);
           }
         }
 
         // Validate status
         if (!Object.values(TASK_STATUS).includes(status as z.infer<typeof taskStatusSchema>)) {
-          log.cliError(
+          throw new ValidationError(
             `Invalid status: ${status}. Must be one of ${Object.values(TASK_STATUS).join(", ")}.`
           );
-          exit(1);
         }
 
         try {
@@ -350,33 +340,23 @@ export function createStatusCommand(): Command {
           await setTaskStatusFromParams(params);
 
           // Display success message
-          if (options.json) {
-            // For JSON output, write directly to stdout
-            process.stdout.write(
-              `${JSON.stringify(
-                {
-                  taskId,
-                  status,
-                  success: true,
-                },
-                null,
-                2
-              )}\n`
-            );
-          } else {
-            // Normalize the ID for display to ensure consistent formatting
-            const displayId = normalizeTaskId(taskId) || taskId;
-            log.cli(`Status of task ${displayId} set to ${status}`);
-          }
+          outputResult(
+            {
+              taskId,
+              status,
+              success: true,
+            },
+            {
+              json: options.json,
+              formatter: (result) => {
+                // Normalize the ID for display to ensure consistent formatting
+                const displayId = normalizeTaskId(result.taskId) || result.taskId;
+                log.cli(`Status of task ${displayId} set to ${result.status}`);
+              }
+            }
+          );
         } catch (error) {
-          if (error instanceof MinskyError) {
-            log.cliError(`Error: ${error.message}`);
-            log.error("Error details for MinskyError", error);
-          } else {
-            log.cliError("Error setting task status:");
-            log.error("Error details for setting task status", error as Error);
-          }
-          exit(1);
+          handleCliError(error);
         }
       }
     );
@@ -409,22 +389,15 @@ export function createCreateCommand(): Command {
 
           const task = await createTaskFromParams(params); // Corrected domain function call
 
-          if (options.json) {
-            // For JSON output, write directly to stdout
-            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
-          } else {
-            log.cli(`Task ${task.id} created: ${task.title}`);
-            p.note(task.specPath, "Specification file");
-          }
+          outputResult(task, {
+            json: options.json, 
+            formatter: (task) => {
+              log.cli(`Task ${task.id} created: ${task.title}`);
+              p.note(task.specPath, "Specification file");
+            }
+          });
         } catch (error) {
-          log.cliError(`Error creating task from spec: ${specPath}`);
-          if (error instanceof MinskyError) {
-            // Log the error object directly; logger will handle stack if available
-            log.error(error.message, error);
-          } else {
-            log.error("Unexpected error during task creation", error as Error);
-          }
-          exit(1);
+          handleCliError(error);
         }
       })
   );
