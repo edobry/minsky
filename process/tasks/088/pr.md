@@ -21,7 +21,6 @@ This PR implements consistent repository URI handling across the codebase as out
   - Validating URIs according to format rules
   - Converting between URI formats
   - Detecting repository URIs from current directory
-- Backward compatibility layer for existing code using the deprecated functions
 - Comprehensive test suite with 100% coverage for new functionality
 
 ### Changed
@@ -30,6 +29,7 @@ This PR implements consistent repository URI handling across the codebase as out
 - Updated repository backends (GitHub, Remote, Local) to use standardized URI utilities
 - Enhanced error handling for URI parsing and validation
 - Updated JSDoc comments with standardized terminology
+- Removed deprecated `normalizeRepoName` function in favor of direct `normalizeRepositoryURI` usage
 
 ### Fixed
 

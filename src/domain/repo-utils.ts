@@ -12,18 +12,6 @@ export interface RepoResolutionOptions {
   repo?: string;
 }
 
-/**
- * Normalizes a repository URL or path into a standardized format.
- * For remote URLs: org/project (e.g., github.com/org/project.git -> org/project)
- * For local paths: local/project (e.g., /Users/edobry/Projects/minsky -> local/minsky)
- * 
- * @deprecated Use normalizeRepositoryURI from repository-uri.ts instead
- */
-export function normalizeRepoName(repoUrl: string): string {
-  // Use the new standardized function
-  return normalizeRepositoryURI(repoUrl);
-}
-
 export async function resolveRepoPath(options: RepoResolutionOptions): Promise<string> {
   if (options.repo) {
     return options.repo;

@@ -245,12 +245,4 @@ export function expandGitHubShorthand(
  */
 export async function detectRepositoryURI(cwd?: string): Promise<string | undefined> {
   return detectRepositoryFromCwd(cwd);
-}
-
-/**
- * @deprecated Use normalizeRepositoryURI instead
- * Maintain backward compatibility with existing code
- */
-export function normalizeRepoName(repoUrl: string): string {
-  return normalizeRepositoryURI(repoUrl);
 } 

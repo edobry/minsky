@@ -255,13 +255,13 @@ _See: This task was implemented as part of Task #014._
 - Standardized Repository URI handling with new repository-uri.ts module
   - Support for HTTPS URLs, SSH URLs, file:// URIs, local paths, and GitHub shorthand notation
   - URI parsing, normalization, validation, and conversion
-  - Backward compatibility with existing code
   - Full test coverage 
 
 ### Changed
 - Updated repository backends (GitHub, Remote, Local) to use the new URI handling system
 - Improved repository name normalization with better error handling
 - Repository URI detection and validation
+- Removed deprecated normalizeRepoName function in favor of normalizeRepositoryURI
 
 ### Fixed
 - Inconsistent handling of repository references

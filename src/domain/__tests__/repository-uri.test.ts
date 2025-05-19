@@ -13,7 +13,6 @@ import {
   getRepositoryName,
   expandGitHubShorthand,
   RepositoryURIType,
-  normalizeRepoName,
   detectRepositoryURI
 } from "../repository-uri.js";
 
@@ -180,14 +179,6 @@ describe("Repository URI Utilities", () => {
     
     test("returns null for invalid shorthand", () => {
       expect(expandGitHubShorthand("not/a/valid/shorthand")).toBeNull();
-    });
-  });
-  
-  describe("backward compatibility", () => {
-    test("normalizeRepoName uses normalizeRepositoryURI", () => {
-      // Test that the deprecated function works the same as the new one
-      const testUrl = "https://github.com/org/repo.git";
-      expect(normalizeRepoName(testUrl)).toBe(normalizeRepositoryURI(testUrl));
     });
   });
 }); 
