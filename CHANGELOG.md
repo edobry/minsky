@@ -198,6 +198,12 @@ _See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.sp
 - PR output now includes both committed and uncommitted (working directory) changes
 - README rewritten for clarity and idiomatic open source style
 - All debug output is now opt-in and sent to stderr
+- Aligned GitHub repository backend implementation with unified interface:
+  - Fixed type compatibility between RepositoryStatus and RepoStatus interfaces
+  - Standardized method signatures across different backend implementations
+  - Improved code reuse by leveraging existing GitService methods
+  - Enhanced security by using system Git credentials instead of embedding tokens in URLs
+  - Reduced duplication through consistent interface patterns
 - Refactored code to move repo path resolution logic out of `tasks.ts` into a shared utility module
 - Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options
 - Improved error handling and user feedback for invalid status values in `tasks status set`
