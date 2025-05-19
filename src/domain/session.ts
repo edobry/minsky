@@ -14,7 +14,7 @@ import type {
 } from "../schemas/session.js";
 import { GitService, type BranchOptions } from "./git.js";
 import { TaskService, TASK_STATUS } from "./tasks.js";
-import { isSessionRepository } from "./workspace.js";
+import { isSessionWorkspace } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
 import { getCurrentSession } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
@@ -54,6 +54,7 @@ export interface SessionResult {
 
 /**
  * Session database operations
+ * A Session is a persistent workstream with metadata and an associated workspace.
  */
 export class SessionDB {
   private readonly dbPath: string;
@@ -241,40 +242,52 @@ export class SessionDB {
     }
   }
 
+  /**
+   * Gets the workspace path for a session
+   * @param record Session record
+   * @returns Path to the session workspace
+   */
   async getRepoPath(record: SessionRecord): Promise<string> {
-    const newPath = join(this.baseDir, record.repoName, "sessions", record.session);
+    const path = this.getNewSessionRepoPath(record.repoName, record.session);
+    if (await this.repoExists(path)) {
+      return path;
+    }
+
+    // Fall back to legacy path format
     const legacyPath = join(this.baseDir, record.repoName, record.session);
-    if (record.repoPath) {
-      return record.repoPath;
-    }
-    if (await this.repoExists(newPath)) {
-      return newPath;
-    }
-    if (await this.repoExists(legacyPath)) {
-      return legacyPath;
-    }
-    return newPath;
+    return legacyPath;
   }
 
   private async repoExists(path: string): Promise<boolean> {
     try {
       await access(path);
       return true;
-    } catch (err) {
+    } catch (e) {
       return false;
     }
   }
 
+  /**
+   * Gets the path for a new session workspace
+   * @param repoName Normalized repository name
+   * @param sessionId Session identifier
+   * @returns Path to the session workspace
+   */
   getNewSessionRepoPath(repoName: string, sessionId: string): string {
     return join(this.baseDir, repoName, "sessions", sessionId);
   }
 
+  /**
+   * Gets the working directory for a session
+   * @param sessionName Session identifier
+   * @returns Path to the session workspace
+   */
   async getSessionWorkdir(sessionName: string): Promise<string> {
-    const session = await this.getSession(sessionName);
-    if (!session) {
-      throw new Error(`Session "${sessionName}" not found.`);
+    const record = await this.getSession(sessionName);
+    if (!record) {
+      throw new ResourceNotFoundError(`Session not found: ${sessionName}`, "session", sessionName);
     }
-    return this.getRepoPath(session);
+    return this.getRepoPath(record);
   }
 
   async migrateSessionsToSubdirectory(): Promise<void> {
@@ -365,15 +378,22 @@ export async function listSessionsFromParams(params: SessionListParams): Promise
 }
 
 /**
- * Starts a new session based on parameters
+ * Create a new session or find an existing one based on the provided parameters
+ * @param params Session start parameters
+ * @param depsInput Optional dependency injection for testing
+ * @returns The session result, including session record and clone/branch results if applicable
  */
 export async function startSessionFromParams(
   params: SessionStartParams,
   depsInput?: SessionDeps
 ): Promise<SessionResult> {
-  const deps = depsInput || (await createSessionDeps({ workspacePath: params.repo }));
+  const deps = depsInput || (await createSessionDeps({ workspacePath: params.workspace }));
+
+  log.debug("Session start with params", params);
+
   const { name, repo, task, branch: inputBranch, noStatusUpdate, quiet, json } = params;
-  let repoUrl = repo;
+  let repoUrl: string;
+  let repoPathToUse: string;
 
   try {
     log.debug("Starting session with params", {
@@ -387,29 +407,26 @@ export async function startSessionFromParams(
     });
 
     const currentDir = process.env.PWD || process.cwd();
-    const isInSession = await deps.workspaceUtils.isSessionRepository(currentDir);
+    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
     if (isInSession) {
       throw new MinskyError(
         "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
       );
     }
 
-    if (!repoUrl) {
+    if (params.repo) {
+      repoPathToUse = params.repo;
+      repoUrl = params.repo;
+    } else {
+      // No repo provided, try to infer from current directory
       try {
-        log.debug("No repoUrl provided, attempting to resolve from current directory", {
-          currentDir,
-        });
-        repoUrl = await resolveRepoPath({ repo: currentDir });
-        log.debug("Resolved repoUrl from current directory", { repoUrl });
+        repoPathToUse = await resolveRepoPath({});
+        // repoUrl is the same as repoPathToUse in this case
+        repoUrl = repoPathToUse;
       } catch (error) {
-        log.warn("Failed to resolve repoUrl from current directory", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        if (!name && !task) {
-          throw new ValidationError(
-            "Could not determine repository path. Please provide a repository URL or path."
-          );
-        }
+        throw new MinskyError(
+          "Could not determine repository path. Please provide a --repo parameter or run from a git repository."
+        );
       }
     }
 
@@ -418,7 +435,6 @@ export async function startSessionFromParams(
     }
 
     log.debug("Using repoUrl", { repoUrl });
-    const repoPathToUse = params.repo || (await resolveRepoPath({}));
     log.debug("Resolved repoPathToUse", { repoPathToUse });
 
     if (!repoPathToUse) {

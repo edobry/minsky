@@ -6,6 +6,16 @@
 
 ### Added
 
+- Task #086: Formalized Core Minsky Concepts and Relationships
+  - Created comprehensive documentation of core concepts in `src/domain/concepts.md`
+  - Added migration guide in `src/domain/migration-guide.md`
+  - Updated JSDoc comments in domain files to use consistent terminology
+  - Added core concepts overview to README.md
+  - Defined clear terminology for Repository, Session, and Workspace
+  - Documented URI handling and auto-detection rules
+
+_See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
+
 - Task #084: Extended auto-detection to additional commands
 
   - Updated task spec to reflect current command structure
