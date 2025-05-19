@@ -126,3 +126,5 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Extend Auto-Detection to Additional Commands [#084](process/tasks/084-extend-auto-detection-to-additional-commands.md)
 
 - [x] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)
+
+- [ ] Add `session pr` Command and Improve `git prepare-pr` Interface [#086](process/tasks/086-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
