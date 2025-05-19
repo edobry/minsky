@@ -6,14 +6,14 @@
 
 ### Added
 
-- Task #087: Implement consistent CLI error handling across all commands
+- Task #093: Implement consistent CLI error handling across all commands
 
   - Will create a centralized error handling utility for CLI commands
   - Will standardize error message format and content across command groups
   - Will improve user experience by showing concise, helpful error messages
   - Will maintain detailed error logging for debugging purposes
 
-- Task #086: Add session pr command and improve git prepare-pr interface
+- Task #092: Add session pr command and improve git prepare-pr interface
 
   - Will implement a new `session pr` command that automatically detects session context
   - Will review the `git prepare-pr` command for interface consistency and improvements
