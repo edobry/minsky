@@ -162,10 +162,34 @@ export class GitHubBackend implements RepositoryBackend {
 
   /**
    * Get repository status
+   * This implementation gets the status for the most recently accessed session
+   * to comply with the RepositoryBackend interface that doesn't take a session parameter
+   * @returns Object with repository status information
+   */
+  async getStatus(): Promise<RepoStatus> {
+    try {
+      // Find a session for this repository
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find(session => session.repoName === this.repoName);
+      
+      if (!repoSession) {
+        throw new Error("No session found for this repository");
+      }
+      
+      // Forward to the version that takes a session parameter
+      return this.getStatusForSession(repoSession.session);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Failed to get GitHub repository status: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get repository status for a specific session
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatus(session: string): Promise<RepoStatus> {
+  async getStatusForSession(session: string): Promise<RepoStatus> {
     const workdir = this.getSessionWorkdir(session);
 
     try {
@@ -242,12 +266,31 @@ export class GitHubBackend implements RepositoryBackend {
   }
 
   /**
-   * Get the repository path for a session
-   * @param session Session identifier
-   * @returns Full path to the repository
+   * Get the repository path
+   * This method is overloaded to work with both interface versions:
+   * 1. Without parameters (repository.ts and RepositoryBackend.ts)
+   * 2. With session parameter (index.ts)
+   * @param session Optional session identifier
+   * @returns Path to the repository
    */
-  async getPath(session: string): Promise<string> {
-    return this.getSessionWorkdir(session);
+  async getPath(session?: string): Promise<string> {
+    if (session) {
+      return this.getSessionWorkdir(session);
+    }
+    
+    // If no session is provided, find one for this repository
+    try {
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find(s => s.repoName === this.repoName);
+      
+      if (repoSession) {
+        return this.getSessionWorkdir(repoSession.session);
+      }
+    } catch (err) {
+      // If we can't find a session, just return the base directory
+    }
+    
+    return this.baseDir;
   }
 
   /**
@@ -308,23 +351,123 @@ export class GitHubBackend implements RepositoryBackend {
 
   /**
    * Push changes to GitHub repository
+   * @returns Result of the push operation
    */
   async push(): Promise<Result> {
-    // TODO: Implement GitHub push logic
-    return {
-      success: false,
-      message: "Push operation not implemented for GitHub backend yet",
-    };
+    try {
+      // Find a session for this repository
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find(session => session.repoName === this.repoName);
+      
+      if (!repoSession) {
+        return {
+          success: false,
+          message: "No session found for this repository",
+        };
+      }
+      
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
+      
+      // Get current branch
+      const { stdout: branchOutput } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      const currentBranch = branchOutput.trim();
+      
+      // Execute standard git push command
+      await execAsync(`git -C ${workdir} push origin ${currentBranch}`);
+      
+      return {
+        success: true,
+        message: `Successfully pushed to repository branch ${currentBranch}`,
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        success: false,
+        message: `Failed to push to repository: ${error.message}`,
+        error,
+      };
+    }
   }
 
   /**
    * Pull changes from GitHub repository
+   * @returns Result of the pull operation
    */
   async pull(): Promise<Result> {
-    // TODO: Implement GitHub pull logic
+    try {
+      // Find a session for this repository
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find(session => session.repoName === this.repoName);
+      
+      if (!repoSession) {
+        return {
+          success: false,
+          message: "No session found for this repository",
+        };
+      }
+      
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
+      
+      // Execute standard git pull command
+      await execAsync(`git -C ${workdir} pull origin`);
+      
+      return {
+        success: true,
+        message: "Successfully pulled changes from repository",
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        success: false,
+        message: `Failed to pull from repository: ${error.message}`,
+        error,
+      };
+    }
+  }
+
+  /**
+   * Checkout an existing branch
+   * @param branch Branch name to checkout
+   * @returns Promise resolving to void
+   */
+  async checkout(branch: string): Promise<void> {
+    try {
+      // Find a session for this repository
+      const sessions = await this.sessionDb.listSessions();
+      const repoSession = sessions.find(session => session.repoName === this.repoName);
+      
+      if (!repoSession) {
+        throw new Error("No session found for this repository");
+      }
+      
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
+      
+      // Execute the checkout command
+      await execAsync(`git -C ${workdir} checkout ${branch}`);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Failed to checkout branch: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get the repository configuration
+   * @returns The repository configuration
+   */
+  getConfig(): RepositoryBackendConfig {
     return {
-      success: false,
-      message: "Pull operation not implemented for GitHub backend yet",
+      type: "github",
+      repoUrl: this.repoUrl,
+      github: {
+        token: this.token,
+        owner: this.owner,
+        repo: this.repo
+      }
     };
   }
 }

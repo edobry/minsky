@@ -152,18 +152,34 @@ export type RepositoryBackendConfig = RepositoryConfig;
  * @param config Repository configuration
  * @returns RepositoryBackend instance
  */
-export async function createRepositoryBackend(config: RepositoryConfig): Promise<RepositoryBackend> {
+export async function createRepositoryBackend(
+  config: RepositoryConfig
+): Promise<RepositoryBackend> {
   switch (config.type) {
-    case RepositoryBackendType.LOCAL:
-      const { LocalGitBackend } = await import('./localGitBackend.js');
+    case RepositoryBackendType.LOCAL: {
+      const { LocalGitBackend } = await import("./localGitBackend.js");
       return new LocalGitBackend(config);
-    case RepositoryBackendType.REMOTE:
-      const { RemoteGitBackend } = await import('./remoteGitBackend.js');
+    }
+    case RepositoryBackendType.REMOTE: {
+      const { RemoteGitBackend } = await import("./remoteGitBackend.js");
       return new RemoteGitBackend(config);
-    case RepositoryBackendType.GITHUB:
-      // Will be implemented in later phase
-      throw new Error('GitHub backend not implemented yet');
-    default:
+    }
+    case RepositoryBackendType.GITHUB: {
+      const { GitHubBackend } = await import("./repository/github.js");
+      // Convert to RepositoryBackendConfig format
+      const backendConfig = {
+        type: config.type,
+        repoUrl: config.url || "", // Use url from RepositoryConfig
+        github: {
+          token: (config as GitHubConfig).token,
+          owner: (config as GitHubConfig).owner,
+          repo: (config as GitHubConfig).repo
+        }
+      };
+      return new GitHubBackend(backendConfig);
+    }
+    default: {
       throw new Error(`Unsupported repository backend type: ${config.type}`);
+    }
   }
 } 
