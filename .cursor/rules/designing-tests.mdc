@@ -1,6 +1,6 @@
 ---
 description: Guidelines for writing effective, maintainable tests with proper isolation, data management, and thorough coverage
-globs: ["**/*.test.ts", "**/*.spec.ts", "**/test/**/*"]
+globs: **/*.test.ts
 alwaysApply: false
 ---
 # Designing Tests
@@ -107,6 +107,8 @@ Write comprehensive, maintainable tests following these principles:
 ### 10. Update Tests When Refactoring
 - When refactoring code, update tests to match the new structure, but do not overfit tests to the implementation.
 - Remove or rewrite tests that are no longer relevant or that test implementation details.
+
+See also: `testing-boundaries` for specific guidance on CLI and framework testing boundaries.
 
 ---
 

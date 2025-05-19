@@ -1,0 +1,245 @@
+---
+description: REQUIRED: Use when implementing test mocks or fixtures. Always use centralized test utilities over direct API calls.
+globs: **/*.test.ts
+alwaysApply: false
+---
+# Bun Test Patterns
+
+## ALWAYS USE CENTRALIZED MOCKING UTILITIES
+
+**CRITICAL REQUIREMENT: Always use the project's centralized mocking utilities in `src/utils/test-utils/mocking.ts` instead of directly using bun:test APIs.**
+
+```typescript
+// ❌ NEVER USE DIRECT BUN:TEST APIs
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({ ... }));
+
+// ✅ ALWAYS USE CENTRALIZED UTILITIES
+import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking";
+setupTestMocks();
+const mockFn = createMock();
+mockModule("../path/to/module", () => ({ ... }));
+```
+
+The centralized utilities provide:
+1. Consistent mocking patterns across the codebase
+2. Automatic mock cleanup in afterEach hooks
+3. Better type safety and error handling
+4. Additional helper methods for common testing scenarios
+
+## Core Mocking Utilities
+
+### Required Setup
+
+Always begin your test file with:
+
+```typescript
+import { describe, test, expect } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockFileSystem
+} from "../../utils/test-utils/mocking";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+```
+
+### Function Mocking
+
+**REQUIRED: Use createMock() instead of jest.fn()**
+
+```typescript
+// ❌ INCORRECT - Direct jest API usage
+const mockFunction = jest.fn().mockReturnValue("result");
+
+// ✅ CORRECT - Using centralized utility
+const mockFunction = createMock(() => "default value");
+mockFunction.mockReturnValue("result");
+
+// Assertion examples
+expect(mockFunction).toHaveBeenCalled();
+expect(mockFunction).toHaveBeenCalledWith("arg");
+expect(mockFunction.mock.calls.length).toBe(1);
+```
+
+### Module Mocking
+
+**REQUIRED: Use mockModule() instead of mock.module()**
+
+```typescript
+// ❌ INCORRECT - Direct mock API usage
+mock.module("../path/to/module", () => ({
+  exportedFunction: jest.fn()
+}));
+
+// ✅ CORRECT - Using centralized utility
+mockModule("../path/to/module", () => ({
+  exportedFunction: createMock()
+}));
+```
+
+### Filesystem Mocking
+
+**REQUIRED: Use createMockFileSystem() for all filesystem operations**
+
+```typescript
+// ❌ INCORRECT - Testing actual filesystem
+test("saves config to file", () => {
+  saveConfig({ setting: true });
+  expect(fs.existsSync(CONFIG_PATH)).toBe(true);
+});
+
+// ✅ CORRECT - Using mock filesystem
+test("saves config to file", () => {
+  const mockFS = createMockFileSystem();
+  mockModule("fs", () => mockFS);
+
+  saveConfig({ setting: true });
+
+  expect(mockFS.written[CONFIG_PATH]).toBeDefined();
+});
+```
+
+## Test Organization Patterns
+
+### Test Suite Structure
+
+Organize tests with appropriate nesting and descriptive names:
+
+```typescript
+describe("Module name", () => {
+  describe("functionName", () => {
+    test("should handle specific input correctly", () => {
+      // Test content
+    });
+
+    test("should throw error for invalid input", () => {
+      // Test content
+    });
+  });
+});
+```
+
+### Test Isolation
+
+Ensure tests don't share mutable state:
+
+```typescript
+describe("Module with state", () => {
+  let instance;
+
+  beforeEach(() => {
+    // Create a fresh instance for each test
+    instance = createTestInstance();
+  });
+
+  afterEach(() => {
+    // Clean up after each test
+    instance.cleanup();
+  });
+
+  test("should modify state correctly", () => {
+    instance.performAction();
+    expect(instance.state).toBe("expected");
+  });
+});
+```
+
+## Common Test Patterns
+
+### Arrange-Act-Assert Pattern
+
+Structure tests using the AAA pattern:
+
+```typescript
+test("function should transform input correctly", () => {
+  // Arrange
+  const input = { data: "input" };
+  const expectedOutput = { data: "transformed" };
+
+  // Act
+  const result = transformFunction(input);
+
+  // Assert
+  expect(result).toEqual(expectedOutput);
+});
+```
+
+### Testing Asynchronous Code
+
+```typescript
+test("async function returns expected result", async () => {
+  // Arrange
+  const mockData = { id: 123 };
+  const mockApi = createMock();
+  mockApi.mockResolvedValue(mockData);
+  mockModule("../api", () => ({ fetchData: mockApi }));
+
+  // Act
+  const result = await fetchAndProcess(123);
+
+  // Assert
+  expect(mockApi).toHaveBeenCalledWith(123);
+  expect(result).toEqual(expect.objectContaining({ id: 123, processed: true }));
+});
+```
+
+### Testing Error Cases
+
+```typescript
+test("function throws for invalid input", () => {
+  // Arrange
+  const invalidInput = null;
+
+  // Act & Assert
+  expect(() => validateInput(invalidInput)).toThrowError(/invalid input/i);
+});
+```
+
+## Common Troubleshooting
+
+### Jest vs Bun:Test Compatibility
+
+If encountering issues with Jest compatibility:
+
+```typescript
+// Issue with bun:test not fully supporting all Jest features
+// For complex mocking scenarios, use our utility wrappers:
+
+import { createSpy } from "../../utils/test-utils/mocking";
+
+// Instead of direct spyOn
+// const spy = jest.spyOn(object, 'method');
+
+// Use our utility
+const spy = createSpy(object, 'method');
+```
+
+### Fixing Mock Not Found Issues
+
+If seeing "Mock not found" errors:
+
+```typescript
+// Issue:
+// Error: Mock for "../some-module" not found
+
+// Solution:
+// 1. Make sure you're calling mockModule BEFORE importing the module under test
+// 2. Use proper relative paths from the test file
+
+// CORRECT:
+mockModule("../relative/path/from/test/file", () => ({
+  // mocked exports
+}));
+```
+
+## Benefits of Following These Patterns
+
+1. **Consistency**: All tests use the same patterns across the codebase
+2. **Maintainability**: Tests are easier to understand and modify
+3. **Reliability**: Tests are less prone to false positives or negatives
+4. **Performance**: Tests run faster with properly mocked dependencies
+5. **Isolation**: Each test runs independently without affecting others

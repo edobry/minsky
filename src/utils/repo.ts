@@ -11,4 +11,4 @@ export interface RepoResolutionOptions {
  */
 export async function resolveRepoPath(options: RepoResolutionOptions = {}): Promise<string> {
   return resolveRepoPathInternal(options);
-} 
+}

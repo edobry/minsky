@@ -1,6 +1,6 @@
 ---
 description: Use this when fixing a bug or error of any kind
-globs: 
+globs:
 alwaysApply: false
 ---
 # Test-Driven Bug Fixing
@@ -38,7 +38,7 @@ When fixing bugs in the codebase, always follow this test-driven development wor
        const user = await loginUser();
        const oldToken = user.sessionToken;
        await user.changePassword('newPassword');
-       
+
        // This should fail until the bug is fixed
        expect(await validateToken(oldToken)).toBe(false);
      });
@@ -88,10 +88,10 @@ describe('userPermissions', () => {
     // Set up test scenario
     const group = await createGroup();
     const user = await addUserToGroup(group.id);
-    
+
     // Perform the action that should trigger permission update
     await deleteGroup(group.id);
-    
+
     // This should fail until the bug is fixed
     const permissions = await getUserPermissions(user.id);
     expect(permissions).not.toContain(group.permissions);

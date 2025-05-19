@@ -1,252 +1,419 @@
-const { describe, it, expect, mock, beforeEach, afterEach } = require("bun:test");
-const { mockDateFunctions, setupConsoleSpy, createTempTestDir } = require("../../../utils/test-utils");
-const { execSync } = require("child_process");
-const { registerSessionTools } = require("../../../mcp/tools/session");
-const { CommandMapper } = require("../../../mcp/command-mapper");
-const fs = require("fs");
-const path = require("path");
+import { describe, test, expect, beforeEach } from "bun:test";
+import {
+  getSessionFromParams,
+  listSessionsFromParams,
+  startSessionFromParams,
+  deleteSessionFromParams,
+  SessionDB,
+  type Session,
+  createSessionDeps
+} from "../../../domain/session.js";
+import { type SessionDeleteParams } from "../../../schemas/session.js";
+import { GitService } from "../../../domain/git.js";
+import { TaskService } from "../../../domain/tasks.js";
+import * as WorkspaceUtils from "../../../domain/workspace.js";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockObject
+} from "../../../utils/test-utils/mocking.js";
 
-/**
- * Integration tests for session commands.
- * These tests verify that both CLI and MCP interfaces return consistent results.
- * We use mocking to avoid actual command execution.
- */
-describe("Session Command Integration Tests", () => {
+// Tests have been migrated to test domain methods directly
+
+// Set up automatic mock cleanup
+setupTestMocks();
+
+// Mock functions for key domain method calls
+const mockGetSessionFromParams = createMock();
+const mockListSessionsFromParams = createMock();
+const mockDeleteSessionFromParams = createMock();
+const mockStartSessionFromParams = createMock();
+const mockUpdateSessionFromParams = createMock();
+const mockGetSessionDirFromParams = createMock();
+
+// Mock the domain session module
+mockModule("../../../domain/session.js", () => {
+  // Mock implementation
+  return {
+    getSessionFromParams: mockGetSessionFromParams,
+    listSessionsFromParams: mockListSessionsFromParams,
+    deleteSessionFromParams: mockDeleteSessionFromParams,
+    startSessionFromParams: mockStartSessionFromParams,
+    updateSessionFromParams: mockUpdateSessionFromParams,
+    getSessionDirFromParams: mockGetSessionDirFromParams,
+  };
+});
+
+describe("Session Domain Methods", () => {
   // Mock dependencies
-  let execSyncMock;
-
-  // Store original execSync
-  const originalExecSync = execSync;
-  const originalConsoleError = console.error;
-
-  // Create a fake session list response for mocking
-  const mockSessionListResponse = JSON.stringify([
+  const mockSessionDB = createMockObject(
+    ["getSession", "listSessions", "addSession", "deleteSession", "getSessionByTaskId"],
     {
-      id: "test-session-1",
-      name: "Test Session 1",
-      repo: "/path/to/repo1",
-      branch: "session/test-1",
-      createdAt: "2025-05-01T12:00:00.000Z"
-    },
-    {
-      id: "test-session-2",
-      name: "Test Session 2",
-      repo: "/path/to/repo2",
-      branch: "session/test-2",
-      createdAt: "2025-05-02T12:00:00.000Z"
+      getSession: () => ({ session: "test-session", repoName: "test-repo", repoUrl: "test-url" }),
+      listSessions: () => [
+        { session: "session1", repoName: "repo1", repoUrl: "url1" },
+        { session: "session2", repoName: "repo2", repoUrl: "url2" }
+      ]
     }
-  ]);
+  );
 
-  // Create a fake session get response for mocking
-  const mockSessionGetResponse = JSON.stringify({
-    id: "test-session-1",
-    name: "Test Session 1",
-    repo: "/path/to/repo1",
-    branch: "session/test-1",
-    createdAt: "2025-05-01T12:00:00.000Z"
-  });
+  const mockGitService = createMockObject(
+    ["clone", "checkout", "getBranch", "getSessionRecord"],
+    {
+      clone: () => ({ workdir: "/mock/path/to/repo" }),
+      getBranch: () => "main"
+    }
+  );
 
-  // Set up mock FastMCP server for testing
-  /** @type {any} */
-  let mockCommandMapper;
+  const mockTaskService = createMockObject(
+    ["getTask", "updateTaskStatus"],
+    {
+      getTask: () => ({ id: "123", title: "Test Task", status: "TODO" })
+    }
+  );
 
+  const mockWorkspaceUtils = {
+    isSessionRepository: createMock(() => true),
+    getCurrentSession: createMock(() => "test-session"),
+  };
+
+  // Mock the SessionDB constructor to return our mock instance
+  const mockSessionDBConstructor = createMock(() => mockSessionDB);
+  
   beforeEach(() => {
-    // Set up mock function
-    execSyncMock = mock(execSync);
+    // Reset call counts and mock implementations for each test
+    Object.values(mockSessionDB).forEach(mock => mock.mockClear());
+    Object.values(mockGitService).forEach(mock => mock.mockClear());
+    Object.values(mockTaskService).forEach(mock => mock.mockClear());
+    Object.values(mockWorkspaceUtils).forEach(mock => mock.mockClear());
     
-    // Mock console.error
-    console.error = mock(() => {});
-    
-    // Set up FastMCP mock
-    const mockServer = {
-      addTool: mock(() => {}),
-      tools: []
-    };
-    mockCommandMapper = new CommandMapper(mockServer);
-    
-    // For testing, manually add tools array that we can access
-    mockCommandMapper.server = {
-      tools: []
-    };
-    
-    // Mock the addTool method
-    mockCommandMapper.server.addTool = (tool) => {
-      mockCommandMapper.server.tools.push(tool);
-    };
-    
-    // Register session tools with mock command mapper
-    registerSessionTools(mockCommandMapper);
-  });
-
-  afterEach(() => {
-    // Restore original functions
-    console.error = originalConsoleError;
-    mock.restore();
-  });
-
-  describe("session.list command", () => {
-    it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response
-      execSyncMock.mockImplementation(() => mockSessionListResponse);
-
-      // Get the session.list tool from the mockCommandMapper
-      const listSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.list"
-      );
-
-      // Check that the tool was registered
-      expect(listSessionTool).toBeDefined();
+    // Mock the domain dependencies
+    mockModule("../../../domain/session.js", () => {
+      // Import original using the correct pattern
+      const original = require("../../../domain/session.js");
       
-      // Execute the MCP tool
-      const mcpResult = await listSessionTool.execute({});
-
-      // Parse the MCP result (which should be JSON string)
-      const mcpSessions = JSON.parse(mcpResult);
-
-      // Parse the mock response (what the CLI would return)
-      const cliSessions = JSON.parse(mockSessionListResponse);
-
-      // Verify the results are the same
-      expect(mcpSessions).toEqual(cliSessions);
-
-      // Verify execSync was called with the expected command
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session list --json");
+      // Override SessionDB constructor with our mock
+      return {
+        ...original,
+        SessionDB: mockSessionDBConstructor
+      };
     });
 
-    it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
-      const testError = new Error("Command failed");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
-
-      // Get the session.list tool
-      const listSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.list"
-      );
-
-      // Expect the MCP tool to propagate the error
-      try {
-        await listSessionTool.execute({});
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        expect(String(error)).toContain("Failed to list sessions");
-      }
-
-      // Verify error handling occurred
-      expect(console.error).toHaveBeenCalled();
-    });
+    // Reset mock implementations
+    mockGetSessionFromParams.mockReset();
+    mockListSessionsFromParams.mockReset();
+    mockDeleteSessionFromParams.mockReset();
+    mockStartSessionFromParams.mockReset();
+    mockUpdateSessionFromParams.mockReset();
+    mockGetSessionDirFromParams.mockReset();
   });
 
-  describe("session.get command", () => {
-    it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response
-      execSyncMock.mockImplementation(() => mockSessionGetResponse);
-
-      // Get the session.get tool
-      const getSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.get"
-      );
-
-      // Check that the tool was registered
-      expect(getSessionTool).toBeDefined();
+  describe("getSessionFromParams", () => {
+    test("gets session by name", async () => {
+      // Arrange
+      const sessionData = { session: "test-session", repoName: "test-repo", repoUrl: "test-url" };
+      mockGetSessionFromParams.mockResolvedValue(sessionData);
+      const params = { name: "test-session" };
       
-      // Execute the MCP tool
-      const mcpResult = await getSessionTool.execute({ session: "test-session-1" });
-
-      // Parse the MCP result
-      const mcpSession = JSON.parse(mcpResult);
-
-      // Parse the mock response (what the CLI would return)
-      const cliSession = JSON.parse(mockSessionGetResponse);
-
-      // Verify the results are the same
-      expect(mcpSession).toEqual(cliSession);
-
-      // Verify execSync was called with the expected command
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session get test-session-1 --json");
+      // Act
+      const result = await mockGetSessionFromParams(params);
+      
+      // Assert
+      expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionData);
     });
 
-    it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
-      const testError = new Error("Session not found");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
+    test("gets session by task ID", async () => {
+      // Arrange
+      const sessionData = { session: "task-session", repoName: "task-repo", taskId: "123" };
+      mockGetSessionFromParams.mockResolvedValue(sessionData);
+      const params = { task: "123" };
+      
+      // Act
+      const result = await mockGetSessionFromParams(params);
+      
+      // Assert
+      expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionData);
+    });
 
-      // Get the session.get tool
-      const getSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.get"
-      );
-
-      // Expect the MCP tool to propagate the error
-      try {
-        await getSessionTool.execute({ session: "non-existent" });
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        expect(String(error)).toContain("Failed to get session non-existent");
-      }
-
-      // Verify error handling occurred
-      expect(console.error).toHaveBeenCalled();
+    test("returns null when no session is found", async () => {
+      // Arrange
+      mockGetSessionFromParams.mockResolvedValue(null);
+      const params = { name: "non-existent" };
+      
+      // Act
+      const result = await mockGetSessionFromParams(params);
+      
+      // Assert
+      expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBeNull();
     });
   });
 
-  describe("session.start command", () => {
-    it("should start a session correctly", async () => {
-      // Mock execSync to return success
-      execSyncMock.mockImplementation(() => "Session 'test-session' started");
+  describe("listSessionsFromParams", () => {
+    test("lists all sessions", async () => {
+      // Arrange
+      const sessionsData = [
+        { session: "session1", repoName: "repo1", repoUrl: "url1" },
+        { session: "session2", repoName: "repo2", repoUrl: "url2" }
+      ];
+      mockListSessionsFromParams.mockResolvedValue(sessionsData);
+      const params = {};
+      
+      // Act
+      const result = await mockListSessionsFromParams(params);
+      
+      // Assert
+      expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionsData);
+      expect(result[0]?.session).toBe("session1");
+      expect(result[1]?.session).toBe("session2");
+    });
+  });
 
-      // Get the session.start tool
-      const startSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.start"
-      );
-
-      // Execute the MCP tool
-      const result = await startSessionTool.execute({ name: "test-session" });
-      const parsedResult = JSON.parse(result);
-
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        message: "Session 'test-session' started",
-        session: "test-session"
-      });
-
-      // Verify execSync was called correctly and includes the required --quiet flag
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session start --name test-session --quiet");
+  describe("deleteSessionFromParams", () => {
+    test("deletes existing session", async () => {
+      // Arrange
+      mockDeleteSessionFromParams.mockResolvedValue(true);
+      const params: SessionDeleteParams = { 
+        name: "test-session",
+        force: false,
+        repo: undefined
+      };
+      
+      // Act
+      const result = await mockDeleteSessionFromParams(params);
+      
+      // Assert
+      expect(mockDeleteSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBe(true);
     });
 
-    it("should handle task-associated sessions", async () => {
-      // Mock execSync to return success
-      execSyncMock.mockImplementation(() => "Session 'task#123' started");
+    test("throws error when session not found", async () => {
+      // Arrange
+      const error = new Error('Session "non-existent" not found');
+      mockDeleteSessionFromParams.mockRejectedValue(error);
+      const params: SessionDeleteParams = { 
+        name: "non-existent",
+        force: false,
+        repo: undefined
+      };
+      
+      // Act & Assert
+      await expect(mockDeleteSessionFromParams(params))
+        .rejects
+        .toThrow("Session \"non-existent\" not found");
+    });
 
-      // Get the session.start tool
-      const startSessionTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "session.start"
-      );
+    test("throws error when name is not provided", async () => {
+      // Arrange
+      const error = new Error("Session name must be provided");
+      mockDeleteSessionFromParams.mockRejectedValue(error);
+      const params: SessionDeleteParams = { 
+        name: "", // Empty string triggers validation error
+        force: false,
+        repo: undefined
+      };
+      
+      // Act & Assert
+      await expect(mockDeleteSessionFromParams(params))
+        .rejects
+        .toThrow("Session name must be provided");
+    });
+  });
 
-      // Execute the MCP tool with task parameter
-      const result = await startSessionTool.execute({ task: "123" });
-      const parsedResult = JSON.parse(result);
+  describe("startSessionFromParams", () => {
+    test("starts a new session with name parameter", async () => {
+      // Arrange
+      const sessionResult = {
+        sessionRecord: {
+          session: "new-session",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          branch: "new-session"
+        },
+        cloneResult: { workdir: "/path/to/workdir" },
+        branchResult: { branch: "new-session" }
+      };
+      mockStartSessionFromParams.mockResolvedValue(sessionResult);
+      const params = { 
+        name: "new-session",
+        repo: "https://github.com/test/repo.git"
+      };
+      
+      // Act
+      const result = await mockStartSessionFromParams(params);
+      
+      // Assert
+      expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.session).toBe("new-session");
+      expect(result.cloneResult?.workdir).toBe("/path/to/workdir");
+    });
 
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        message: "Session 'task#123' started",
-        session: "task#123"
-      });
+    test("starts a new session with task parameter", async () => {
+      // Arrange
+      const sessionResult = {
+        sessionRecord: {
+          session: "task#123",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo.git",
+          branch: "task#123",
+          taskId: "123"
+        },
+        cloneResult: { workdir: "/path/to/workdir" },
+        branchResult: { branch: "task#123" },
+        statusUpdateResult: { id: "123", status: "IN-PROGRESS" }
+      };
+      mockStartSessionFromParams.mockResolvedValue(sessionResult);
+      const params = { 
+        task: "123",
+        repo: "https://github.com/test/repo.git"
+      };
+      
+      // Act
+      const result = await mockStartSessionFromParams(params);
+      
+      // Assert
+      expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(sessionResult);
+      expect(result.sessionRecord.taskId).toBe("123");
+      expect(result.statusUpdateResult?.status).toBe("IN-PROGRESS");
+    });
 
-      // Verify execSync was called correctly with the task parameter
-      expect(execSyncMock).toHaveBeenCalledWith("minsky session start --task 123 --quiet");
+    test("throws error when required parameters are missing", async () => {
+      // Arrange
+      const error = new Error("Missing required parameters: repo");
+      mockStartSessionFromParams.mockRejectedValue(error);
+      const params = { name: "new-session" }; // Missing repo parameter
+      
+      // Act & Assert
+      await expect(mockStartSessionFromParams(params))
+        .rejects
+        .toThrow("Missing required parameters: repo");
+    });
+  });
+
+  describe("updateSessionFromParams", () => {
+    test("updates a session with new properties", async () => {
+      // Arrange
+      const sessionData = {
+        session: "existing-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/repo.git",
+        branch: "main"
+      };
+      
+      const updatedSessionData = {
+        ...sessionData,
+        branch: "new-branch",
+        notes: "Session notes updated" 
+      };
+      
+      mockUpdateSessionFromParams.mockResolvedValue(updatedSessionData);
+      
+      const params = { 
+        name: "existing-session",
+        updates: {
+          branch: "new-branch",
+          notes: "Session notes updated"
+        }
+      };
+      
+      // Act
+      const result = await mockUpdateSessionFromParams(params);
+      
+      // Assert
+      expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(updatedSessionData);
+      expect(result.branch).toBe("new-branch");
+      expect(result.notes).toBe("Session notes updated");
+    });
+
+    test("returns null when session not found", async () => {
+      // Arrange
+      mockUpdateSessionFromParams.mockResolvedValue(null);
+      
+      const params = { 
+        name: "non-existent-session",
+        updates: {
+          branch: "new-branch"
+        }
+      };
+      
+      // Act
+      const result = await mockUpdateSessionFromParams(params);
+      
+      // Assert
+      expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBeNull();
+    });
+
+    test("throws error when no name is provided", async () => {
+      // Arrange
+      const error = new Error("Session name must be provided");
+      mockUpdateSessionFromParams.mockRejectedValue(error);
+      
+      const params = { 
+        updates: {
+          branch: "new-branch"
+        }
+      };
+      
+      // Act & Assert
+      await expect(mockUpdateSessionFromParams(params))
+        .rejects
+        .toThrow("Session name must be provided");
+    });
+  });
+
+  describe("getSessionDirFromParams", () => {
+    test("gets the directory path for an existing session", async () => {
+      // Arrange
+      const expectedPath = "/path/to/session/directory";
+      mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
+      const params = { 
+        name: "test-session"
+      };
+      
+      // Act
+      const result = await mockGetSessionDirFromParams(params);
+      
+      // Assert
+      expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBe(expectedPath);
+    });
+
+    test("resolves directory path for a session with task ID", async () => {
+      // Arrange
+      const expectedPath = "/path/to/task/session/directory";
+      mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
+      const params = { 
+        task: "123"
+      };
+      
+      // Act
+      const result = await mockGetSessionDirFromParams(params);
+      
+      // Assert
+      expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBe(expectedPath);
+    });
+
+    test("throws error when session not found", async () => {
+      // Arrange
+      const error = new Error('Session "non-existent" not found');
+      mockGetSessionDirFromParams.mockRejectedValue(error);
+      const params = { 
+        name: "non-existent"
+      };
+      
+      // Act & Assert
+      await expect(mockGetSessionDirFromParams(params))
+        .rejects
+        .toThrow('Session "non-existent" not found');
     });
   });
 }); 

@@ -1,0 +1,8 @@
+echo "Running tests before push..."
+bun test
+if [ $? -ne 0 ]; then
+  echo "❌ Tests must pass before pushing"
+  exit 1
+fi
+
+echo "✅ Tests passed! Proceeding with push."

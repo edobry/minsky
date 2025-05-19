@@ -11,13 +11,25 @@ import type {
   TaskStatusSetParams,
   TaskCreateParams,
 } from "../../schemas/tasks.js";
+import { taskStatusSchema } from "../../schemas/tasks.js"; // Import taskStatusSchema for type inference
 import {
   listTasksFromParams,
   getTaskFromParams,
   getTaskStatusFromParams,
   setTaskStatusFromParams,
-} from "../../domain/index.js";
+  createTaskFromParams,
+  normalizeTaskId,
+  TASK_STATUS,
+} from "../../domain/tasks.js";
 import { MinskyError } from "../../errors/index.js";
+import * as p from "@clack/prompts";
+import { log } from "../../utils/logger";
+import { z } from "zod"; // Add import for z namespace
+
+// Helper for exiting process consistently
+function exit(code: number): never {
+  process.exit(code);
+}
 
 /**
  * Creates the task list command
@@ -60,7 +72,8 @@ export function createListCommand(): Command {
           // Format and display the results
           if (tasks.length === 0) {
             if (options.json) {
-              console.log(JSON.stringify([]));
+              // For JSON output, write directly to stdout
+              process.stdout.write(`${JSON.stringify([])}\n`);
             } else {
               // Generate and display filter messages in non-JSON mode
               const filterMessages = generateFilterMessages({
@@ -70,17 +83,18 @@ export function createListCommand(): Command {
 
               // Display filter messages if any exist
               if (filterMessages.length > 0) {
-                filterMessages.forEach((message) => console.log(message));
-                console.log("");
+                filterMessages.forEach((message) => log.cli(message));
+                log.cli("");
               }
 
-              console.log("No tasks found.");
+              log.cli("No tasks found.");
             }
             return;
           }
 
           if (options.json) {
-            console.log(JSON.stringify(tasks, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(tasks, null, 2)}\n`);
           } else {
             // Generate and display filter messages in non-JSON mode
             const filterMessages = generateFilterMessages({
@@ -90,23 +104,19 @@ export function createListCommand(): Command {
 
             // Display filter messages if any exist
             if (filterMessages.length > 0) {
-              filterMessages.forEach((message) => console.log(message));
-              console.log("");
+              filterMessages.forEach((message) => log.cli(message));
+              log.cli("");
             }
 
-            console.log("Tasks:");
+            log.cli("Tasks:");
             tasks.forEach((task) => {
-              console.log(`- ${task.id}: ${task.title} [${task.status}]`);
+              log.cli(`- ${task.id}: ${task.title} [${task.status}]`);
             });
           }
         } catch (error) {
-          console.error("Error listing tasks:", error);
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            Bun.exit(1);
-          } else {
-            process.exit(1);
-          }
+          log.cliError("Error listing tasks:");
+          log.error("Error details for listing tasks", error as Error);
+          exit(1);
         }
       }
     );
@@ -136,9 +146,18 @@ export function createGetCommand(): Command {
         }
       ) => {
         try {
+          // Normalize the task ID before passing to domain
+          const normalizedTaskId = normalizeTaskId(taskId);
+          if (!normalizedTaskId) {
+            log.cliError(
+              `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            );
+            exit(1);
+          }
+
           // Convert CLI options to domain parameters
           const params: TaskGetParams = {
-            taskId,
+            taskId: normalizedTaskId,
             session: options.session,
             repo: options.repo,
             workspace: options.workspace,
@@ -151,22 +170,24 @@ export function createGetCommand(): Command {
 
           // Format and display the result
           if (options.json) {
-            console.log(JSON.stringify(task, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
           } else {
-            console.log(`Task #${task.id}:`);
-            console.log(`Title: ${task.title}`);
-            console.log(`Status: ${task.status}`);
+            log.cli(`Task ${task.id}:`);
+            log.cli(`Title: ${task.title}`);
+            log.cli(`Status: ${task.status}`);
             if (task.specPath) {
-              console.log(`Spec: ${task.specPath}`);
+              log.cli(`Spec: ${task.specPath}`);
             }
             if (task.description) {
-              console.log("\nDescription:");
-              console.log(task.description);
+              log.cli("\nDescription:");
+              log.cli(task.description);
             }
           }
         } catch (error) {
-          console.error("Error getting task:", error);
-          process.exit(1);
+          log.cliError("Error getting task:");
+          log.error("Error details for getting task", error as Error);
+          exit(1);
         }
       }
     );
@@ -215,25 +236,17 @@ export function createStatusCommand(): Command {
 
           // Format and display the result
           if (options.json) {
-            console.log(JSON.stringify({ taskId, status }, null, 2));
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify({ taskId, status }, null, 2)}\n`);
           } else {
-            console.log(`Status of task #${taskId}: ${status}`);
+            // Normalize the ID for display to ensure consistent formatting
+            const displayId = normalizeTaskId(taskId) || taskId;
+            log.cli(`Status of task ${displayId}: ${status}`);
           }
         } catch (error) {
-          if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
-          } else {
-            console.error(`Unexpected error: ${error}`);
-          }
-
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            // eslint-disable-next-line no-restricted-globals
-            Bun.exit(1);
-          } else {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          }
+          log.cliError("Error getting task status:");
+          log.error("Error details for getting task status", error as Error);
+          exit(1);
         }
       }
     );
@@ -243,65 +256,127 @@ export function createStatusCommand(): Command {
     .command("set")
     .description("Set the status of a task")
     .argument("<task-id>", "ID of the task")
-    .argument("[status]", "New status for the task (TODO, IN-PROGRESS, IN-REVIEW, DONE)")
+    // The linter error for TASK_STATUS here seems incorrect, Object.values(TASK_STATUS) is a valid value usage.
+    .argument("[status]", `New status for the task (${Object.values(TASK_STATUS).join(" | ")})`)
     .option("--session <session>", "Session name to use for repo resolution")
     .option("--repo <repoPath>", "Path to a git repository (overrides session)")
     .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
     .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
+    .option("--json", "Output confirmation as JSON") // Added for consistency, might not be used by domain
     .action(
       async (
         taskId: string,
-        status: string | undefined,
+        status: string | undefined, // status comes as a string from commander or undefined if not provided
         options: {
           session?: string;
           repo?: string;
           workspace?: string;
           backend?: string;
+          json?: boolean;
         }
       ) => {
-        try {
-          if (!status) {
-            console.error("Error: Status is required");
-            if (typeof Bun !== "undefined") {
-              // eslint-disable-next-line no-restricted-globals
-              Bun.exit(1);
-            } else {
-              // eslint-disable-next-line no-restricted-globals
-              process.exit(1);
-            }
-            return;
+        // If status is not provided, prompt for it interactively
+        if (!status) {
+          // Check if we're in a non-interactive environment
+          if (!process.stdout.isTTY) {
+            log.cliError(
+              `Status is required in non-interactive mode.\nValid options are: ${Object.values(TASK_STATUS).join(", ")}`
+            );
+            exit(1);
           }
 
+          try {
+            // Convert CLI options to domain parameters for getting task
+            const getParams: TaskStatusGetParams = {
+              taskId,
+              session: options.session,
+              repo: options.repo,
+              workspace: options.workspace,
+              backend: options.backend,
+              json: false,
+            };
+
+            // Get current status for task context
+            const currentStatus = await getTaskStatusFromParams(getParams);
+
+            // Prompt for status using @clack/prompts
+            const statusOptions = Object.values(TASK_STATUS).map((value) => ({
+              value,
+              label: value,
+            }));
+
+            const statusChoice = await p.select({
+              message: `Select new status for task ${normalizeTaskId(taskId) || taskId}:`,
+              options: statusOptions,
+              initialValue: currentStatus || TASK_STATUS.TODO,
+            });
+
+            // Handle cancellation
+            if (p.isCancel(statusChoice)) {
+              p.cancel("Operation cancelled");
+              exit(0);
+            }
+
+            // Set the chosen status
+            status = statusChoice.toString();
+          } catch (error) {
+            log.cliError("Error getting task status for prompt:");
+            log.error("Error details for getting task status", error as Error);
+            exit(1);
+          }
+        }
+
+        // Validate status
+        if (!Object.values(TASK_STATUS).includes(status as z.infer<typeof taskStatusSchema>)) {
+          log.cliError(
+            `Invalid status: ${status}. Must be one of ${Object.values(TASK_STATUS).join(", ")}.`
+          );
+          exit(1);
+        }
+
+        try {
           // Convert CLI options to domain parameters
           const params: TaskStatusSetParams = {
             taskId,
-            status: status as any, // We'll let the domain function validate this
+            status: status as z.infer<typeof taskStatusSchema>, // Cast to the specific string literal type for the domain
             session: options.session,
             repo: options.repo,
             workspace: options.workspace,
             backend: options.backend,
+            json: options.json,
           };
 
           // Call the domain function
           await setTaskStatusFromParams(params);
 
           // Display success message
-          console.log(`Status of task #${taskId} set to ${status}`);
+          if (options.json) {
+            // For JSON output, write directly to stdout
+            process.stdout.write(
+              `${JSON.stringify(
+                {
+                  taskId,
+                  status,
+                  success: true,
+                },
+                null,
+                2
+              )}\n`
+            );
+          } else {
+            // Normalize the ID for display to ensure consistent formatting
+            const displayId = normalizeTaskId(taskId) || taskId;
+            log.cli(`Status of task ${displayId} set to ${status}`);
+          }
         } catch (error) {
           if (error instanceof MinskyError) {
-            console.error(`Error: ${error.message}`);
+            log.cliError(`Error: ${error.message}`);
+            log.error("Error details for MinskyError", error);
           } else {
-            console.error(`Unexpected error: ${error}`);
+            log.cliError("Error setting task status:");
+            log.error("Error details for setting task status", error as Error);
           }
-
-          // Use Bun.exit if available, otherwise fallback to process.exit
-          if (typeof Bun !== "undefined") {
-            // eslint-disable-next-line no-restricted-globals
-            Bun.exit(1);
-          } else {
-            // eslint-disable-next-line no-restricted-globals
-            process.exit(1);
-          }
+          exit(1);
         }
       }
     );
@@ -313,71 +388,60 @@ export function createStatusCommand(): Command {
  * Creates the task create command
  */
 export function createCreateCommand(): Command {
-  return new Command("create")
-    .description("Create a new task from a specification document")
-    .argument("<spec-path>", "Path to the task specification document")
-    .option("--session <session>", "Session name to use for repo resolution")
-    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
-    .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
-    .option("--json", "Output created task as JSON")
-    .option("--force", "Force creation even if task already exists")
-    .action(
-      async (
-        specPath: string,
-        options: {
-          session?: string;
-          repo?: string;
-          workspace?: string;
-          backend?: string;
-          json?: boolean;
-          force?: boolean;
-        }
-      ) => {
+  return (
+    new Command("create")
+      .description("Create a new task from a specification file or URL")
+      .argument("<spec-path>", "Path or URL to the task specification markdown file") // Corrected argument name to spec-path
+      .option(
+        "-f, --force",
+        "Force creation even if a task with the same ID might exist (used by AI)"
+      )
+      .option("--json", "Output created task as JSON")
+      // Session/repo/workspace options are implicitly handled by the domain if needed for backend resolution
+      .action(async (specPath: string, options: { force?: boolean; json?: boolean }) => {
+        // Corrected parameter name to specPath
         try {
-          // This will be replaced with direct domain function call
           const params: TaskCreateParams = {
-            specPath,
-            session: options.session,
-            repo: options.repo,
-            workspace: options.workspace,
-            json: options.json,
+            specPath, // Corrected to use specPath
             force: options.force ?? false,
-            // Note: backend will be handled by the domain function
+            json: options.json,
           };
 
-          // Placeholder for direct domain function call
-          // const task = await createTaskFromParams(params);
+          const task = await createTaskFromParams(params); // Corrected domain function call
 
-          // Temporary - using existing CLI command until we refactor the domain
-          let command = `bun src/cli.ts tasks create ${specPath}`;
-          if (options.session) command += ` --session ${options.session}`;
-          if (options.repo) command += ` --repo ${options.repo}`;
-          if (options.workspace) command += ` --workspace ${options.workspace}`;
-          if (options.backend) command += ` -b ${options.backend}`;
-          if (options.json) command += " --json";
-          if (options.force) command += " --force";
-
-          const output = execSync(command).toString();
-          console.log(output);
+          if (options.json) {
+            // For JSON output, write directly to stdout
+            process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
+          } else {
+            log.cli(`Task ${task.id} created: ${task.title}`);
+            p.note(task.specPath, "Specification file");
+          }
         } catch (error) {
-          console.error("Error creating task:", error);
-          process.exit(1);
+          log.cliError(`Error creating task from spec: ${specPath}`);
+          if (error instanceof MinskyError) {
+            // Log the error object directly; logger will handle stack if available
+            log.error(error.message, error);
+          } else {
+            log.error("Unexpected error during task creation", error as Error);
+          }
+          exit(1);
         }
-      }
-    );
+      })
+  );
 }
 
 /**
- * Creates the main tasks command with all subcommands
+ * Creates the main tasks command and adds subcommands
  */
 export function createTasksCommand(): Command {
-  const tasksCommand = new Command("tasks").description("Task management operations");
+  const tasksCommand = new Command("tasks").description("Manage tasks");
 
   tasksCommand.addCommand(createListCommand());
   tasksCommand.addCommand(createGetCommand());
   tasksCommand.addCommand(createStatusCommand());
   tasksCommand.addCommand(createCreateCommand());
+  // Future: tasksCommand.addCommand(createUpdateCommand());
+  // Future: tasksCommand.addCommand(createDeleteCommand());
 
   return tasksCommand;
 }

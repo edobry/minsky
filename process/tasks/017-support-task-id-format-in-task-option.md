@@ -7,6 +7,7 @@ Currently, when using the `--task` option in Minsky commands, task IDs need to b
 ## Requirements
 
 1. **Consistent Task ID Normalization**
+
    - Update all commands that accept a `--task` option to support both formats:
      - With leading hash: `#001`
      - Without leading hash: `001`
@@ -14,11 +15,13 @@ Currently, when using the `--task` option in Minsky commands, task IDs need to b
    - Consider creating a shared utility function for task ID normalization
 
 2. **Commands to Update**
+
    - `session start`: Already partially implements this behavior
    - `session get`: Currently requires exact task ID format
    - Any other commands that accept task IDs as parameters or options
 
 3. **Domain Logic**
+
    - Normalization should happen at the command level, not in the domain layer
    - Tasks should continue to be stored and managed with the standard format (with leading hash)
 
@@ -29,21 +32,25 @@ Currently, when using the `--task` option in Minsky commands, task IDs need to b
 ## Implementation Steps
 
 1. [x] Identify all commands that accept task IDs as parameters or options
+
    - [x] Review `session` commands
    - [x] Review `tasks` commands
    - [x] Check for other command groups that may use task IDs
 
 2. [x] Create a shared utility function for task ID normalization
+
    - [x] Add function to appropriate utility module
    - [x] Implement consistent normalization logic
    - [x] Add appropriate tests for the utility function
 
 3. [x] Update commands to use the normalization utility
+
    - [x] Modify `session start` command to use the shared utility instead of inline normalization
    - [x] Update `session get` command to normalize task IDs
    - [x] Update any other commands that accept task IDs
 
 4. [x] Add or update tests to verify the normalization behavior
+
    - [x] Test with task IDs in both formats
    - [x] Verify error cases
 
@@ -54,15 +61,18 @@ Currently, when using the `--task` option in Minsky commands, task IDs need to b
 ## Verification
 
 - [x] Running commands with task IDs without the leading hash works correctly
+
   - [x] `minsky session start --task 001` should work the same as `minsky session start --task #001`
   - [x] `minsky session get --task 001` should work the same as `minsky session get --task #001`
   - [x] Any other commands accepting task IDs should handle both formats
 
 - [x] The normalized task ID (with leading hash) is used in all operations
+
   - [x] Task ID is stored correctly in the session database
   - [x] Error messages show the normalized task ID
 
 - [x] Error handling works correctly
+
   - [x] Invalid task IDs are caught and reported
   - [x] Appropriate error messages are shown
 
@@ -74,4 +84,4 @@ Currently, when using the `--task` option in Minsky commands, task IDs need to b
 - 2023-12-31: Updated `session get` command to use the normalization utility for `--task` option
 - 2023-12-31: Updated `session start` command to use the utility instead of inline normalization
 - 2023-12-31: Updated `tasks get` and `tasks status` commands to normalize task IDs
-- 2023-12-31: Added PR description with summary of changes 
+- 2023-12-31: Added PR description with summary of changes

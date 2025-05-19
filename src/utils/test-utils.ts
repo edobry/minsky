@@ -2,9 +2,13 @@
  * Test utilities for standardizing test setup, cleanup, and common functions
  */
 import { afterEach, beforeEach, mock, spyOn } from "bun:test";
-import path from "path";
-import fs from "fs";
-import os from "os";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { createRobustTempDir } from "./tempdir";
+
+// Re-export mocking utilities from the dedicated module
+export * from "./test-utils/mocking";
 
 // Make TypeScript happy with Node.js global objects
 declare const global: {
@@ -26,9 +30,7 @@ export const TEST_TIMESTAMPS = {
  * Creates a temporary directory for test file operations
  * Provides isolation between tests and automatic cleanup
  */
-export function createTempTestDir(prefix = "minsky-test-"): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
+export const createTempTestDir: (prefix?: string) => string | null = createRobustTempDir;
 
 /**
  * Sets up console spies for capturing and testing output
@@ -93,7 +95,13 @@ export function setupTestEnvironment(
     }
 
     if (createTempDir) {
-      tempDir = createTempTestDir();
+      const dir = createTempTestDir();
+      tempDir = typeof dir === "string" ? dir : undefined;
+      if (!tempDir) {
+        console.warn(
+          "[SKIP] Temp dir could not be created in this environment. Skipping temp dir setup."
+        );
+      }
     }
   });
 
@@ -110,7 +118,7 @@ export function setupTestEnvironment(
     }
 
     // Clean up temp directory if created
-    if (tempDir && fs.existsSync(tempDir)) {
+    if (typeof tempDir === "string" && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });

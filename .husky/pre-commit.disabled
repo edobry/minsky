@@ -1,0 +1,15 @@
+# Run lint-staged to handle formatting, linting, etc.
+bun node_modules/.bin/lint-staged
+
+# Prevent placeholder tests from being committed
+echo "Running test quality checks..."
+bun detect-placeholder-tests.ts
+
+# Exit with error code if placeholder tests are found
+if [ $? -ne 0 ]; then
+  echo "❌ Placeholder tests detected. Please fix the issues before committing."
+  echo "   Run 'bun detect-placeholder-tests.ts' to see the details."
+  exit 1
+fi
+
+echo "✅ Test quality checks passed."

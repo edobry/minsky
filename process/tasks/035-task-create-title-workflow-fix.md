@@ -7,10 +7,12 @@ Currently, the Minsky CLI requires users to specify the task number in the spec 
 ## Requirements
 
 1. **Flexible Title Parsing**
+
    - Allow the task spec file to use the title format `# Task: Title` (without a number).
    - Continue to support `# Task #XXX: Title` for backward compatibility.
 
 2. **Automatic Number Assignment**
+
    - When registering a new task, the CLI should:
      - Parse the title from `# Task: Title`
      - Assign the next available task number
@@ -19,10 +21,12 @@ Currently, the Minsky CLI requires users to specify the task number in the spec 
      - Update the checklist entry in `process/tasks.md`
 
 3. **User Experience**
+
    - Provide clear output to the user about the assigned task number, updated file name, and checklist entry.
    - Handle errors gracefully if the title is missing or malformed.
 
 4. **Testing and Validation**
+
    - Add tests to cover both `# Task: Title` and `# Task #XXX: Title` formats.
    - Test that the file is updated and renamed correctly.
    - Test error cases (missing title, duplicate file, etc.).
@@ -43,4 +47,4 @@ Currently, the Minsky CLI requires users to specify the task number in the spec 
 - [ ] Users can create a task with a spec file titled `# Task: Title` and the CLI assigns the number, updates the file, and renames it.
 - [ ] Backward compatibility is maintained for `# Task #XXX: Title`.
 - [ ] All tests pass for both formats and error cases.
-- [ ] Documentation is updated to reflect the new workflow. 
+- [ ] Documentation is updated to reflect the new workflow.

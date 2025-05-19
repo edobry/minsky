@@ -17,6 +17,29 @@ Minsky helps AI agents collaborate on codebases by leveraging the same tools hum
 
 The key idea is to enable agents to collaborate asynchronously using established software engineering practices, whether they're operating in the same environment or isolated from each other.
 
+## Core Concepts
+
+Minsky operates around three key concepts:
+
+### Repository
+
+A **Repository** is a Git repository identified by an upstream URI. From Minsky's perspective, upstream repositories are considered read-only sources of truth.
+
+### Session
+
+A **Session** is a persistent workstream with metadata and an associated workspace. It represents a unit of work, typically tied to a specific task.
+
+### Workspace
+
+A **Workspace** is the filesystem location where a session's working copy exists. It is the physical manifestation of a session on disk.
+
+These concepts form a clear relationship:
+- Each **Session** is associated with exactly one upstream **Repository**
+- Each **Session** has exactly one **Workspace**
+- A **Repository** can be referenced by multiple **Sessions**
+
+For detailed documentation on Minsky concepts and their relationships, see [src/domain/concepts.md](./src/domain/concepts.md).
+
 ## Installation
 
 ```bash
@@ -91,6 +114,7 @@ Options:
 Delete a session and its repository.
 
 Options:
+
 - `--force`: Skip confirmation prompt
 - `--json`: Output in JSON format
 - `--task <task-id>`: Delete session by task ID
@@ -205,6 +229,7 @@ minsky mcp start --sse --port 8080
 ```
 
 MCP allows AI agents to:
+
 - Manage tasks and track their status
 - Create and manage development sessions
 - Perform git operations
@@ -335,6 +360,54 @@ minsky git summary > PR.md
 
 This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
 
+## Linting and Pre-commit Hooks
+
+This project uses ESLint for identifying and reporting on patterns in JavaScript and TypeScript code, and Prettier for code formatting. To help maintain code quality and consistency, these tools are configured to run automatically before commits using Husky and lint-staged.
+
+### Pre-commit Behavior
+
+When you make a commit:
+
+1.  **ESLint (`eslint --fix`)**: Automatically fixes fixable linting issues in staged `.ts` and `.js` files.
+    - **Important Note**: If ESLint encounters errors it cannot automatically fix, it will still allow the commit to proceed. The autofixed changes will be part of the commit, but any remaining non-autofixable lint errors will persist. These should be addressed manually or will be caught by more stringent checks in the CI pipeline.
+2.  **Prettier (`prettier --write`)**: Automatically formats staged `.ts`, `.js`, `.json`, and `.md` files.
+
+This setup ensures that common formatting and simple lint issues are handled automatically without strictly blocking commits for all lint errors. However, developers are encouraged to run `bun run lint` manually to check for and resolve any outstanding lint issues before pushing.
+
+The pre-commit hooks themselves (e.g., `.husky/pre-commit`) need to be active (i.e., not have a `.disabled` suffix) for this automation to run.
+
 ## License
 
 MIT
+
+## Architecture
+
+Minsky follows an interface-agnostic architecture that separates domain logic from interface-specific concerns. This allows the same core functionality to be used by different interfaces (CLI, MCP, API, etc.) without duplication.
+
+### Key Components
+
+- **Domain Layer (`src/domain/`)**: Contains all business logic independent of any interface. These functions are the source of truth for all operations.
+
+- **Adapter Layer (`src/adapters/`)**: Implements interface-specific adapters that convert interface inputs into domain function parameters and format domain function outputs for the interface.
+  - `src/adapters/cli/`: CLI-specific adapters using Commander.js
+  - `src/adapters/mcp/`: Model Context Protocol adapters (for AI integration)
+
+- **Schema Layer (`src/schemas/`)**: Defines input and output schemas for domain functions using Zod.
+
+- **Command Layer (`src/commands/`)**: Legacy command implementations (being migrated to the adapter architecture).
+
+- **Errors (`src/errors/`)**: Shared error types across all layers.
+
+### Function Flow
+
+1. Interface-specific code captures user input (CLI arguments, API request, etc.)
+2. Adapter converts input to domain parameters
+3. Domain function performs the operation
+4. Adapter formats domain output for the interface
+5. Interface presents result to the user
+
+This architecture enables:
+- Reduced code duplication
+- Consistent behavior across interfaces
+- Better testability of domain logic
+- Easier addition of new interfaces

@@ -1,6 +1,6 @@
 ---
 description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
-globs: ["**/commands/**/*.test.ts", "**/commands/**/*.spec.ts"]
+globs:
 alwaysApply: false
 ---
 # CLI Testing
@@ -15,9 +15,9 @@ When testing command-line interfaces, follow these practices for thorough and re
 - Include tests of usage information and help text
 
 ```typescript
-const { stdout, stderr, status } = spawnSync('bun', ['run', CLI, 'command', 'subcommand', '--flag'], { 
+const { stdout, stderr, status } = spawnSync('bun', ['run', CLI, 'command', 'subcommand', '--flag'], {
   encoding: 'utf-8',
-  env: { ...process.env, CUSTOM_VAR: 'value' } 
+  env: { ...process.env, CUSTOM_VAR: 'value' }
 });
 
 expect(status).toBe(0); // Successful exit
@@ -70,11 +70,10 @@ expect(status).toBe(1); // Error exit code
 ```
 
 ## Testing Interactive CLI Features
-- Mock TTY input to simulate user interaction
-- Test prompts, confirmations, and interactive menus
-- Verify default selections and validation
-- Test cancellation and interruption handling
-- Validate help text and instructions during interaction
+
+> **Project-Specific Note:** For this project, the `testing-boundaries.mdc` rule takes precedence over the general advice here regarding direct testing of interactive features. This project prohibits simulating TTY input or deeply mocking prompt libraries. Refer to `testing-boundaries.mdc` for the approved strategies for handling commands with interactive prompts.
+
+> **Project-Specific Note:** For this project, the `testing-boundaries.mdc` rule takes precedence over the general advice here regarding direct testing of interactive features. This project prohibits simulating TTY input or deeply mocking prompt libraries. Refer to `testing-boundaries.mdc` for the approved strategies for handling commands with interactive prompts.
 
 ## Environment Testing
 - Test with different environment variables

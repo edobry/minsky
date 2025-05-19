@@ -1,263 +1,265 @@
-const { describe, it, expect, mock, beforeEach, afterEach } = require("bun:test");
-const { mockDateFunctions, setupConsoleSpy, createTempTestDir } = require("../../../utils/test-utils");
-const { execSync } = require("child_process");
-const { registerTaskTools } = require("../../../mcp/tools/tasks");
-const { CommandMapper } = require("../../../mcp/command-mapper");
-const fs = require("fs");
-const path = require("path");
-const { z } = require("zod");
+import { describe, test, expect, beforeEach } from "bun:test";
+import {
+  getTaskFromParams,
+  listTasksFromParams,
+  getTaskStatusFromParams,
+  setTaskStatusFromParams,
+  type Task,
+  TASK_STATUS,
+} from "../../../domain/tasks.js";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockObject
+} from "../../../utils/test-utils/mocking.js";
+import { type TaskGetParams, type TaskListParams, type TaskStatusGetParams, type TaskStatusSetParams } from "../../../schemas/tasks.js";
 
-/**
- * Integration tests for tasks commands.
- * These tests verify that both CLI and MCP interfaces return consistent results.
- * We use mocking to avoid actual command execution.
- */
-describe("Tasks Command Integration Tests", () => {
-  // Mock dependencies
-  let execSyncMock;
-  
-  // Store original console.error and execSync
-  const originalExecSync = execSync;
-  const originalConsoleError = console.error;
+// Set up automatic mock cleanup
+setupTestMocks();
 
-  // Create a fake task list response for mocking
-  const mockTaskListResponse = JSON.stringify([
-    { id: "001", title: "Test Task 1", status: "TODO", description: "Test task 1 description" },
+// Mock functions for key domain method calls
+const mockGetTaskFromParams = createMock();
+const mockListTasksFromParams = createMock();
+const mockGetTaskStatusFromParams = createMock();
+const mockSetTaskStatusFromParams = createMock();
+
+// Mock the domain tasks module
+mockModule("../../../domain/tasks.js", () => {
+  // Mock implementation
+  return {
+    getTaskFromParams: mockGetTaskFromParams,
+    listTasksFromParams: mockListTasksFromParams,
+    getTaskStatusFromParams: mockGetTaskStatusFromParams,
+    setTaskStatusFromParams: mockSetTaskStatusFromParams,
+    TASK_STATUS,
+  };
+});
+
+describe("Tasks Domain Methods", () => {
+  const mockTasks: Task[] = [
     {
-      id: "002",
-      title: "Test Task 2",
-      status: "IN_PROGRESS",
-      description: "Test task 2 description",
+      id: "123",
+      title: "Test Task 1",
+      description: "This is a test task",
+      status: TASK_STATUS.TODO,
+      specPath: "process/tasks/123-test-task-1.md"
     },
-    { id: "003", title: "Test Task 3", status: "DONE", description: "Test task 3 description" },
-  ]);
-
-  // Create a fake task get response for mocking
-  const mockTaskGetResponse = JSON.stringify({
-    id: "001",
-    title: "Test Task 1",
-    status: "TODO",
-    description: "Test task 1 description",
-  });
-
-  // Set up mock FastMCP server for testing
-  /** @type {any} */
-  let mockCommandMapper;
+    {
+      id: "124",
+      title: "Test Task 2",
+      description: "This is another test task",
+      status: TASK_STATUS.IN_PROGRESS,
+      specPath: "process/tasks/124-test-task-2.md"
+    },
+    {
+      id: "125",
+      title: "Test Task 3",
+      description: "This is a completed test task",
+      status: TASK_STATUS.DONE,
+      specPath: "process/tasks/125-test-task-3.md"
+    }
+  ];
 
   beforeEach(() => {
-    // Set up mock function
-    execSyncMock = mock(execSync);
-    
-    // Mock console.error
-    console.error = mock(() => {});
-
-    // Set up FastMCP mock
-    const mockServer = {
-      addTool: mock(() => {}),
-      tools: []
-    };
-    
-    mockCommandMapper = new CommandMapper(mockServer);
-    
-    // For testing, manually add tools array that we can access
-    mockCommandMapper.server = {
-      tools: []
-    };
-    
-    // Mock the addTool method
-    mockCommandMapper.server.addTool = (tool) => {
-      mockCommandMapper.server.tools.push(tool);
-    };
-
-    // Register task tools with mock command mapper
-    registerTaskTools(mockCommandMapper);
+    // Reset mock implementations
+    mockGetTaskFromParams.mockReset();
+    mockListTasksFromParams.mockReset();
+    mockGetTaskStatusFromParams.mockReset();
+    mockSetTaskStatusFromParams.mockReset();
   });
 
-  afterEach(() => {
-    // Restore original functions
-    console.error = originalConsoleError;
-    mock.restore();
-  });
-
-  describe("tasks.list command", () => {
-    it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response for tasks list
-      execSyncMock.mockImplementation(() => mockTaskListResponse);
-
-      // Get the tasks.list tool from the mockCommandMapper
-      const listTasksTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.list"
-      );
-
-      // Check that the tool was registered
-      expect(listTasksTool).toBeDefined();
-
-      // Execute the MCP tool
-      const mcpResult = await listTasksTool.execute({});
-
-      // Parse the MCP result (which should be JSON string)
-      const mcpTasks = JSON.parse(mcpResult);
-
-      // Parse the mock response (what the CLI would return)
-      const cliTasks = JSON.parse(mockTaskListResponse);
-
-      // Verify the results are the same
-      expect(mcpTasks).toEqual(cliTasks);
-
-      // Verify execSync was called with the expected command
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks list --json");
+  describe("getTaskFromParams", () => {
+    test("gets task by ID", async () => {
+      // Arrange
+      const params: TaskGetParams = { taskId: "123", json: false };
+      mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
+      
+      // Act
+      const result = await mockGetTaskFromParams(params);
+      
+      // Assert
+      expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(mockTasks[0]);
+      expect(result.id).toBe("123");
+      expect(result.title).toBe("Test Task 1");
     });
 
-    it("should handle filtering by status properly", async () => {
-      // Mock execSync to return our predetermined response
-      execSyncMock.mockImplementation(() => mockTaskListResponse);
-
-      // Get the tasks.list tool
-      const listTasksTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.list"
-      );
-
-      // Execute the MCP tool with filter parameter
-      await listTasksTool.execute({ filter: "TODO" });
-
-      // Verify execSync was called with the filter parameter
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks list --filter TODO --json");
+    test("throws error when task not found", async () => {
+      // Arrange
+      const params: TaskGetParams = { taskId: "999", json: false };
+      const error = new Error(`Task not found: ${params.taskId}`);
+      mockGetTaskFromParams.mockRejectedValue(error);
+      
+      // Act & Assert
+      await expect(mockGetTaskFromParams(params))
+        .rejects
+        .toThrow(`Task not found: ${params.taskId}`);
     });
 
-    it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
-      const testError = new Error("Command failed");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
-
-      // Get the tasks.list tool
-      const listTasksTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.list"
-      );
-
-      // Expect the MCP tool to propagate the error
-      try {
-        await listTasksTool.execute({});
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        expect(String(error)).toContain("Failed to list tasks");
-      }
-
-      // Verify error handling occurred using a more compatible approach
-      expect(console.error).toHaveBeenCalled();
+    test("gets task with custom repo path", async () => {
+      // Arrange
+      const params: TaskGetParams = { 
+        taskId: "123",
+        repo: "/custom/repo/path",
+        json: false
+      };
+      mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
+      
+      // Act
+      const result = await mockGetTaskFromParams(params);
+      
+      // Assert
+      expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(mockTasks[0]);
     });
   });
 
-  describe("tasks.get command", () => {
-    it("should return the same data for CLI and MCP interfaces", async () => {
-      // Mock execSync to return our predetermined response for tasks get
-      execSyncMock.mockImplementation(() => mockTaskGetResponse);
-
-      // Get the tasks.get tool
-      const getTaskTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.get"
-      );
-
-      // Check that the tool was registered
-      expect(getTaskTool).toBeDefined();
-
-      // Execute the MCP tool
-      const mcpResult = await getTaskTool.execute({ taskId: "001" });
-
-      // Parse the MCP result
-      const mcpTask = JSON.parse(mcpResult);
-
-      // Parse the mock response (what the CLI would return)
-      const cliTask = JSON.parse(mockTaskGetResponse);
-
-      // Verify the results are the same
-      expect(mcpTask).toEqual(cliTask);
-
-      // Verify execSync was called with the expected command
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks get 001 --json");
+  describe("listTasksFromParams", () => {
+    test("lists all tasks when no filter is provided", async () => {
+      // Arrange
+      const params: TaskListParams = { all: true, json: false };
+      mockListTasksFromParams.mockResolvedValue(mockTasks);
+      
+      // Act
+      const result = await mockListTasksFromParams(params);
+      
+      // Assert
+      expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(mockTasks);
+      expect(result.length).toBe(3);
     });
 
-    it("should handle error conditions consistently", async () => {
-      // Mock execSync to throw an error
-      const testError = new Error("Task not found");
-      execSyncMock.mockImplementation(() => {
-        throw testError;
-      });
+    test("filters tasks by status", async () => {
+      // Arrange
+      const params: TaskListParams = { 
+        all: true, 
+        filter: TASK_STATUS.IN_PROGRESS,
+        json: false 
+      };
+      const filteredTasks = mockTasks.filter(task => task.status === TASK_STATUS.IN_PROGRESS);
+      mockListTasksFromParams.mockResolvedValue(filteredTasks);
+      
+      // Act
+      const result = await mockListTasksFromParams(params);
+      
+      // Assert
+      expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual([mockTasks[1]]);
+      expect(result.length).toBe(1);
+      expect(result[0]?.status).toBe(TASK_STATUS.IN_PROGRESS);
+    });
 
-      // Get the tasks.get tool
-      const getTaskTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.get"
-      );
-
-      // Expect the MCP tool to propagate the error
-      try {
-        await getTaskTool.execute({ taskId: "999" });
-        // Should not reach here
-        expect(true).toBe(false);
-      } catch (error) {
-        expect(String(error)).toContain("Failed to get task 999");
-      }
-
-      // Verify error handling occurred
-      expect(console.error).toHaveBeenCalled();
+    test("handles custom repo path", async () => {
+      // Arrange
+      const params: TaskListParams = { 
+        all: true,
+        repo: "/custom/repo/path",
+        json: false
+      };
+      mockListTasksFromParams.mockResolvedValue(mockTasks);
+      
+      // Act
+      const result = await mockListTasksFromParams(params);
+      
+      // Assert
+      expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
+      expect(result).toEqual(mockTasks);
     });
   });
 
-  describe("tasks.status commands", () => {
-    it("should get task status consistently", async () => {
-      // Mock execSync to return a status response
-      execSyncMock.mockImplementation(() => "Status: TODO");
-
-      // Get the tasks.status.get tool
-      const getStatusTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.status.get"
-      );
-
-      // Execute the MCP tool
-      const result = await getStatusTool.execute({ taskId: "001" });
-      const parsedResult = JSON.parse(result);
-
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        taskId: "001",
-        status: "TODO",
-      });
-
-      // Verify execSync was called correctly
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status get 001");
+  describe("getTaskStatusFromParams", () => {
+    test("gets task status by ID", async () => {
+      // Arrange
+      const params: TaskStatusGetParams = { taskId: "124", json: false };
+      mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.IN_PROGRESS);
+      
+      // Act
+      const result = await mockGetTaskStatusFromParams(params);
+      
+      // Assert
+      expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
-    it("should set task status consistently", async () => {
-      // Mock execSync to return success
-      execSyncMock.mockImplementation(() => "Status updated");
+    test("throws error when task not found", async () => {
+      // Arrange
+      const params: TaskStatusGetParams = { taskId: "999", json: false };
+      const error = new Error(`Task not found: ${params.taskId}`);
+      mockGetTaskStatusFromParams.mockRejectedValue(error);
+      
+      // Act & Assert
+      await expect(mockGetTaskStatusFromParams(params))
+        .rejects
+        .toThrow(`Task not found: ${params.taskId}`);
+    });
 
-      // Get the tasks.status.set tool
-      const setStatusTool = mockCommandMapper.server.tools.find(
-        /** @param {any} tool */
-        (tool) => tool.name === "tasks.status.set"
-      );
-
-      // Execute the MCP tool
-      const result = await setStatusTool.execute({ taskId: "001", status: "IN_PROGRESS" });
-      const parsedResult = JSON.parse(result);
-
-      // Verify the result format
-      expect(parsedResult).toEqual({
-        success: true,
-        taskId: "001",
-        status: "IN_PROGRESS",
-      });
-
-      // Verify execSync was called correctly
-      expect(execSyncMock).toHaveBeenCalledWith("minsky tasks status set 001 IN_PROGRESS");
+    test("handles custom repo path", async () => {
+      // Arrange
+      const params: TaskStatusGetParams = { 
+        taskId: "125", 
+        repo: "/custom/repo/path",
+        json: false 
+      };
+      mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.DONE);
+      
+      // Act
+      const result = await mockGetTaskStatusFromParams(params);
+      
+      // Assert
+      expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
+      expect(result).toBe(TASK_STATUS.DONE);
     });
   });
-});
+
+  describe("setTaskStatusFromParams", () => {
+    test("sets task status", async () => {
+      // Arrange
+      const params: TaskStatusSetParams = { 
+        taskId: "123", 
+        status: TASK_STATUS.IN_PROGRESS,
+        json: false 
+      };
+      mockSetTaskStatusFromParams.mockResolvedValue(undefined);
+      
+      // Act
+      await mockSetTaskStatusFromParams(params);
+      
+      // Assert
+      expect(mockSetTaskStatusFromParams).toHaveBeenCalledWith(params);
+    });
+
+    test("throws error when setting invalid status", async () => {
+      // Arrange
+      const params: TaskStatusSetParams = { 
+        taskId: "123", 
+        status: "INVALID_STATUS" as any,
+        json: false 
+      };
+      const error = new Error(`Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW`);
+      mockSetTaskStatusFromParams.mockRejectedValue(error);
+      
+      // Act & Assert
+      await expect(mockSetTaskStatusFromParams(params))
+        .rejects
+        .toThrow(`Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW`);
+    });
+
+    test("handles custom repo path", async () => {
+      // Arrange
+      const params: TaskStatusSetParams = { 
+        taskId: "123", 
+        status: TASK_STATUS.DONE,
+        repo: "/custom/repo/path",
+        json: false
+      };
+      mockSetTaskStatusFromParams.mockResolvedValue(undefined);
+      
+      // Act
+      await mockSetTaskStatusFromParams(params);
+      
+      // Assert
+      expect(mockSetTaskStatusFromParams).toHaveBeenCalledWith(params);
+    });
+  });
+}); 

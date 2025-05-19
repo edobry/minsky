@@ -6,6 +6,7 @@
     "start": "bun run src/cli.ts",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
+    "lint:tests": "bun detect-placeholder-tests.ts",
     "prepare": "husky",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
@@ -18,8 +19,8 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.11",
-    "@types/commander": "^2.12.5",
     "@types/jest": "^29.5.14",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.17",
     "@typescript-eslint/eslint-plugin": "^7.3.1",
     "@typescript-eslint/parser": "^7.3.1",
@@ -36,9 +37,12 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
+    "@types/winston": "^2.4.4",
     "commander": "^13.1.0",
     "fastmcp": "^1.27.4",
     "fs-extra": "^11.3.0",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "winston": "^3.17.0",
+    "zod": "^3.24.4"
   }
 }

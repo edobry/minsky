@@ -7,20 +7,24 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ## Requirements
 
 1. **MCP Protocol Support**
+
    - Implement an MCP server or endpoint within Minsky that exposes its CLI commands via MCP.
    - Support structured request/response for all major Minsky commands (tasks, session, git, rules, etc.).
    - Ensure the protocol implementation is robust, secure, and extensible.
 
 2. **Command Mapping**
+
    - Map all existing CLI commands to MCP actions, including argument and option parsing.
    - Ensure output is structured (e.g., JSON or MCP-native format) and includes error details.
    - Support both synchronous and asynchronous command execution where appropriate.
 
 3. **AI Agent Integration**
+
    - Provide clear documentation and examples for how an AI agent can connect to and interact with Minsky via MCP.
    - Ensure authentication and access control are considered if exposing MCP over a network.
 
 4. **Testing and Validation**
+
    - Add comprehensive tests for MCP endpoints, including edge cases and error handling.
    - Validate that all mapped commands behave identically via MCP and CLI.
 
@@ -32,11 +36,13 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ### Phase 1: Setup MCP Core Infrastructure
 
 1. **Research and Library Setup**
+
    - Add FastMCP dependency to the project (`fastmcp` package)
    - Study the FastMCP API and MCP protocol specification
    - Identify the appropriate transport mechanism (stdio, SSE) for Minsky's use case
 
 2. **Create Core MCP Module Structure**
+
    - Create a new `src/mcp` directory to house all MCP-related code
    - Implement a core `MinksyMCPServer` class using FastMCP that handles the protocol communication
    - Setup a configuration system for MCP server options (port, host, authentication, etc.)
@@ -49,16 +55,19 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ### Phase 2: Command Mapping Implementation
 
 1. **Map Task Commands**
+
    - Create MCP tools for task listing, creation, status management using FastMCP's `addTool` API
    - Implement Zod validation schemas for command parameters
    - Format responses as structured JSON data for AI consumption
 
 2. **Map Session Commands**
+
    - Create MCP tools for session management (list, get, create, delete)
    - Support session directory retrieval and workspace information
    - Implement support for task-based session creation via MCP
 
 3. **Map Git Commands**
+
    - Create MCP tools for git operations (commit, push, PR)
    - Handle asynchronous long-running operations through FastMCP's streaming capabilities
    - Implement proper error handling for git operations
@@ -71,11 +80,13 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ### Phase 3: Security and Testing
 
 1. **Implement Authentication and Authorization**
+
    - Leverage FastMCP's built-in authentication system
    - Implement user context-aware MCP server to isolate user data
    - Add permission checks to prevent unauthorized access
 
 2. **Write Comprehensive Tests**
+
    - Create unit tests for each MCP tool and server component
    - Use FastMCP's test utilities to simplify test creation
    - Test error handling and edge cases
@@ -88,11 +99,13 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ### Phase 4: Enhance MCP Interface
 
 1. **Add Resource Endpoints**
+
    - Implement resource endpoints using FastMCP's resource API for data like tasks, sessions, and repositories
    - Create a structured data model for resource responses
    - Support filtering and pagination for resource queries
 
 2. **Implement Streaming for Long-Running Commands**
+
    - Leverage FastMCP's built-in streaming capabilities for operations like git clone
    - Implement progress reporting for long-running operations
    - Ensure clients can handle partial and streaming responses
@@ -122,21 +135,25 @@ Minsky currently does not support the MCP (Machine Context Protocol) interface, 
 ## Technical Design Decisions
 
 1. **MCP Library Selection**
+
    - Use FastMCP (`fastmcp` package) as the primary implementation library
    - Benefit from its declarative API, built-in authentication, and multiple transport options
    - Leverage Zod integration for type-safe parameter validation
 
 2. **Transport Mechanism**
+
    - For local usage: Use stdio transport for direct process communication (FastMCP's default)
    - For remote usage: Implement SSE (Server-Sent Events) transport using FastMCP's built-in support
    - FastMCP handles the protocol negotiation automatically
 
 3. **Command Mapping Approach**
+
    - Create a mapping system between Commander.js commands and FastMCP tools
    - Use Zod schemas to validate input parameters
    - Maintain parallel structure between CLI commands and MCP tools
 
 4. **Authentication Strategy**
+
    - Use FastMCP's built-in authentication system
    - For local usage: Use process-level security (similar to current CLI)
    - For remote usage: Implement OAuth 2.1 via FastMCP's authentication hooks

@@ -7,12 +7,14 @@ Add a new CLI command `rules` to the Minsky CLI that provides functionality for 
 ## UX and CLI Conventions
 
 - Follow the same pattern as other Minsky commands:
+
   - Main command `minsky rules` with various subcommands
   - Support for `--repo <path>` and `--session <name>` flags to locate the target repo
   - Use `resolveRepoPath` helper to determine the repo path
   - Support `--json` output option where appropriate
 
 - Subcommands should include:
+
   - `list`: List all available rules in a repository
   - `get`: View the content and metadata of a specific rule
   - `create`: Create a new rule file with proper frontmatter
@@ -20,6 +22,7 @@ Add a new CLI command `rules` to the Minsky CLI that provides functionality for 
   - `search`: Find rules by keywords or tags
 
 - The command should have awareness of rule storage locations:
+
   - `.cursor/rules/` for Cursor rules
   - `.ai/rules/` for generic AI assistant rules
   - Support a flag to specify which type to work with (default to Cursor)
@@ -95,4 +98,4 @@ Add a new CLI command `rules` to the Minsky CLI that provides functionality for 
   ---
   ```
 - The `rule-creation-guidelines.mdc` file provides formatting standards for rules
-- This command should support the workflow outlined in the `rule-creation-guidelines.mdc` rule 
+- This command should support the workflow outlined in the `rule-creation-guidelines.mdc` rule

@@ -7,6 +7,7 @@ The Minsky CLI's session management allows sessions to be associated with tasks,
 ## Requirements
 
 1. **CLI Behavior**
+
    - Modify the `session get` command to accept an optional `--task` parameter:
      ```
      minsky session get [session-name] [--task <task-id>]
@@ -19,10 +20,12 @@ The Minsky CLI's session management allows sessions to be associated with tasks,
      - Return an error message explaining that only one should be used
 
 2. **Backward Compatibility**
+
    - The command must continue to support looking up sessions by name (without `--task`)
    - All existing options (e.g., `--json`) should continue to work with the new `--task` option
 
 3. **Error Handling**
+
    - If no session exists for the given task ID, return a clear error message
    - If multiple sessions exist for the same task ID (which should be prevented by the system but could occur), return the first one found with a warning
 
@@ -33,6 +36,7 @@ The Minsky CLI's session management allows sessions to be associated with tasks,
 ## Implementation Steps
 
 1. Update the `session get` command in `src/commands/session/get.ts`:
+
    - Add a `--task` option
    - Modify the command logic to handle looking up sessions by task ID
    - Implement error handling for the case where both session name and task ID are provided
@@ -64,4 +68,4 @@ The Minsky CLI's session management allows sessions to be associated with tasks,
 ## Notes
 
 - This enhancement improves the workflow for users who are continuing work on an existing task, making it easier to find the associated session.
-- It's particularly helpful in the context of the Minsky workflow where task IDs are used to associate sessions with specific work items. 
+- It's particularly helpful in the context of the Minsky workflow where task IDs are used to associate sessions with specific work items.

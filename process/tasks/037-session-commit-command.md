@@ -7,6 +7,7 @@ Currently, users must manually stage, commit, and push changes for a session usi
 ## Requirements
 
 1. **Command Behavior**
+
    - Command signature:
      ```
      minsky session commit [--session <session-name>] [--repo <repo-path>] [--message <msg>] [--no-push]
@@ -18,15 +19,18 @@ Currently, users must manually stage, commit, and push changes for a session usi
    - If `--no-push` is supplied, skip the push step.
 
 2. **Integration with Domain Methods**
+
    - Internally use the domain methods for `git commit` and `git push`.
    - Do not duplicate git logic; delegate to the appropriate domain modules.
 
 3. **User Feedback and Error Handling**
+
    - Output clear progress and success messages for each step (stage, commit, push).
    - If any step fails, display an error and exit with a non-zero code.
    - If the push fails, show a clear error message.
 
 4. **Tests**
+
    - Add or update tests to verify:
      - Staging, committing, and pushing all work as expected
      - Supplying `--no-push` skips the push
@@ -49,4 +53,4 @@ Currently, users must manually stage, commit, and push changes for a session usi
 - [ ] Supplying `--no-push` skips the push
 - [ ] Output clearly indicates each step and any errors
 - [ ] Tests cover all behaviors and error cases
-- [ ] Documentation is updated 
+- [ ] Documentation is updated

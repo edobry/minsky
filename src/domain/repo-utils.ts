@@ -2,6 +2,8 @@ import { SessionDB } from "./session";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { basename } from "path";
+import { execAsync } from "../utils/exec.js";
+import { getCurrentWorkingDirectory } from "../utils/process.js";
 const execAsync = promisify(exec);
 
 export interface RepoResolutionOptions {
@@ -25,12 +27,13 @@ export function normalizeRepoName(repoUrl: string): string {
   if (repoUrl.includes("://") || repoUrl.includes("@")) {
     // Extract org and project from remote URL
     const match = repoUrl.match(/[:/]([^/]+)\/([^/]+?)(\.git)?$/);
-    if (match) {
-      const [, org, project] = match;
+    if (match && match[1] && match[2]) {
+      const org = match[1];
+      const project = match[2].replace(/\.git$/, "");
       return `${org}/${project}`;
     }
   }
-  
+
   // For local paths, use local/<basename>
   return `local/${basename(repoUrl)}`;
 }
@@ -48,6 +51,11 @@ export async function resolveRepoPath(options: RepoResolutionOptions): Promise<s
     return record.repoUrl;
   }
   // Fallback: use current git repo
-  const { stdout } = await execAsync("git rev-parse --show-toplevel");
-  return stdout.trim();
-} 
+  try {
+    const { stdout } = await execAsync("git rev-parse --show-toplevel");
+    return stdout.trim();
+  } catch (error) {
+    // If git command fails, fall back to process.cwd()
+    return getCurrentWorkingDirectory();
+  }
+}

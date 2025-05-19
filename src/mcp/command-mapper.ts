@@ -1,5 +1,6 @@
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
+import { log } from "../utils/logger";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
@@ -41,10 +42,15 @@ export class CommandMapper {
           return JSON.stringify(result, null, 2);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error(`Error executing command ${command.name}:`, errorMessage);
+          log.error("Error executing MCP command", {
+            command: command.name,
+            error: errorMessage,
+            args,
+            stack: error instanceof Error ? error.stack : undefined
+          });
           throw error; // Re-throw to let FastMCP handle error presentation
         }
-      }
+      },
     });
   }
 
@@ -65,7 +71,7 @@ export class CommandMapper {
       name: `tasks.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -86,7 +92,7 @@ export class CommandMapper {
       name: `session.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -107,7 +113,7 @@ export class CommandMapper {
       name: `git.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
 
@@ -128,7 +134,7 @@ export class CommandMapper {
       name: `rules.${name}`,
       description,
       parameters,
-      execute: executeFunction
+      execute: executeFunction,
     });
   }
-} 
+}

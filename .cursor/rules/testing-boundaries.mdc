@@ -1,0 +1,217 @@
+---
+description: Use this whenever working on tests
+globs:
+alwaysApply: false
+---
+# Testing Boundaries: What to Test and What NOT to Test
+
+## Core Testing Principles
+
+1. **ALWAYS Test Domain Logic and Core Business Rules**
+   * Tests MUST verify the correctness of domain logic, business rules, and pure functions
+   * Each test should validate that given specific inputs, the expected outputs or state changes occur
+   * Focus on behavior, not implementation details
+
+2. **NEVER Test Framework Internals or Third-Party Libraries**
+   * Tests MUST NOT rely on or assert against internal implementation details of frameworks or libraries
+   * Assume that well-maintained libraries are already tested by their maintainers
+   * **Examples of what NOT to test:**
+     * Commander.js argument parsing
+     * Winston logger formatting
+     * Bun.js runtime behavior
+     * NodeJS built-in module implementation details
+
+3. **NEVER Test Interfaces Directly - Test Domain Methods Behind Them**
+   * Tests MUST NOT directly test CLI or MCP interfaces
+   * Instead, test the domain methods that these interfaces call
+   * **Examples of what NOT to test directly:**
+     * CLI command execution or option parsing
+     * MCP tool interaction patterns
+     * Terminal output formatting or styling
+     * Terminal interactive prompts
+
+4. **NEVER Test Console Output Directly**
+   * Tests MUST NOT assert against specific console output strings or formatting
+   * Instead, test that the correct information was passed to the output function
+   * **Examples of what NOT to test:**
+     * Specific console.log output strings
+     * ANSI color codes or styling
+     * Table formatting or alignment
+     * Spinner animations
+
+5. **NEVER Test Filesystem Operations Directly**
+   * Tests MUST NOT perform actual filesystem operations
+   * Instead, use the centralized mock filesystem utilities
+   * **Examples of what NOT to test directly:**
+     * File reading/writing (use mockFS)
+     * Directory creation/deletion
+     * File watching
+     * Path resolution
+
+6. **ABSOLUTELY NEVER Replace Tests with Placeholders**
+   * Tests MUST NEVER include placeholders like `expect(true).toBe(true)`
+   * Tests MUST NEVER be marked as `.skip()` to make the test suite pass
+   * Tests MUST NEVER contain commented-out assertions
+   * NEVER create "dummy" tests that don't actually test functionality
+
+7. **NEVER Delete Test Files to Fix Test Failures**
+   * Test files for application code MUST NEVER be deleted to make tests pass
+   * Each test represents a verification contract that must be preserved
+   * **The only acceptable cases for test deletion are:**
+     * Tests for test utilities themselves (with explicit user approval)
+     * Redundant tests that have been properly consolidated elsewhere
+
+   * **When faced with failing tests, follow this hierarchy:**
+     1. Fix the actual code bug causing the test to fail
+     2. Fix merge conflicts in test files by properly resolving the conflicts
+     3. Update tests to match intentional API changes
+     4. Disable specific test cases temporarily with clear documentation
+     5. Only consider deletion after discussion with user and with documented rationale
+
+   * **For merge conflict resolution:**
+     * Examine both versions of conflicted test code before resolving
+     * Understand what each side is testing
+     * Preserve test coverage from both versions when possible
+     * When resolving conflicts, maintain the verification intent of both sides
+
+   * **Before any test file deletion, explicitly verify and confirm:**
+     * What the test is actually testing (application code vs. test utilities)
+     * Why the test cannot be fixed instead of deleted
+     * What verification coverage will be lost by deletion
+     * Get explicit user approval stating "we don't need these tests"
+
+## What To Test
+
+### Domain Logic
+✅ **DO TEST:** Business rules, pure functions, state transitions, data transformation logic
+
+```typescript
+// Good test example - Testing domain logic
+import { calculateRating } from "../domain/rating";
+
+test("calculateRating returns correct rating based on score", () => {
+  expect(calculateRating(95)).toBe("A");
+  expect(calculateRating(85)).toBe("B");
+  expect(calculateRating(75)).toBe("C");
+});
+```
+
+### Error Handling
+✅ **DO TEST:** Error conditions, invalid inputs, edge cases, boundary values
+
+```typescript
+// Good test example - Testing error handling
+test("processData throws an error with invalid data format", () => {
+  expect(() => processData({ malformed: true })).toThrowError("Invalid data format");
+});
+```
+
+### Integration Points
+✅ **DO TEST:** Integration between domain modules, correct flow of data between components
+
+```typescript
+// Good test example - Testing integration between modules
+test("session uses task repository correctly", () => {
+  const mockTaskRepo = createMock();
+  mockTaskRepo.findTask.mockReturnValue({ id: "123", title: "Test Task" });
+
+  const session = createSession({ taskRepo: mockTaskRepo });
+  const result = session.getCurrentTask();
+
+  expect(mockTaskRepo.findTask).toHaveBeenCalled();
+  expect(result.id).toBe("123");
+});
+```
+
+## What NOT To Test
+
+### Framework/Library Internals
+❌ **DO NOT TEST:** Internal behavior of Commander.js, Winston, Bun, or other libraries
+
+```typescript
+// BAD test example - Testing framework internals
+test("commander correctly parses command line arguments", () => {
+  const program = new Command();
+  program.option('-d, --debug', 'debug mode');
+  program.parse(['-d']);
+
+  // Don't test the framework's argument parsing logic
+  expect(program.opts().debug).toBe(true);
+});
+```
+
+### Direct Interface Testing
+❌ **DO NOT TEST:** CLI or MCP interfaces directly - test the domain methods they call
+
+```typescript
+// BAD test example - Testing CLI interface directly
+test("CLI command prints correct output", async () => {
+  const { stdout } = await execCommand('task create "Test Task"');
+
+  // Don't test the specific output formatting
+  expect(stdout).toContain('Task "Test Task" created successfully');
+});
+
+// GOOD test example - Testing domain method instead
+test("createTask returns the created task", async () => {
+  const task = await createTask("Test Task");
+
+  expect(task.title).toBe("Test Task");
+  expect(task.status).toBe("open");
+});
+```
+
+### Direct Filesystem Operations
+❌ **DO NOT TEST:** Actual file reading/writing or directory operations
+
+```typescript
+// BAD test example - Testing filesystem operations directly
+test("writeConfig saves the config to disk", () => {
+  writeConfig({ setting: "value" });
+
+  // Don't test actual filesystem operations
+  const content = fs.readFileSync(CONFIG_PATH, 'utf8');
+  expect(JSON.parse(content)).toEqual({ setting: "value" });
+});
+
+// GOOD test example - Using mock filesystem
+test("writeConfig saves the config to the correct path", () => {
+  const mockFS = createMockFileSystem();
+
+  writeConfig({ setting: "value" });
+
+  expect(mockFS.written[CONFIG_PATH]).toEqual(JSON.stringify({ setting: "value" }));
+});
+```
+
+### Console Output
+❌ **DO NOT TEST:** Specific console output strings or formatting
+
+```typescript
+// BAD test example - Testing console output directly
+test("reportStatus logs the status", () => {
+  const spy = jest.spyOn(console, 'log');
+
+  reportStatus({ status: "completed" });
+
+  // Don't test specific output strings
+  expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
+});
+
+// GOOD test example - Testing the core logic instead
+test("getStatusReport returns the correct status information", () => {
+  const report = getStatusReport({ status: "completed" });
+
+  expect(report.status).toBe("completed");
+  expect(report.timestamp).toBeDefined();
+});
+```
+
+## Always Consider Test Boundaries First
+
+When creating any test, start by asking:
+1. What domain logic am I testing?
+2. Am I accidentally testing framework/library internals?
+3. Am I accidentally testing interface concerns instead of domain logic?
+4. Am I accidentally testing console output directly?
+5. Am I accidentally performing direct filesystem operations?

@@ -20,4 +20,4 @@ export interface RepositoryBackend {
   pull(): Promise<Result>;
   validate(): Promise<Result>;
   getPath(): string;
-} 
+}

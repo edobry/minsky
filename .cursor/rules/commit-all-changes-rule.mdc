@@ -1,0 +1,36 @@
+---
+description: "REQUIRED when making any code changes. Ensures all changes are automatically committed and pushed without explicit user request."
+globs: null
+alwaysApply: true
+---
+# Commit All Changes Rule
+
+## Core Principle
+
+Always commit and push all code changes without waiting for an explicit request from the user. This rule ensures that every change made is properly persisted to the repository.
+
+## Requirements
+
+1. After implementing any feature, fix, or update:
+   - Stage all changed files
+   - Commit with a descriptive message following conventional commits format
+   - Push the changes to the remote repository
+
+2. Never consider a task complete until changes have been:
+   - Committed to the local repository
+   - Pushed to the remote repository
+
+3. This applies to ALL changes:
+   - Code fixes
+   - Feature implementations
+   - Documentation updates
+   - Configuration changes
+   - Rule updates
+   - Task management operations
+
+## Verification Checklist
+
+Before considering any implementation complete, verify:
+- [ ] All changes are staged
+- [ ] Changes are committed with a descriptive message
+- [ ] Changes are pushed to the remote repository

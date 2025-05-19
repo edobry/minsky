@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server.js";
 import { CommandMapper } from "../../mcp/command-mapper.js";
+import { log } from "../../utils/logger.js";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session.js";
@@ -36,7 +37,13 @@ export function createMCPCommand(): Command {
 
         // Set port (used for both SSE and HTTP Stream)
         const port = parseInt(options.port, 10);
-        
+
+        log.debug("Starting MCP server", {
+          transportType,
+          port,
+          host: options.host
+        });
+
         // Create server with appropriate options
         const server = new MinskyMCPServer({
           name: "Minsky MCP Server",
@@ -44,12 +51,12 @@ export function createMCPCommand(): Command {
           transportType,
           sse: {
             endpoint: "/sse",
-            port
+            port,
           },
           httpStream: {
             endpoint: "/stream",
-            port
-          }
+            port,
+          },
         });
 
         // Register tools via adapter-based approach
@@ -60,32 +67,40 @@ export function createMCPCommand(): Command {
 
         // Start the server
         await server.start();
-        
-        console.log(`Minsky MCP Server started with ${transportType} transport`);
+
+        log.cli(`Minsky MCP Server started with ${transportType} transport`);
         if (transportType !== "stdio") {
-          console.log(`Listening on ${options.host}:${port}`);
+          log.cli(`Listening on ${options.host}:${port}`);
         }
-        console.log("Press Ctrl+C to stop");
-        
+        log.cli("Press Ctrl+C to stop");
+
         // Keep the process running
         process.stdin.resume();
-        
+
         // Handle termination signals
         process.on("SIGINT", () => {
-          console.log("\nStopping Minsky MCP Server...");
+          log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-        
+
         process.on("SIGTERM", () => {
-          console.log("\nStopping Minsky MCP Server...");
+          log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
       } catch (error) {
-        console.error("Failed to start MCP server:", error);
+        log.error("Failed to start MCP server", {
+          transportType: options.sse ? "sse" : options.httpStream ? "httpStream" : "stdio",
+          port: options.port,
+          host: options.host,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        log.cliError(`Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
     });
 
   mcpCommand.addCommand(startCommand);
   return mcpCommand;
-} 
+}

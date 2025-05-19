@@ -7,18 +7,21 @@ This PR implements automatic detection of the current session context in Minsky 
 ## Changes
 
 1. Added a new `getCurrentSession` utility function to the workspace module:
+
    - Detects the current session name from the working directory
    - Builds on the existing `getSessionFromRepo` function
    - Returns the session name if in a session workspace, null otherwise
    - Includes robust error handling
 
 2. Updated `session dir` command:
+
    - Added auto-detection of the current session when no session name is provided
    - Added `--ignore-workspace` option to bypass auto-detection
    - Improved error messages for different scenarios
    - Added tests for the new functionality
 
 3. Updated `session get` command:
+
    - Added auto-detection of the current session when no session name is provided
    - Added `--ignore-workspace` option to bypass auto-detection
    - Ensured consistent handling of JSON output with auto-detection
@@ -53,4 +56,4 @@ This PR implements automatic detection of the current session context in Minsky 
 
 ## Implementation Details
 
-The implementation follows the Task #016 pattern of workspace context detection but focuses specifically on session context. This adds a consistent auto-detection capability across Minsky's session management commands, making the tool more intuitive to use. 
+The implementation follows the Task #016 pattern of workspace context detection but focuses specifically on session context. This adds a consistent auto-detection capability across Minsky's session management commands, making the tool more intuitive to use.

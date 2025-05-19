@@ -2,16 +2,6 @@
  * Task-related utility functions
  */
 
-/**
- * Normalizes a task ID to always include the leading hash symbol
- * 
- * @param taskId The task ID to normalize (can be with or without leading hash)
- * @returns The normalized task ID with leading hash
- */
-export function normalizeTaskId(taskId: string): string {
-  if (!taskId) {
-    return taskId;
-  }
-  
-  return taskId.startsWith("#") ? taskId : `#${taskId}`;
-} 
+// The normalizeTaskId function previously here has been moved to src/domain/tasks/utils.ts
+// and updated to support more flexible ID formats as per task #069.
+// If other task utilities are added here in the future, this file can be used.

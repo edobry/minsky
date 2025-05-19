@@ -1,13 +1,17 @@
 # feat(#027): Auto-detect Session Context in Session Commands
 
 ## Summary
+
 This PR implements task #027, adding automatic session context detection to session commands when run from within a session workspace. This improves the user experience by eliminating the need to specify session names when working within session directories.
 
 ## Motivation & Context
+
 Currently, when running commands like `minsky session get`, `minsky session dir`, or other session-related commands within a session workspace, users must explicitly provide the session name. This creates unnecessary friction as the session context is already implicitly available from the workspace location. Building on the workspace detection implemented in task #016, this change extends this functionality to session commands.
 
 ## Design/Approach
+
 The implementation follows a layered approach:
+
 1. A core utility function `getCurrentSession` that leverages existing workspace detection
 2. Command-level integration with fallback to explicit parameters
 3. Consistent error messaging and option handling across all session commands
@@ -15,6 +19,7 @@ The implementation follows a layered approach:
 This approach maintains backward compatibility while providing a more intuitive experience.
 
 ## Key Changes
+
 - Added `getCurrentSession` utility function to extract session context from current working directory
 - Updated `session dir` command to auto-detect current session when no name is provided
 - Updated `session get` command to use workspace detection for automatic context
@@ -24,18 +29,20 @@ This approach maintains backward compatibility while providing a more intuitive 
 - Added comprehensive tests for auto-detection functionality
 
 ## Testing
+
 - Added unit tests for the `getCurrentSession` utility function
 - Updated command tests to verify auto-detection behavior
 - Added test cases for both legacy and new directory structures
 - Ensured error messages are helpful and consistent
 
 ## Ancillary Changes
+
 - Improved type safety by adding proper type assertions for properties that may not exist in some interfaces
 - Enhanced test infrastructure for mocking session context detection
 - Fixed path handling to support both legacy path format and new sessions subdirectory format for backward compatibility
 
-
 ## Commits
+
 cc0a019 Merge origin/main into task#027 and resolve conflicts
 2e9fd25 docs: Update session-first-workflow rule and tasks metadata
 a8cfc1e Update error message to match expected test output
@@ -128,8 +135,8 @@ a15dad6 task#009: Update README.md with git commit command documentation
 3360320 task#009: Add tests and update minsky-workflow.mdc
 0fd7048 task#009: Implement git commit command
 
-
 ## Modified Files (Changes compared to merge-base with main)
+
 .cursor/rules/creating-tasks.mdc
 .cursor/rules/index.mdc
 .cursor/rules/minsky-workflow.mdc
@@ -227,110 +234,112 @@ test-session-path-detection.ts
 test-workspace-detection.ts
 workspace.ts.patch
 
-
 ## Stats
-.cursor/rules/creating-tasks.mdc                   |  55 +-
- .cursor/rules/index.mdc                            | 137 ++++
- .cursor/rules/minsky-workflow.mdc                  | 151 ++--
- .cursor/rules/rule-creation-guidelines.mdc         |  82 +++
- .cursor/rules/self-improvement.mdc                 |  83 +++
- .cursor/rules/session-first-workflow.mdc           | 119 +++-
- .cursor/rules/tests.mdc                            |  24 +
- CHANGELOG.md                                       |  19 +
- CHANGELOG.md.save                                  | 145 ++++
- README.md                                          |  63 +-
- bun.lock                                           |  88 ++-
- package.json                                       |  13 +-
- process/tasks.md                                   |   6 +-
- process/tasks/003/pr.md                            |  26 +
- process/tasks/007-add-tasks-create-command.md      |  53 +-
- process/tasks/007/pr.md                            |  16 +
- process/tasks/012-add-session-update-command.md    |  86 +--
- process/tasks/012/pr.md                            | 374 ++++++++++
- process/tasks/020-add-task-option-to-git-pr.md     |  59 +-
- process/tasks/020/pr.md                            |  16 +
- .../021-refactor-large-methods-in-git-service.md   |  12 +
- process/tasks/021/pr.md                            |  39 ++
- process/tasks/022/pr.md                            |  55 ++
- .../tasks/027-autodetect-session-in-commands.md    | 100 ++-
- process/tasks/027.md                               |  21 +
- process/tasks/027/pr-summary.md                    |  56 ++
- process/tasks/027/pr-updated.md                    |  49 ++
- process/tasks/027/pr.md                            |  96 +++
- process/tasks/028-automate-task-status-updates.md  | 103 +++
- process/tasks/029-add-rules-command.md             |  98 +++
- .../030-setup-project-tooling-and-automation.md    | 104 +++
- process/tasks/031-add-task-filter-messages.md      |  72 ++
- process/tasks/032-auto-rename-task-spec-files.md   |  81 +++
- ...3-enhance-init-command-with-additional-rules.md |  72 ++
- src/cli.ts                                         |  22 +-
- src/commands/git/branch.ts                         |  14 +-
- src/commands/git/clone.ts                          |  16 +-
- src/commands/git/commit.minimal.test.ts            |  10 +
- src/commands/git/commit.test.ts                    | 175 +++++
- src/commands/git/commit.ts                         |  68 ++
- src/commands/git/index.ts                          |  14 +-
- src/commands/git/pr.ts                             |  26 +-
- src/commands/init/index.ts                         | 102 +++
- src/commands/session/autodetect.test.ts            | 426 ++++++++++++
- src/commands/session/cd.test.ts                    | 175 +++--
- src/commands/session/cd.ts                         |  54 +-
- src/commands/session/delete.test.ts                |  84 +--
- src/commands/session/delete.ts                     |  34 +-
- src/commands/session/get.test.ts                   | 154 ++--
- src/commands/session/get.ts                        | 145 ++--
- src/commands/session/index.ts                      |  40 +-
- src/commands/session/list.test.ts                  |  48 +-
- src/commands/session/list.ts                       |  14 +-
- src/commands/session/start.test.ts                 |  44 +-
- src/commands/session/start.ts                      |  38 +-
- src/commands/session/startSession.test.ts          |  64 +-
- src/commands/session/startSession.ts               |  18 +-
- src/commands/session/update.test.ts                | 167 +++++
- src/commands/session/update.ts                     |  76 ++
- src/commands/tasks/create.ts                       |  51 ++
- src/commands/tasks/get.ts                          |  34 +-
- src/commands/tasks/index.ts                        |  14 +-
- src/commands/tasks/list.ts                         |  36 +-
- src/commands/tasks/status.ts                       |  56 +-
- src/domain/git.pr.test.ts                          | 217 +-----
- src/domain/git.test.ts                             |  93 +--
- src/domain/git.ts                                  | 774 +++++++++++++++------
- src/domain/init.test.ts                            | 190 +++++
- src/domain/init.ts                                 | 340 +++++++++
- src/domain/repo-utils.test.ts                      |  68 +-
- src/domain/repo-utils.ts                           |  16 +-
- src/domain/session.test.ts                         | 511 ++------------
- src/domain/session.ts                              | 205 ++----
- src/domain/tasks.test.ts                           |  84 ++-
- src/domain/tasks.ts                                |  99 ++-
- src/domain/utils.ts                                |   4 +
- src/domain/workspace.test.ts                       | 445 ++++++------
- src/domain/workspace.ts                            |  90 ++-
- src/types/bun-test.d.ts                            |  45 ++
- src/types/session.d.ts                             |  20 +
- src/utils/repo.ts                                  |  14 +
- src/utils/task-utils.test.ts                       |  22 +-
- src/utils/task-utils.ts                            |   2 +-
- test-current-session.ts                            |  45 ++
- test-debug-paths.ts                                |  76 ++
- test-debug-session.ts                              |  56 ++
- test-file.txt                                      |   0
- test-fixed-functions.ts                            |  36 +
- test-migration.ts                                  |  12 +-
- test-mock-session-autodetect.ts                    |  82 +++
- test-session-command-autodetect.ts                 |  84 +++
- test-session-detection.ts                          |  84 +++
- test-session-mock-helper.ts                        |  35 +
- test-session-path-detection.ts                     |  69 ++
- test-workspace-detection.ts                        |  12 +-
- workspace.ts.patch                                 | 200 ++++++
- 96 files changed, 6629 insertions(+), 2193 deletions(-)
+
+.cursor/rules/creating-tasks.mdc | 55 +-
+.cursor/rules/index.mdc | 137 ++++
+.cursor/rules/minsky-workflow.mdc | 151 ++--
+.cursor/rules/rule-creation-guidelines.mdc | 82 +++
+.cursor/rules/self-improvement.mdc | 83 +++
+.cursor/rules/session-first-workflow.mdc | 119 +++-
+.cursor/rules/tests.mdc | 24 +
+CHANGELOG.md | 19 +
+CHANGELOG.md.save | 145 ++++
+README.md | 63 +-
+bun.lock | 88 ++-
+package.json | 13 +-
+process/tasks.md | 6 +-
+process/tasks/003/pr.md | 26 +
+process/tasks/007-add-tasks-create-command.md | 53 +-
+process/tasks/007/pr.md | 16 +
+process/tasks/012-add-session-update-command.md | 86 +--
+process/tasks/012/pr.md | 374 ++++++++++
+process/tasks/020-add-task-option-to-git-pr.md | 59 +-
+process/tasks/020/pr.md | 16 +
+.../021-refactor-large-methods-in-git-service.md | 12 +
+process/tasks/021/pr.md | 39 ++
+process/tasks/022/pr.md | 55 ++
+.../tasks/027-autodetect-session-in-commands.md | 100 ++-
+process/tasks/027.md | 21 +
+process/tasks/027/pr-summary.md | 56 ++
+process/tasks/027/pr-updated.md | 49 ++
+process/tasks/027/pr.md | 96 +++
+process/tasks/028-automate-task-status-updates.md | 103 +++
+process/tasks/029-add-rules-command.md | 98 +++
+.../030-setup-project-tooling-and-automation.md | 104 +++
+process/tasks/031-add-task-filter-messages.md | 72 ++
+process/tasks/032-auto-rename-task-spec-files.md | 81 +++
+...3-enhance-init-command-with-additional-rules.md | 72 ++
+src/cli.ts | 22 +-
+src/commands/git/branch.ts | 14 +-
+src/commands/git/clone.ts | 16 +-
+src/commands/git/commit.minimal.test.ts | 10 +
+src/commands/git/commit.test.ts | 175 +++++
+src/commands/git/commit.ts | 68 ++
+src/commands/git/index.ts | 14 +-
+src/commands/git/pr.ts | 26 +-
+src/commands/init/index.ts | 102 +++
+src/commands/session/autodetect.test.ts | 426 ++++++++++++
+src/commands/session/cd.test.ts | 175 +++--
+src/commands/session/cd.ts | 54 +-
+src/commands/session/delete.test.ts | 84 +--
+src/commands/session/delete.ts | 34 +-
+src/commands/session/get.test.ts | 154 ++--
+src/commands/session/get.ts | 145 ++--
+src/commands/session/index.ts | 40 +-
+src/commands/session/list.test.ts | 48 +-
+src/commands/session/list.ts | 14 +-
+src/commands/session/start.test.ts | 44 +-
+src/commands/session/start.ts | 38 +-
+src/commands/session/startSession.test.ts | 64 +-
+src/commands/session/startSession.ts | 18 +-
+src/commands/session/update.test.ts | 167 +++++
+src/commands/session/update.ts | 76 ++
+src/commands/tasks/create.ts | 51 ++
+src/commands/tasks/get.ts | 34 +-
+src/commands/tasks/index.ts | 14 +-
+src/commands/tasks/list.ts | 36 +-
+src/commands/tasks/status.ts | 56 +-
+src/domain/git.pr.test.ts | 217 +-----
+src/domain/git.test.ts | 93 +--
+src/domain/git.ts | 774 +++++++++++++++------
+src/domain/init.test.ts | 190 +++++
+src/domain/init.ts | 340 +++++++++
+src/domain/repo-utils.test.ts | 68 +-
+src/domain/repo-utils.ts | 16 +-
+src/domain/session.test.ts | 511 ++------------
+src/domain/session.ts | 205 ++----
+src/domain/tasks.test.ts | 84 ++-
+src/domain/tasks.ts | 99 ++-
+src/domain/utils.ts | 4 +
+src/domain/workspace.test.ts | 445 ++++++------
+src/domain/workspace.ts | 90 ++-
+src/types/bun-test.d.ts | 45 ++
+src/types/session.d.ts | 20 +
+src/utils/repo.ts | 14 +
+src/utils/task-utils.test.ts | 22 +-
+src/utils/task-utils.ts | 2 +-
+test-current-session.ts | 45 ++
+test-debug-paths.ts | 76 ++
+test-debug-session.ts | 56 ++
+test-file.txt | 0
+test-fixed-functions.ts | 36 +
+test-migration.ts | 12 +-
+test-mock-session-autodetect.ts | 82 +++
+test-session-command-autodetect.ts | 84 +++
+test-session-detection.ts | 84 +++
+test-session-mock-helper.ts | 35 +
+test-session-path-detection.ts | 69 ++
+test-workspace-detection.ts | 12 +-
+workspace.ts.patch | 200 ++++++
+96 files changed, 6629 insertions(+), 2193 deletions(-)
+
 ## Uncommitted changes in working directory
-D	.cursor/rules/self-improvement.mdc
-M	.cursor/rules/session-first-workflow.mdc
-M	process/tasks.md
-M	process/tasks/027/pr.md
+
+D .cursor/rules/self-improvement.mdc
+M .cursor/rules/session-first-workflow.mdc
+M process/tasks.md
+M process/tasks/027/pr.md
 
 .specstory/history/2025-05-02_18-13-task-027-test-failures.log
 session-test.log

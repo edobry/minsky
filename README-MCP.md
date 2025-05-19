@@ -92,11 +92,13 @@ For `github` backend:
 Here's an example of how to use the Minsky MCP server with Claude's MCP integration:
 
 1. Start the Minsky MCP server:
+
    ```bash
    minsky mcp start
    ```
 
 2. Add the following configuration to your Claude config file:
+
    ```json
    {
      "mcpServers": {
@@ -171,4 +173,4 @@ If you experience issues with the MCP server:
 - Authentication support for secure access to the MCP server
 - Full support for all Minsky commands (Git, Init, Rules, etc.)
 - Resource endpoints for accessing Minsky data as resources
-- Streaming support for long-running operations 
+- Streaming support for long-running operations

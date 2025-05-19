@@ -12,6 +12,7 @@ This directory contains technical process documents and implementation plans for
 ## How to Use These Documents
 
 1. **For Implementers**: Use these documents as a step-by-step guide when implementing the described changes. Each document should provide enough detail to understand:
+
    - What needs to be changed
    - Why the change is necessary
    - How to implement the change in a structured way

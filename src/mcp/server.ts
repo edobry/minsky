@@ -1,4 +1,5 @@
 import { FastMCP } from "fastmcp";
+import { log } from "../utils/logger";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -98,7 +99,8 @@ export class MinskyMCPServer {
         intervalMs: 5000,
       },
       // Instructions for LLMs on how to use the Minsky MCP server
-      instructions: "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
+      instructions:
+        "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
         "You can use these tools to:\n" +
         "- Manage tasks and track their status\n" +
         "- Create and manage development sessions\n" +
@@ -109,13 +111,17 @@ export class MinskyMCPServer {
     });
 
     // Listen for client connections
-    this.server.on("connect", (event) => {
-      console.log("Client connected to Minsky MCP Server");
+    this.server.on("connect", () => {
+      log.agent("Client connected to Minsky MCP Server", {
+        transport: this.options.transportType
+      });
     });
 
     // Listen for client disconnections
-    this.server.on("disconnect", (event) => {
-      console.log("Client disconnected from Minsky MCP Server");
+    this.server.on("disconnect", () => {
+      log.agent("Client disconnected from Minsky MCP Server", {
+        transport: this.options.transportType
+      });
     });
   }
 
@@ -127,7 +133,7 @@ export class MinskyMCPServer {
       if (!this.options.transportType) {
         this.options.transportType = "stdio";
       }
-      
+
       if (this.options.transportType === "stdio") {
         await this.server.start({ transportType: "stdio" });
       } else if (this.options.transportType === "sse" && this.options.sse) {
@@ -135,24 +141,32 @@ export class MinskyMCPServer {
           transportType: "sse",
           sse: {
             endpoint: "/sse", // Endpoint must start with a / character
-            port: this.options.sse.port || 8080
-          }
+            port: this.options.sse.port || 8080,
+          },
         });
       } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
         await this.server.start({
           transportType: "httpStream",
           httpStream: {
             endpoint: "/stream", // Endpoint must start with a / character
-            port: this.options.httpStream.port || 8080
-          }
+            port: this.options.httpStream.port || 8080,
+          },
         });
       } else {
         // Default to stdio if transport type is invalid
         await this.server.start({ transportType: "stdio" });
       }
-      console.log(`Minsky MCP Server started with ${this.options.transportType} transport`);
+      log.agent("Minsky MCP Server started", {
+        transport: this.options.transportType,
+        serverName: this.options.name,
+        version: this.options.version
+      });
     } catch (error) {
-      console.error("Failed to start Minsky MCP Server:", error);
+      log.error("Failed to start Minsky MCP Server", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        transport: this.options.transportType
+      });
       throw error;
     }
   }
@@ -163,4 +177,4 @@ export class MinskyMCPServer {
   getFastMCPServer(): FastMCP {
     return this.server;
   }
-} 
+}

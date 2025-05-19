@@ -1,6 +1,6 @@
 ---
-description: 
-globs: 
+description:
+globs:
 alwaysApply: true
 ---
 # Changelog Rule
@@ -18,8 +18,8 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 ### SpecStory Conversation History Referencing (Required)
 - For every changegroup (e.g., Added, Changed, Fixed) in the changelog, **add a reference to the relevant SpecStory conversation history file(s) where the change originated**.
 - Place the reference(s) at the end of each changegroup, using the format:
-  
-  `_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for ..._`
+
+  `_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for ..._`
 - If multiple changegroups originate from different conversations, reference each appropriately.
 - At the top of the changelog, add a note referencing `.specstory/.what-is-this.md` to explain the SpecStory artifact system.
 
@@ -28,7 +28,7 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 ```markdown
 # Changelog
 
-> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
 
 ## [Unreleased]
 
@@ -36,12 +36,12 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 - New feature X
 - New feature Y
 
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup._
+_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](mdc:.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup._
 
 ### Changed
 - Improved logic for Z
 
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management._
+_See: SpecStory history [2025-04-26_22-29-task-management-command-design](mdc:.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management._
 ```
 
 ## Additional Guidance
@@ -56,7 +56,7 @@ This ensures that changelog entries are always relevant to the part of the codeb
 
 | File Changed                              | Changelog to Update         |
 |-------------------------------------------|----------------------------|
-| `synthase/src/commands/tools/constants.ts`| `synthase/CHANGELOG.md`    |
-| `synthase/src/utils/tools.ts`             | `synthase/CHANGELOG.md`    |
+| `project/src/commands/tools/constants.ts`| `project/CHANGELOG.md`    |
+| `project/src/utils/tools.ts`             | `project/CHANGELOG.md`    |
 | `README.md` (root)                        | `CHANGELOG.md`             |
 | `docs/usage.md`                           | `CHANGELOG.md`             |

@@ -29,13 +29,14 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        all: args.all ?? false, // Provide default for 'all'
         json: true, // Always use JSON format for MCP
       };
-      
-      return await listTasksFromParams(params);
+
+      return JSON.stringify(await listTasksFromParams(params));
     }
   );
-  
+
   // Task get command
   commandMapper.addTaskCommand(
     "get",
@@ -49,11 +50,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         ...args,
         json: true, // Always use JSON format for MCP
       };
-      
-      return await getTaskFromParams(params);
+
+      return JSON.stringify(await getTaskFromParams(params));
     }
   );
-  
+
   // Task status get command
   commandMapper.addTaskCommand(
     "status.get",
@@ -67,9 +68,9 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         ...args,
         json: true, // Always use JSON format for MCP
       };
-      
+
       const status = await getTaskStatusFromParams(params);
-      
+
       // Format the response for MCP
       return {
         taskId: args.taskId,
@@ -77,7 +78,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       };
     }
   );
-  
+
   // Task status set command
   commandMapper.addTaskCommand(
     "status.set",
@@ -90,10 +91,11 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        status: args.status as "TODO" | "IN-PROGRESS" | "IN-REVIEW" | "DONE", // Cast to expected type
       };
-      
+
       await setTaskStatusFromParams(params);
-      
+
       // For MCP, return a success response
       return {
         success: true,
@@ -102,8 +104,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       };
     }
   );
-  
-  // Task create command 
+
+  // Task create command
   commandMapper.addTaskCommand(
     "create",
     "Create a new task from a specification file",
@@ -115,15 +117,16 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     async (args) => {
       const params = {
         ...args,
+        force: args.force ?? false, // Provide default for 'force'
         json: true, // Always use JSON format for MCP
       };
-      
+
       const task = await createTaskFromParams(params);
-      
+
       return {
         success: true,
         task,
       };
     }
   );
-} 
+}

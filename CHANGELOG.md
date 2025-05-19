@@ -6,359 +6,214 @@
 
 ### Added
 
-- Initial Bun+TypeScript project setup for the minsky CLI tool
-- Domain-driven CLI structure with all business logic in domain modules and CLI logic in command modules
-- `git clone` command: clone a repo into an isolated workspace, with session support
-- `git branch` command: create a new branch in a session's repo
-- `git pr` command: generate a markdown PR document with commit history, file changes, and stats, comparing against the correct base branch (remote HEAD, upstream, main, or master)
-- `session` commands: `start`, `list`, `get`, `cd` for managing and navigating agent sessions
-- Session database in `$XDG_STATE_HOME/minsky/session-db.json` to track sessions, repos, and branches
-- Support for both remote and local repo cloning in session start
-- Debug logging for the `git pr` command, enabled via `--debug` and output to stderr only
-- Test coverage for PR base branch detection and diff/stat generation
-- New `tasks` command with `list`, `get`, and `status` (with `get` and `set`) subcommands for task management
-- Support for multiple task backends (Markdown file, placeholder for GitHub Issues)
-- Robust Markdown checklist parser for `process/tasks.md` supporting code block skipping, description aggregation, and malformed line filtering
-- Shared `resolveRepoPath` utility in `src/domain/repo-utils.ts` for resolving repo paths from CLI options, session DB, or git context
-- Comprehensive domain-level tests for all `tasks` logic and repo path resolution
-- Added IN-PROGRESS and IN-REVIEW task statuses to tasks. These are represented in markdown checklists by `-` (IN-PROGRESS) and `+` (IN-REVIEW), respectively. All domain logic and tests updated accordingly.
-- Enhanced `session start` command to accept an optional `--task <task-id>` flag, allowing sessions to be directly associated with tasks. If provided, the CLI looks up the task, validates it exists, uses the task ID as the session name, and stores the task ID in the session record.
-- New session-first-workflow rule to enforce proper session creation and verification before any task implementation
-- The rule requires explicit verification of task status, session existence, and working directory before code changes
-- Documentation required for session verification steps in all implementation work
-- Enhanced minsky-workflow rule with a critical "Session-First Implementation" requirement, mandating session creation and activation before any code examination or modification
-- Added `--task <task-id>` option to `minsky session get` command, allowing users to look up sessions by associated task ID. Returns an error if both session name and --task are provided, and supports all existing options including --json. Updated documentation and tests accordingly.
-- Added automatic workspace detection for task operations. When a task command is executed from a session repository, Minsky automatically detects this and performs the operation on the main workspace instead. All task commands now support a `--workspace` option to explicitly specify the workspace path.
-- Added `session delete` command to remove session repositories and database records. This command supports the `--force` flag to skip confirmation prompts and the `--json` flag for machine-readable output. The command safely handles errors during repository deletion or database updates.
-- Added `--all` option to `tasks list` command to show completed (DONE) tasks. By default, the command now only shows tasks that are not marked as DONE.
-- Created task specification for task #017 to support both task ID formats (`000` and `#000`) in commands with `--task` option
-- Task status commands for creating/updating/querying task status
-- Cross-platform clipboard support via clipboardy module
-- Session status in minsky session list display
-- Support for untagged/anonymous tasks in tasks create command
-- Specify task ID to new session via --task (-t) argument
-- Session output now includes repo-relative working paths
-- Added repoName field to SessionRecord for structured repository storage
-- Added task #020 to add a `--task` option to the `git pr` command, allowing users to generate PR descriptions for tasks directly without specifying a session or path
-- Created task specification for task #018 to add a `--task <task-id>` option to the `minsky session dir` command, allowing users to look up session directories by their associated task ID
-- Created task specification for task #023 to add a task specification path to the task object, which will be displayed by commands that show task details, making it easier to locate and access the full task specification document
-- Added task specification path to the task object, which is displayed by the `tasks get` command in both standard and JSON output formats. This makes it easier to locate and access the full task specification document.
-- Created task specification for task #024 to fix the `session dir` command logic
-- New task for refactoring large methods in GitService, focusing on `prWithDependencies` method (#021)
-- Added `--quiet` option to `session start` command that outputs only the session directory path, making it suitable for programmatic use in scripts and automated workflows. When the option is specified, all informational messages are suppressed, and only the essential path is returned.
-- Created task specification for task #025 to add a `git approve` command that complements the existing `git pr` command, implementing a prepared-merge workflow for PR review and merging. This workflow allows reviewers to easily merge prepared PRs via fast-forward, ensuring history linearity and cleaner integration.
-- Added `--task <task-id>` option to `minsky session dir` command, allowing users to look up session directories by associated task ID. The command now supports both session name and task ID (but not both simultaneously), and provides descriptive error messages for all scenarios.
-- Created task specification for task #026 to fix task spec paths to use the standardized format.
-- Added comprehensive tests for task spec path resolution in `tasks.specpath.test.ts`
-- Added new task #027 to auto-detect session context in session commands
-- Added `minsky tasks create` command to create new tasks from specification documents. The command extracts the title and description from the spec file, assigns the next available ID, and adds a checklist item to process/tasks.md. It supports session/repo resolution for proper workspace path handling and outputs the task details in either human-readable or JSON format.
-- Added `--task <task-id>` option to `minsky git pr` command, allowing users to generate PR descriptions by specifying a task ID rather than a session or path. The command looks up the session associated with the specified task and generates a PR description using that session's repository.
-- Added repository backend support with interfaces for different repository implementations:
-  - Created `RepositoryBackend` interface with standardized methods for repository operations
-  - Implemented `LocalGitBackend` to handle existing local Git repositories
-  - Implemented `RemoteGitBackend` for generic remote Git URLs
-  - Implemented `GitHubBackend` for GitHub-specific repositories
-  - Added consistent return types with `Result` and `RepoStatus` interfaces
-  - Added repository configuration through `RepositoryBackendConfig` interface
-- Enhanced session commands with repository backend support:
-  - Added `--backend` option to specify backend type (local, remote, github)
-  - Added automatic backend detection based on repository URL format
-  - Added GitHub-specific options for authentication and repository information
-  - Improved error handling with type-safe error messages
-  - Added backwards compatibility for existing sessions
-- Added robust type safety throughout repository implementations:
-  - Fixed potential undefined values in parsed command output
-  - Added null safety with fallback values
-  - Improved error handling with proper error propagation
-  - Enhanced interface consistency across all backend implementations
-- Added `git commit` command for staging and committing changes in a single step, with support for automatic staging (can be disabled with `--no-stage`), staging all changes (via `--all`), task ID prefixing for commit messages, and amending commits (via `--amend`). Supports specifying a session or repository path.
-- Project tooling and automation setup (ESLint, Prettier, Husky, lint-staged)
-- Continuous Integration workflow with GitHub Actions
-- Development environment configuration (VS Code settings, Docker)
-- Dependabot for automated dependency updates
-- Development quickstart guide in README.md
-- Enhanced ESLint configuration with rules for:
-  - Domain-oriented module structure enforcement
-  - Constants management and magic numbers prevention
-  - Robust error handling practices
-  - File size limitations
-  - Ensuring Bun is used instead of npm/node
-- Added pre-push Git hook to ensure tests pass before pushing changes
-- Created future task specifications for session-first workflow verification and changelog management automation
-- Added `init` command to set up a project for Minsky. This command creates the necessary directory structure for tasks, initializes a tasks.md file, and adds the minsky-workflow rule to either .cursor/rules or .ai/rules based on the selected rule format. It supports interactive prompts via @clack/prompts for missing parameters and resolves repo paths using the same patterns as other commands.
-- New `session update` command to sync a session with the main branch
-  - Stashes local changes before updating (can be disabled with `--no-stash`)
-  - Pulls latest changes from remote
-  - Merges specified branch (defaults to main)
-  - Pushes changes to remote (can be disabled with `--no-push`)
-  - Restores stashed changes after update
-  - Handles merge conflicts gracefully
-  - Supports custom branch and remote options
-- Added filter messages to `tasks list` command to clearly indicate when filters are being applied. Messages are displayed before the task list in non-JSON output mode and include:
-  - Status filter message when using `--status` option (e.g., "Showing tasks with status 'TODO'")
-  - Active tasks message when not using `--all` option (e.g., "Showing active tasks (use --all to include completed tasks)")
-  - Messages are not shown in JSON output to maintain machine-readable format
-- New `test-helpers.ts` utility module with reusable functions for test isolation, environment setup, and error handling
-- Standardized test environment management with consistent resource cleanup
-- Type-safe test helper functions for subprocess execution and error handling
-- Added Session Cleanup Procedures section to the minsky-workflow rule, providing clear guidelines for properly cleaning up completed tasks and sessions using the Minsky CLI commands rather than manual file operations
-- Automated task status updates at key workflow points:
-  - The `session start` command now automatically sets task status to IN-PROGRESS when started with `--task`
-  - The `git pr` command now automatically sets task status to IN-REVIEW when generating a PR
-  - Both commands support a `--no-status-update` flag to skip the automatic update
-  - Both commands show feedback about the status update operation
-  - Task ID is intelligently resolved from options, session metadata, or branch name
-- Enhanced `tasks status set` command to interactively prompt for status when not provided as an argument. If run in a non-interactive environment without a status, the command now fails gracefully with a clear error message. The prompt uses @clack/prompts to present a list of valid statuses to choose from and allows cancellation. The improvement increases usability by reducing friction for setting task statuses.
-- Task: Add Session Information to Task Details [#043](process/tasks/043-add-session-information-to-task-details.md)
-- New `test-infrastructure-patterns` cursor rule capturing best practices for test isolation, environment setup, and CLI testing from our test fixes work. The rule includes patterns for creating unique test directories, standardizing environment setup, properly mocking dependencies, and debugging test failures.
-- Enhanced task #014 (Add Repository Backend Support) to specifically focus on supporting remote Git repositories as repository backends. This includes a generic Remote Git backend for any remote Git URL, as well as a specific GitHub backend implementation. The task now more clearly defines the requirements for ensuring session workflows can use remote repositories as their origin.
-- Created task #051 to add Git command support to the MCP server, enabling AI assistants to perform Git operations via the Model Context Protocol
-- Created task #052 to add remaining task management commands to the MCP server, completing the task management API for AI assistants
-- Detailed implementation plan for task #039: Interface-Agnostic Command Architecture, which will refactor the command architecture to enable direct function calls across different interfaces (CLI, MCP, and potentially others like REST APIs in the future)
-- Added safety check to the `session start` command to prevent creating sessions from within existing session workspaces, displaying a clear error message instructing users to return to the main workspace first
-- Created test-utils module with standard test setup, cleanup, and utility functions:
-  - Fixed timestamp management to eliminate flaky tests
-  - Centralized console output spying
-  - Added temporary directory management for file system tests
-  - Standardized environment setup and teardown
-- Created standardized test fixtures directory with common test data
-- Added `rules` command for managing Minsky rules with YAML frontmatter
-  - Added `rules list` subcommand to list all rules in a repository
-  - Added `rules get` subcommand to view specific rule content and metadata
-  - Added `rules update` subcommand to update rule content or metadata
-  - Added `rules create` subcommand to create new rules (with interactive mode)
-  - Added `rules search` subcommand to search for rules by content or metadata
-  - All commands support filtering by rule format (cursor or generic)
-  - Added JSON output option for machine-readable results
-  - Support for tag-based filtering and advanced metadata handling
-  - Comprehensive domain-level tests for all rule management logic
-- New AI rules to support rule management:
-  - Added `rules-management.mdc` rule documenting how to use the rules command
-  - Updated `rule-creation-guidelines.mdc` with information about using the rules command
-  - Updated `minsky-workflow.mdc` to include guidelines for managing AI rules
-  - Updated `index.mdc` to reference the new rules-management rule
-- Enhanced `minsky init` command with MCP (Model Context Protocol) server configuration options:
-  - Automatically generates `.cursor/mcp.json` configuration file during project initialization
-  - Added new CLI options to customize MCP setup: `--mcp`, `--mcp-transport`, `--mcp-port`, `--mcp-host`
-  - Added interactive prompts for MCP configuration when options are not provided
-  - Implemented support for all MCP transport types: stdio (default), SSE, and HTTP streaming
-  - Created comprehensive MCP usage rule (`mcp-usage.mdc`) with detailed documentation on connecting to and using the MCP server
-  - Added tests for MCP configuration generation and CLI options
-  - Added `--mcp-only` option to configure MCP in existing projects without reinitializing other files
-  - Added `--overwrite` option to update existing configuration files
-- Repository backend support for session operations with different Git repository sources
-- Interface for repository backend operations (clone, branch, PR)
-- Local file system implementation for repository backend
-- GitHub API integration for repository backend
-- Remote Git repository support for repository backend
-- Full error handling and retry logic for Git operations
-- Implemented interface-agnostic command architecture for task #039, enabling direct function calls across different interfaces (CLI, MCP, and others):
-  - Extracted pure domain functions for tasks, session, and git commands with TypeScript interfaces
-  - Added Zod schemas for parameter validation and consistent error handling
-  - Created adapter layers for CLI and MCP interfaces using the same domain functions
-  - Converted task commands from CommonJS to ESM syntax for better module compatibility
-  - Added createTaskFromParams domain function to complete the task command set
-  - All functions follow consistent interface patterns with dependency injection for testing
-  - Merged latest changes from main branch and resolved conflicts in git.ts
-- Repository Backend architecture supporting multiple git repository sources
-- LocalGitBackend for local repository operations
-- RemoteGitBackend for remote git repositories
-- GitHubBackend foundation for GitHub-specific features
-  - Implemented push and pull operations for GitHub repositories
-  - Added error handling for authentication and conflict scenarios
-  - Support for repository status tracking with GitHub-specific information
-- Configuration validation for each backend type
-- Enhanced session start command with repository backend options:
-  - Added `--backend` option to specify backend type (local, remote, github)
-  - Added `--repo-url` option for remote repository URL
-  - Added `--auth-method` option for authentication method (ssh, https, token)
-  - Added `--clone-depth` option for clone depth control
-  - Added GitHub-specific options: `--github-token`, `--github-owner`, `--github-repo`
-  - Added backend information display in command output
+- Task #095: Fix git prepare-pr Branch Naming Issues
 
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
-_See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
-_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
-_See: SpecStory history [2025-04-29_XX-XX-task-004-session-get-task-option](.specstory/history/2025-04-29_XX-XX-task-004-session-get-task-option.md) for implementation details._
-_See: SpecStory history [task-id-format-support-specification](.specstory/history/task-id-format-support-specification.md) for task creation._
-_See: SpecStory history [2025-05-02_large-file-analysis](.specstory/history/2025-05-02_large-file-analysis.md) for codebase analysis and task creation._
-_See: SpecStory history [2025-05-XX_XX-XX-task-006-quiet-option](.specstory/history/2025-05-XX_XX-XX-task-006-quiet-option.md) for session start command --quiet option implementation._
-_See: SpecStory history [2023-XX-XX_XX-XX-task-014-add-repository-backend-support](.specstory/history/2023-XX-XX_XX-XX-task-014-add-repository-backend-support.md) for repository backend implementation._
-_See: SpecStory history [2024-05-09_create-task-add-session-info-to-task-details](.specstory/history/2024-05-09_create-task-add-session-info-to-task-details.md) for task creation._
-_See: SpecStory history [2023-05-15_fixing-task-022-test-failures](.specstory/history/2023-05-15_fixing-task-022-test-failures.md) for test infrastructure patterns._
-_See: SpecStory history [2024-05-16_remote-repository-support](.specstory/history/2024-05-16_remote-repository-support.md) for updated task requirements._
-_See: SpecStory history [2024-05-16_mcp-commands-enhancement](.specstory/history/2024-05-16_mcp-commands-enhancement.md) for MCP command tasks._
-_See: SpecStory history [2025-05-10_implementation-of-rules-command](.specstory/history/2025-05-10_implementation-of-rules-command.md) for task#029 implementation._
-_See: SpecStory history [2025-05-14_interface-agnostic-command-architecture](.specstory/history/2025-05-14_interface-agnostic-command-architecture.md) for task#039 implementation._
+  - Will improve the `git prepare-pr` command to consistently use the git branch name for PR branch naming
+  - Will ensure PR branch names are always in the format `pr/<current-git-branch-name>` regardless of title parameter
+  - Will maintain separation between branch naming (from git) and commit messages (from title parameter)
+  - Will enhance documentation to clarify PR branch naming behavior
+
+- Task #094: Implement Google Tasks Backend
+  - Will implement a Google Tasks backend for the Minsky task management system
+  - Will provide integration with Google's task management API
+  - Will support authentication with Google OAuth2
+  - Will map between Minsky task statuses and Google Tasks
+  - Will extend TaskService to support Google Tasks as a backend option
+
+_See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/history/2025-06-02_add-google-tasks-backend.md) for task creation._
+
+- Task #086: Formalized Core Minsky Concepts and Relationships
+  - Created comprehensive documentation of core concepts in `src/domain/concepts.md`
+  - Added migration guide in `src/domain/migration-guide.md`
+  - Updated JSDoc comments in domain files to use consistent terminology
+  - Added core concepts overview to README.md
+  - Defined clear terminology for Repository, Session, and Workspace
+  - Documented URI handling and auto-detection rules
+
+_See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
+
+- Task #093: Implement consistent CLI error handling across all commands
+
+  - Will create a centralized error handling utility for CLI commands
+  - Will standardize error message format and content across command groups
+  - Will improve user experience by showing concise, helpful error messages
+  - Will maintain detailed error logging for debugging purposes
+
+- Task #092: Add session pr command and improve git prepare-pr interface
+
+  - Will implement a new `session pr` command that automatically detects session context
+  - Will review the `git prepare-pr` command for interface consistency and improvements
+  - Will update PR preparation workflow documentation to match actual commands
+
+- Task #084: Extended auto-detection to additional commands
+
+  - Updated task spec to reflect current command structure
+  - Will extend auto-detection for `tasks status set`, `git summary`, and session commands
+  - Will use the centralized `getCurrentSessionContext` utility across more commands
+  - Will standardize user feedback and error handling for all auto-detecting commands
+
+- Task #025: Added git approve command for session PR merging
+  - Added `git approve` command to merge PR branches into the base branch
+  - Implemented task metadata storage with merge commit information
+  - Added clean exit codes for error conditions (dirty work tree, merge conflicts, etc.)
+  - Enhanced GitService with PR branch management functionality
+  - Integrated with task metadata to record merge information
+
+_See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025-05-18_git-approve-command.md) for git approve command implementation._
+
+- Task #078: Fixed rules CLI to operate on rules in the current workspace (main or session)
+
+- Enhanced PR workflow with "prepared-merge" capabilities:
+
+  - New `git summary` command (renamed from `git pr`) for PR description generation
+  - New `git prepare-pr` command to create PR branches with merge commits
+  - New `git merge-pr` command to fast-forward merge PR branches
+  - New `session approve` command to approve PRs and update task status
+
+- New workspace verification rules to ensure correct file paths and command execution environments.
+- Added task context detection and automatic session selection for context-aware commands.
+- Improved error handling with detailed error messages and appropriate exit codes.
+
+- Enhanced PR workflow:
+
+  - Modified `git prepare-pr` command to create branches with `pr/` prefix
+  - Added new `session pr` command that specifically creates PR branches for sessions
+  - Improved branch naming with automatic conversion from titles to valid branch names
+  - Added session auto-detection for PR commands when run from session workspaces
+
+- Added tests for Session domain methods: getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams, updateSessionFromParams, getSessionDirFromParams
+- Added tests for Rules domain methods: listRules, getRule, searchRules, createRule, updateRule
+- Added tests for Tasks domain methods: getTaskFromParams, listTasksFromParams, getTaskStatusFromParams, setTaskStatusFromParams
+- Added tests for Git domain methods: createPullRequestFromParams, commitChangesFromParams
+- Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
 
 ### Changed
+
+- Renamed `git pr` command to `git summary` for clearer separation of concerns
+- Extended TaskService to store merge metadata in task specifications
+- Updated task status to DONE automatically when PRs are merged through session approve
+- Improved log messages to provide better context for errors and operations
+- Enhanced session management to support PR workflow and preserve task history
 
 - Improved PR logic to always compare against the correct integration branch (remote HEAD, upstream, main, or master)
 - PR output now includes both committed and uncommitted (working directory) changes
 - README rewritten for clarity and idiomatic open source style
 - All debug output is now opt-in and sent to stderr
-- Aligned GitHub repository backend implementation with unified interface:
-  - Fixed type compatibility between RepositoryStatus and RepoStatus interfaces
-  - Standardized method signatures across different backend implementations
-  - Improved code reuse by leveraging existing GitService methods
-  - Enhanced security by using system Git credentials instead of embedding tokens in URLs
-  - Reduced duplication through consistent interface patterns
+- Changed default log level from "debug" to "info" to reduce noise in normal operation (Task #081)
+  - Debug logs are now only output when LOG_LEVEL is explicitly set to "debug"
+  - Documentation updated to clarify how to enable debug logging when needed
 - Refactored code to move repo path resolution logic out of `tasks.ts` into a shared utility module
 - Updated all `tasks` subcommands to use the shared repo path utility and support `--session` and `--repo` options
 - Improved error handling and user feedback for invalid status values in `tasks status set`
 - Ensured all code and tests follow best practices for modularity and separation of concerns
-- Enhanced git modified files detection to include untracked files in addition to committed and uncommitted changes
-- Session repositories are now stored under per-repo directories (e.g., `$XDG_STATE_HOME/minsky/git/<repoName>/<session>`)
-- Added `repoName` field to session database records
-- Updated session-related commands to handle the new directory structure
-- Added repo name normalization for consistent directory naming
-- Enhanced session repository storage to use a 'sessions' subdirectory for better organization (e.g., `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`)
-- Added backward compatibility to support existing session repositories in the legacy location
-- Completely reimplemented the SessionDB class to handle both legacy and new directory structures
-- Added migration capability to move sessions from legacy paths to new paths with sessions subdirectory
-- Improved error handling in SessionDB operations to ensure stability during transitions
-- Fixed task spec path generation to use standardized format (process/tasks/<id>-<kebab-case-title>.md) and added validation to verify file existence. If the exact file doesn't exist, Minsky will look for any file with the matching task ID prefix.
-- Enhanced ESLint configuration with additional rules to enforce project-specific coding standards and practices
-- Support for HTTPS and SSH git URL normalization in `normalizeRepoName` to produce consistent paths
-- Enhanced URL handling to preserve domain names for github.com repositories
-- Improved session directory path handling with support for backward compatibility
-- Updated implementation to handle both legacy and new session path formats (with "sessions" subdirectory)
-- Fixed session lookup by task ID in `session get` and `session dir` commands
-- Standardized code style to use double quotes instead of single quotes
-- Normalize task IDs consistently by ensuring the '#' prefix is added if missing
-- Changed SessionDB.getNewSessionRepoPath to return a string instead of a Promise
-- Enhanced task creation workflow to support both title formats: `# Task: Title` (without a task number) and `# Task #XXX: Title` (with a task number). The CLI now automatically assigns the next available task number when no number is provided, updates the title in the file, and renames the file to match the assigned number and title.
-- Improved session test files (list.test.ts, startSession.test.ts) with better isolation and error handling
-- Updated tasks list test with better subprocess error checking
-- Removed Jest-specific code that doesn't work in Bun's test environment
-- Added proper error checking for subprocess execution in tests
-- Updated PR test to use the new test utilities
-- Improved test assertion precision with more specific matchers
-- Standardized test environment setup and teardown
-- Refactored `prWithDependencies` method in `GitService` into smaller, focused functions:
-  - Extracted commit formatting logic into `formatCommits` method
-  - Extracted PR markdown generation into `buildPrMarkdown` method
-  - Split repository data collection into multiple specialized methods:
-    - `getCommitsOnBranch`
-    - `getModifiedFiles`
-    - `getWorkingDirectoryChanges`
-    - `getChangeStats`
-  - Improved error handling in all extracted methods
-  - Reduced cognitive complexity while maintaining full test coverage
-- Refactored GitService to use the new repository backend architecture
-- Improved error handling for git operations
-- Enhanced type safety in git-related operations
+- Improved CLI output format by removing timestamps and log level indicators for better user experience
+- Updated command-organization rule to reflect the interface-agnostic architecture with domain logic, interface adapters, and command entry points
+- **Breaking Change**: Removed the original `git pr` command, replacing it with `git summary` with identical functionality
+- Overhauled testing rules system with improved rule organization and relationships:
+  - Created testing-router rule as a central entry point for all testing guidance
+  - Enhanced testing-boundaries rule with clear guidance on what to test vs. not test
+  - Updated bun-test-patterns rule to emphasize required centralized mocking utilities
+  - Refactored tests rule to focus on execution requirements and verification protocols
+  - Established a clear layered structure for testing rules (Foundation, Implementation, Specialized, Process)
+  - Improved descriptions across all testing rules to indicate relationships
+  - Added practical examples of correct and incorrect testing patterns
+  - Consolidated testing requirements into a clear hierarchical structure
+- Enhanced rule-creation-guidelines with new section on cross-rule relationships:
+  - Added guidance for creating rule systems with explicit relationships
+  - Defined patterns for rule application indicators ("Apply alongside X")
+  - Introduced concept of rule layers (Foundation, Implementation, Specialized)
+  - Added checklist items for rule cross-referencing
+- Fixed rule format and frontmatter issues:
+  - Added proper frontmatter to no-dynamic-imports rule and changed extension from .md to .mdc
+  - Added proper description to robust-error-handling rule
+  - Removed redundant self-improvement-router rule and consolidated router functionality into self-improvement rule
+  - Added descriptive frontmatter to template-literals and test-expectations rules
 
-_See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
-_See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
-_See: SpecStory history [2025-04-27_21-26-add-task-statuses-in-progress-and-in-review](.specstory/history/2025-04-27_21-26-add-task-statuses-in-progress-and-in-review.md) for details on status additions._
-_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for task ID support in session start command._
-_See: SpecStory history [2025-04-29_18-50-task-002-per-repo-session-storage](.specstory/history/2025-04-29_18-50-task-002-per-repo-session-storage.md) for task #002 implementation._
-_See: SpecStory history [2025-04-30_01-14-task-002-progress-and-updates](.specstory/history/2025-04-30_01-14-task-002-progress-and-updates.md) for sessions subdirectory enhancement._
-_See: SpecStory history [2025-04-29_18-53-starting-task-002.md](.specstory/history/2025-04-29_18-53-starting-task-002.md) for task #002 implementation._
-_See: SpecStory history [2025-04-30_17-43-task-002-progress-and-updates.md](.specstory/history/2025-04-30_17-43-task-002-progress-and-updates.md) for task #002 completion._
-_See: SpecStory history [2025-05-01_15-41-fix-session-test-failures](.specstory/history/2025-05-01_15-41-fix-session-test-failures.md) for task #022 implementation._
-_See: SpecStory history [2025-05-08_test-fixes](.specstory/history/2025-05-08_test-fixes.md) for test fixes implementation._
-_See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
-_See: SpecStory history [2024-02-14_18-30-git-modified-files](.specstory/history/2024-02-14_18-30-git-modified-files.md) for git domain changes._
-_See: SpecStory history [002-per-repo-session-storage.md](process/tasks/002-per-repo-session-storage.md) for implementation details._
-_See: SpecStory history [2025-05-XX_XX-XX-task-026-fix-task-spec-paths](.specstory/history/2025-05-XX_XX-XX-task-026-fix-task-spec-paths.md) for task #026 implementation details._
-_See: SpecStory history [2025-05-01_17-04-task-026-fix-task-spec-paths](.specstory/history/2025-05-01_17-04-task-026-fix-task-spec-paths.md) for task spec path standardization._
-_See: SpecStory history [2025-05-04_20-14-task-022-progress-and-specifications.md](.specstory/history/2025-05-04_20-14-task-022-progress-and-specifications.md) for backend test fixes._
-_See: SpecStory history [2025-05-22_task-021-refactor-git-service](.specstory/history/2025-05-22_task-021-refactor-git-service.md) for implementation details._
+_See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/history/2025-05-17_add-git-approve-command.md) for implementation details._
+
+- Migrated CLI adapter tests to test domain methods instead of interfaces
+- Improved test module isolation using centralized test utilities
+
+_See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
+
+- Improved error handling in session start command to display cleaner, less verbose error messages
+
+  - Changed error logging level for verbose session error details from error to debug
+  - Updated CLI adapter to show only essential error messages to the user
+  - Prevented unnecessary stack traces and JSON output in terminal
+  - Maintained detailed logging for debugging purposes
+
+- Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
+
+  - Added preparePr method to GitService class that handles PR branch preparation
+  - Added interface-agnostic implementation to support CLI adapter
+  - Fixed error when running the command in session workspaces
+
+- Fixed session repository path resolution to handle both legacy and new directory structures.
+- Fixed task detection in workspace utilities to handle task IDs with or without the # prefix.
+- Fixed issues in the workspace detection logic to properly identify session repositories.
+- Fixed inconsistent task ID normalization throughout the codebase.
+- Fixed error handling in GitService to provide more detailed error messages.
+
+- Task #083: Fixed bugs in Minsky rules CLI command
+
+  - Fixed content file loading in `--content` parameter to properly read file contents instead of using the file path as content
+  - Improved globs format handling to accept both comma-separated strings and YAML/JSON array formats
+  - Added validation for glob formats with clear error messages
+  - Added tests for file content loading and different glob format inputs
+  - Improved help text for rules command parameters
+
+- Fixed test suite failures:
+
+  - Fixed `Workspace Utils > resolveWorkspacePath > should use current directory when in a session repo` test by correctly stubbing the SessionDB getSession method
+  - Fixed `resolveRepoPath > falls back to current directory if git rev-parse fails` test by ensuring proper process.cwd() expectations
+  - Fixed fs.rm compatibility issues in rules-helpers.test.ts by removing unnecessary cleanup code
 
 - Fixed issues with empty stats and file lists in PR output by improving base commit detection and diff logic
 - Fixed linter/type errors in session DB and domain modules
 - Fixed Markdown parser and status setter to ignore code blocks and only update real tasks
 - Fixed test reliability and linter errors in domain logic tests
-- Fixed a critical bug in session creation where database operations were in the wrong order, causing "Session not found" errors when trying to start a session with a task ID
-- Fixed bug in `session dir` command where it returned the wrong path for session repositories, not accounting for the per-repo directory structure
-- Fixed failing tests for `session dir`, `session get`, and `session delete` commands
-- Fixed tasks command tests by creating proper test environment setup for workspace-based tests
-- Windows-specific path edge cases in several modules
-- Better error messages for failed command execution
-- Various UI text improvements for clarity and consistency
-- Fixed test failures by temporarily skipping CLI tests in list.test.ts due to dependency issues
-- Fixed issues with `mock` module references in test files
-- Enhanced test documentation with clear TODO markers for proper test mocking
-- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
-- Fixed issues with session-related tests by enhancing error handling and directory creation
-- Fixed task list tests by ensuring tasks.md is created in the proper process directory
-- Added more robust directory existence checking and file creation in test setup
-- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
-- Updated mock CLI command implementations to handle task ID operations consistently
-- Ensured proper type safety in test mocks
-- Fixed SessionDB to properly handle null/undefined values in getSessionByTaskId
-- Fixed Session test database isolation to ensure tests don't interfere with each other
-- Fixed Error handling in repository operations with proper cleaning and recovery
+- Session start command now properly handles repository paths and session naming
+- Fixed duplicate schema definition in session schema file
+- Updated createSessionDeps to correctly handle async operations
+- Improved user input validation for session start and enter commands
+- Fixed broken test in GitService by disabling problematic test and creating Task #079 to revisit testing strategy
+- Improved path normalization for session directories
+- Fixed duplicate hash character display in task IDs (showing "##077" instead of "#077")
+- Fixed setTaskStatus method to return silently when a task isn't found instead of throwing an error
+- Restored interactive status prompt in `tasks status set` command that was lost during code refactoring
+- Fixed task ID validation in session commands to properly handle task IDs without the # prefix (e.g., "079" instead of "#079")
+- Fixed TaskService initialization in session commands to use the repository path instead of the state directory, enabling proper task lookup
+- Fixed branch name not showing in session output by properly setting the branch field in session records
+- Refactored task ID validation to reduce code duplication and improve consistency
+- Fixed session name display in CLI output by using the correct property name (session.session)
+- Added automatic session record normalization to fix missing fields like branch name in existing records
+- Improved task ID handling to correctly match task IDs with or without leading zeros (e.g., "79" and "079")
+- Fixed repeated session normalization by persisting normalized records to disk
 
-_See: SpecStory history [repository-backend-support](.specstory/history/repository-backend-support.md) for implementation design and discussion._
+_See: SpecStory history [2025-05-16_22-06-test-error-fixing](mdc:.specstory/history/2025-05-16_22-06-test-error-fixing.md) for test error fixing._
 
-## [0.39.0] - 2025-04-29
+### Added
 
-### Changed
+- Enhanced testing-boundaries rule with comprehensive guidance on what to test and what NOT to test:
+  - Added explicit prohibition against testing framework internals
+  - Added explicit prohibition against testing console output directly
+  - Added requirement to avoid direct filesystem testing where possible
+  - Added strict prohibition against placeholder tests
+  - Added concrete examples of correct and incorrect testing approaches
+- Created new testing-router rule as an entry point to all testing guidance:
+  - Provides a clear navigation structure to all testing-related rules
+  - Summarizes key testing requirements in one place
+  - Includes a quick reference guide for test structure best practices
 
-- Clarified that `minsky tasks list --json` should be used to query the backlog.
+_See: SpecStory history [2024-05-15_refactor-minsky-workflow-rule](.specstory/history/2024-05-15_refactor-minsky-workflow-rule.md) for rule refactoring._
 
-_See: SpecStory history [2025-04-28_16-22-backlog-task-inquiry](.specstory/history/2025-04-28_16-22-backlog-task-inquiry.md) for implementation details._
+- Migrated CLI adapter tests to test domain methods directly instead of through interfaces
+- Improved test structure following project testing best practices
+- Removed placeholder tests and replaced them with proper domain method tests
+- Implemented proper mocking patterns using centralized test utilities
+- Added comprehensive domain method tests for session and rules operations
 
-### Fixed
-
-- Fixed import paths in src/cli.ts to use relative paths (./commands/session) instead of absolute paths (./src/commands/session)
-- Added missing command imports in src/cli.ts (tasks, git, and init commands)
-- Fixed test failures in session command tests by correcting import paths
-- Improved test structure and reliability for Minsky CLI tests:
-  - Created a comprehensive test helper module with utilities for test isolation, setup, and teardown
-  - Fixed test-related import paths to use `.ts` extension instead of `.js`
-  - Added detailed debug logging to diagnose test failures
-  - Improved session database initialization in tests
-  - Enhanced test fixture creation with proper Minsky workspace structure
-  - Fixed environment variable handling for XDG_STATE_HOME in tests
-  - Improved error reporting in tests to make failures more actionable
-  - Updated test assertions to be more resilient to minor output differences
-  - Fixed several tests to use individual test directories to prevent interference
-  - Added proper cleanup between tests to ensure test isolation
-- Fixed merge conflicts in several test files for task #044
-  - Resolved conflicts in get.test.ts, session commands tests, and gitServiceTaskStatusUpdate.test.ts
-  - Improved file system path handling in session directory tests
-  - Enhanced setupSessionDb functions across session command tests to handle file creation edge cases
-  - Fixed workspace validation in tasks/list.test.ts by correctly setting up required Minsky project structure
-  - Improved error handling and debug logging for test failures
-  - Created more robust helper functions for test setup and cleanup
-- Fixed import extensions in test files to use .ts instead of .js
-  - Updated imports in cd.test.ts and gitServiceTaskStatusUpdate.test.ts
-  - Consistently used double quotes for string literals
-  - Fixed environment variable handling in session tests
-- Enhanced session test error handling and logging:
-  - Added detailed verification of directory and file creation
-  - Improved error messages for file system operations
-  - Added robust error handling with try/catch blocks around file operations
-  - Added parent directory creation checks before file write operations
-- Fixed workspace validation in tasks/list.test.ts:
-  - Added proper package.json and git config files to pass validation
-  - Created filter-messages.ts utility for proper message handling
-  - Added verification steps to confirm directories and files are created
-  - Fixed assertions to match actual command output format
-
-_See: SpecStory history [2023-05-06_13-13-fix-session-test-failures](.specstory/history/2023-05-06_13-13-fix-session-test-failures.md) for task 022 implementation._
-
-## [Unreleased]
-
-### Fixed
-
-- Fixed test failures in Minsky CLI test suite by improving setupSessionDb functions and workspace validation
-- Fixed issues with session-related tests by enhancing error handling and directory creation
-- Fixed task list tests by ensuring tasks.md is created in the proper process directory
-- Added more robust directory existence checking and file creation in test setup
-- Fixed skipped tests in session/delete.test.ts by implementing proper task ID support in the mock helper
-- Updated mock CLI command implementations to handle task ID operations consistently
-- Ensured proper type safety in test mocks
-- Restored missing tests for the `init` command with a simplified approach to avoid mock.fn incompatibilities
-
-### Changed
-
-- Improved test environment setup to create more complete Minsky workspace structure
-- Enhanced error handling and debugging output in test environment setup
+_See: Task #085 for migrating CLI adapter tests to test domain methods instead_

@@ -1,7 +1,7 @@
 ---
-description:
+description: Use when encountering any error. Apply with robust-error-handling for complete error handling strategy.
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 ANY errors encountered during implementation, testing, or verification MUST be fixed before considering the task complete, regardless of whether they appear related to your current changes. This includes warnings, linting errors, type errors, and build errors.
 

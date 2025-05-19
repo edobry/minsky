@@ -14,12 +14,14 @@ Adding the `--task` option would provide a consistent interface across all sessi
 ## Requirements
 
 1. **CLI Enhancement**
+
    - Add a `--task <taskId>` option to the `minsky session delete` command
    - The option should accept a task ID (with or without the leading '#')
    - When provided, the command should find the session associated with that task and delete it
    - Maintain all existing functionality including `--force` and `--json` options
 
 2. **Error Handling**
+
    - If no session exists for the specified task, display a clear error message
    - If both a session name and task ID are provided, prioritize the task ID
    - Handle cases where the task ID format is invalid
@@ -31,12 +33,14 @@ Adding the `--task` option would provide a consistent interface across all sessi
 ## Implementation Steps
 
 1. [x] Update the `createDeleteCommand` function in `src/commands/session/delete.ts`:
+
    - [x] Add the `--task` option to the command definition
    - [x] Modify the action handler to check for and process the task ID if provided
    - [x] Add logic to find the session associated with the task ID
    - [x] Update error handling to cover task-related scenarios
 
 2. [x] Update tests in `src/commands/session/delete.test.ts`:
+
    - [x] Add test cases for deleting a session by task ID
    - [x] Add test cases for error scenarios (no session for task, invalid task ID)
    - [x] Ensure existing test cases still pass
@@ -74,4 +78,4 @@ This task is complete and ready for review (IN-REVIEW). All implementation requi
 
 - Update relevant documentation (README, etc.)
 - Ensure help text properly describes the new functionality
-- Submit a PR with the changes 
+- Submit a PR with the changes

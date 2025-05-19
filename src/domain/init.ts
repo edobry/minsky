@@ -1,6 +1,37 @@
-import fs from "fs";
+import * as fs from "fs";
 import type { PathLike } from "fs";
-import path from "path";
+import * as path from "path";
+import { z } from "zod";
+
+export const initializeProjectParamsSchema = z.object({
+  repoPath: z.string(),
+  backend: z.enum(["tasks.md", "tasks.csv"]),
+  ruleFormat: z.enum(["cursor", "generic"]),
+  mcp: z
+    .object({
+      enabled: z.boolean().optional().default(true),
+      transport: z.enum(["stdio", "sse", "httpStream"]).optional().default("stdio"),
+      port: z.number().optional(),
+      host: z.string().optional(),
+    })
+    .optional(),
+  mcpOnly: z.boolean().optional().default(false),
+  overwrite: z.boolean().optional().default(false),
+});
+
+export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSchema>;
+
+/**
+ * The interface-agnostic function for initializing a project with Minsky configuration
+ * This function acts as the primary domain function for the init command
+ */
+export async function initializeProjectFromParams(params: InitializeProjectParams): Promise<void> {
+  // Validate the parameters
+  const validatedParams = initializeProjectParamsSchema.parse(params);
+
+  // Call the original initialization function
+  return initializeProject(validatedParams);
+}
 
 export interface InitializeProjectOptions {
   repoPath: string;
@@ -19,14 +50,17 @@ export interface InitializeProjectOptions {
 /**
  * Creates directories if they don't exist, and errors if files already exist
  */
-export async function initializeProject({
-  repoPath,
-  backend,
-  ruleFormat,
-  mcp,
-  mcpOnly = false,
-  overwrite = false,
-}: InitializeProjectOptions): Promise<void> {
+export async function initializeProject(
+  {
+    repoPath,
+    backend,
+    ruleFormat,
+    mcp,
+    mcpOnly = false,
+    overwrite = false,
+  }: InitializeProjectOptions,
+  fileSystem: FileSystem = fs
+): Promise<void> {
   // When mcpOnly is true, we only set up MCP configuration and skip other setup
   if (!mcpOnly) {
     // Check if backend is implemented
@@ -36,7 +70,7 @@ export async function initializeProject({
 
     // Create process/tasks directory structure
     const tasksDir = path.join(repoPath, "process", "tasks");
-    await createDirectoryIfNotExists(tasksDir);
+    await createDirectoryIfNotExists(tasksDir, fileSystem);
 
     // Initialize the tasks backend
     if (backend === "tasks.md") {
@@ -50,7 +84,8 @@ export async function initializeProject({
 | ID | Title | Status |
 |----|-------|--------|
 `,
-        overwrite
+        overwrite,
+        fileSystem
       );
     }
 
@@ -61,62 +96,72 @@ export async function initializeProject({
     } else {
       rulesDirPath = path.join(repoPath, ".ai", "rules");
     }
-    await createDirectoryIfNotExists(rulesDirPath);
+    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
     // Create minsky.mdc rule file
     const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite);
-    
+    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite, fileSystem);
+
     // Create index.mdc rule file for categorizing rules
     const indexFilePath = path.join(rulesDirPath, "index.mdc");
-    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite);
+    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite, fileSystem);
   }
 
   // Setup MCP if enabled
-  if (mcp?.enabled !== false) { // Default to enabled if not explicitly disabled
+  if (mcp?.enabled !== false) {
+    // Default to enabled if not explicitly disabled
     // Create the MCP config file
     const mcpConfig = getMCPConfigContent(mcp);
     const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite);
+    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite, fileSystem);
 
     // Create MCP usage rule
-    const rulesDirPath = ruleFormat === "cursor" 
-      ? path.join(repoPath, ".cursor", "rules")
-      : path.join(repoPath, ".ai", "rules");
-    
-    await createDirectoryIfNotExists(rulesDirPath);
-    
+    const rulesDirPath =
+      ruleFormat === "cursor"
+        ? path.join(repoPath, ".cursor", "rules")
+        : path.join(repoPath, ".ai", "rules");
+
+    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
+
     const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
-    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite);
+    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite, fileSystem);
   }
 }
 
 /**
  * Creates a directory and all parent directories if they don't exist
  */
-async function createDirectoryIfNotExists(dirPath: string): Promise<void> {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
+async function createDirectoryIfNotExists(
+  dirPath: string,
+  fileSystem: FileSystem = fs
+): Promise<void> {
+  if (!fileSystem.existsSync(dirPath)) {
+    fileSystem.mkdirSync(dirPath, { recursive: true });
   }
 }
 
 /**
  * Creates a file if it doesn't exist, throws an error if it does unless overwrite is true
  */
-async function createFileIfNotExists(filePath: string, content: string, overwrite = false): Promise<void> {
-  if (fs.existsSync(filePath)) {
+async function createFileIfNotExists(
+  filePath: string,
+  content: string,
+  overwrite = false,
+  fileSystem: FileSystem = fs
+): Promise<void> {
+  if (fileSystem.existsSync(filePath)) {
     if (!overwrite) {
       throw new Error(`File already exists: ${filePath}`);
     }
     // If overwrite is true, we'll proceed and overwrite the existing file
   }
-  
+
   // Ensure the directory exists
   const dirPath = path.dirname(filePath);
-  await createDirectoryIfNotExists(dirPath);
-  
+  await createDirectoryIfNotExists(dirPath, fileSystem);
+
   // Write the file
-  fs.writeFileSync(filePath, content);
+  fileSystem.writeFileSync(filePath, content);
 }
 
 /**
@@ -172,7 +217,7 @@ This is a HARD REQUIREMENT for all implementation work. There are NO EXCEPTIONS.
      minsky tasks list --json          # List all tasks
      minsky tasks get '#XXX' --json    # Get specific task details
      minsky tasks status get '#XXX'    # Get task status
-     
+
      # For session queries
      minsky session list --json        # List all sessions
      minsky session get <n>            # Get session details by name
@@ -347,49 +392,65 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
 
   // Base configuration for stdio transport
   if (transport === "stdio") {
-    return JSON.stringify({
-      mcpServers: {
-        "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--stdio"]
-        }
-      }
-    }, null, 2);
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--stdio"],
+          },
+        },
+      },
+      null,
+      2
+    );
   }
-  
+
   // Configuration for SSE transport
   else if (transport === "sse") {
-    return JSON.stringify({
-      mcpServers: {
-        "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--sse", "--port", String(port), "--host", host]
-        }
-      }
-    }, null, 2);
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
+          },
+        },
+      },
+      null,
+      2
+    );
   }
-  
+
   // Configuration for HTTP Stream transport
   else if (transport === "httpStream") {
-    return JSON.stringify({
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "minsky-server": {
+            command: "minsky",
+            args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
+          },
+        },
+      },
+      null,
+      2
+    );
+  }
+
+  // Default fallback (shouldn't be reached with proper type checking)
+  return JSON.stringify(
+    {
       mcpServers: {
         "minsky-server": {
           command: "minsky",
-          args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host]
-        }
-      }
-    }, null, 2);
-  }
-  
-  // Default fallback (shouldn't be reached with proper type checking)
-  return JSON.stringify({
-    mcpServers: {
-      "minsky-server": {
-        command: "minsky",
-        args: ["mcp", "start", "--stdio"]
-      }
-    }
-  }, null, 2);
+          args: ["mcp", "start", "--stdio"],
+        },
+      },
+    },
+    null,
+    2
+  );
 }
 
 /**
@@ -444,7 +505,7 @@ Minsky exposes the following tools via MCP:
 \`\`\`typescript
 // AI can retrieve task information using:
 const tasks = await tools.tasks.list({})
-console.log(tasks) // Returns JSON array of tasks
+log.agent(tasks) // Returns JSON array of tasks using structured logging
 \`\`\`
 
 ### Example: Start a Session via MCP
@@ -452,7 +513,7 @@ console.log(tasks) // Returns JSON array of tasks
 \`\`\`typescript
 // AI can start a session for task #123:
 const result = await tools.session.start({ task: "123", quiet: true })
-console.log(result.message) // Session directory path
+log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 
 ## Security Considerations
@@ -499,24 +560,76 @@ export async function initializeProjectWithFS(
   options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
-  // Store original fs functions
-  const originalExistsSync = fs.existsSync;
-  const originalMkdirSync = fs.mkdirSync;
-  const originalWriteFileSync = fs.writeFileSync;
+  const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
 
-  try {
-    // Replace with mock functions
-    // Need to use any to bypass TypeScript's type checking for tests
-    (fs.existsSync as any) = fileSystem.existsSync;
-    (fs.mkdirSync as any) = fileSystem.mkdirSync;
-    (fs.writeFileSync as any) = fileSystem.writeFileSync;
+  // Handle different backends
+  if (backend === "tasks.md") {
+    // Initialize tasks.md backend
+    if (!mcpOnly) {
+      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
+      const tasksDirPath = path.join(repoPath, "process", "tasks");
 
-    // Run the initialization
-    await initializeProject(options);
-  } finally {
-    // Restore original fs functions
-    fs.existsSync = originalExistsSync;
-    fs.mkdirSync = originalMkdirSync;
-    fs.writeFileSync = originalWriteFileSync;
+      // Check if files exist
+      if (fileSystem.existsSync(tasksFilePath) && !overwrite) {
+        throw new Error(`File already exists: ${tasksFilePath}`);
+      }
+
+      // Create directories
+      if (!fileSystem.existsSync(tasksDirPath)) {
+        fileSystem.mkdirSync(tasksDirPath, { recursive: true });
+      }
+
+      // Create tasks.md file
+      fileSystem.writeFileSync(tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
+    }
+
+    // Handle rule format based on options
+    const rulesDirPath = path.join(repoPath, ruleFormat === "cursor" ? ".cursor" : ".ai", "rules");
+
+    // Create directories for rules
+    if (!fileSystem.existsSync(rulesDirPath)) {
+      fileSystem.mkdirSync(rulesDirPath, { recursive: true });
+    }
+
+    // Create rule files
+    if (!mcpOnly) {
+      const workflowRulePath = path.join(rulesDirPath, "minsky-workflow.mdc");
+      const indexRulePath = path.join(rulesDirPath, "index.mdc");
+
+      if (fileSystem.existsSync(workflowRulePath) && !overwrite) {
+        throw new Error(`File already exists: ${workflowRulePath}`);
+      }
+
+      fileSystem.writeFileSync(workflowRulePath, getMinskyRuleContent());
+      fileSystem.writeFileSync(indexRulePath, getRulesIndexContent());
+    }
+
+    // MCP Configuration
+    if (mcp?.enabled !== false) {
+      const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
+
+      // Create .cursor directory if it doesn't exist (even for generic rule format)
+      const cursorDirPath = path.join(repoPath, ".cursor");
+      if (!fileSystem.existsSync(cursorDirPath)) {
+        fileSystem.mkdirSync(cursorDirPath, { recursive: true });
+      }
+
+      if (fileSystem.existsSync(mcpConfigPath) && !overwrite) {
+        throw new Error(`File already exists: ${mcpConfigPath}`);
+      }
+
+      // Create MCP config file
+      fileSystem.writeFileSync(mcpConfigPath, getMCPConfigContent(mcp));
+
+      // Create MCP usage rule
+      const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
+      if (!fileSystem.existsSync(mcpRuleFilePath) || overwrite) {
+        fileSystem.writeFileSync(mcpRuleFilePath, getMCPRuleContent());
+      }
+    }
+  } else if (backend === "tasks.csv") {
+    throw new Error("The tasks.csv backend is not implemented yet.");
+  } else {
+    throw new Error(`Backend not implemented: ${backend}`);
   }
-} 
+}
