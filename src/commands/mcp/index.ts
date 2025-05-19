@@ -7,6 +7,8 @@ import { log } from "../../utils/logger.js";
 import { registerSessionTools } from "../../adapters/mcp/session.js";
 import { registerTaskTools } from "../../adapters/mcp/tasks.js";
 import { registerGitTools } from "../../adapters/mcp/git.js";
+import { registerInitTools } from "../../adapters/mcp/init.js";
+import { registerRulesTools } from "../../adapters/mcp/rules.js";
 
 /**
  * Create the MCP command
@@ -64,6 +66,8 @@ export function createMCPCommand(): Command {
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         registerGitTools(commandMapper);
+        registerInitTools(commandMapper);
+        registerRulesTools(commandMapper);
 
         // Start the server
         await server.start();
