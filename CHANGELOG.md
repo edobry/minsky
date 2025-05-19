@@ -164,8 +164,17 @@
 - LocalGitBackend for local repository operations
 - RemoteGitBackend for remote git repositories
 - GitHubBackend foundation for GitHub-specific features
+  - Implemented push and pull operations for GitHub repositories
+  - Added error handling for authentication and conflict scenarios
+  - Support for repository status tracking with GitHub-specific information
 - Configuration validation for each backend type
-- Enhanced session start command with repository backend options
+- Enhanced session start command with repository backend options:
+  - Added `--backend` option to specify backend type (local, remote, github)
+  - Added `--repo-url` option for remote repository URL
+  - Added `--auth-method` option for authentication method (ssh, https, token)
+  - Added `--clone-depth` option for clone depth control
+  - Added GitHub-specific options: `--github-token`, `--github-owner`, `--github-repo`
+  - Added backend information display in command output
 
 _See: SpecStory history [2025-04-26_20-30-setting-up-minsky-cli-with-bun](.specstory/history/2025-04-26_20-30-setting-up-minsky-cli-with-bun.md) for project setup, CLI, and domain/command organization._
 _See: SpecStory history [2025-04-26_22-29-task-management-command-design](.specstory/history/2025-04-26_22-29-task-management-command-design.md) for task management and tasks command._
