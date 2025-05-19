@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #052: Add Remaining Task Management Commands to MCP
+  - Added the following new task management commands to the MCP server:
+    - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
+    - `tasks.update`: Update a task's details (title, description, status)
+    - `tasks.delete`: Delete a task with optional force flag
+    - `tasks.info`: Get statistical information about tasks with grouping
+  - Updated README-MCP.md with comprehensive documentation for all task commands
+  - Added test coverage for the new MCP task commands
+
+_See: SpecStory history [2023-05-17_add-remaining-task-commands-to-mcp](mdc:.specstory/history/2023-05-17_add-remaining-task-commands-to-mcp.md) for task implementation._
+
 - Task #095: Fix git prepare-pr Branch Naming Issues
 
   - Improved the `git prepare-pr` command to consistently use the git branch name for PR branch naming
