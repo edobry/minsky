@@ -22,7 +22,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](tasks/010-enhance-git-pr-command.md)
 - [x] Fix `git pr` command and add proper tests [#011](tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 - [x] Add `session update` command to sync session with main branch [#012](tasks/012-add-session-update-command.md)
-- [-] Add Repository Backend Support for Remote Git Repositories [#014](tasks/014-add-repository-backend-support.md)
+- [x] Add Repository Backend Support for Remote Git Repositories [#014](tasks/014-add-repository-backend-support.md)
 - [x] Add `session delete` command to remove session repos and records [#015](tasks/015-add-session-delete-command.md)
 - [x] Enforce task operations in main workspace [#016](tasks/016-enforce-main-workspace-task-operations.md)
 - [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](tasks/017-support-task-id-format-in-task-option.md)
@@ -147,6 +147,10 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Fix git prepare-pr Branch Naming Issues [#095](process/tasks/095-fix-git-prepare-pr-branch-naming-issues.md)
 
-- [ ] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
+- [ ] Improve CLI Adapter Structure for Shared Options [#096](process/tasks/096-improve-cli-adapter-structure-for-shared-options.md)
+
+- [ ] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
+
+- [-] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
 
 - [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
