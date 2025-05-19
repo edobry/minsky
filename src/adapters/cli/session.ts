@@ -113,7 +113,7 @@ export function createStartCommand(): Command {
     new Command("start")
       .description("Start a new session")
       .argument("[name]", "Session name")
-      .option("--repo <path>", "Repository path")
+      .option("--repo <repositoryUri>", "Repository URI")
       .option("--task <taskId>", "Task ID to associate with this session")
       .option("--quiet", "Only output the session directory path")
       // Backend type option

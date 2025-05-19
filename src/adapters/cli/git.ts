@@ -34,6 +34,8 @@ async function mergePrFromParams(params: {
   try {
     const git = new GitService();
     const workdir = params.repo || process.cwd();
+    // Note: We keep "main" as the default actual branch name as it's an implementation detail,
+    // while in the user-facing CLI descriptions we use the concept "upstream branch"
     const baseBranch = params.baseBranch || "main";
 
     // 1. Make sure we're on the base branch
@@ -84,8 +86,8 @@ async function mergePrFromParams(params: {
 export function createSummaryCommand(): Command {
   return new Command("summary")
     .description("Generate PR description summary")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--branch <branch>", "Branch to compare against (defaults to main/master)")
+    .option("--repo <repositoryUri>", "Repository URI")
+    .option("--branch <branch>", "Branch to compare against (defaults to upstream branch)")
     .option("--debug", "Enable debug output")
     .option("--session <session>", "Session to create PR for")
     .option("--json", "Output as JSON")
@@ -162,8 +164,8 @@ export function createSummaryCommand(): Command {
 export function createPreparePrCommand(): Command {
   return new Command("prepare-pr")
     .description("Prepare a PR branch with a merge commit")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--base <branch>", "Base branch for PR (defaults to main)")
+    .option("--repo <repositoryUri>", "Repository URI")
+    .option("--base <branch>", "Base branch for PR (defaults to upstream branch)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
     .option("--body <body>", "PR body (if not provided, will be generated)")
     .option("--debug", "Enable debug output")
