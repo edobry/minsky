@@ -151,6 +151,6 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
 
-- [-] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
+- [x] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
 
 - [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)

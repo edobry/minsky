@@ -113,7 +113,7 @@ export function createStartCommand(): Command {
     new Command("start")
       .description("Start a new session")
       .argument("[name]", "Session name")
-      .option("--repo <path>", "Repository path")
+      .option("--repo <repositoryUri>", "Repository URI")
       .option("--task <taskId>", "Task ID to associate with this session")
       .option("--quiet", "Only output the session directory path")
       // Backend type option
@@ -267,7 +267,7 @@ export function createDeleteCommand(): Command {
     .description("Delete a session")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--force", "Force deletion even if session has uncommitted changes")
     .action(async (name?: string, options?: { task?: string; repo?: string; force?: boolean }) => {
       try {
@@ -295,10 +295,10 @@ export function createDeleteCommand(): Command {
  */
 export function createUpdateCommand(): Command {
   return new Command("update")
-    .description("Update session with latest changes from main branch")
+    .description("Update session with latest changes from upstream repository")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--force", "Force update even if the session workspace is dirty")
     .action(async (name?: string, options?: { task?: string; repo?: string; force?: boolean }) => {
       try {

@@ -39,9 +39,12 @@ export function createListCommand(): Command {
   return new Command("list")
     .description("List tasks")
     .option("-s, --status <status>", "Filter tasks by status")
-    .option("--session <session>", "Session name to use for repo resolution")
-    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("--session <session>", "Session name to use for repository resolution")
+    .option("--repo <repositoryUri>", "Repository URI (overrides session)")
+    .option(
+      "--upstream-repo <upstreamRepoUri>",
+      "URI of the upstream repository (overrides repo and session)"
+    )
     .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output tasks as JSON")
     .option("--all", "Include DONE tasks in the output (by default, DONE tasks are hidden)")
@@ -51,7 +54,7 @@ export function createListCommand(): Command {
         backend?: string;
         session?: string;
         repo?: string;
-        workspace?: string;
+        "upstream-repo"?: string;
         json?: boolean;
         all?: boolean;
       }) => {
@@ -62,7 +65,7 @@ export function createListCommand(): Command {
             backend: options.backend,
             session: options.session,
             repo: options.repo,
-            workspace: options.workspace,
+            workspace: options["upstream-repo"],
             all: options.all ?? false,
             json: options.json,
           };
@@ -128,9 +131,12 @@ export function createGetCommand(): Command {
   return new Command("get")
     .description("Get task details")
     .argument("<task-id>", "ID of the task to retrieve")
-    .option("--session <session>", "Session name to use for repo resolution")
-    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("--session <session>", "Session name to use for repository resolution")
+    .option("--repo <repositoryUri>", "Repository URI (overrides session)")
+    .option(
+      "--upstream-repo <upstreamRepoUri>",
+      "URI of the upstream repository (overrides repo and session)"
+    )
     .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output task as JSON")
     .action(
@@ -139,7 +145,7 @@ export function createGetCommand(): Command {
         options: {
           session?: string;
           repo?: string;
-          workspace?: string;
+          "upstream-repo"?: string;
           backend?: string;
           json?: boolean;
         }
@@ -158,7 +164,7 @@ export function createGetCommand(): Command {
             taskId: normalizedTaskId,
             session: options.session,
             repo: options.repo,
-            workspace: options.workspace,
+            workspace: options["upstream-repo"],
             backend: options.backend,
             json: options.json,
           };
@@ -180,7 +186,7 @@ export function createGetCommand(): Command {
                 log.cli("\nDescription:");
                 log.cli(task.description);
               }
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -200,9 +206,12 @@ export function createStatusCommand(): Command {
     .command("get")
     .description("Get the status of a task")
     .argument("<task-id>", "ID of the task")
-    .option("--session <session>", "Session name to use for repo resolution")
-    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("--session <session>", "Session name to use for repository resolution")
+    .option("--repo <repositoryUri>", "Repository URI (overrides session)")
+    .option(
+      "--upstream-repo <upstreamRepoUri>",
+      "URI of the upstream repository (overrides repo and session)"
+    )
     .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output status as JSON")
     .action(
@@ -211,7 +220,7 @@ export function createStatusCommand(): Command {
         options: {
           session?: string;
           repo?: string;
-          workspace?: string;
+          "upstream-repo"?: string;
           backend?: string;
           json?: boolean;
         }
@@ -222,7 +231,7 @@ export function createStatusCommand(): Command {
             taskId,
             session: options.session,
             repo: options.repo,
-            workspace: options.workspace,
+            workspace: options["upstream-repo"],
             backend: options.backend,
             json: options.json,
           };
@@ -231,14 +240,17 @@ export function createStatusCommand(): Command {
           const status = await getTaskStatusFromParams(params);
 
           // Format and display the result
-          outputResult({ taskId, status }, {
-            json: options.json,
-            formatter: (result) => {
-              // Normalize the ID for display to ensure consistent formatting
-              const displayId = normalizeTaskId(result.taskId) || result.taskId;
-              log.cli(`Status of task ${displayId}: ${result.status}`);
+          outputResult(
+            { taskId, status },
+            {
+              json: options.json,
+              formatter: (result) => {
+                // Normalize the ID for display to ensure consistent formatting
+                const displayId = normalizeTaskId(result.taskId) || result.taskId;
+                log.cli(`Status of task ${displayId}: ${result.status}`);
+              },
             }
-          });
+          );
         } catch (error) {
           handleCliError(error);
         }
@@ -252,9 +264,12 @@ export function createStatusCommand(): Command {
     .argument("<task-id>", "ID of the task")
     // The linter error for TASK_STATUS here seems incorrect, Object.values(TASK_STATUS) is a valid value usage.
     .argument("[status]", `New status for the task (${Object.values(TASK_STATUS).join(" | ")})`)
-    .option("--session <session>", "Session name to use for repo resolution")
-    .option("--repo <repoPath>", "Path to a git repository (overrides session)")
-    .option("--workspace <workspacePath>", "Path to main workspace (overrides repo and session)")
+    .option("--session <session>", "Session name to use for repository resolution")
+    .option("--repo <repositoryUri>", "Repository URI (overrides session)")
+    .option(
+      "--upstream-repo <upstreamRepoUri>",
+      "URI of the upstream repository (overrides repo and session)"
+    )
     .option("-b, --backend <backend>", "Specify task backend (markdown, github)")
     .option("--json", "Output confirmation as JSON") // Added for consistency, might not be used by domain
     .action(
@@ -264,7 +279,7 @@ export function createStatusCommand(): Command {
         options: {
           session?: string;
           repo?: string;
-          workspace?: string;
+          "upstream-repo"?: string;
           backend?: string;
           json?: boolean;
         }
@@ -284,7 +299,7 @@ export function createStatusCommand(): Command {
               taskId,
               session: options.session,
               repo: options.repo,
-              workspace: options.workspace,
+              workspace: options["upstream-repo"],
               backend: options.backend,
               json: false,
             };
@@ -331,7 +346,7 @@ export function createStatusCommand(): Command {
             status: status as z.infer<typeof taskStatusSchema>, // Cast to the specific string literal type for the domain
             session: options.session,
             repo: options.repo,
-            workspace: options.workspace,
+            workspace: options["upstream-repo"],
             backend: options.backend,
             json: options.json,
           };
@@ -352,7 +367,7 @@ export function createStatusCommand(): Command {
                 // Normalize the ID for display to ensure consistent formatting
                 const displayId = normalizeTaskId(result.taskId) || result.taskId;
                 log.cli(`Status of task ${displayId} set to ${result.status}`);
-              }
+              },
             }
           );
         } catch (error) {
@@ -390,11 +405,11 @@ export function createCreateCommand(): Command {
           const task = await createTaskFromParams(params); // Corrected domain function call
 
           outputResult(task, {
-            json: options.json, 
+            json: options.json,
             formatter: (task) => {
               log.cli(`Task ${task.id} created: ${task.title}`);
               p.note(task.specPath, "Specification file");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);

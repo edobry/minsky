@@ -84,8 +84,8 @@ async function mergePrFromParams(params: {
 export function createSummaryCommand(): Command {
   return new Command("summary")
     .description("Generate PR description summary")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--branch <branch>", "Branch to compare against (defaults to main/master)")
+    .option("--repo <repositoryUri>", "Repository URI")
+    .option("--branch <branch>", "Branch to compare against (defaults to upstream branch)")
     .option("--debug", "Enable debug output")
     .option("--session <session>", "Session to create PR for")
     .option("--json", "Output as JSON")
@@ -147,7 +147,7 @@ export function createSummaryCommand(): Command {
                   `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
                 );
               }
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -162,8 +162,8 @@ export function createSummaryCommand(): Command {
 export function createPreparePrCommand(): Command {
   return new Command("prepare-pr")
     .description("Prepare a PR branch with a merge commit")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--base <branch>", "Base branch for PR (defaults to main)")
+    .option("--repo <repositoryUri>", "Repository URI")
+    .option("--base <branch>", "Base branch for PR (defaults to upstream branch)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
     .option("--body <body>", "PR body (if not provided, will be generated)")
     .option("--debug", "Enable debug output")
@@ -200,7 +200,7 @@ export function createPreparePrCommand(): Command {
               log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
               log.cli(`PR branch pushed to origin/${result.prBranch}`);
               log.cli("PR is ready for review");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -216,7 +216,7 @@ export function createMergePrCommand(): Command {
   return new Command("merge-pr")
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
-    .option("--repo <path>", "Path to the git repository")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--base <branch>", "Base branch to merge into (defaults to main)")
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
@@ -251,7 +251,7 @@ export function createMergePrCommand(): Command {
               log.cli(`Merge date: ${result.mergeDate}`);
               log.cli(`Merged by: ${result.mergedBy}`);
               log.cli(`PR branch ${result.prBranch} deleted from remote`);
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -309,7 +309,7 @@ export function createCommitCommand(): Command {
             formatter: (result) => {
               log.cli(`Committed changes with message: ${result.message}`);
               log.cli(`Commit hash: ${result.commitHash}`);
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -353,7 +353,7 @@ export function createPushCommand(): Command {
             json: options.json,
             formatter: () => {
               log.cli("Successfully pushed changes to remote.");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);

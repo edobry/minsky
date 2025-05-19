@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #099: Implement Environment-Aware Logging
+  - Added environment-aware logging system with HUMAN and STRUCTURED modes
+  - Implemented automatic detection of terminal environments to set appropriate logging mode
+  - Added MINSKY_LOG_MODE environment variable for explicit mode control
+  - Added ENABLE_AGENT_LOGS flag to enable JSON logs in HUMAN mode if needed
+  - Updated error handling to prevent double-logging
+  - Modified CLI adapters to use appropriate logging methods based on mode
+  - Created comprehensive documentation in docs/logging.md
+  - Added tests for the logging mode detection logic
+
+_See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.specstory/history/2025-05-19_implement-environment-aware-logging.md) for logging implementation._
+
 - Task #052: Add Remaining Task Management Commands to MCP
   - Added the following new task management commands to the MCP server:
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
@@ -162,12 +174,14 @@ _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-me
 
 ### Fixed
 
-- Improved error handling in session start command to display cleaner, less verbose error messages
+- Fixed "paths[1]" property error in session start command by improving clone result handling:
 
-  - Changed error logging level for verbose session error details from error to debug
-  - Updated CLI adapter to show only essential error messages to the user
-  - Prevented unnecessary stack traces and JSON output in terminal
-  - Maintained detailed logging for debugging purposes
+  - Enhanced the SessionDB.getRepoPath method to safely handle different result formats
+  - Fixed cases where workdir property was accessed incorrectly
+  - Added better error handling with clear error messages for debugging
+  - Improved the interface between GitService.clone and session management
+
+- Improved error handling in session start command to display cleaner, less verbose error messages
 
 - Fixed `git prepare-pr` command by implementing the missing `preparePrFromParams` function in the domain layer
 
@@ -253,6 +267,7 @@ _See: This task was implemented as part of Task #014._
   - Restored ability to use tasks status set command
 
 ### Changed
+
 - Updated README-MCP.md to remove documentation for unimplemented task commands (tasks.filter, tasks.update, tasks.delete, tasks.info) and moved them to the "Planned Features" section
 - Removed test blocks for unimplemented task command features in MCP integration tests
 - Identified missing MCP adapters for init and rules commands
@@ -261,15 +276,17 @@ _See: This task was implemented as part of Task #014._
 - Standardized Repository URI handling with new repository-uri.ts module
   - Support for HTTPS URLs, SSH URLs, file:// URIs, local paths, and GitHub shorthand notation
   - URI parsing, normalization, validation, and conversion
-  - Full test coverage 
+  - Full test coverage
 
 ### Changed
+
 - Updated repository backends (GitHub, Remote, Local) to use the new URI handling system
 - Improved repository name normalization with better error handling
 - Repository URI detection and validation
 - Removed deprecated normalizeRepoName function in favor of normalizeRepositoryURI
 
 ### Fixed
+
 - Inconsistent handling of repository references
 - Confusion between file paths and URLs in repository references
 
