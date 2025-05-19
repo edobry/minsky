@@ -127,7 +127,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Migrate CLI adapter tests to test domain methods instead [#085](process/tasks/085-migrate-cli-adapter-tests-to-test-domain-methods-instead.md)
 
-- [ ] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
+- [-] Formalize Core Minsky Concepts and Relationships [#086](process/tasks/086-formalize-core-minsky-concepts-and-relationships.md)
 
 - [ ] Implement Unified Session and Repository Resolution [#087](process/tasks/087-implement-unified-session-and-repository-resolution.md)
 
@@ -138,3 +138,7 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
 - [ ] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+
+- [ ] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
+
+- [ ] Implement Consistent CLI Error Handling Across All Commands [#093](process/tasks/093-implement-consistent-cli-error-handling-across-all-commands.md)
