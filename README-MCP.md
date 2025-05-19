@@ -40,6 +40,10 @@ The Minsky MCP server exposes the following tools:
 - `tasks.status.get`: Get the status of a task
 - `tasks.status.set`: Set the status of a task
 - `tasks.create`: Create a new task from a specification
+- `tasks.filter`: Filter tasks with advanced filtering options
+- `tasks.update`: Update a task's details
+- `tasks.delete`: Delete a task
+- `tasks.info`: Get statistical information about tasks
 
 ### Session Management
 
@@ -49,6 +53,45 @@ The Minsky MCP server exposes the following tools:
   - Supports repository backend options (see below)
 - `session.commit`: Commit changes in a session
 - `session.push`: Push changes in a session
+
+### Git Operations
+
+- `git.clone`: Clone a repository
+  - Parameters: 
+    - `url`: URL of the Git repository to clone (required)
+    - `session`: Session identifier for the clone (optional)
+    - `destination`: Target directory for the clone (optional)
+    - `branch`: Branch to checkout after cloning (optional)
+
+- `git.branch`: Create a branch in a repository
+  - Parameters:
+    - `session`: Session to create branch in (required)
+    - `name`: Name of the branch to create (required)
+
+- `git.commit`: Commit changes
+  - Parameters:
+    - `message`: Commit message (required)
+    - `session`: Session to commit changes for (optional)
+    - `repo`: Path to the repository (optional)
+    - `amend`: Amend the previous commit (optional)
+    - `all`: Stage all changes (optional)
+    - `noStage`: Skip staging changes (optional)
+
+- `git.push`: Push changes to a remote repository
+  - Parameters:
+    - `session`: Session to push changes for (optional)
+    - `repo`: Path to the repository (optional)
+    - `remote`: Remote to push to (defaults to origin) (optional)
+    - `force`: Force push (use with caution) (optional)
+
+- `git.pr`: Create a pull request
+  - Parameters:
+    - `session`: Session to create PR from (optional)
+    - `repo`: Path to the repository (optional)
+    - `branch`: Branch to create PR for (optional)
+    - `taskId`: Task ID associated with this PR (optional)
+    - `debug`: Enable debug logging (optional)
+    - `noStatusUpdate`: Skip updating task status (optional)
 
 ### Repository Backend Support
 
@@ -114,6 +157,208 @@ Here's an example of how to use the Minsky MCP server with Claude's MCP integrat
    ```
    @minsky tasks.list
    ```
+
+## Task Command Reference
+
+### tasks.list
+
+Lists all tasks with basic filtering options.
+
+**Parameters**:
+- `filter` (optional): Filter tasks by status
+- `all` (optional): Include completed tasks (default: false)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.list",
+  "params": {
+    "filter": "IN-PROGRESS",
+    "all": false
+  }
+}
+```
+
+### tasks.get
+
+Get details for a specific task by ID.
+
+**Parameters**:
+- `taskId`: ID of the task to retrieve
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.get",
+  "params": {
+    "taskId": "052"
+  }
+}
+```
+
+### tasks.status.get
+
+Get the status of a specific task.
+
+**Parameters**:
+- `taskId`: ID of the task
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.status.get",
+  "params": {
+    "taskId": "052"
+  }
+}
+```
+
+### tasks.status.set
+
+Set the status of a specific task.
+
+**Parameters**:
+- `taskId`: ID of the task
+- `status`: New status for the task (TODO, IN-PROGRESS, IN-REVIEW, DONE)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.status.set",
+  "params": {
+    "taskId": "052",
+    "status": "IN-PROGRESS"
+  }
+}
+```
+
+### tasks.create
+
+Create a new task from a specification file.
+
+**Parameters**:
+- `specPath`: Path to the task specification file
+- `force` (optional): Force creation even if task already exists (default: false)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.create",
+  "params": {
+    "specPath": "process/tasks/new-task-spec.md",
+    "force": false
+  }
+}
+```
+
+### tasks.filter
+
+Filter tasks with advanced filtering and sorting options.
+
+**Parameters**:
+- `status` (optional): Filter tasks by status
+- `title` (optional): Filter tasks by title (partial match)
+- `id` (optional): Filter tasks by ID or ID pattern
+- `limit` (optional): Limit the number of tasks returned
+- `sortBy` (optional): Sort tasks by field (id, title, status, created)
+- `sortDirection` (optional): Sort direction (asc, desc)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.filter",
+  "params": {
+    "status": "IN-PROGRESS",
+    "title": "mcp",
+    "sortBy": "id",
+    "sortDirection": "desc",
+    "limit": 5
+  }
+}
+```
+
+### tasks.update
+
+Update a task's details.
+
+**Parameters**:
+- `taskId`: ID of the task to update
+- `title` (optional): New title for the task
+- `description` (optional): New description for the task
+- `status` (optional): New status for the task (TODO, IN-PROGRESS, IN-REVIEW, DONE)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.update",
+  "params": {
+    "taskId": "052",
+    "title": "Updated Task Title",
+    "status": "IN-PROGRESS"
+  }
+}
+```
+
+### tasks.delete
+
+Delete a task.
+
+**Parameters**:
+- `taskId`: ID of the task to delete
+- `force` (optional): Force deletion even if task has associated sessions (default: false)
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.delete",
+  "params": {
+    "taskId": "099",
+    "force": true
+  }
+}
+```
+
+### tasks.info
+
+Get statistical information about tasks.
+
+**Parameters**:
+- `groupBy` (optional): Group tasks by field (status, none)
+- `countOnly` (optional): Only return counts, not task details (default: false)
+- `filter` (optional): Filter tasks by status before aggregating info
+- `backend` (optional): Task backend to use (markdown, github)
+
+**Example**:
+```json
+{
+  "name": "tasks.info",
+  "params": {
+    "groupBy": "status",
+    "countOnly": true
+  }
+}
+```
+
+**Response Example**:
+```json
+{
+  "total": 42,
+  "byStatus": {
+    "TODO": 15,
+    "IN-PROGRESS": 8,
+    "IN-REVIEW": 4,
+    "DONE": 15
+  }
+}
+```
 
 ### Programmatic Usage with FastMCP Client
 
