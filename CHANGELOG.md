@@ -6,6 +6,13 @@
 
 ### Added
 
+- Task #095: Fix git prepare-pr Branch Naming Issues
+
+  - Will improve the `git prepare-pr` command to consistently use the git branch name for PR branch naming
+  - Will ensure PR branch names are always in the format `pr/<current-git-branch-name>` regardless of title parameter
+  - Will maintain separation between branch naming (from git) and commit messages (from title parameter)
+  - Will enhance documentation to clarify PR branch naming behavior
+
 - Task #094: Implement Google Tasks Backend
   - Will implement a Google Tasks backend for the Minsky task management system
   - Will provide integration with Google's task management API
