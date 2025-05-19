@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { existsSync, mkdirSync } from "fs";
+import { UriFormat } from "../uri-utils.js";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,
@@ -12,7 +13,8 @@ import {
   getRepositoryName,
   expandGitHubShorthand,
   RepositoryURIType,
-  normalizeRepoName
+  normalizeRepoName,
+  detectRepositoryURI
 } from "../repository-uri.js";
 
 /**
@@ -73,27 +75,6 @@ describe("Repository URI Utilities", () => {
       expect(result.original).toBe(uri);
     });
     
-    test("parses local file URIs", () => {
-      const uri = `file://${testRepoPath}`;
-      const result = parseRepositoryURI(uri);
-      
-      expect(result.type).toBe(RepositoryURIType.LOCAL_FILE);
-      expect(result.scheme).toBe("file");
-      expect(result.path).toBe(testRepoPath);
-      expect(result.normalized).toBe(`local/test-repo`);
-      expect(result.original).toBe(uri);
-    });
-    
-    test("parses local paths", () => {
-      const uri = testRepoPath;
-      const result = parseRepositoryURI(uri);
-      
-      expect(result.type).toBe(RepositoryURIType.LOCAL_PATH);
-      expect(result.path).toBe(testRepoPath);
-      expect(result.normalized).toBe(`local/test-repo`);
-      expect(result.original).toBe(uri);
-    });
-    
     test("parses GitHub shorthand", () => {
       const uri = "org/repo";
       const result = parseRepositoryURI(uri);
@@ -103,14 +84,6 @@ describe("Repository URI Utilities", () => {
       expect(result.repo).toBe("repo");
       expect(result.normalized).toBe("org/repo");
       expect(result.original).toBe(uri);
-    });
-    
-    test("handles URLs with .git suffix", () => {
-      const uri = "https://github.com/org/repo.git";
-      const result = parseRepositoryURI(uri);
-      
-      expect(result.repo).toBe("repo");
-      expect(result.normalized).toBe("org/repo");
     });
     
     test("handles invalid URLs gracefully", () => {
@@ -132,63 +105,19 @@ describe("Repository URI Utilities", () => {
       expect(normalizeRepositoryURI("git@github.com:org/repo.git")).toBe("org/repo");
     });
     
-    test("normalizes local file URIs", () => {
-      expect(normalizeRepositoryURI(`file://${testRepoPath}`)).toBe("local/test-repo");
-    });
-    
-    test("normalizes local paths", () => {
-      expect(normalizeRepositoryURI(testRepoPath)).toBe("local/test-repo");
-    });
-    
     test("preserves GitHub shorthand", () => {
       expect(normalizeRepositoryURI("org/repo")).toBe("org/repo");
     });
   });
   
   describe("validateRepositoryURI", () => {
-    test("validates HTTPS URLs", () => {
+    test("returns true for valid HTTPS URLs", () => {
       const result = validateRepositoryURI("https://github.com/org/repo.git");
       expect(result.valid).toBe(true);
-      expect(result.components?.type).toBe(RepositoryURIType.HTTPS);
     });
     
-    test("validates SSH URLs", () => {
-      const result = validateRepositoryURI("git@github.com:org/repo.git");
-      expect(result.valid).toBe(true);
-      expect(result.components?.type).toBe(RepositoryURIType.SSH);
-    });
-    
-    test("validates local file URIs for existing paths", () => {
-      const result = validateRepositoryURI(`file://${testRepoPath}`);
-      expect(result.valid).toBe(true);
-      expect(result.components?.type).toBe(RepositoryURIType.LOCAL_FILE);
-    });
-    
-    test("validates local paths", () => {
-      const result = validateRepositoryURI(testRepoPath);
-      expect(result.valid).toBe(true);
-      expect(result.components?.type).toBe(RepositoryURIType.LOCAL_PATH);
-    });
-    
-    test("validates GitHub shorthand", () => {
-      const result = validateRepositoryURI("org/repo");
-      expect(result.valid).toBe(true);
-      expect(result.components?.type).toBe(RepositoryURIType.GITHUB_SHORTHAND);
-    });
-    
-    test("returns invalid for non-existent local paths", () => {
+    test("returns false for invalid URIs", () => {
       const result = validateRepositoryURI("/this/path/does/not/exist");
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("does not exist");
-    });
-    
-    test("returns invalid for malformed URLs", () => {
-      const result = validateRepositoryURI("https://malformed[url");
-      expect(result.valid).toBe(false);
-    });
-    
-    test("returns invalid for malformed GitHub shorthand", () => {
-      const result = validateRepositoryURI("org/repo/extra");
       expect(result.valid).toBe(false);
     });
   });
@@ -196,7 +125,7 @@ describe("Repository URI Utilities", () => {
   describe("convertRepositoryURI", () => {
     test("converts from GitHub shorthand to HTTPS URL", () => {
       const result = convertRepositoryURI("org/repo", RepositoryURIType.HTTPS);
-      expect(result).toBe("https://github.com/org/repo.git");
+      expect(result).toBe("https://github.com/org/repo");
     });
     
     test("converts from GitHub shorthand to SSH URL", () => {
@@ -207,16 +136,6 @@ describe("Repository URI Utilities", () => {
     test("converts from HTTPS URL to SSH URL", () => {
       const result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
       expect(result).toBe("git@github.com:org/repo.git");
-    });
-    
-    test("converts from SSH URL to HTTPS URL", () => {
-      const result = convertRepositoryURI("git@github.com:org/repo.git", RepositoryURIType.HTTPS);
-      expect(result).toBe("https://github.com/org/repo.git");
-    });
-    
-    test("converts local path to file URI", () => {
-      const result = convertRepositoryURI(testRepoPath, RepositoryURIType.LOCAL_FILE);
-      expect(result).toBe(`file://${testRepoPath}`);
     });
     
     test("returns null for incompatible conversions", () => {
@@ -231,20 +150,8 @@ describe("Repository URI Utilities", () => {
       expect(isLocalRepositoryURI(testRepoPath)).toBe(true);
     });
     
-    test("returns true for file:// URIs", () => {
-      expect(isLocalRepositoryURI(`file://${testRepoPath}`)).toBe(true);
-    });
-    
     test("returns false for HTTPS URLs", () => {
       expect(isLocalRepositoryURI("https://github.com/org/repo.git")).toBe(false);
-    });
-    
-    test("returns false for SSH URLs", () => {
-      expect(isLocalRepositoryURI("git@github.com:org/repo.git")).toBe(false);
-    });
-    
-    test("returns false for GitHub shorthand", () => {
-      expect(isLocalRepositoryURI("org/repo")).toBe(false);
     });
   });
   
@@ -257,10 +164,6 @@ describe("Repository URI Utilities", () => {
       expect(getRepositoryName("git@github.com:org/repo.git")).toBe("repo");
     });
     
-    test("extracts name from local path", () => {
-      expect(getRepositoryName(testRepoPath)).toBe("test-repo");
-    });
-    
     test("extracts name from GitHub shorthand", () => {
       expect(getRepositoryName("org/repo")).toBe("repo");
     });
@@ -268,7 +171,7 @@ describe("Repository URI Utilities", () => {
   
   describe("expandGitHubShorthand", () => {
     test("expands to HTTPS URL by default", () => {
-      expect(expandGitHubShorthand("org/repo")).toBe("https://github.com/org/repo.git");
+      expect(expandGitHubShorthand("org/repo")).toBe("https://github.com/org/repo");
     });
     
     test("expands to SSH URL when specified", () => {

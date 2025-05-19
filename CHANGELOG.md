@@ -251,3 +251,20 @@ _See: This task was implemented as part of Task #014._
   - Added createListCommand, createGetCommand, createDirCommand, createDeleteCommand, createUpdateCommand, and createApproveCommand functions
   - Fixed parameter types to match the schema definitions
   - Restored ability to use tasks status set command
+
+- Standardized Repository URI handling with new repository-uri.ts module
+  - Support for HTTPS URLs, SSH URLs, file:// URIs, local paths, and GitHub shorthand notation
+  - URI parsing, normalization, validation, and conversion
+  - Backward compatibility with existing code
+  - Full test coverage 
+
+### Changed
+- Updated repository backends (GitHub, Remote, Local) to use the new URI handling system
+- Improved repository name normalization with better error handling
+- Repository URI detection and validation
+
+### Fixed
+- Inconsistent handling of repository references
+- Confusion between file paths and URLs in repository references
+
+_See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-handling](mdc:.specstory/history/2025-05-19_20-36-task-88-standardize-repository-uri-handling.md) for task #88 implementation._

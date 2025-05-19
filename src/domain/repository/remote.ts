@@ -3,7 +3,7 @@ import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "../session.js";
-import { normalizeRepoName } from "../repo-utils.js";
+import { normalizeRepositoryURI } from "../repository-uri.js";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -51,7 +51,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       throw new Error("Repository URL is required for Remote Git backend");
     }
 
-    this.repoName = normalizeRepoName(this.repoUrl);
+    this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = new SessionDB();
   }
 
