@@ -187,7 +187,6 @@ export async function createRepositoryBackend(
           return await gitService.clone({
             repoUrl: config.url || "",
             session,
-            backend: "github",
             github: {
               token: (config as GitHubConfig).token,
               owner: (config as GitHubConfig).owner,
@@ -289,8 +288,7 @@ export async function createRepositoryBackend(
           
           await gitService.push({
             session,
-            repoPath: workdir,
-            branch
+            repoPath: workdir
           });
         },
         

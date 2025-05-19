@@ -195,9 +195,10 @@ export class RemoteGitBackend implements RepositoryBackend {
         behind,
         dirty,
         remotes,
-        // Include any additional information as needed
         workdir,
         defaultBranch: this.defaultBranch,
+        clean: !dirty,
+        changes: [],
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

@@ -109,8 +109,7 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService's clone method to delegate credential handling to Git
       const result = await this.gitService.clone({
         repoUrl: this.repoUrl,
-        session,
-        backend: "github"
+        session
       });
 
       return {
