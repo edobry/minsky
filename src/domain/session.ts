@@ -471,7 +471,6 @@ export async function startSessionFromParams(
   try {
     log.debug("Starting session with params", {
       name,
-      repoUrl,
       task,
       inputBranch,
       noStatusUpdate,
@@ -590,31 +589,17 @@ export async function startSessionFromParams(
     await deps.sessionDB.addSession(sessionRecord);
     log.debug("Added session to database");
 
-    const cloneOptions = {
+    // Now clone the repo
+    const gitCloneResult = await deps.gitService.clone({
       repoUrl,
-      sessionName,
-      workdir: repoPath,
-      branch: actualBranchName,
-      depth: 1,
+      session: sessionName,
+    });
+    
+    // Convert to our interface
+    const cloneResult = {
+      repoPath: gitCloneResult.workdir,
+      success: true
     };
-
-    log.debug("Starting git clone operation", { cloneOptions });
-    try {
-      const cloneResult = await deps.gitService.clone({
-        ...cloneOptions,
-        session: sessionName,
-      });
-      log.debug("Git clone completed successfully", { cloneResult });
-    } catch (error) {
-      log.error("Git clone failed", {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-        cloneOptions,
-      });
-      throw new MinskyError(
-        `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
 
     let statusUpdateResult;
     if (taskId && !noStatusUpdate) {
@@ -727,11 +712,11 @@ export async function updateSessionFromParams(
     await deps.gitService.popStash(sessionWorkDir);
   }
 
+  // Push changes if needed
   if (!params.noPush) {
     await deps.gitService.push({
-      session: sessionName,
       repoPath: sessionWorkDir,
-      remote: inputRemote,
+      remote: inputRemote || "origin"
     });
   }
 
@@ -1133,6 +1118,6 @@ export async function resolveSession(
     workspacePath,
     taskId: sessionRecord.taskId,
     createdAt: sessionRecord.createdAt,
-    backendType: sessionRecord.backendType
+    backendType: sessionRecord.backendType as "local" | "remote" | "github" | undefined
   };
 }
