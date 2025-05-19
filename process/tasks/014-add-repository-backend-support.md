@@ -183,23 +183,35 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 - 2025-05-16: Implemented missing interfaces in git.ts for better type safety
 - 2025-05-16: Implemented proper push and pull methods for RemoteGitBackend
 - 2025-05-16: Added robust configuration validation in repository backend factory
+- 2025-05-16: Updated CHANGELOG.md with repository backend support changes
+- 2025-05-16: Enhanced type safety across all repository implementation files
 
 ## Remaining Work
 
-1. **Session Integration**
+1. **Repository Configuration System**
+
+   - Create a global configuration system to store default settings for repository backends
+   - Support configuration at different scopes: global, per-repository, per-session
+   - Store settings for:
+     - Authentication methods (SSH, HTTPS, token)
+     - Connection settings (timeout, retry attempts)
+     - Clone settings (depth, branch naming patterns)
+     - Default repository URLs
+   - Implement configuration API for reading and applying configuration values
+   - Integrate with `minsky init` to detect and set up repository configs
+   - Create a dedicated command for updating repository configuration
+
+2. **Session Integration**
 
    - Test end-to-end workflows with different repository backends
    - Add proper error handling for backend-specific failures
    - Test authentication methods with remote repositories
-
-2. **Configuration**
-
-   - Add global configuration options for each backend type in Minsky config
-   - Document configuration process in README
+   - Create example workflows for different repository backend scenarios
 
 3. **Fix Linting Errors**
 
-   - Resolve remaining import extension issues in repository implementations
+   - Fix the import extension issue in index.ts (`./RepositoryBackend.ts` → `./RepositoryBackend`)
+   - Fix parameter typing in git.ts for the dependency injection methods
    - Address string quote style issues in updated files (doublequote vs singlequote)
    - Fix property typing issues with SessionRecord interface
 
@@ -212,5 +224,6 @@ Currently, Minsky implicitly uses a local git repository as its backend for sess
 
 5. **Documentation**
    - Add comprehensive documentation for all backend types
-   - Include examples for common use cases
-   - Document configuration and setup requirements
+   - Include examples for common use cases (local, GitHub, remote)
+   - Document configuration system and setup requirements
+   - Create user guides for working with different repository types
