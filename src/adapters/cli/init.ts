@@ -15,8 +15,8 @@ import { handleCliError, outputResult } from "./utils/index.js";
 export function createInitCommand(): Command {
   return new Command("init")
     .description("Initialize a project for Minsky")
-    .option("-r, --repo <path>", "Repository path (defaults to current directory)")
-    .option("-s, --session <n>", "Session name to get repo path from")
+    .option("-r, --repo <repositoryUri>", "Repository URI (defaults to current directory)")
+    .option("-s, --session <n>", "Session name to get repository URI from")
     .option("-b, --backend <type>", "Task backend type (tasks.md or tasks.csv)")
     .option("-f, --rule-format <format>", "Rule format (cursor or generic)")
     .option("--mcp <boolean>", "Enable/disable MCP configuration (default: true)")

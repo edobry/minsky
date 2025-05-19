@@ -216,8 +216,8 @@ export function createMergePrCommand(): Command {
   return new Command("merge-pr")
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
-    .option("--repo <path>", "Path to the git repository")
-    .option("--base <branch>", "Base branch to merge into (defaults to main)")
+    .option("--repo <repositoryUri>", "Repository URI")
+    .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)")
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
     .action(
@@ -268,7 +268,7 @@ export function createCommitCommand(): Command {
     .description("Commit changes")
     .requiredOption("-m, --message <message>", "Commit message")
     .option("--session <session>", "Session to commit in")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--push", "Push changes after committing")
     .option("--all", "Stage all files")
     .option("--amend", "Amend the previous commit")
@@ -309,7 +309,7 @@ export function createCommitCommand(): Command {
             formatter: (result) => {
               log.cli(`Committed changes with message: ${result.message}`);
               log.cli(`Commit hash: ${result.commitHash}`);
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -326,7 +326,7 @@ export function createPushCommand(): Command {
   return new Command("push")
     .description("Push changes to remote")
     .option("--session <session>", "Session to push in")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--remote <remote>", "Remote to push to (defaults to origin)")
     .option("--force", "Force push (use with caution)")
     .option("--json", "Output as JSON")
@@ -353,7 +353,7 @@ export function createPushCommand(): Command {
             json: options.json,
             formatter: () => {
               log.cli("Successfully pushed changes to remote.");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);

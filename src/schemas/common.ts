@@ -21,8 +21,8 @@ export const pathSchema = z
  */
 export const repoPathSchema = z
   .string()
-  .min(1, "Repository path cannot be empty")
-  .describe("Path to a Git repository");
+  .min(1, "Repository URI cannot be empty")
+  .describe("Repository URI");
 
 /**
  * Schema for session names
@@ -55,8 +55,8 @@ export const commonCommandOptionsSchema = z
   .object({
     json: jsonOutputSchema,
     session: sessionNameSchema.optional().describe("Session name to use"),
-    repo: repoPathSchema.optional().describe("Git repository path"),
-    workspace: pathSchema.optional().describe("Workspace path"),
+    repo: repoPathSchema.optional().describe("Repository URI"),
+    workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
   })
   .partial();
@@ -78,8 +78,8 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  */
 export const commonRepoSchema = z.object({
   session: sessionSchema.optional().describe("Session name"),
-  repo: z.string().optional().describe("Path to a git repository"),
-  workspace: z.string().optional().describe("Path to main workspace"),
+  repo: z.string().optional().describe("Repository URI"),
+  workspace: z.string().optional().describe("URI of the upstream repository"),
   json: z.boolean().optional().describe("Return output as JSON"),
 });
 
