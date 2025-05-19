@@ -154,9 +154,10 @@ export function createStartCommand(): Command {
         }
       } catch (error) {
         if (error instanceof MinskyError) {
+          // Only show the error message without the full JSON or stack trace
           console.error(`Error: ${error.message}`);
         } else {
-          console.error(`Unexpected error: ${error}`);
+          console.error(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
         }
         process.exit(1);
       }

@@ -3,13 +3,18 @@ name: PR Preparation Workflow
 description: REQUIRED workflow for preparing and submitting pull requests including the git approve command for PR merging
 globs:
   - "**/*.md"
-  - "**/*.ts"
-  - "**/*.js"
-alwaysApply: true
----
 # PR Preparation Workflow
 
 This rule provides guidelines for preparing and submitting pull requests (PRs) in the Minsky workflow.
+
+name: PR Preparation Workflow
+description: REQUIRED workflow for preparing and submitting pull requests including the git approve command for PR merging
+globs:
+  - "**/*.md"
+name: PR Preparation Workflow
+description: REQUIRED workflow for preparing and submitting pull requests including the git approve command for PR merging
+globs:
+  - "**/*.md"
 
 ## PR Creation Process
 
@@ -27,13 +32,13 @@ Before creating a PR, ensure:
 Use the Minsky CLI to generate a PR description:
 
 ```bash
-minsky git pr --task <task-id>
+minsky git summary --task <task-id>
 ```
 
 or if you're already in a session:
 
 ```bash
-minsky git pr
+minsky git summary
 ```
 
 ### 3. Save PR Description
@@ -41,14 +46,14 @@ minsky git pr
 Save the generated PR description to the task directory:
 
 ```bash
-minsky git pr > process/tasks/<task-id>/pr.md
+minsky git summary > process/tasks/<task-id>/pr.md
 ```
 
 or more simply:
 
 ```bash
 mkdir -p process/tasks/<task-id>
-minsky git pr > process/tasks/<task-id>/pr.md
+minsky git summary > process/tasks/<task-id>/pr.md
 ```
 
 ### 4. Edit PR Description
@@ -61,7 +66,37 @@ Edit the PR description to:
 4. **Explain any decisions**: Document any important design decisions or trade-offs
 5. **Include testing information**: Describe how the changes were tested
 
-### 5. Commit PR Description
+### 5. Prepare PR Branch
+
+Use the appropriate command to create a PR branch with a prepared merge commit:
+
+**When working in a session context** (almost always the case):
+
+```bash
+minsky session pr
+```
+
+This is the **preferred command** for session-based work as it:
+- Automatically uses the current session context
+- Creates a properly formatted PR branch (`pr/<session-name>`)
+- Creates a merge commit that embeds the PR title and description from your pr.md file
+- Handles all the branch creation and push operations in one command
+
+**Only when working outside a session context** (rare):
+
+```bash
+minsky git prepare-pr --session <session-name> --title "<PR title>"
+```
+
+This lower-level command requires more explicit parameters and should only be used when you're not already in a session workspace.
+
+Both commands will:
+- Create a new PR branch named `pr/<session-name>` off the latest main branch
+- Merge your feature branch into the PR branch with a non-fast-forward merge (preserving your commit history)
+- Embed the PR description in the merge commit message (important for history preservation)
+- Push the PR branch to the remote for review
+
+### 6. Commit PR Description
 
 Commit the PR description to your branch:
 
@@ -71,7 +106,7 @@ git commit -m "Add PR description for task #<task-id>"
 git push origin $(git branch --show-current)
 ```
 
-### 6. Update Task Status
+### 7. Update Task Status
 
 Update the task status to IN-REVIEW:
 
@@ -79,7 +114,51 @@ Update the task status to IN-REVIEW:
 minsky tasks status set <task-id> IN-REVIEW
 ```
 
-This can happen automatically when using `minsky git pr` unless the `--no-status-update` flag is used.
+This can happen automatically when using `minsky git summary` unless the `--no-status-update` flag is used.
+
+## PR Approval and Merging
+
+### 1. PR Review
+
+Before approving a PR:
+
+1. **Review the code changes**: Ensure the code implements all task requirements
+2. **Verify tests are passing**: Check that all tests pass successfully
+3. **Review PR description**: Ensure the PR description accurately describes the changes
+
+### 2. Approve and Merge PR
+
+Use the `minsky session approve` command to approve and merge the PR:
+
+```bash
+minsky session approve --session <session-name>
+```
+
+or if you're working with a specific PR branch:
+
+```bash
+minsky session approve --task <task-id>
+```
+
+This command will:
+1. Merge the PR branch into the main branch using a fast-forward merge
+2. Update the task status to DONE
+3. Record merge metadata (commit hash, date, author) in the task spec
+4. Delete the PR branch
+
+For more granular control, you can use the lower-level `git merge-pr` command:
+
+```bash
+minsky git merge-pr --pr-branch pr/<session-name>
+```
+
+### 3. Verify Merge Success
+
+After running the approve command:
+
+1. **Verify the merge was successful**: Check that the branch was merged into main
+2. **Verify task status is updated**: Ensure the task status is set to DONE
+3. **Verify all related issues are closed**: Check that any related issues are properly closed
 
 ## PR Description Format
 
@@ -140,6 +219,24 @@ Use these types for the PR title:
 4. **Document trade-offs**: Explain any trade-offs or alternative approaches considered
 5. **Include testing information**: Describe how the changes were tested and verified
 
+## PR Approval Best Practices
+
+1. **Thorough code review**: Review all code changes carefully
+2. **Verify test coverage**: Ensure adequate test coverage for the changes
+3. **Validate against requirements**: Verify the implementation meets all task requirements
+4. **Check documentation**: Confirm documentation and changelog updates are complete
+5. **Use the session approve command**: Always use `minsky session approve` to merge PRs
+
+## Error Handling
+
+The PR workflow commands use specific exit codes to indicate common failure conditions:
+
+- `2`: Dirty work-tree (uncommitted changes)
+- `3`: Remote base branch is outdated
+- `4`: Merge conflicts
+
+When encountering these errors, follow the recommended steps in the error message to resolve them.
+
 ## Integration with Other Rules
 
 - For task implementation workflow, see [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc)
@@ -147,4 +244,3 @@ Use these types for the PR title:
 - For session creation and management, see [minsky-session-management](mdc:.cursor/rules/minsky-session-management.mdc)
 - For detailed CLI commands, see [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc)
 - For detailed PR description guidelines, see [pr-description-guidelines](mdc:.cursor/rules/pr-description-guidelines.mdc)
-
