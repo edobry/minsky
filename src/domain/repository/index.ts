@@ -8,11 +8,31 @@
 
 export * from "./RepositoryBackend";
 
-// Import ValidationResult from parent repository.ts file
-import { ValidationResult, RepositoryStatus } from "../repository.js";
+// Import RepositoryStatus but define our own ValidationResult
+import type { RepositoryStatus } from "../repository.js";
 
-// Re-export for backward compatibility
-export { ValidationResult, RepositoryStatus };
+// Re-export RepositoryStatus
+export type { RepositoryStatus };
+
+// Define ValidationResult with compatibility for both interfaces
+export interface ValidationResult {
+  valid: boolean;
+  issues?: string[];
+  success?: boolean;
+  message?: string;
+  error?: Error;
+}
+
+// Define RepoStatus as extending RepositoryStatus for backward compatibility
+export interface RepoStatus extends RepositoryStatus {
+  // Additional fields specific to the original RepoStatus interface
+  branch: string;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  remotes: string[];
+  [key: string]: unknown;
+}
 
 /**
  * Configuration for repository backends
@@ -129,60 +149,18 @@ export interface BranchResult {
   branch: string;
 }
 
-/**
- * Common interface for all repository backends
- */
+// Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
-  /**
-   * Get the backend identifier
-   */
   getType(): string;
-
-  /**
-   * Clone the repository
-   * @param session Session identifier
-   * @returns Clone result
-   */
   clone(session: string): Promise<CloneResult>;
-
-  /**
-   * Create a branch in the repository
-   * @param session Session identifier
-   * @param branch Branch name
-   * @returns Branch result
-   */
   branch(session: string, branch: string): Promise<BranchResult>;
-
-  /**
-   * Get the repository status
-   * @returns Object containing repository status information
-   */
-  getStatus(): Promise<RepositoryStatus>;
-
-  /**
-   * Get the repository path
-   * @param session Session identifier
-   * @returns Full path to the repository
-   */
-  getPath(session?: string): Promise<string>;
-
-  /**
-   * Validate the repository configuration
-   * @returns Promise that resolves with result if the repository is valid, or rejects with an error
-   */
-  validate(): Promise<ValidationResult>;
-
-  /**
-   * Push changes to remote repository
-   * @returns Result of the push operation
-   */
-  push(): Promise<Result>;
-
-  /**
-   * Pull changes from remote repository
-   * @returns Result of the pull operation
-   */
-  pull(): Promise<Result>;
+  getStatus(session?: string): Promise<any>;
+  getPath(session?: string): string | Promise<string>;
+  validate(): Promise<any>;
+  push(branch?: string): Promise<any>;
+  pull(branch?: string): Promise<any>;
+  checkout?(branch: string): Promise<void>;
+  getConfig?(): RepositoryBackendConfig;
 }
 
 /**
