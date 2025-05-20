@@ -14,99 +14,54 @@ const execAsync = promisify(childExec);
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
 /**
- * Interface for Git service operations
- * This defines the contract for Git-related functionality
+ * Interface for git service operations
+ * This defines the contract for git-related functionality
  */
 export interface GitServiceInterface {
   /**
-   * Clone a repository
+   * Clone a repository and set up a session workspace
    */
-  clone(options: CloneOptions): Promise<CloneResult>;
+  clone(options: { repoUrl: string; session: string; branch?: string }): Promise<{ workdir: string; session: string }>;
   
   /**
-   * Create a new branch in a session
+   * Create and checkout a new branch
    */
-  branch(options: BranchOptions): Promise<BranchResult>;
+  branch(options: BranchOptions): Promise<any>;
   
   /**
-   * Generate a pull request from a session
-   */
-  pr(options: PrOptions): Promise<PrResult>;
-  
-  /**
-   * Get the Git status of a repository
-   */
-  getStatus(repoPath?: string): Promise<GitStatus>;
-  
-  /**
-   * Stage all changes in a repository
-   */
-  stageAll(repoPath?: string): Promise<void>;
-  
-  /**
-   * Stage modified files in a repository
-   */
-  stageModified(repoPath?: string): Promise<void>;
-  
-  /**
-   * Commit changes in a repository
-   */
-  commit(message: string, repoPath?: string, amend?: boolean): Promise<string>;
-  
-  /**
-   * Stash changes in a repository
-   */
-  stashChanges(workdir: string): Promise<StashResult>;
-  
-  /**
-   * Pop stashed changes in a repository
-   */
-  popStash(workdir: string): Promise<StashResult>;
-  
-  /**
-   * Pull latest changes from a remote
-   */
-  pullLatest(workdir: string, remote?: string): Promise<PullResult>;
-  
-  /**
-   * Merge a branch into the current branch
-   */
-  mergeBranch(workdir: string, branch: string): Promise<MergeResult>;
-  
-  /**
-   * Push changes to a remote
-   */
-  push(options: PushOptions): Promise<PushResult>;
-  
-  /**
-   * Prepare a pull request
-   */
-  preparePr(options: PreparePrOptions): Promise<PreparePrResult>;
-  
-  /**
-   * Merge a pull request
-   */
-  mergePr(options: MergePrOptions): Promise<MergePrResult>;
-  
-  /**
-   * Fetch the default branch of a repository
-   */
-  fetchDefaultBranch(repoPath: string): Promise<string>;
-  
-  /**
-   * Execute a Git command in a repository
+   * Execute a git command in a repository
    */
   execInRepository(workdir: string, command: string): Promise<string>;
-  
-  /**
-   * Get a session record
-   */
-  getSessionRecord(sessionName: string): Promise<any | undefined>;
   
   /**
    * Get the working directory for a session
    */
   getSessionWorkdir(repoName: string, session: string): string;
+  
+  /**
+   * Stash changes in a repository
+   */
+  stashChanges(repoPath: string): Promise<void>;
+  
+  /**
+   * Pull latest changes from a remote
+   */
+  pullLatest(repoPath: string, remote?: string): Promise<void>;
+  
+  /**
+   * Merge a branch into the current branch
+   */
+  mergeBranch(repoPath: string, branch: string): Promise<{ conflicts: boolean }>;
+  
+  /**
+   * Push changes to a remote
+   */
+  push(options: { repoPath: string; remote?: string }): Promise<void>;
+  
+  /**
+   * Apply stashed changes
+   */
+  popStash(repoPath: string): Promise<void>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
