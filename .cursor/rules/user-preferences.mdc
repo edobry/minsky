@@ -14,3 +14,5 @@ alwaysApply: true
 - **Verify Command Availability and Syntax:** Before attempting to use a command, especially Minsky-specific commands, check command availability with `--help` first rather than assuming command structure.
 
 - **Address All Linter Errors:** Acknowledge all linter errors in files. Attempt to fix straightforward errors, and explicitly state limitations with more complex errors rather than ignoring them.
+
+- **Complete All Requirements Before Finishing:** Never consider a task partially complete. Always implement all requirements listed in the task specification before claiming completion or moving to the PR preparation phase. Systematically verify each requirement against implementation using a comprehensive checklist approach.

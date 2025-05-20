@@ -85,6 +85,34 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
    - Check for linting errors and code quality issues
    - Verify that all task requirements are met
 
+### 4a. Implementation Verification Protocol
+
+1. **Extract Requirements Checklist**:
+   - At the beginning of implementation, extract all deliverables from the task description
+   - Create a clear, itemized checklist in the task document under a "Requirements Checklist" section
+   - Format each item to be easily verifiable (specific and concrete)
+
+2. **Track Implementation Progress**:
+   - Mark requirements as "In Progress" when work begins
+   - Only mark as "Complete" when fully implemented, tested, and documented
+   - Include implementation details with each completed item
+
+3. **Systematic Verification**:
+   - Before proceeding beyond implementation phase, perform a line-by-line comparison:
+     - Original task requirements vs. actual implementation
+     - Check each function, interface, and component mentioned in requirements
+     - Verify modified files against the requirements list
+
+4. **Verification Documentation**:
+   - Document the verification process in the task document
+   - List any gaps or partial implementations explicitly
+   - Record verification timestamp and outcome
+
+5. **Implementation Completeness Sign-off**:
+   - Add a formal "Implementation Completeness" section to the task document
+   - Explicitly state: "All requirements have been fully implemented and verified"
+   - Only proceed to Final Verification after this sign-off
+
 ### 5. Final Verification
 
 1. **Run all tests**:
@@ -145,12 +173,15 @@ Task implementation is not complete until ALL these steps are performed:
 
 1. ✓ All code changes are made in the session directory (not main workspace)
 2. ✓ All tests pass in the session directory
-3. ✓ Task document is updated with Work Log and verification steps
-4. ✓ All changes are committed with task ID in commit message
-5. ✓ Changes are pushed to remote
-6. ✓ Changelog is updated appropriately
-7. ✓ PR description is prepared
-8. ✓ Task status is updated to IN-REVIEW
+3. ✓ All task requirements are systematically verified as complete
+4. ✓ Task document contains Requirements Checklist with all items marked complete
+5. ✓ Task document includes Implementation Completeness sign-off
+6. ✓ Task document is updated with Work Log and verification steps
+7. ✓ All changes are committed with task ID in commit message
+8. ✓ Changes are pushed to remote
+9. ✓ Changelog is updated appropriately
+10. ✓ PR description is prepared
+11. ✓ Task status is updated to IN-REVIEW
 
 ## Integration with Other Rules
 
