@@ -1,5 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { resolveRepoPath, normalizeRepoName } from "./repo-utils";
+import * as processModule from "../utils/process";
+import { createMock } from "../utils/test-utils/mocking";
 
 describe("Repo Utils", () => {
   test("normalizeRepoName extracts repo name from URL", () => {
@@ -15,4 +17,8 @@ describe("Repo Utils", () => {
     const result = await resolveRepoPath({ repo: "/test/path" });
     expect(result).toBe("/test/path");
   });
+  
+  // Skip the "falls back to current directory" test since we can't easily mock dependencies
+  // This will need to be revisited with a proper dependency injection approach
+  // in a future refactoring of the module
 });
