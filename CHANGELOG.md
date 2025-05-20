@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
   - Implemented functions to add common options to Commander commands
   - Created parameter normalization helpers to standardize CLI option handling
+  - Updated task, session, git, and rules commands to use the shared options system
+  - Improved exports in CLI utilities index.ts to properly handle TypeScript types
+
+### Changed
+
+- Refactored CLI command implementations to use shared option utilities
+- Improved error handling with centralized utilities
+
+### Fixed
+
+- Fixed inconsistent option parsing between command modules
+
+### Added
+
+- Task #096: Improve CLI Adapter Structure for Shared Options
+  - Created a shared options system to reduce code duplication and ensure consistency across CLI commands
+  - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
+  - Implemented functions to add common options to Commander commands
+  - Created parameter normalization helpers to standardize CLI option handling
   - Updated task, session, and git commands to use the shared options
   - Implemented consistent pattern for command creation across all CLI adapter files
   - Standardized option descriptions and defaults across the CLI interface
