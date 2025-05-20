@@ -130,6 +130,16 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 
 _See: SpecStory history from task #086 for formalization of core concepts._
 
+- Task #101: Improved Domain Module Testability with Proper Dependency Injection
+  - Added interface-based design with `SessionProviderInterface` and `GitServiceInterface`
+  - Implemented consistent dependency injection pattern across domain functions
+  - Created factory functions for default implementations (`createSessionProvider`, `createGitService`)
+  - Added enhanced test utilities for generating test dependencies
+  - Refactored key functions like `resolveRepoPath` and `approveSessionFromParams` to use DI pattern
+  - Improved test reliability by eliminating type casting and readonly property modifications
+
+_See: SpecStory history [2025-05-20_improve-domain-module-testability](mdc:.specstory/history/2025-05-20_improve-domain-module-testability.md) for implementation details._
+
 - Renamed `git pr` command to `git summary` for clearer separation of concerns
 - Extended TaskService to store merge metadata in task specifications
 - Updated task status to DONE automatically when PRs are merged through session approve
@@ -321,7 +331,7 @@ _See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-han
   - Updated logger documentation with best practices for debug logging
   - Improved auto-detection of terminal environment
 
-- Task #101: Improve Domain Module Testability with Proper Dependency Injection
+- Task #101: Improved Domain Module Testability with Proper Dependency Injection
 
   - Created specifications for implementing interface-based design
   - Planned consistent dependency injection patterns
