@@ -80,11 +80,12 @@ describe("Session Approve Workflow", () => {
     // Verify methods were called with expected parameters
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     
-    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    // Check if the mock functions were called - simpler approach
+    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
+    expect(mockTaskService.setTaskStatus.mock.calls.length).toBeGreaterThan(0);
     
-    // Verify task status was updated
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalled();
-    expect(mockTaskService.setTaskStatus.mock.calls[0]?.[0]).toBe("task025");
+    // Verify task update was called with the right task ID
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("task025", "DONE");
   });
   
   test("throws ValidationError when session parameter is missing", async () => {
@@ -93,48 +94,48 @@ describe("Session Approve Workflow", () => {
       taskService: mockTaskService as unknown as TaskService,
       sessionDB: mockSessionDB as any,
       workspaceUtils: WorkspaceUtils,
-    })).rejects.toThrow(/No session detected/);
+    })).rejects.toThrow("No session detected");
   });
   
   test("throws ResourceNotFoundError when session does not exist", async () => {
-    // Override the getSession mock to return null (session not found)
-    const originalGetSession = mockSessionDB.getSession;
-    mockSessionDB.getSession = createMock(() => Promise.resolve(null));
+    // Create a new mock with different implementation rather than overriding
+    const getNullSession = createMock(() => Promise.resolve(null));
     
-    try {
-      await expect(approveSessionFromParams(
-        { session: "non-existent-session" },
-        {
-          gitService: mockGitService as unknown as GitService,
-          taskService: mockTaskService as unknown as TaskService,
-          sessionDB: mockSessionDB as any,
-          workspaceUtils: WorkspaceUtils,
-        }
-      )).rejects.toThrow(/Session "non-existent-session" not found/);
-    } finally {
-      // Restore the original mock
-      mockSessionDB.getSession = originalGetSession;
-    }
+    // Create a new mockSessionDB with the different getSession implementation
+    const mockSessionDBWithNull = {
+      ...mockSessionDB,
+      getSession: getNullSession
+    };
+    
+    await expect(approveSessionFromParams(
+      { session: "non-existent-session" },
+      {
+        gitService: mockGitService as unknown as GitService,
+        taskService: mockTaskService as unknown as TaskService,
+        sessionDB: mockSessionDBWithNull as any,
+        workspaceUtils: WorkspaceUtils,
+      }
+    )).rejects.toThrow("Session \"non-existent-session\" not found");
   });
   
   test("throws MinskyError when git command fails", async () => {
-    // Override the execInRepository mock to throw an error
-    const originalExecIn = mockGitService.execInRepository;
-    mockGitService.execInRepository = createMock(() => Promise.reject(new Error("Git command failed")));
+    // Create a new mock with different implementation rather than overriding
+    const execWithError = createMock(() => Promise.reject(new Error("Git command failed")));
     
-    try {
-      await expect(approveSessionFromParams(
-        { session: "test-session" },
-        {
-          gitService: mockGitService as unknown as GitService,
-          taskService: mockTaskService as unknown as TaskService,
-          sessionDB: mockSessionDB as any, 
-          workspaceUtils: WorkspaceUtils,
-        }
-      )).rejects.toThrow(/Failed to approve session/);
-    } finally {
-      // Restore the original mock
-      mockGitService.execInRepository = originalExecIn;
-    }
+    // Create a new mockGitService with the different execInRepository implementation
+    const mockGitServiceWithError = {
+      ...mockGitService,
+      execInRepository: execWithError
+    };
+    
+    await expect(approveSessionFromParams(
+      { session: "test-session" },
+      {
+        gitService: mockGitServiceWithError as unknown as GitService,
+        taskService: mockTaskService as unknown as TaskService,
+        sessionDB: mockSessionDB as any, 
+        workspaceUtils: WorkspaceUtils,
+      }
+    )).rejects.toThrow("Failed to approve session");
   });
 }); 
