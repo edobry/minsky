@@ -304,25 +304,36 @@ _See: This task was implemented as part of Task #014._
 _See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-handling](mdc:.specstory/history/2025-05-19_20-36-task-88-standardize-repository-uri-handling.md) for task #88 implementation._
 
 - Fixed environment-aware logging to properly handle debug logs in HUMAN mode
+
   - Prevented "no transports" warnings when running CLI commands in terminal
   - Added `systemDebug` method for important system debugging that works in all modes
   - Updated logger documentation with best practices for debug logging
   - Improved auto-detection of terminal environment
 
 - Task #101: Improve Domain Module Testability with Proper Dependency Injection
+
   - Created specifications for implementing interface-based design
   - Planned consistent dependency injection patterns
   - Defined approach for improved test utilities
   - Will reduce reliance on type casting and improve test maintainability
 
 - Task #102: Refactor Domain Objects to Follow Functional Patterns
+
   - Defined path to move from class-based to functional design
   - Will make side effects explicit for better testability
   - Will improve state management with immutable patterns
 
 - Task #103: Enhance Test Utilities for Better Domain Testing
+
   - Planned comprehensive test utility improvements
   - Will add dependency generation, mock creation enhancements
   - Will standardize test data generation and setup/teardown
+
+- Task #104: Re-implement Disabled Integration Tests
+  - Will re-implement previously disabled integration tests
+  - Will leverage improved test utilities from Task #103
+  - Will apply dependency injection patterns from Task #101
+  - Will follow functional patterns from Task #102
+  - Will restore full test coverage for critical components
 
 _See: SpecStory history [2025-06-21_improving-domain-testability](mdc:.specstory/history/2025-06-21_improving-domain-testability.md) for task creation._
