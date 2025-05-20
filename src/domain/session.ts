@@ -398,19 +398,30 @@ export class SessionDB implements SessionProviderInterface {
 
 /**
  * Gets session details based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
+export async function getSessionFromParams(
+  params: SessionGetParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<Session | null> {
   const { name, task } = params;
+  
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
 
   // If task is provided but no name, find session by task ID
   if (task && !name) {
     const normalizedTaskId = taskIdSchema.parse(task);
-    return new SessionDB().getSessionByTaskId(normalizedTaskId);
+    return deps.sessionDB.getSessionByTaskId(normalizedTaskId);
   }
 
   // If name is provided, get by name
   if (name) {
-    return new SessionDB().getSession(name);
+    return deps.sessionDB.getSession(name);
   }
 
   // No name or task - error case
@@ -419,25 +430,49 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
 
 /**
  * Lists all sessions based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  return new SessionDB().listSessions();
+export async function listSessionsFromParams(
+  params: SessionListParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<Session[]> {
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
+  
+  return deps.sessionDB.listSessions();
 }
 
 /**
  * Starts a new session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function startSessionFromParams(params: SessionStartParams): Promise<Session> {
+export async function startSessionFromParams(
+  params: SessionStartParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    taskService?: TaskServiceInterface;
+    workspaceUtils?: WorkspaceUtilsInterface;
+    resolveRepoPath?: typeof resolveRepoPath;
+  }
+): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
   const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
 
-  // Convert dependencies for dependency injection pattern
+  // Create dependencies with defaults
   const deps = {
-    gitService: new GitService(),
-    sessionDB: new SessionDB(),
-    taskService: null as TaskService | null,
-    resolveRepoPath,
-    isSessionRepository: isSessionWorkspace,
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    gitService: depsInput?.gitService || createGitService(),
+    taskService: depsInput?.taskService || new TaskService({
+      workspacePath: repo || process.cwd(),
+      backend: "markdown",
+    }),
+    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
+    resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath
   };
 
   try {
@@ -451,7 +486,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     });
 
     const currentDir = process.env.PWD || process.cwd();
-    const isInSession = await deps.isSessionRepository(currentDir);
+    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
     if (isInSession) {
       throw new MinskyError(
         "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
@@ -470,12 +505,6 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
         );
       }
     }
-
-    // Initialize task service with the repository information
-    deps.taskService = new TaskService({
-      workspacePath: repoUrl,
-      backend: "markdown", // Default to markdown backend
-    });
 
     // Determine the session name using task ID if provided
     let sessionName = name;
@@ -542,14 +571,6 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       session: sessionName,
     });
 
-    // Convert to our interface - correct handling of workdir
-    const cloneResult = {
-      workdir: gitCloneResult.workdir,
-      success: true,
-    };
-
-    let statusUpdateResult;
-
     // Create a branch based on the session name
     const branchName = branch || sessionName;
     const branchResult = await deps.gitService.branch({
@@ -598,40 +619,62 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
 
 /**
  * Deletes a session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
+export async function deleteSessionFromParams(
+  params: SessionDeleteParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<boolean> {
   const { name, task } = params;
+  
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
 
   if (task && !name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(task);
-    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
     }
 
     // Delete by name
-    return new SessionDB().deleteSession(session.session);
+    return deps.sessionDB.deleteSession(session.session);
   }
 
   if (!name) {
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  return new SessionDB().deleteSession(name);
+  return deps.sessionDB.deleteSession(name);
 }
 
 /**
  * Gets session directory based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
+export async function getSessionDirFromParams(
+  params: SessionDirParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<string> {
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
+  
   let sessionName: string;
 
   if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
-    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
@@ -644,7 +687,7 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  const session = await new SessionDB().getSession(sessionName);
+  const session = await deps.sessionDB.getSession(sessionName);
 
   if (!session) {
     throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
@@ -662,8 +705,16 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
 
 /**
  * Updates a session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function updateSessionFromParams(params: SessionUpdateParams): Promise<void> {
+export async function updateSessionFromParams(
+  params: SessionUpdateParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    getCurrentSession?: typeof getCurrentSession;
+  }
+): Promise<void> {
   const { name, branch, remote, noStash, noPush } = params;
 
   // Input validation
@@ -671,11 +722,11 @@ export async function updateSessionFromParams(params: SessionUpdateParams): Prom
     throw new ValidationError("Session name is required");
   }
 
-  // Convert dependencies for dependency injection pattern
+  // Set up dependencies with defaults
   const deps = {
-    gitService: new GitService(),
-    sessionDB: new SessionDB(),
-    getCurrentSession,
+    gitService: depsInput?.gitService || createGitService(),
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession
   };
 
   try {

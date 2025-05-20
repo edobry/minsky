@@ -292,3 +292,39 @@ export interface WorkspaceUtilsInterface {
    */
   resolveWorkspacePath(options: { workspace?: string; sessionRepo?: string }): Promise<string>;
 }
+
+/**
+ * Creates a WorkspaceUtils implementation
+ * This factory function provides a consistent way to get workspace utilities with optional customization
+ * 
+ * @returns A WorkspaceUtilsInterface implementation
+ */
+export function createWorkspaceUtils(): WorkspaceUtilsInterface {
+  return {
+    isWorkspace: async (path: string): Promise<boolean> => {
+      try {
+        // A workspace is valid if it contains a process directory
+        const processDir = join(path, "process");
+        await fs.access(processDir);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
+    
+    isSessionWorkspace,
+    
+    getCurrentSession: async (repoPath: string): Promise<string | null> => {
+      return getCurrentSession(repoPath);
+    },
+    
+    getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
+      const result = await getSessionFromWorkspace(workspacePath);
+      return result ? result.session : null;
+    },
+    
+    resolveWorkspacePath: async (options: { workspace?: string; sessionRepo?: string }): Promise<string> => {
+      return resolveWorkspacePath(options);
+    }
+  };
+}
