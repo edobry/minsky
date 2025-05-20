@@ -11,6 +11,7 @@ import {
   createPullRequestFromParams,
   commitChangesFromParams,
   preparePrFromParams,
+  pushFromParams
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
@@ -320,32 +321,48 @@ export function createCommitCommand(): Command {
         const repoOptions = normalizeRepoOptions(options);
         const outputOptions = normalizeOutputOptions(options);
         
-        const params: GitCommitParams = {
+        // Ensure message is a string, using a default if not provided
+        const message = options.message || "Commit changes";
+        
+        // Prepare commit parameters
+        const commitParams: GitCommitParams = {
           ...repoOptions,
           ...outputOptions,
-          message: options.message,
-          addAll: options.add || false,
-          push: options.push || false,
-          verify: options.verify !== false,
+          message, // Use the non-null message value
+          all: options.add || false, // Use 'all' instead of 'addAll' per schema
         };
 
-        log.debug("Committing changes with params", { params });
+        log.debug("Committing changes with params", { commitParams });
 
-        // Call the domain function
-        const result = await commitChangesFromParams(params);
+        // Call the domain function to commit changes
+        const commitResult = await commitChangesFromParams(commitParams);
+        let pushResult;
+
+        // If push was requested, push the changes after committing
+        if (options.push) {
+          const pushParams = {
+            ...repoOptions,
+            ...outputOptions,
+          };
+          
+          log.debug("Pushing changes after commit", { pushParams });
+          pushResult = await pushFromParams(pushParams);
+        }
 
         // Output result
-        outputResult(result, {
-          json: options.json,
-          formatter: (result) => {
-            // Fix property names to match the actual result structure
-            log.cli(`Committed changes with hash: ${result.commitHash}`);
-            // Check if push was requested and succeeded
-            if (options.push) {
-              log.cli(`Pushed changes to remote.`);
-            }
-          },
-        });
+        outputResult(
+          { ...commitResult, pushed: options.push ? true : false },
+          {
+            json: options.json,
+            formatter: (result) => {
+              log.cli(`Committed changes with hash: ${result.commitHash}`);
+              // Check if push was requested and succeeded
+              if (options.push) {
+                log.cli(`Pushed changes to remote.`);
+              }
+            },
+          }
+        );
       } catch (error) {
         handleCliError(error);
       }

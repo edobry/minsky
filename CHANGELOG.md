@@ -16,24 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created parameter normalization helpers to standardize CLI option handling
   - Updated task, session, git, and rules commands to use the shared options system
   - Improved exports in CLI utilities index.ts to properly handle TypeScript types
-
-### Changed
-
-- Refactored CLI command implementations to use shared option utilities
-- Improved error handling with centralized utilities
-
-### Fixed
-
-- Fixed inconsistent option parsing between command modules
-
-### Added
-
-- Task #096: Improve CLI Adapter Structure for Shared Options
-  - Created a shared options system to reduce code duplication and ensure consistency across CLI commands
-  - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
-  - Implemented functions to add common options to Commander commands
-  - Created parameter normalization helpers to standardize CLI option handling
-  - Updated task, session, and git commands to use the shared options
   - Implemented consistent pattern for command creation across all CLI adapter files
   - Standardized option descriptions and defaults across the CLI interface
   - Added tests for the shared options module
@@ -150,6 +132,9 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 
 ### Changed
 
+- Refactored CLI command implementations to use shared option utilities
+- Improved error handling with centralized utilities
+
 - Task #089: Aligned CLI Commands with Revised Concepts
   - Updated CLI command options and descriptions to use the new terminology from Task #086
   - Renamed `--workspace` parameter to `--upstream-repo` across all commands
@@ -215,6 +200,8 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
+
+- Fixed inconsistent option parsing between command modules
 
 - Fixed test failures in domain module:
   - Fixed `session-approve.test.ts` by implementing proper dependency injection for `getCurrentSession` and flexible parameter types
