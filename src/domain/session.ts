@@ -16,19 +16,19 @@ import type {
   SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { GitService, type BranchOptions, createGitService } from "./git.js";
-import type { GitServiceInterface } from "./git.js";
-import { TaskService, TASK_STATUS } from "./tasks.js";
-import { isSessionWorkspace } from "./workspace.js";
+import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
+import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
+import { isSessionWorkspace, type WorkspaceUtilsInterface } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
 import { getCurrentSession, getSessionFromWorkspace } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
-import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams } from "./git.js";
+import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams, createGitService } from "./git.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
+
+// Remove locally defined interfaces since we're now importing them
 
 export interface SessionRecord {
   session: string;
@@ -137,7 +137,7 @@ export class SessionDB implements SessionProviderInterface {
   private readonly baseDir: string; // Add baseDir property
 
   constructor(dbPath?: string) {
-    const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;
@@ -487,7 +487,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       taskId = normalizedTaskId;
 
       // Verify the task exists
-      const taskObj = await deps.taskService.getTask(taskId);
+      const taskObj = await deps.taskService.getTask(normalizedTaskId);
       if (!taskObj) {
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
@@ -573,15 +573,16 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       }
     }
 
-    // Return the session record
+    if (!quiet) {
+      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+    }
+
     return {
       session: sessionName,
       repoUrl,
-      repoName,
-      branch: branchName,
-      createdAt: sessionRecord.createdAt,
+      repoName: normalizeRepoName(repoUrl),
+      branch,
       taskId,
-      repoPath: cloneResult.workdir, // Use workdir instead of repoPath
     };
   } catch (error) {
     if (error instanceof MinskyError) {

@@ -261,3 +261,34 @@ export async function getCurrentSessionContext(
     return null;
   }
 }
+
+/**
+ * Interface for workspace utility operations
+ * This defines the contract for workspace-related functionality
+ */
+export interface WorkspaceUtilsInterface {
+  /**
+   * Check if the current directory is a Minsky workspace
+   */
+  isWorkspace(path: string): Promise<boolean>;
+
+  /**
+   * Check if the current directory is a session workspace
+   */
+  isSessionWorkspace(path: string): Promise<boolean>;
+
+  /**
+   * Get the current session name if in a session workspace
+   */
+  getCurrentSession(repoPath: string): Promise<string | null>;
+
+  /**
+   * Get the session name from a workspace path
+   */
+  getSessionFromWorkspace(workspacePath: string): Promise<string | null>;
+
+  /**
+   * Resolve a workspace path from inputs
+   */
+  resolveWorkspacePath(options: { workspace?: string; sessionRepo?: string }): Promise<string>;
+}
