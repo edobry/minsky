@@ -154,3 +154,9 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
 
 - [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
+
+- [ ] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
+
+- [ ] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
+
+- [ ] Enhance Test Utilities for Better Domain Testing [#103](process/tasks/103-enhance-test-utilities-for-better-domain-testing.md)
