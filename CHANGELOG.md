@@ -28,6 +28,7 @@ _See: SpecStory history [2025-05-22_improve-cli-adapter-structure](mdc:.specstor
   - Provided both human-readable and JSON output formats
   - Added clear error messages when not in a session workspace
   - Reused output formatting from the `get` command for consistency
+  - Created proper domain method separation following the interface-agnostic architecture
 
 - Task #099: Implement Environment-Aware Logging
   - Added environment-aware logging system with HUMAN and STRUCTURED modes
