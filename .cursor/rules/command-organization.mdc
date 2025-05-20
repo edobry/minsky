@@ -3,7 +3,6 @@ description: Use this when creating/modifying CLI commands or working with the i
 globs:
 alwaysApply: false
 ---
-
 # Command Organization
 
 ## Interface-Agnostic Architecture
@@ -65,3 +64,32 @@ Minsky implements an interface-agnostic command architecture that separates:
    - Test domain functions independently
    - Test adapters with their respective interfaces
    - Test complete flows end-to-end
+
+## Implementation Verification Checklist
+
+When implementing a new command or modifying an existing one, always follow this specific sequence:
+
+1. **Domain Method First**: 
+   - ALWAYS implement the domain method in the appropriate domain file BEFORE creating/updating any adapters
+   - For CLI commands, create a function with the `*FromParams` naming pattern (e.g., `inspectSessionFromParams`)
+   - Verify the domain method is properly exported in domain/index.ts
+
+2. **Schema Definition**:
+   - Create or update the appropriate schema in schemas/*.ts
+   - Define the parameter type (e.g., `SessionInspectParams`)
+   - Ensure proper validation with Zod
+
+3. **CLI Adapter Implementation**:
+   - Create the CLI adapter that calls the domain method
+   - Add imports for the domain method
+   - Ensure the adapter properly handles errors and formats output
+
+4. **Testing**:
+   - Add unit tests for the domain method
+   - Add integration tests for the command flow
+
+5. **Final Verification**:
+   - Confirm the command follows the same pattern as other similar commands
+   - Verify the command properly delegates to the domain method rather than implementing logic directly
+
+CRITICAL: NEVER implement business logic directly in CLI adapters. All logic MUST be in domain methods.
