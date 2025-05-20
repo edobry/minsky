@@ -851,9 +851,17 @@ export async function approveSessionFromParams(
 
   // If session is still not set, try to detect it from repo path
   if (!sessionNameToUse && params.repo) {
-    const sessionContext = await deps.workspaceUtils.getCurrentSession(params.repo);
-    if (sessionContext) {
-      sessionNameToUse = sessionContext;
+    try {
+      const sessionContext = await getCurrentSession(params.repo);
+      if (sessionContext) {
+        sessionNameToUse = sessionContext;
+      }
+    } catch (error) {
+      // Just log and continue - session detection is optional
+      log.debug("Failed to detect session from repo path", {
+        error: error instanceof Error ? error.message : String(error),
+        repoPath: params.repo
+      });
     }
   }
 
