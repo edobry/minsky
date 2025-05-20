@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
   - Implemented functions to add common options to Commander commands
   - Created parameter normalization helpers to standardize CLI option handling
-  - Updated task and session commands to use the shared options
+  - Updated task, session, and git commands to use the shared options
+  - Implemented consistent pattern for command creation across all CLI adapter files
+  - Standardized option descriptions and defaults across the CLI interface
   - Added tests for the shared options module
 
 _See: SpecStory history [2025-05-22_improve-cli-adapter-structure](mdc:.specstory/history/2025-05-22_improve-cli-adapter-structure.md) for implementation details._

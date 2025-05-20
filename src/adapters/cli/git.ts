@@ -338,8 +338,10 @@ export function createCommitCommand(): Command {
         outputResult(result, {
           json: options.json,
           formatter: (result) => {
-            log.cli(`Committed changes with hash: ${result.hash}`);
-            if (result.pushedToRemote) {
+            // Fix property names to match the actual result structure
+            log.cli(`Committed changes with hash: ${result.commitHash}`);
+            // Check if push was requested and succeeded
+            if (options.push) {
               log.cli(`Pushed changes to remote.`);
             }
           },
@@ -390,7 +392,11 @@ export function createPushCommand(): Command {
         const repoPath = options.repo || process.cwd();
         
         // Get current branch if not specified
-        const branch = options.branch || (await git.getCurrentBranch(repoPath));
+        let branch = options.branch;
+        if (!branch) {
+          // Use execInRepository to get the current branch since getCurrentBranch isn't available
+          branch = (await git.execInRepository(repoPath, "git branch --show-current")).trim();
+        }
         
         // Build the push command
         let pushCommand = "git push";
