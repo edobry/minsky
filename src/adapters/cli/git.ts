@@ -219,11 +219,7 @@ export function createMergePrCommand(): Command {
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
     .option("--repo <repositoryUri>", "Repository URI")
-<<<<<<< HEAD
     .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)")
-=======
-    .option("--base <branch>", "Base branch to merge into (defaults to main)")
->>>>>>> origin/main
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
     .action(
