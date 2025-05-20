@@ -73,9 +73,8 @@ After fixing test failures in the domain module, we've identified several struct
 - 2024-07-17: Added `createWorkspaceUtils` factory function
 - 2024-07-17: Refactored `startSessionFromParams` with proper dependency injection
 - 2024-07-17: Refactored `listSessionsFromParams`, `getSessionFromParams`, and other session functions with dependency injection
+- 2024-07-17: Updated workspace.test.ts to use proper dependency injection
 
 ## Remaining Work Items
 
-1. **Additional Test Updates**:
-   - Update workspace tests with better dependency injection
-   - Fix remaining type issues and linter warnings in test files
+- All tasks completed. The domain modules have been significantly improved with proper dependency injection patterns, making them more testable and maintainable.
