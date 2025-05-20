@@ -14,7 +14,14 @@ import {
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
-import { handleCliError, outputResult } from "./utils/index.js";
+import { 
+  handleCliError, 
+  outputResult,
+  addRepoOptions,
+  addOutputOptions,
+  normalizeRepoOptions,
+  normalizeOutputOptions
+} from "./utils/index.js";
 
 /**
  * Interface-agnostic function to merge a PR branch
@@ -84,292 +91,365 @@ async function mergePrFromParams(params: {
  * Creates the summary command (renamed from pr)
  */
 export function createSummaryCommand(): Command {
-  return new Command("summary")
+  const command = new Command("summary")
     .description("Generate PR description summary")
-    .option("--repo <repositoryUri>", "Repository URI")
-    .option("--branch <branch>", "Branch to compare against (defaults to upstream branch)")
-    .option("--debug", "Enable debug output")
-    .option("--session <session>", "Session to create PR for")
-    .option("--json", "Output as JSON")
-    .action(
-      async (options: {
-        repo?: string;
-        branch?: string;
-        debug?: boolean;
-        session?: string;
-        json?: boolean;
-      }) => {
-        try {
-          // Auto-detect session if neither repo nor session is provided
-          let autoDetectedSession = false;
-          if (!options.repo && !options.session) {
-            try {
-              // Import getCurrentSessionContext to auto-detect session
-              const { getCurrentSessionContext } = await import("../../domain/workspace.js");
-              const sessionContext = await getCurrentSessionContext(process.cwd());
+    .option("--branch <branch>", "Branch to compare against (defaults to upstream branch)");
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(
+    async (options: {
+      repo?: string;
+      branch?: string;
+      debug?: boolean;
+      session?: string;
+      "upstream-repo"?: string;
+      json?: boolean;
+    }) => {
+      try {
+        // Auto-detect session if neither repo nor session is provided
+        let autoDetectedSession = false;
+        if (!options.repo && !options.session) {
+          try {
+            // Import getCurrentSessionContext to auto-detect session
+            const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+            const sessionContext = await getCurrentSessionContext(process.cwd());
 
-              if (sessionContext) {
-                options.session = sessionContext.sessionId;
-                autoDetectedSession = true;
-                if (!options.json) {
-                  log.cli(`Auto-detected session: ${options.session}`);
-                }
+            if (sessionContext) {
+              options.session = sessionContext.sessionId;
+              autoDetectedSession = true;
+              if (!options.json) {
+                log.cli(`Auto-detected session: ${options.session}`);
               }
-            } catch (error) {
-              // Just log the error but continue - the domain function will handle missing session/repo
-              log.debug("Error auto-detecting session", {
-                error: error instanceof Error ? error.message : String(error),
-              });
             }
+          } catch (error) {
+            // Just log the error but continue - the domain function will handle missing session/repo
+            log.debug("Error auto-detecting session", {
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
-
-          // Convert CLI options to domain parameters
-          const params: GitPullRequestParams = {
-            repo: options.repo,
-            branch: options.branch,
-            debug: options.debug ?? false,
-            session: options.session,
-            json: options.json,
-          };
-
-          log.debug("Creating PR summary with params", { params });
-
-          const result = await createPullRequestFromParams(params);
-
-          // Output result based on format
-          outputResult(result, {
-            json: options.json,
-            formatter: (result) => {
-              console.log(result.markdown);
-
-              // Display status update information if available
-              if (result.statusUpdateResult) {
-                const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
-                console.log(
-                  `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
-                );
-              }
-            },
-          });
-        } catch (error) {
-          handleCliError(error);
         }
+
+        // Convert CLI options to domain parameters using normalization helpers
+        const repoOptions = normalizeRepoOptions(options);
+        const outputOptions = normalizeOutputOptions(options);
+        
+        // Convert CLI options to domain parameters
+        const params: GitPullRequestParams = {
+          ...repoOptions,
+          ...outputOptions,
+          branch: options.branch,
+        };
+
+        log.debug("Creating PR summary with params", { params });
+
+        const result = await createPullRequestFromParams(params);
+
+        // Output result based on format
+        outputResult(result, {
+          json: options.json,
+          formatter: (result) => {
+            console.log(result.markdown);
+
+            // Display status update information if available
+            if (result.statusUpdateResult) {
+              const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
+              console.log(
+                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
+              );
+            }
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
       }
-    );
+    }
+  );
+  
+  return command;
 }
 
 /**
  * Creates the prepare-pr command
  */
 export function createPreparePrCommand(): Command {
-  return new Command("prepare-pr")
+  const command = new Command("prepare-pr")
     .description("Prepare a PR branch with a merge commit")
-    .option("--repo <repositoryUri>", "Repository URI")
     .option("--base <branch>", "Base branch for PR (defaults to upstream branch)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
-    .option("--body <body>", "PR body (if not provided, will be generated)")
-    .option("--debug", "Enable debug output")
-    .option("--session <session>", "Session to create PR for")
-    .option("--json", "Output as JSON")
-    .action(
-      async (options: {
-        repo?: string;
-        base?: string;
-        title?: string;
-        body?: string;
-        debug?: boolean;
-        session?: string;
-        json?: boolean;
-      }) => {
-        try {
-          const params = {
-            repo: options.repo,
-            baseBranch: options.base,
-            title: options.title,
-            body: options.body,
-            debug: options.debug ?? false,
-            session: options.session,
-          };
+    .option("--body <body>", "PR body (if not provided, will be generated)");
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(
+    async (options: {
+      repo?: string;
+      session?: string;
+      "upstream-repo"?: string;
+      base?: string;
+      title?: string;
+      body?: string;
+      debug?: boolean;
+      json?: boolean;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helpers
+        const repoOptions = normalizeRepoOptions(options);
+        const outputOptions = normalizeOutputOptions(options);
+        
+        const params = {
+          ...repoOptions,
+          baseBranch: options.base,
+          title: options.title,
+          body: options.body,
+          debug: options.debug ?? false,
+        };
 
-          log.debug("Preparing PR branch with params", { params });
+        log.debug("Preparing PR branch with params", { params });
 
-          const result = await preparePrFromParams(params);
+        const result = await preparePrFromParams(params);
 
-          // Output result based on format
-          outputResult(result, {
-            json: options.json,
-            formatter: (result) => {
-              log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
-              log.cli(`PR branch pushed to origin/${result.prBranch}`);
-              log.cli("PR is ready for review");
-            },
-          });
-        } catch (error) {
-          handleCliError(error);
-        }
+        // Output result based on format
+        outputResult(result, {
+          json: options.json,
+          formatter: (result) => {
+            log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
+            log.cli(`PR branch pushed to origin/${result.prBranch}`);
+            log.cli("PR is ready for review");
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
       }
-    );
+    }
+  );
+  
+  return command;
 }
 
 /**
  * Creates the merge-pr command
  */
 export function createMergePrCommand(): Command {
-  return new Command("merge-pr")
+  const command = new Command("merge-pr")
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
-    .option("--repo <repositoryUri>", "Repository URI")
-    .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)")
-    .option("--session <session>", "Session to merge PR for")
-    .option("--json", "Output as JSON")
-    .action(
-      async (
-        prBranch: string,
-        options: {
-          repo?: string;
-          base?: string;
-          session?: string;
-          json?: boolean;
-        }
-      ) => {
-        try {
-          const params = {
-            prBranch,
-            repo: options.repo,
-            baseBranch: options.base,
-            session: options.session,
-          };
-
-          log.debug("Merging PR branch with params", { params });
-
-          const result = await mergePrFromParams(params);
-
-          // Output result based on format
-          outputResult(result, {
-            json: options.json,
-            formatter: (result) => {
-              log.cli(`Merged PR branch ${result.prBranch} into ${result.baseBranch}`);
-              log.cli(`Merge commit: ${result.commitHash}`);
-              log.cli(`Merge date: ${result.mergeDate}`);
-              log.cli(`Merged by: ${result.mergedBy}`);
-              log.cli(`PR branch ${result.prBranch} deleted from remote`);
-            },
-          });
-        } catch (error) {
-          handleCliError(error);
-        }
+    .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)");
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(
+    async (
+      prBranch: string,
+      options: {
+        repo?: string;
+        session?: string;
+        "upstream-repo"?: string;
+        base?: string;
+        json?: boolean;
       }
-    );
+    ) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helpers
+        const repoOptions = normalizeRepoOptions(options);
+        
+        const params = {
+          prBranch,
+          ...repoOptions,
+          baseBranch: options.base,
+        };
+
+        log.debug("Merging PR branch with params", { params });
+
+        const result = await mergePrFromParams(params);
+
+        // Output result based on format
+        outputResult(result, {
+          json: options.json,
+          formatter: (result) => {
+            log.cli(`Merged PR branch ${result.prBranch} into ${result.baseBranch}`);
+            log.cli(`Merge commit: ${result.commitHash}`);
+            log.cli(`Date: ${result.mergeDate}`);
+            log.cli(`Merged by: ${result.mergedBy}`);
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
+      }
+    }
+  );
+  
+  return command;
 }
 
 /**
- * Creates the git commit command
+ * Creates the commit command
  */
 export function createCommitCommand(): Command {
-  return new Command("commit")
-    .description("Commit changes")
-    .requiredOption("-m, --message <message>", "Commit message")
-    .option("--session <session>", "Session to commit in")
-    .option("--repo <repositoryUri>", "Repository URI")
-    .option("--push", "Push changes after committing")
-    .option("--all", "Stage all files")
-    .option("--amend", "Amend the previous commit")
-    .option("--no-stage", "Skip staging files (use already staged files)")
-    .option("--no-verify", "Skip pre-commit hooks")
-    .option("--json", "Output as JSON")
-    .action(
-      async (options: {
-        message: string;
-        session?: string;
-        repo?: string;
-        push?: boolean;
-        all?: boolean;
-        amend?: boolean;
-        stage?: boolean;
-        verify?: boolean;
-        json?: boolean;
-      }) => {
-        try {
-          // Convert CLI options to domain parameters
-          const params: GitCommitParams = {
-            message: options.message,
-            session: options.session,
-            repo: options.repo,
-            all: options.all ?? false,
-            amend: options.amend ?? false,
-            noStage: options.stage === false,
-            json: options.json,
-          };
+  const command = new Command("commit")
+    .description("Commit changes to the repository")
+    .option("-m, --message <message>", "Commit message")
+    .option("--add", "Add all files before committing", false)
+    .option("--push", "Push the commit to the remote repository", false)
+    .option("--no-verify", "Skip the pre-commit hooks", false);
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(
+    async (options: {
+      message?: string;
+      repo?: string;
+      session?: string;
+      "upstream-repo"?: string;
+      add?: boolean;
+      push?: boolean;
+      verify?: boolean;
+      debug?: boolean;
+      json?: boolean;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helpers
+        const repoOptions = normalizeRepoOptions(options);
+        const outputOptions = normalizeOutputOptions(options);
+        
+        const params: GitCommitParams = {
+          ...repoOptions,
+          ...outputOptions,
+          message: options.message,
+          addAll: options.add || false,
+          push: options.push || false,
+          verify: options.verify !== false,
+        };
 
-          log.debug("Committing changes with params", { params });
+        log.debug("Committing changes with params", { params });
 
-          const result = await commitChangesFromParams(params);
+        // Call the domain function
+        const result = await commitChangesFromParams(params);
 
-          // Output result based on format
-          outputResult(result, {
-            json: options.json,
-            formatter: (result) => {
-              log.cli(`Committed changes with message: ${result.message}`);
-              log.cli(`Commit hash: ${result.commitHash}`);
-            },
-          });
-        } catch (error) {
-          handleCliError(error);
-        }
+        // Output result
+        outputResult(result, {
+          json: options.json,
+          formatter: (result) => {
+            log.cli(`Committed changes with hash: ${result.hash}`);
+            if (result.pushedToRemote) {
+              log.cli(`Pushed changes to remote.`);
+            }
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
       }
-    );
+    }
+  );
+  
+  return command;
 }
 
-// Add the push command
 /**
- * Creates the git push command
+ * Creates the push command
  */
 export function createPushCommand(): Command {
-  return new Command("push")
-    .description("Push changes to remote")
-    .option("--session <session>", "Session to push in")
-    .option("--repo <repositoryUri>", "Repository URI")
-    .option("--remote <remote>", "Remote to push to (defaults to origin)")
-    .option("--force", "Force push (use with caution)")
-    .option("--json", "Output as JSON")
-    .action(
-      async (options: {
-        session?: string;
-        repo?: string;
-        remote?: string;
-        force?: boolean;
-        json?: boolean;
-      }) => {
-        try {
-          // Use GitService directly for push
-          const gitService = new GitService();
-          const result = await gitService.push({
-            session: options.session,
-            repoPath: options.repo,
-            remote: options.remote || "origin",
-            force: options.force ?? false,
-          });
-
-          // Output result based on format
-          outputResult(result, {
-            json: options.json,
-            formatter: () => {
-              log.cli("Successfully pushed changes to remote.");
-            },
-          });
-        } catch (error) {
-          handleCliError(error);
+  const command = new Command("push")
+    .description("Push changes to the remote repository")
+    .option("-b, --branch <branch>", "Branch to push (defaults to current branch)")
+    .option("-f, --force", "Force push changes", false)
+    .option("--set-upstream", "Set the upstream branch", false);
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(
+    async (options: {
+      branch?: string;
+      repo?: string;
+      session?: string;
+      "upstream-repo"?: string;
+      force?: boolean;
+      setUpstream?: boolean;
+      debug?: boolean;
+      json?: boolean;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helpers
+        const repoOptions = normalizeRepoOptions(options);
+        const outputOptions = normalizeOutputOptions(options);
+        
+        // Create GitService instance
+        const git = new GitService();
+        
+        // Determine repository path
+        const repoPath = options.repo || process.cwd();
+        
+        // Get current branch if not specified
+        const branch = options.branch || (await git.getCurrentBranch(repoPath));
+        
+        // Build the push command
+        let pushCommand = "git push";
+        
+        // Add force option if specified
+        if (options.force) {
+          pushCommand += " --force";
         }
+        
+        // Add set-upstream option if specified
+        if (options.setUpstream) {
+          pushCommand += " --set-upstream";
+        }
+        
+        // Add remote and branch
+        pushCommand += ` origin ${branch}`;
+        
+        log.debug(`Executing push command: ${pushCommand}`);
+        
+        // Execute the push command
+        const output = await git.execInRepository(repoPath, pushCommand);
+        
+        // Parse the output to determine success
+        const success = !output.includes("error:") && !output.includes("fatal:");
+        
+        // Output the result
+        const result = {
+          success,
+          branch,
+          output: output.trim(),
+        };
+        
+        outputResult(result, {
+          json: options.json,
+          formatter: (result) => {
+            if (result.success) {
+              log.cli(`Successfully pushed ${branch} to origin.`);
+            } else {
+              log.cli(`Error pushing ${branch} to origin:`);
+              log.cli(result.output);
+            }
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
       }
-    );
+    }
+  );
+  
+  return command;
 }
 
 /**
- * Creates the main git command with all subcommands
+ * Creates the git command
  */
 export function createGitCommand(): Command {
   const gitCommand = new Command("git").description("Git operations");
 
+  // Add all git subcommands
   gitCommand.addCommand(createSummaryCommand());
   gitCommand.addCommand(createPreparePrCommand());
   gitCommand.addCommand(createMergePrCommand());
