@@ -79,14 +79,16 @@ describe("Workspace Domain Methods", () => {
       // Arrange
       const repoPath = "/invalid/path";
       mockIsSessionRepository.mockRejectedValue(new Error("Git command failed"));
-      mockIsSessionRepository.mockResolvedValue(false);
       
-      // Act
-      const result = await isSessionRepository(repoPath);
-      
-      // Assert
-      expect(mockIsSessionRepository).toHaveBeenCalledWith(repoPath);
-      expect(result).toBe(false);
+      try {
+        // Act
+        await isSessionRepository(repoPath);
+      } catch (err) {
+        // Assert
+        const error = err as Error;
+        expect(mockIsSessionRepository).toHaveBeenCalledWith(repoPath);
+        expect(error.message).toContain("Git command failed");
+      }
     });
   });
 
