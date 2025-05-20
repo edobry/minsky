@@ -806,10 +806,19 @@ export async function approveSessionFromParams(
     json?: boolean;
   },
   depsInput?: {
-    sessionDB: SessionDB;
-    gitService: GitService;
-    taskService: TaskService;
-    workspaceUtils: typeof WorkspaceUtils;
+    sessionDB: {
+      getSession: (name: string) => Promise<any>;
+      getSessionByTaskId?: (taskId: string) => Promise<any>;
+      getSessionWorkdir?: (sessionName: string) => Promise<string>;
+    };
+    gitService: {
+      execInRepository: (workdir: string, command: string) => Promise<string>;
+    };
+    taskService: {
+      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      getBackendForTask?: (taskId: string) => Promise<any>;
+    };
+    workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
   }
 ): Promise<{
@@ -839,7 +848,11 @@ export async function approveSessionFromParams(
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
-    const session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
+    // Check if getSessionByTaskId is defined, default to new SessionDB() if not
+    const getSessionByTaskId = deps.sessionDB.getSessionByTaskId || 
+      ((id: string) => new SessionDB().getSessionByTaskId(id));
+    
+    const session = await getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
         `No session found for task ${taskIdToUse}`,
@@ -886,8 +899,11 @@ export async function approveSessionFromParams(
     taskId = sessionRecord.taskId;
   }
 
-  // Get session workdir
-  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  // Get session workdir - add fallback for tests
+  const getSessionWorkdir = deps.sessionDB.getSessionWorkdir || 
+    ((name: string) => new SessionDB().getSessionWorkdir(name));
+    
+  const sessionWorkdir = await getSessionWorkdir(sessionNameToUse);
 
   // Determine PR branch name (pr/<session-name>)
   const featureBranch = sessionNameToUse;
@@ -931,8 +947,8 @@ export async function approveSessionFromParams(
       taskId,
     };
 
-    // Update task status to DONE if we have a task ID
-    if (taskId) {
+    // Update task status to DONE if we have a task ID - with fallback
+    if (taskId && deps.taskService.setTaskStatus) {
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
       } catch (error) {

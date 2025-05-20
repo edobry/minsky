@@ -15,7 +15,8 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123"
+          taskId: "#123",
+          createdAt: new Date().toISOString()
         })
       ),
       getSessionByTaskId: createMock((taskId) => {
@@ -24,7 +25,8 @@ describe("Session Approve", () => {
             session: "test-session",
             repoName: "test-repo",
             repoUrl: "/test/repo/path",
-            taskId: "#123"
+            taskId: "#123",
+            createdAt: new Date().toISOString()
           });
         }
         return Promise.resolve(null);
@@ -71,7 +73,7 @@ describe("Session Approve", () => {
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("test-session");
-    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
     expect(resultBySession.session).toBe("test-session");
@@ -92,7 +94,7 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
-    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultByTask.taskId).toBe("#123");
   });
@@ -104,7 +106,8 @@ describe("Session Approve", () => {
         Promise.resolve({
           session: name,
           repoName: "test-repo",
-          repoUrl: "/test/repo/path"
+          repoUrl: "/test/repo/path",
+          createdAt: new Date().toISOString()
         })
       ),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
@@ -151,7 +154,7 @@ describe("Session Approve", () => {
     // Verify
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("current-session");
-    expect(mockGitService.execInRepository).toHaveBeenCalled();
+    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(result.session).toBe("current-session");
   });
 
@@ -166,32 +169,60 @@ describe("Session Approve", () => {
     // Create test dependencies
     const testDeps = {
       sessionDB: mockSessionDB,
-      gitService: {},
-      taskService: {},
+      gitService: {
+        execInRepository: createMock(() => Promise.resolve(""))
+      },
+      taskService: {
+        setTaskStatus: createMock(() => Promise.resolve()),
+        getBackendForTask: createMock(() => Promise.resolve({}))
+      },
       workspaceUtils: {}
     };
 
     // Test with non-existent session
-    await expect(approveSessionFromParams({
-      session: "non-existent-session"
-    }, testDeps)).rejects.toThrow(ResourceNotFoundError);
+    try {
+      await approveSessionFromParams({
+        session: "non-existent-session"
+      }, testDeps);
+      // Should not reach this point
+      expect(false).toBe(true);
+    } catch (error) {
+      expect(error instanceof ResourceNotFoundError).toBe(true);
+      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+    }
   });
 
   test("throws error when no session or task is provided", async () => {
-    // Create test dependencies
+    // Create test dependencies with required properties
     const testDeps = {
-      sessionDB: {},
-      gitService: {},
-      taskService: {},
+      sessionDB: {
+        getSession: createMock(() => Promise.resolve(null)),
+        getSessionByTaskId: createMock(() => Promise.resolve(null)),
+        getSessionWorkdir: createMock(() => Promise.resolve(""))
+      },
+      gitService: {
+        execInRepository: createMock(() => Promise.resolve(""))
+      },
+      taskService: {
+        setTaskStatus: createMock(() => Promise.resolve()),
+        getBackendForTask: createMock(() => Promise.resolve({}))
+      },
       workspaceUtils: {
         getCurrentSession: createMock(() => Promise.resolve(null))
       }
     };
 
     // Test with no arguments
-    await expect(approveSessionFromParams({
-      repo: "/test/repo/path"
-    }, testDeps)).rejects.toThrow(ValidationError);
+    try {
+      await approveSessionFromParams({
+        repo: "/test/repo/path"
+      }, testDeps);
+      // Should not reach this point
+      expect(false).toBe(true);
+    } catch (error) {
+      expect(error instanceof ValidationError).toBe(true);
+      expect((error as Error).message).toContain("No session detected");
+    }
   });
 
   test("handles errors during task metadata update", async () => {
@@ -202,9 +233,11 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123"
+          taskId: "#123",
+          createdAt: new Date().toISOString()
         })
       ),
+      getSessionByTaskId: createMock(() => Promise.resolve(null)),
       getSessionWorkdir: createMock(() => Promise.resolve("/test/workdir/test-repo/sessions/test-session"))
     };
 
