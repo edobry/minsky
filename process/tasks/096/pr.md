@@ -1,37 +1,34 @@
-# refactor(#096): Improve CLI adapter structure for shared options
+# feat(#96): Improve CLI Adapter Structure for Shared Options
 
 ## Summary
 
-This PR introduces a new shared options system for CLI commands to reduce code duplication and improve consistency across command implementations. It creates reusable option definitions for commonly used options (like repository resolution, output format, and task identification) and updates existing commands to use these shared definitions.
+This PR introduces a shared options system for CLI commands to reduce code duplication and ensure consistency across the Minsky CLI interface. The implementation includes shared TypeScript interfaces, option application functions, and parameter normalization helpers.
 
 ## Changes
 
 ### Added
 
-- New utility module `src/adapters/cli/utils/shared-options.ts` with:
-  - TypeScript interfaces for common option groups
-  - Functions to add common options to Commander commands
-  - Parameter normalization helpers
+- Created `src/adapters/cli/utils/shared-options.ts` with:
+  - Type definitions for common option groups (`RepoOptions`, `OutputOptions`, etc.)
+  - Helper functions to add options to Commander commands
+  - Normalization functions to standardize parameter handling
+- Added tests for the shared options module
+- Created implementation notes documenting the approach and benefits
 
 ### Changed
 
-- Updated all CLI commands to use shared option definitions:
-  - Git commands
-  - Task commands
-  - Session commands
-  - Rule commands
-- Standardized option descriptions and behaviors across commands
-
-### Fixed
-
-- Inconsistencies in option handling between different commands
-- Duplicate code for option handling across the codebase
+- Updated `tasks.ts` to use the shared option utilities
+- Updated `session.ts` (list command) to use the shared option utilities
+- Modified `index.ts` to export the new shared options module
 
 ## Testing
 
-- All existing CLI command tests have been updated and pass
-- New tests added for shared option utilities
-- Manual verification of commands with shared options
+The implementation includes comprehensive tests that verify:
+- Options are correctly added to commands with consistent descriptions
+- Normalization functions properly convert CLI options to domain parameters
+- The shared option utilities work correctly together with CLI adapters
+
+Manual testing was performed to ensure that the refactored commands continue to work as expected.
 
 ## Checklist
 
