@@ -866,7 +866,9 @@ export async function approveSessionFromParams(
   // If session is still not set, try to detect it from repo path
   if (!sessionNameToUse && params.repo) {
     try {
-      const sessionContext = await getCurrentSession(params.repo);
+      // Explicitly use the injected getCurrentSession function if provided, otherwise fallback to the imported one
+      const getCurrentSessionFn = deps.getCurrentSession || getCurrentSession;
+      const sessionContext = await getCurrentSessionFn(params.repo);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
       }
