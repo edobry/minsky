@@ -174,6 +174,17 @@ _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-me
 
 ### Fixed
 
+- Fixed test failures in domain module:
+  - Fixed `session-approve.test.ts` by implementing proper dependency injection for `getCurrentSession` and flexible parameter types
+  - Fixed `git-pr-workflow.test.ts` by using more reliable assertion patterns and better mock creation
+  - Fixed `repo-utils.test.ts` by implementing proper tests without modifying readonly properties
+  - Fixed `workspace.ts` by adding missing `isSessionRepository` export alias
+  - Fixed `workspace.test.ts` by implementing proper dependency injection tests
+  - Improved test stability with more flexible dependency injection patterns
+  - Removed unnecessary debugging console logs from production code
+
+_See: SpecStory history [2025-06-20_fix-domain-test-failures](mdc:.specstory/history/2025-06-20_fix-domain-test-failures.md) for test fixes._
+
 - Fixed "paths[1]" property error in session start command by improving clone result handling:
 
   - Enhanced the SessionDB.getRepoPath method to safely handle different result formats
@@ -297,3 +308,21 @@ _See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-han
   - Added `systemDebug` method for important system debugging that works in all modes
   - Updated logger documentation with best practices for debug logging
   - Improved auto-detection of terminal environment
+
+- Task #101: Improve Domain Module Testability with Proper Dependency Injection
+  - Created specifications for implementing interface-based design
+  - Planned consistent dependency injection patterns
+  - Defined approach for improved test utilities
+  - Will reduce reliance on type casting and improve test maintainability
+
+- Task #102: Refactor Domain Objects to Follow Functional Patterns
+  - Defined path to move from class-based to functional design
+  - Will make side effects explicit for better testability
+  - Will improve state management with immutable patterns
+
+- Task #103: Enhance Test Utilities for Better Domain Testing
+  - Planned comprehensive test utility improvements
+  - Will add dependency generation, mock creation enhancements
+  - Will standardize test data generation and setup/teardown
+
+_See: SpecStory history [2025-06-21_improving-domain-testability](mdc:.specstory/history/2025-06-21_improving-domain-testability.md) for task creation._
