@@ -7,16 +7,19 @@ After fixing test failures in the domain module, we've identified several struct
 ## Requirements
 
 1. **Interface-Based Design**
+
    - Define core interfaces for all domain services
    - Extract only the methods used by other components
    - Provide factory functions for default implementations
 
 2. **Consistent Dependency Injection**
+
    - Refactor domain functions to accept dependencies as parameters
    - Implement a consistent pattern with sensible defaults
    - Focus on commonly used functions first
 
 3. **Enhanced Test Utilities**
+
    - Create utilities for generating test dependencies
    - Add functions for partial mock implementation
    - Update existing tests to use new patterns
@@ -29,6 +32,7 @@ After fixing test failures in the domain module, we've identified several struct
 ## Implementation Steps
 
 1. [ ] Create domain interfaces:
+
    - [ ] Define `SessionProvider` interface for SessionDB operations
    - [ ] Define `GitServiceInterface` for GitService operations
    - [ ] Define `TaskServiceInterface` for TaskService operations
@@ -36,12 +40,14 @@ After fixing test failures in the domain module, we've identified several struct
    - [ ] Add factory functions for default implementations
 
 2. [ ] Implement dependency injection:
+
    - [ ] Refactor `resolveRepoPath` to use injected dependencies
    - [ ] Refactor `getCurrentSession` and related functions
    - [ ] Update `approveSessionFromParams` dependency handling
    - [ ] Apply pattern to `startSessionFromParams` and `listSessionsFromParams`
 
 3. [ ] Create enhanced test utilities:
+
    - [ ] Add `createTestDeps` function for generating test dependencies
    - [ ] Create utilities for partial mock implementation
    - [ ] Add helper for mocking without modifying readonly properties
@@ -56,4 +62,4 @@ After fixing test failures in the domain module, we've identified several struct
 - [ ] All tests pass without modifying readonly properties
 - [ ] No more usage of `as any` type casting in tests
 - [ ] Consistent dependency injection pattern across the codebase
-- [ ] Improved test readability and maintainability 
+- [ ] Improved test readability and maintainability

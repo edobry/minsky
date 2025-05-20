@@ -30,33 +30,64 @@ The current CLI adapter structure in the Minsky project defines command options 
    - Create validation utilities for shared options if needed
    - Ensure that mutually exclusive options are properly handled
 
+## Design Approach
+
+Based on the work from Task #80 (Review Workspace and Repository Path Concepts) and Task #87 (Implement Unified Session and Repository Resolution), we'll create a consistent structure for CLI options that aligns with the established conceptual model for workspaces, repositories, and sessions.
+
+The design will follow these principles:
+
+- Options should be grouped by functionality
+- Option descriptions should be consistent across commands
+- Helper functions should make it easy to add option groups to commands
+- Normalization functions should convert CLI options to domain parameters
+
 ## Implementation Steps
 
 1. [ ] Create a new utility module at `src/adapters/cli/utils/shared-options.ts`
 
    - [ ] Define interfaces for common option groups
+     - [ ] Repository resolution options (`RepoOptions`)
+     - [ ] Output format options (`OutputOptions`)
+     - [ ] Task identification options (`TaskOptions`)
    - [ ] Implement functions to add common options to Commander commands
+     - [ ] `addRepoOptions(command)` for adding repository resolution options
+     - [ ] `addOutputOptions(command)` for adding output format options
+     - [ ] `addTaskOptions(command)` for adding task identification options
    - [ ] Add proper JSDoc comments for all exports
 
 2. [ ] Create helper functions for parameter normalization
 
    - [ ] Function to normalize repository resolution options
+     - [ ] Handle converting CLI options to domain parameters
+     - [ ] Implement priority order for options (e.g., explicit workspace overrides repo)
    - [ ] Function to normalize output format options
+     - [ ] Handle JSON output, debug flags, etc.
    - [ ] Function to normalize task identification options
+     - [ ] Handle task ID normalization
 
 3. [ ] Update existing CLI commands to use shared options
 
    - [ ] Update Git commands
+     - [ ] Modify `git.ts` and related files to use shared options
    - [ ] Update Task commands
+     - [ ] Modify `tasks.ts` to use shared options
    - [ ] Update Session commands
+     - [ ] Modify `session.ts` to use shared options
    - [ ] Update Rule commands
+     - [ ] Modify `rules.ts` to use shared options
 
 4. [ ] Add tests for the shared option utilities
 
    - [ ] Test option composability
+     - [ ] Verify that options can be combined correctly
    - [ ] Test parameter normalization
+     - [ ] Verify CLI options are correctly converted to domain parameters
+   - [ ] Test option handling in commands
+     - [ ] Verify commands correctly process the shared options
 
 5. [ ] Update documentation to reflect the new approach
+   - [ ] Update code comments to document usage patterns
+   - [ ] Add examples of how to use shared options in new commands
 
 ## Verification
 
