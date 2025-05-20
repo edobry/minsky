@@ -160,3 +160,5 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
 
 - [ ] Enhance Test Utilities for Better Domain Testing [#103](process/tasks/103-enhance-test-utilities-for-better-domain-testing.md)
+
+- [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
