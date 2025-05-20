@@ -810,6 +810,7 @@ export async function approveSessionFromParams(
     gitService: GitService;
     taskService: TaskService;
     workspaceUtils: typeof WorkspaceUtils;
+    getCurrentSession?: (repoPath: string) => Promise<string | null>;
   }
 ): Promise<{
   session: string;
@@ -852,12 +853,18 @@ export async function approveSessionFromParams(
   // If session is still not set, try to detect it from repo path
   if (!sessionNameToUse && params.repo) {
     try {
-      const sessionContext = await getCurrentSession(params.repo);
+      console.log("Attempting to detect session from repo path:", params.repo);
+      // Use explicitly provided getCurrentSession function if available, otherwise use the one from workspaceUtils
+      const getCurrentSessionFn = deps.getCurrentSession || getCurrentSession;
+      const sessionContext = await getCurrentSessionFn(params.repo);
+      console.log("Session context result:", sessionContext);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
+        console.log("Session name set to:", sessionNameToUse);
       }
     } catch (error) {
       // Just log and continue - session detection is optional
+      console.log("Error detecting session:", error);
       log.debug("Failed to detect session from repo path", {
         error: error instanceof Error ? error.message : String(error),
         repoPath: params.repo
@@ -867,6 +874,7 @@ export async function approveSessionFromParams(
 
   // Validate that we have a session to work with
   if (!sessionNameToUse) {
+    console.log("No session detected, throwing ValidationError");
     throw new ValidationError("No session detected. Please provide a session name or task ID");
   }
 

@@ -15,6 +15,8 @@ export interface WorkspaceResolutionOptions {
   workspace?: string;
   /** Path to a session workspace */
   sessionWorkspace?: string;
+  /** Path to a session repository (deprecated, use sessionWorkspace instead) */
+  sessionRepo?: string;
 }
 
 // For dependency injection in tests
@@ -66,6 +68,9 @@ export async function isSessionWorkspace(
     return false;
   }
 }
+
+// Create alias for backward compatibility
+export const isSessionRepository = isSessionWorkspace;
 
 /**
  * Get session information from a workspace path
@@ -144,6 +149,9 @@ export async function getSessionFromWorkspace(
   }
 }
 
+// Alias getSessionFromWorkspace as getSessionFromRepo for backwards compatibility
+export const getSessionFromRepo = getSessionFromWorkspace;
+
 /**
  * Resolve the workspace path for task operations
  * Modified to use the current working directory when in a session workspace
@@ -151,7 +159,8 @@ export async function getSessionFromWorkspace(
  *
  * Resolution strategy:
  * 1. Use explicitly provided workspace path if available
- * 2. Use current directory as workspace
+ * 2. Use session repo path if provided (for backward compatibility)
+ * 3. Use current directory as workspace
  */
 export async function resolveWorkspacePath(
   options?: WorkspaceResolutionOptions,
@@ -173,7 +182,12 @@ export async function resolveWorkspacePath(
     }
   }
 
-  // Use current directory or provided path as workspace
+  // For backward compatibility, use sessionRepo if provided
+  if (options?.sessionRepo) {
+    return options.sessionRepo;
+  }
+
+  // Use current directory or provided session workspace as workspace
   const checkPath = options?.sessionWorkspace || process.cwd();
 
   // Note: We're no longer redirecting to the upstream repository path when in a session

@@ -4,13 +4,20 @@ import { GitService } from "../git";
 import { TaskService } from "../tasks";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
+import * as WorkspaceUtils from "../workspace";
 
 describe("Session Approve Workflow", () => {
   // Create mocks for dependencies
   const mockGitService = {
-    execInRepository: createMock(() => 
-      Promise.resolve("Successfully merged PR\nCommit: abc123\nMerge date: 2025-01-01\nUser: test-user")
-    ),
+    execInRepository: createMock((workdir, command) => {
+      if (command.includes("rev-parse HEAD")) {
+        return Promise.resolve("abc123");
+      }
+      if (command.includes("config user.name")) {
+        return Promise.resolve("test-user");
+      }
+      return Promise.resolve("Successfully merged PR");
+    })
   };
   
   const mockTaskService = {
@@ -22,7 +29,7 @@ describe("Session Approve Workflow", () => {
         status: "in-progress",
       })
     ),
-    setTaskMetadata: createMock(() => Promise.resolve(true)),
+    setTaskStatus: createMock(() => Promise.resolve(true)),
   };
   
   const mockSessionDB = {
@@ -37,14 +44,19 @@ describe("Session Approve Workflow", () => {
         taskId: "task025",
       })
     ),
+    getSessionWorkdir: createMock(() => Promise.resolve("/test/repo/path/sessions/test-session")),
+    getSessionByTaskId: createMock(() => Promise.resolve(null)),
   };
   
   // Reset mocks before each test
   beforeEach(() => {
-    (mockGitService.execInRepository as any).mock.calls = [];
-    (mockTaskService.getTask as any).mock.calls = [];
-    (mockTaskService.setTaskMetadata as any).mock.calls = [];
-    (mockSessionDB.getSession as any).mock.calls = [];
+    // Clear mock calls
+    mockGitService.execInRepository.mockClear();
+    mockTaskService.getTask.mockClear();
+    mockTaskService.setTaskStatus.mockClear();
+    mockSessionDB.getSession.mockClear();
+    mockSessionDB.getSessionWorkdir.mockClear();
+    mockSessionDB.getSessionByTaskId.mockClear();
   });
   
   test("successfully approves and merges a PR branch with task ID", async () => {
@@ -53,8 +65,8 @@ describe("Session Approve Workflow", () => {
       {
         gitService: mockGitService as unknown as GitService,
         taskService: mockTaskService as unknown as TaskService, 
-        sessionDB: mockSessionDB,
-        workspacePath: "/test/repo/path",
+        sessionDB: mockSessionDB as any,
+        workspaceUtils: WorkspaceUtils,
       }
     );
     
@@ -62,27 +74,26 @@ describe("Session Approve Workflow", () => {
     expect(result.session).toBe("test-session");
     expect(result.commitHash).toBe("abc123");
     expect(result.mergeDate).toBeDefined();
-    expect(result.mergedBy).toBeDefined();
+    expect(result.mergedBy).toBe("test-user");
     expect(result.taskId).toBe("task025");
     
     // Verify methods were called with expected parameters
-    expect((mockSessionDB.getSession as any).mock.calls.length).toBe(1);
-    expect((mockSessionDB.getSession as any).mock.calls[0][0]).toBe("test-session");
+    expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     
-    expect((mockGitService.execInRepository as any).mock.calls.length).toBeGreaterThan(0);
+    expect(mockGitService.execInRepository).toHaveBeenCalled();
     
-    // Verify task metadata was updated
-    expect((mockTaskService.setTaskMetadata as any).mock.calls.length).toBe(1);
-    expect((mockTaskService.setTaskMetadata as any).mock.calls[0][0]).toBe("task025");
+    // Verify task status was updated
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalled();
+    expect(mockTaskService.setTaskStatus.mock.calls[0]?.[0]).toBe("task025");
   });
   
   test("throws ValidationError when session parameter is missing", async () => {
     await expect(approveSessionFromParams({}, {
       gitService: mockGitService as unknown as GitService,
       taskService: mockTaskService as unknown as TaskService,
-      sessionDB: mockSessionDB,
-      workspacePath: "/test/repo/path",
-    })).rejects.toBeInstanceOf(ValidationError);
+      sessionDB: mockSessionDB as any,
+      workspaceUtils: WorkspaceUtils,
+    })).rejects.toThrow(/No session detected/);
   });
   
   test("throws ResourceNotFoundError when session does not exist", async () => {
@@ -96,10 +107,10 @@ describe("Session Approve Workflow", () => {
         {
           gitService: mockGitService as unknown as GitService,
           taskService: mockTaskService as unknown as TaskService,
-          sessionDB: mockSessionDB,
-          workspacePath: "/test/repo/path",
+          sessionDB: mockSessionDB as any,
+          workspaceUtils: WorkspaceUtils,
         }
-      )).rejects.toBeInstanceOf(ResourceNotFoundError);
+      )).rejects.toThrow(/Session "non-existent-session" not found/);
     } finally {
       // Restore the original mock
       mockSessionDB.getSession = originalGetSession;
@@ -109,9 +120,7 @@ describe("Session Approve Workflow", () => {
   test("throws MinskyError when git command fails", async () => {
     // Override the execInRepository mock to throw an error
     const originalExecIn = mockGitService.execInRepository;
-    mockGitService.execInRepository = createMock(() => 
-      Promise.reject(new Error("Git command failed"))
-    );
+    mockGitService.execInRepository = createMock(() => Promise.reject(new Error("Git command failed")));
     
     try {
       await expect(approveSessionFromParams(
@@ -119,10 +128,10 @@ describe("Session Approve Workflow", () => {
         {
           gitService: mockGitService as unknown as GitService,
           taskService: mockTaskService as unknown as TaskService,
-          sessionDB: mockSessionDB, 
-          workspacePath: "/test/repo/path",
+          sessionDB: mockSessionDB as any, 
+          workspaceUtils: WorkspaceUtils,
         }
-      )).rejects.toBeInstanceOf(MinskyError);
+      )).rejects.toThrow(/Failed to approve session/);
     } finally {
       // Restore the original mock
       mockGitService.execInRepository = originalExecIn;
