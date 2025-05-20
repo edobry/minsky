@@ -261,3 +261,70 @@ export async function getCurrentSessionContext(
     return null;
   }
 }
+
+/**
+ * Interface for workspace utility operations
+ * This defines the contract for workspace-related functionality
+ */
+export interface WorkspaceUtilsInterface {
+  /**
+   * Check if the current directory is a Minsky workspace
+   */
+  isWorkspace(path: string): Promise<boolean>;
+
+  /**
+   * Check if the current directory is a session workspace
+   */
+  isSessionWorkspace(path: string): Promise<boolean>;
+
+  /**
+   * Get the current session name if in a session workspace
+   */
+  getCurrentSession(repoPath: string): Promise<string | null>;
+
+  /**
+   * Get the session name from a workspace path
+   */
+  getSessionFromWorkspace(workspacePath: string): Promise<string | null>;
+
+  /**
+   * Resolve a workspace path from inputs
+   */
+  resolveWorkspacePath(options: { workspace?: string; sessionRepo?: string }): Promise<string>;
+}
+
+/**
+ * Creates a WorkspaceUtils implementation
+ * This factory function provides a consistent way to get workspace utilities with optional customization
+ * 
+ * @returns A WorkspaceUtilsInterface implementation
+ */
+export function createWorkspaceUtils(): WorkspaceUtilsInterface {
+  return {
+    isWorkspace: async (path: string): Promise<boolean> => {
+      try {
+        // A workspace is valid if it contains a process directory
+        const processDir = join(path, "process");
+        await fs.access(processDir);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    },
+    
+    isSessionWorkspace,
+    
+    getCurrentSession: async (repoPath: string): Promise<string | null> => {
+      return getCurrentSession(repoPath);
+    },
+    
+    getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
+      const result = await getSessionFromWorkspace(workspacePath);
+      return result ? result.session : null;
+    },
+    
+    resolveWorkspacePath: async (options: { workspace?: string; sessionRepo?: string }): Promise<string> => {
+      return resolveWorkspacePath(options);
+    }
+  };
+}

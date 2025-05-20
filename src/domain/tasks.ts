@@ -28,6 +28,47 @@ import { z } from "zod";
 import matter from "gray-matter";
 const execAsync = promisify(exec);
 
+/**
+ * Interface for task service operations
+ * This defines the contract for task-related functionality
+ */
+export interface TaskServiceInterface {
+  /**
+   * Get all tasks with optional filtering
+   */
+  listTasks(options?: TaskListOptions): Promise<Task[]>;
+
+  /**
+   * Get a task by ID
+   */
+  getTask(id: string): Promise<Task | null>;
+
+  /**
+   * Get the status of a task
+   */
+  getTaskStatus(id: string): Promise<string | null>;
+
+  /**
+   * Set the status of a task
+   */
+  setTaskStatus(id: string, status: string): Promise<void>;
+
+  /**
+   * Get the workspace path for the current backend
+   */
+  getWorkspacePath(): string;
+
+  /**
+   * Create a task with the given specification path
+   */
+  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
+
+  /**
+   * Get the backend type for a specific task
+   */
+  getBackendForTask(taskId: string): Promise<string>;
+}
+
 export interface Task {
   id: string;
   title: string;

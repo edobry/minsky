@@ -13,6 +13,57 @@ const execAsync = promisify(childExec);
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
+/**
+ * Interface for git service operations
+ * This defines the contract for git-related functionality
+ */
+export interface GitServiceInterface {
+  /**
+   * Clone a repository and set up a session workspace
+   */
+  clone(options: { repoUrl: string; session: string; branch?: string }): Promise<{ workdir: string; session: string }>;
+  
+  /**
+   * Create and checkout a new branch
+   */
+  branch(options: BranchOptions): Promise<any>;
+  
+  /**
+   * Execute a git command in a repository
+   */
+  execInRepository(workdir: string, command: string): Promise<string>;
+  
+  /**
+   * Get the working directory for a session
+   */
+  getSessionWorkdir(repoName: string, session: string): string;
+  
+  /**
+   * Stash changes in a repository
+   */
+  stashChanges(repoPath: string): Promise<void>;
+  
+  /**
+   * Pull latest changes from a remote
+   */
+  pullLatest(repoPath: string, remote?: string): Promise<void>;
+  
+  /**
+   * Merge a branch into the current branch
+   */
+  mergeBranch(repoPath: string, branch: string): Promise<{ conflicts: boolean }>;
+  
+  /**
+   * Push changes to a remote
+   */
+  push(options: { repoPath: string; remote?: string }): Promise<void>;
+  
+  /**
+   * Apply stashed changes
+   */
+  popStash(repoPath: string): Promise<void>;
+}
+
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
@@ -135,7 +186,7 @@ export interface MergePrResult {
   mergedBy: string;
 }
 
-export class GitService {
+export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
 
@@ -1530,4 +1581,15 @@ export async function pushFromParams(params: {
     });
     throw error;
   }
+}
+
+/**
+ * Creates a default GitService implementation
+ * This factory function provides a consistent way to get a git service with optional customization
+ * 
+ * @param options Optional configuration options for the git service
+ * @returns A GitServiceInterface implementation
+ */
+export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
+  return new GitService(options?.baseDir);
 }

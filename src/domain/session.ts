@@ -16,18 +16,19 @@ import type {
   SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { GitService, type BranchOptions } from "./git.js";
-import { TaskService, TASK_STATUS } from "./tasks.js";
-import { isSessionWorkspace } from "./workspace.js";
+import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
+import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
+import { isSessionWorkspace, type WorkspaceUtilsInterface } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
 import { getCurrentSession, getSessionFromWorkspace } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
-import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams } from "./git.js";
+import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams, createGitService } from "./git.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
+
+// Remove locally defined interfaces since we're now importing them
 
 export interface SessionRecord {
   session: string;
@@ -78,6 +79,52 @@ interface CloneResult {
 }
 
 /**
+ * Interface for session database operations
+ * This defines the contract for session management functionality
+ */
+export interface SessionProviderInterface {
+  /**
+   * Get all available sessions
+   */
+  listSessions(): Promise<SessionRecord[]>;
+  
+  /**
+   * Get a specific session by name
+   */
+  getSession(session: string): Promise<SessionRecord | null>;
+  
+  /**
+   * Get a specific session by task ID
+   */
+  getSessionByTaskId(taskId: string): Promise<SessionRecord | null>;
+  
+  /**
+   * Add a new session to the database
+   */
+  addSession(record: SessionRecord): Promise<void>;
+  
+  /**
+   * Update an existing session
+   */
+  updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+  
+  /**
+   * Delete a session by name
+   */
+  deleteSession(session: string): Promise<boolean>;
+  
+  /**
+   * Get the repository path for a session
+   */
+  getRepoPath(record: SessionRecord | any): Promise<string>;
+  
+  /**
+   * Get the working directory for a session
+   */
+  getSessionWorkdir(sessionName: string): Promise<string>;
+}
+
+/**
  * In-memory cache of session database
  */
 const sessionDbCache: Session[] | null = null;
@@ -85,12 +132,12 @@ const sessionDbCache: Session[] | null = null;
 /**
  * Session database operations
  */
-export class SessionDB {
+export class SessionDB implements SessionProviderInterface {
   private readonly dbPath: string;
   private readonly baseDir: string; // Add baseDir property
 
   constructor(dbPath?: string) {
-    const xdgStateHome = Bun.env.XDG_STATE_HOME || join(Bun.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;
@@ -351,19 +398,30 @@ export class SessionDB {
 
 /**
  * Gets session details based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function getSessionFromParams(params: SessionGetParams): Promise<Session | null> {
+export async function getSessionFromParams(
+  params: SessionGetParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<Session | null> {
   const { name, task } = params;
+  
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
 
   // If task is provided but no name, find session by task ID
   if (task && !name) {
     const normalizedTaskId = taskIdSchema.parse(task);
-    return new SessionDB().getSessionByTaskId(normalizedTaskId);
+    return deps.sessionDB.getSessionByTaskId(normalizedTaskId);
   }
 
   // If name is provided, get by name
   if (name) {
-    return new SessionDB().getSession(name);
+    return deps.sessionDB.getSession(name);
   }
 
   // No name or task - error case
@@ -372,25 +430,49 @@ export async function getSessionFromParams(params: SessionGetParams): Promise<Se
 
 /**
  * Lists all sessions based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function listSessionsFromParams(params: SessionListParams): Promise<Session[]> {
-  return new SessionDB().listSessions();
+export async function listSessionsFromParams(
+  params: SessionListParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<Session[]> {
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
+  
+  return deps.sessionDB.listSessions();
 }
 
 /**
  * Starts a new session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function startSessionFromParams(params: SessionStartParams): Promise<Session> {
+export async function startSessionFromParams(
+  params: SessionStartParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    taskService?: TaskServiceInterface;
+    workspaceUtils?: WorkspaceUtilsInterface;
+    resolveRepoPath?: typeof resolveRepoPath;
+  }
+): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
   const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
 
-  // Convert dependencies for dependency injection pattern
+  // Create dependencies with defaults
   const deps = {
-    gitService: new GitService(),
-    sessionDB: new SessionDB(),
-    taskService: null as TaskService | null,
-    resolveRepoPath,
-    isSessionRepository: isSessionWorkspace,
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    gitService: depsInput?.gitService || createGitService(),
+    taskService: depsInput?.taskService || new TaskService({
+      workspacePath: repo || process.cwd(),
+      backend: "markdown",
+    }),
+    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
+    resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath
   };
 
   try {
@@ -404,7 +486,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
     });
 
     const currentDir = process.env.PWD || process.cwd();
-    const isInSession = await deps.isSessionRepository(currentDir);
+    const isInSession = await deps.workspaceUtils.isSessionWorkspace(currentDir);
     if (isInSession) {
       throw new MinskyError(
         "Cannot create a new session while inside a session workspace. Please return to the main workspace first."
@@ -424,12 +506,6 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       }
     }
 
-    // Initialize task service with the repository information
-    deps.taskService = new TaskService({
-      workspacePath: repoUrl,
-      backend: "markdown", // Default to markdown backend
-    });
-
     // Determine the session name using task ID if provided
     let sessionName = name;
     let taskId: string | undefined = task;
@@ -440,7 +516,7 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       taskId = normalizedTaskId;
 
       // Verify the task exists
-      const taskObj = await deps.taskService.getTask(taskId);
+      const taskObj = await deps.taskService.getTask(normalizedTaskId);
       if (!taskObj) {
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
@@ -495,14 +571,6 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       session: sessionName,
     });
 
-    // Convert to our interface - correct handling of workdir
-    const cloneResult = {
-      workdir: gitCloneResult.workdir,
-      success: true,
-    };
-
-    let statusUpdateResult;
-
     // Create a branch based on the session name
     const branchName = branch || sessionName;
     const branchResult = await deps.gitService.branch({
@@ -526,15 +594,16 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
       }
     }
 
-    // Return the session record
+    if (!quiet) {
+      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+    }
+
     return {
       session: sessionName,
       repoUrl,
-      repoName,
-      branch: branchName,
-      createdAt: sessionRecord.createdAt,
+      repoName: normalizeRepoName(repoUrl),
+      branch,
       taskId,
-      repoPath: cloneResult.workdir, // Use workdir instead of repoPath
     };
   } catch (error) {
     if (error instanceof MinskyError) {
@@ -550,40 +619,62 @@ export async function startSessionFromParams(params: SessionStartParams): Promis
 
 /**
  * Deletes a session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function deleteSessionFromParams(params: SessionDeleteParams): Promise<boolean> {
+export async function deleteSessionFromParams(
+  params: SessionDeleteParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<boolean> {
   const { name, task } = params;
+  
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
 
   if (task && !name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(task);
-    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
     }
 
     // Delete by name
-    return new SessionDB().deleteSession(session.session);
+    return deps.sessionDB.deleteSession(session.session);
   }
 
   if (!name) {
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  return new SessionDB().deleteSession(name);
+  return deps.sessionDB.deleteSession(name);
 }
 
 /**
  * Gets session directory based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function getSessionDirFromParams(params: SessionDirParams): Promise<string> {
+export async function getSessionDirFromParams(
+  params: SessionDirParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+  }
+): Promise<string> {
+  // Set up dependencies with defaults
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider()
+  };
+  
   let sessionName: string;
 
   if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
-    const session = await new SessionDB().getSessionByTaskId(normalizedTaskId);
+    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
@@ -596,7 +687,7 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  const session = await new SessionDB().getSession(sessionName);
+  const session = await deps.sessionDB.getSession(sessionName);
 
   if (!session) {
     throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
@@ -614,8 +705,16 @@ export async function getSessionDirFromParams(params: SessionDirParams): Promise
 
 /**
  * Updates a session based on parameters
+ * Using proper dependency injection for better testability
  */
-export async function updateSessionFromParams(params: SessionUpdateParams): Promise<void> {
+export async function updateSessionFromParams(
+  params: SessionUpdateParams,
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    getCurrentSession?: typeof getCurrentSession;
+  }
+): Promise<void> {
   const { name, branch, remote, noStash, noPush } = params;
 
   // Input validation
@@ -623,11 +722,11 @@ export async function updateSessionFromParams(params: SessionUpdateParams): Prom
     throw new ValidationError("Session name is required");
   }
 
-  // Convert dependencies for dependency injection pattern
+  // Set up dependencies with defaults
   const deps = {
-    gitService: new GitService(),
-    sessionDB: new SessionDB(),
-    getCurrentSession,
+    gitService: depsInput?.gitService || createGitService(),
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession
   };
 
   try {
@@ -806,15 +905,9 @@ export async function approveSessionFromParams(
     json?: boolean;
   },
   depsInput?: {
-    sessionDB: {
-      getSession: (name: string) => Promise<any>;
-      getSessionByTaskId?: (taskId: string) => Promise<any>;
-      getSessionWorkdir?: (sessionName: string) => Promise<string>;
-    };
-    gitService: {
-      execInRepository: (workdir: string, command: string) => Promise<string>;
-    };
-    taskService: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    taskService?: {
       setTaskStatus?: (taskId: string, status: string) => Promise<any>;
       getBackendForTask?: (taskId: string) => Promise<any>;
     };
@@ -830,14 +923,16 @@ export async function approveSessionFromParams(
   prBranch: string;
   taskId?: string;
 }> {
-  const deps = depsInput || {
-    sessionDB: new SessionDB(),
-    gitService: new GitService(),
-    taskService: new TaskService({
+  // Set up default dependencies if not provided
+  const deps = {
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    gitService: depsInput?.gitService || createGitService(),
+    taskService: depsInput?.taskService || new TaskService({
       workspacePath: params.repo || process.cwd(),
       backend: "markdown",
     }),
-    workspaceUtils: WorkspaceUtils,
+    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession
   };
 
   let sessionNameToUse = params.session;
@@ -848,11 +943,8 @@ export async function approveSessionFromParams(
     const taskIdToUse = taskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
-    // Check if getSessionByTaskId is defined, default to new SessionDB() if not
-    const getSessionByTaskId = deps.sessionDB.getSessionByTaskId || 
-      ((id: string) => new SessionDB().getSessionByTaskId(id));
-    
-    const session = await getSessionByTaskId(taskIdToUse);
+    // Get session by task ID
+    const session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
         `No session found for task ${taskIdToUse}`,
@@ -866,9 +958,7 @@ export async function approveSessionFromParams(
   // If session is still not set, try to detect it from repo path
   if (!sessionNameToUse && params.repo) {
     try {
-      // Explicitly use the injected getCurrentSession function if provided, otherwise fallback to the imported one
-      const getCurrentSessionFn = deps.getCurrentSession || getCurrentSession;
-      const sessionContext = await getCurrentSessionFn(params.repo);
+      const sessionContext = await deps.getCurrentSession(params.repo);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
       }
@@ -876,7 +966,7 @@ export async function approveSessionFromParams(
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from repo path", {
         error: error instanceof Error ? error.message : String(error),
-        repoPath: params.repo
+        repoPath: params.repo,
       });
     }
   }
@@ -901,11 +991,8 @@ export async function approveSessionFromParams(
     taskId = sessionRecord.taskId;
   }
 
-  // Get session workdir - add fallback for tests
-  const getSessionWorkdir = deps.sessionDB.getSessionWorkdir || 
-    ((name: string) => new SessionDB().getSessionWorkdir(name));
-    
-  const sessionWorkdir = await getSessionWorkdir(sessionNameToUse);
+  // Get session workdir
+  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 
   // Determine PR branch name (pr/<session-name>)
   const featureBranch = sessionNameToUse;
@@ -949,7 +1036,7 @@ export async function approveSessionFromParams(
       taskId,
     };
 
-    // Update task status to DONE if we have a task ID - with fallback
+    // Update task status to DONE if we have a task ID
     if (taskId && deps.taskService.setTaskStatus) {
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
@@ -971,4 +1058,15 @@ export async function approveSessionFromParams(
       );
     }
   }
+}
+
+/**
+ * Creates a default SessionProvider implementation
+ * This factory function provides a consistent way to get a session provider with optional customization
+ * 
+ * @param options Optional configuration options for the session provider
+ * @returns A SessionProviderInterface implementation
+ */
+export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
+  return new SessionDB(options?.dbPath);
 }
