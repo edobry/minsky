@@ -12,4 +12,11 @@ describe("Session CLI Commands", () => {
     // This is a placeholder test that always passes
     expect(true).toBe(true);
   });
+
+  describe("inspect command", () => {
+    test("placeholder test for inspect command", () => {
+      // This is a placeholder test that always passes
+      expect(true).toBe(true);
+    });
+  });
 }); 
