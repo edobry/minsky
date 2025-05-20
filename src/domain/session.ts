@@ -18,9 +18,8 @@ import type {
 } from "../schemas/session.js";
 import { GitService, type BranchOptions } from "./git.js";
 import { TaskService, TASK_STATUS } from "./tasks.js";
-import { isSessionWorkspace } from "./workspace.js";
+import { isSessionWorkspace, getCurrentSession, isSessionRepository, getSessionFromWorkspace, getCurrentSessionContext } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
-import { getCurrentSession, getSessionFromWorkspace } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
 import { z } from "zod";
 import * as WorkspaceUtils from "./workspace.js";
@@ -971,4 +970,28 @@ export async function approveSessionFromParams(
       );
     }
   }
+}
+
+/**
+ * Inspects current session based on workspace location
+ */
+export async function inspectSessionFromParams(params: { json?: boolean }): Promise<Session | null> {
+  // Need to know current directory to auto-detect session
+  const currentDir = process.cwd();
+  
+  // Use getCurrentSessionContext to detect the current session
+  const sessionContext = await getCurrentSessionContext(currentDir);
+  
+  if (!sessionContext?.sessionId) {
+    throw new ResourceNotFoundError("Not in a session workspace. Please navigate to a session directory first.");
+  }
+  
+  // Get full session details using the detected session ID
+  const session = await new SessionDB().getSession(sessionContext.sessionId);
+  
+  if (!session) {
+    throw new ResourceNotFoundError(`Session "${sessionContext.sessionId}" not found`);
+  }
+  
+  return session;
 }

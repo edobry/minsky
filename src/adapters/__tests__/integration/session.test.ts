@@ -416,4 +416,44 @@ describe("Session Domain Methods", () => {
         .toThrow('Session "non-existent" not found');
     });
   });
+
+  describe("inspectSessionFromParams", () => {
+    test("gets the current session details when in a session workspace", async () => {
+      // Arrange
+      const sessionData = {
+        session: "current-session",
+        repoName: "test-repo",
+        branch: "current-session",
+        taskId: "#123"
+      };
+      
+      const mockInspectSessionFromParams = createMock(() => Promise.resolve(sessionData));
+      mockModule("../../../domain/session.js", () => ({
+        inspectSessionFromParams: mockInspectSessionFromParams
+      }));
+      
+      // Act
+      const result = await mockInspectSessionFromParams({});
+      
+      // Assert
+      expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
+      expect(result).toEqual(sessionData);
+      expect(result.session).toBe("current-session");
+      expect(result.taskId).toBe("#123");
+    });
+
+    test("throws error when not in a session workspace", async () => {
+      // Arrange
+      const error = new Error("Not in a session workspace. Please navigate to a session directory first.");
+      const mockInspectSessionFromParams = createMock(() => Promise.reject(error));
+      mockModule("../../../domain/session.js", () => ({
+        inspectSessionFromParams: mockInspectSessionFromParams
+      }));
+      
+      // Act & Assert
+      await expect(mockInspectSessionFromParams({}))
+        .rejects
+        .toThrow("Not in a session workspace. Please navigate to a session directory first.");
+    });
+  });
 }); 

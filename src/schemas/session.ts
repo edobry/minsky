@@ -166,3 +166,15 @@ export const sessionPrParamsSchema = z
  * Type for session PR parameters
  */
 export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
+
+/**
+ * Schema for session inspect parameters
+ */
+export const sessionInspectParamsSchema = z
+  .object({})
+  .merge(commonCommandOptionsSchema);
+
+/**
+ * Type for session inspect parameters
+ */
+export type SessionInspectParams = z.infer<typeof sessionInspectParamsSchema>;

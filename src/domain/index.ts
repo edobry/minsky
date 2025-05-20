@@ -17,12 +17,14 @@ export {
 } from "./git.js";
 
 export {
-  listSessionsFromParams,
+  SessionDB,
   getSessionFromParams,
+  listSessionsFromParams,
   startSessionFromParams,
-  getSessionDirFromParams,
-  deleteSessionFromParams,
   updateSessionFromParams,
+  deleteSessionFromParams,
+  getSessionDirFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  inspectSessionFromParams,
 } from "./session.js";
