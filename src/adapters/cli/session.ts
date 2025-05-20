@@ -527,6 +527,53 @@ ${result.body || ""}
 }
 
 /**
+ * Creates the session inspect command
+ */
+export function createInspectCommand(): Command {
+  const command = new Command("inspect")
+    .description("Inspect the current session (auto-detected from workspace)");
+  
+  // Add shared options
+  addOutputOptions(command);
+  
+  command.action(async (options?: { json?: boolean }) => {
+    try {
+      // Auto-detect session
+      const { getCurrentSessionContext } = await import("../../domain/workspace.js");
+      const sessionContext = await getCurrentSessionContext(process.cwd());
+
+      if (!sessionContext?.sessionId) {
+        throw new Error("Not in a session workspace. Please navigate to a session directory first.");
+      }
+
+      // Convert CLI options to domain parameters
+      const params: SessionGetParams = {
+        name: sessionContext.sessionId,
+      };
+
+      // Call the domain function to get session details
+      const session = await getSessionFromParams(params);
+
+      // Format output using the utility function
+      outputResult(session, {
+        json: options?.json,
+        formatter: (formattedSession: any) => {
+          console.log(`Current Session: ${formattedSession.session}`);
+          console.log(`Branch: ${formattedSession.branch}`);
+          if (formattedSession.taskId) {
+            console.log(`Task: ${formattedSession.taskId}`);
+          }
+        },
+      });
+    } catch (error) {
+      handleCliError(error);
+    }
+  });
+  
+  return command;
+}
+
+/**
  * Creates the session command
  */
 export function createSessionCommand(config?: GetCurrentSessionConfig): Command {
@@ -541,6 +588,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createUpdateCommand());
   sessionCommand.addCommand(createApproveCommand());
   sessionCommand.addCommand(createPrCommand());
+  sessionCommand.addCommand(createInspectCommand());
 
   return sessionCommand;
 }
