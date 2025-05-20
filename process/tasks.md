@@ -151,11 +151,13 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
 
+- [ ] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
+
 - [x] Implement Environment-Aware Logging [#099](process/tasks/099-implement-environment-aware-logging.md)
 
 - [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
 
-- [x] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
+- [-] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
 
 - [ ] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
 
