@@ -22,7 +22,12 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
 } from "../../domain/index.js";
-import { handleCliError, outputResult } from "./utils/index.js";
+import { 
+  handleCliError, 
+  outputResult,
+  addRepoOptions,
+  addOutputOptions
+} from "./utils/index.js";
 
 interface GetCurrentSessionConfig {
   getCurrentSession: () => Promise<string | null>;
@@ -32,39 +37,44 @@ interface GetCurrentSessionConfig {
  * Creates the session list command
  */
 export function createListCommand(): Command {
-  return new Command("list")
-    .description("List available sessions")
-    .option("--repo <path>", "Repository path")
-    .option("--json", "Output sessions as JSON")
-    .action(async (options?: { repo?: string; json?: boolean }) => {
-      try {
-        // Convert CLI options to domain parameters
-        const params: SessionListParams = {
-          repo: options?.repo,
-          json: options?.json,
-        };
+  const command = new Command("list")
+    .description("List available sessions");
+  
+  // Add shared options
+  addRepoOptions(command);
+  addOutputOptions(command);
+  
+  command.action(async (options?: { repo?: string; json?: boolean; session?: string; "upstream-repo"?: string }) => {
+    try {
+      // Convert CLI options to domain parameters
+      const params: SessionListParams = {
+        repo: options?.repo,
+        json: options?.json,
+      };
 
-        // Call the domain function
-        const sessions = await listSessionsFromParams(params);
+      // Call the domain function
+      const sessions = await listSessionsFromParams(params);
 
-        // Output result using the utility function
-        outputResult(sessions, {
-          json: options?.json,
-          formatter: (formattedSessions: any[]) => {
-            if (formattedSessions.length === 0) {
-              console.log("No sessions found.");
-              return;
-            }
-            console.log("Sessions:");
-            formattedSessions.forEach((session: any) => {
-              console.log(`- ${session.session}: ${session.branch}`);
-            });
-          },
-        });
-      } catch (error) {
-        handleCliError(error);
-      }
-    });
+      // Output result using the utility function
+      outputResult(sessions, {
+        json: options?.json,
+        formatter: (formattedSessions: any[]) => {
+          if (formattedSessions.length === 0) {
+            console.log("No sessions found.");
+            return;
+          }
+          console.log("Sessions:");
+          formattedSessions.forEach((session: any) => {
+            console.log(`- ${session.session}: ${session.branch}`);
+          });
+        },
+      });
+    } catch (error) {
+      handleCliError(error);
+    }
+  });
+  
+  return command;
 }
 
 /**

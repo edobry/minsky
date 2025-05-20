@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #096: Improve CLI Adapter Structure for Shared Options
+  - Created a shared options system to reduce code duplication and ensure consistency across CLI commands
+  - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
+  - Implemented functions to add common options to Commander commands
+  - Created parameter normalization helpers to standardize CLI option handling
+  - Updated task and session commands to use the shared options
+  - Added tests for the shared options module
+
+_See: SpecStory history [2025-05-22_improve-cli-adapter-structure](mdc:.specstory/history/2025-05-22_improve-cli-adapter-structure.md) for implementation details._
+
 - Task #099: Implement Environment-Aware Logging
   - Added environment-aware logging system with HUMAN and STRUCTURED modes
   - Implemented automatic detection of terminal environments to set appropriate logging mode
