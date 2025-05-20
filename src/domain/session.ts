@@ -18,9 +18,15 @@ import type {
 } from "../schemas/session.js";
 import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
-import { isSessionWorkspace, type WorkspaceUtilsInterface } from "./workspace.js";
+import {
+  isSessionWorkspace,
+  type WorkspaceUtilsInterface,
+  getCurrentSession,
+  isSessionRepository,
+  getSessionFromWorkspace,
+  getCurrentSessionContext,
+} from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
-import { getCurrentSession, getSessionFromWorkspace } from "./workspace.js";
 import { normalizeTaskId } from "./tasks/utils.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
@@ -1074,10 +1080,25 @@ export async function approveSessionFromParams(
 /**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
- *
- * @param options Optional configuration options for the session provider
- * @returns A SessionProviderInterface implementation
  */
 export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
   return new SessionDB(options?.dbPath);
+}
+
+/**
+ * Inspects current session based on workspace location
+ */
+export async function inspectSessionFromParams(params: {
+  json?: boolean;
+}): Promise<Session | null> {
+  // Auto-detect the current session from the workspace
+  const context = await getCurrentSessionContext(process.cwd());
+
+  if (!context || !context.sessionId) {
+    throw new ResourceNotFoundError("No session detected for the current workspace");
+  }
+
+  const session = await createSessionProvider().getSession(context.sessionId);
+
+  return session;
 }

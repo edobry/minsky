@@ -21,6 +21,7 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  inspectSessionFromParams,
 } from "../../domain/index.js";
 import {
   handleCliError,
@@ -538,21 +539,8 @@ export function createInspectCommand(): Command {
   
   command.action(async (options?: { json?: boolean }) => {
     try {
-      // Auto-detect session
-      const { getCurrentSessionContext } = await import("../../domain/workspace.js");
-      const sessionContext = await getCurrentSessionContext(process.cwd());
-
-      if (!sessionContext?.sessionId) {
-        throw new Error("Not in a session workspace. Please navigate to a session directory first.");
-      }
-
-      // Convert CLI options to domain parameters
-      const params: SessionGetParams = {
-        name: sessionContext.sessionId,
-      };
-
-      // Call the domain function to get session details
-      const session = await getSessionFromParams(params);
+      // Call the domain function with the CLI options
+      const session = await inspectSessionFromParams(options || {});
 
       // Format output using the utility function
       outputResult(session, {
