@@ -23,11 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-05-22_improve-cli-adapter-structure](mdc:.specstory/history/2025-05-22_improve-cli-adapter-structure.md) for implementation details._
 
 - Task #105: Add Session Inspect Subcommand for Current Session Detection
-
-  - Will add a new `inspect` subcommand to the `minsky session` command
-  - Will allow users to quickly view current session details with autodetection
-  - Will reuse existing `getCurrentSessionContext` utility for session detection
-  - Will provide both human-readable and JSON output formats
+  - Added a new `inspect` subcommand to the `minsky session` command
+  - Implemented auto-detection using the `getCurrentSessionContext` utility
+  - Provided both human-readable and JSON output formats
+  - Added clear error messages when not in a session workspace
+  - Reused output formatting from the `get` command for consistency
 
 - Task #099: Implement Environment-Aware Logging
   - Added environment-aware logging system with HUMAN and STRUCTURED modes
