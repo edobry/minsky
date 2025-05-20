@@ -149,7 +149,7 @@ export function createSummaryCommand(): Command {
                   `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
                 );
               }
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -202,7 +202,7 @@ export function createPreparePrCommand(): Command {
               log.cli(`Created PR branch ${result.prBranch} from base ${result.baseBranch}`);
               log.cli(`PR branch pushed to origin/${result.prBranch}`);
               log.cli("PR is ready for review");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -219,7 +219,11 @@ export function createMergePrCommand(): Command {
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
     .option("--repo <repositoryUri>", "Repository URI")
+<<<<<<< HEAD
     .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)")
+=======
+    .option("--base <branch>", "Base branch to merge into (defaults to main)")
+>>>>>>> origin/main
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
     .action(
@@ -253,7 +257,7 @@ export function createMergePrCommand(): Command {
               log.cli(`Merge date: ${result.mergeDate}`);
               log.cli(`Merged by: ${result.mergedBy}`);
               log.cli(`PR branch ${result.prBranch} deleted from remote`);
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);

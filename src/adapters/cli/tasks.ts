@@ -186,7 +186,7 @@ export function createGetCommand(): Command {
                 log.cli("\nDescription:");
                 log.cli(task.description);
               }
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);
@@ -240,14 +240,17 @@ export function createStatusCommand(): Command {
           const status = await getTaskStatusFromParams(params);
 
           // Format and display the result
-          outputResult({ taskId, status }, {
-            json: options.json,
-            formatter: (result) => {
-              // Normalize the ID for display to ensure consistent formatting
-              const displayId = normalizeTaskId(result.taskId) || result.taskId;
-              log.cli(`Status of task ${displayId}: ${result.status}`);
+          outputResult(
+            { taskId, status },
+            {
+              json: options.json,
+              formatter: (result) => {
+                // Normalize the ID for display to ensure consistent formatting
+                const displayId = normalizeTaskId(result.taskId) || result.taskId;
+                log.cli(`Status of task ${displayId}: ${result.status}`);
+              },
             }
-          });
+          );
         } catch (error) {
           handleCliError(error);
         }
@@ -364,7 +367,7 @@ export function createStatusCommand(): Command {
                 // Normalize the ID for display to ensure consistent formatting
                 const displayId = normalizeTaskId(result.taskId) || result.taskId;
                 log.cli(`Status of task ${displayId} set to ${result.status}`);
-              }
+              },
             }
           );
         } catch (error) {
@@ -402,11 +405,11 @@ export function createCreateCommand(): Command {
           const task = await createTaskFromParams(params); // Corrected domain function call
 
           outputResult(task, {
-            json: options.json, 
+            json: options.json,
             formatter: (task) => {
               log.cli(`Task ${task.id} created: ${task.title}`);
               p.note(task.specPath, "Specification file");
-            }
+            },
           });
         } catch (error) {
           handleCliError(error);

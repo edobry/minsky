@@ -198,6 +198,24 @@ minsky tasks status set --repo /path/to/repo #001
 
 Minsky now automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
 
+## Environment-Aware Logging
+
+Minsky features an environment-aware logging system that adjusts its output based on the execution context:
+
+- **HUMAN Mode** (default for terminal usage):
+  - Outputs clean, human-readable logs only
+  - Suppresses verbose JSON output for better terminal experience
+  - Can be forced with `MINSKY_LOG_MODE=HUMAN`
+
+- **STRUCTURED Mode** (for automation, CI/CD):
+  - Outputs detailed structured JSON logs for machine consumption
+  - Includes both JSON and minimal human-readable feedback
+  - Can be forced with `MINSKY_LOG_MODE=STRUCTURED`
+
+You can also set `ENABLE_AGENT_LOGS=true` to enable JSON logs in HUMAN mode if needed.
+
+For more detailed documentation on logging, see [docs/logging.md](./docs/logging.md).
+
 ### How It Works
 
 1. When a task command is executed from a session repository, Minsky automatically detects this and resolves the main workspace path.

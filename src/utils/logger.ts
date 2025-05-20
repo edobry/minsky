@@ -6,6 +6,46 @@ import type { TransformableInfo } from "logform";
 // Set default to "info" - explicit LOG_LEVEL="debug" is required for debug logs
 const logLevel = process.env.LOG_LEVEL || "info";
 
+// Environment variable for log mode
+// STRUCTURED: Full JSON logs for machine consumption (for CI/CD, integrations)
+// HUMAN: Clean, human-readable logs only (default for CLI usage)
+export enum LogMode {
+  STRUCTURED = "STRUCTURED",
+  HUMAN = "HUMAN",
+}
+
+/**
+ * Determine the current logging mode
+ *
+ * Default behavior:
+ * - HUMAN mode when running in a terminal
+ * - STRUCTURED mode otherwise (CI/CD, scripts)
+ *
+ * Can be explicitly set via MINSKY_LOG_MODE environment variable
+ */
+export function getLogMode(): LogMode {
+  const envMode = process.env.MINSKY_LOG_MODE?.toUpperCase();
+
+  // If explicitly set via environment variable, respect that
+  if (envMode === LogMode.STRUCTURED) {
+    return LogMode.STRUCTURED;
+  }
+
+  if (envMode === LogMode.HUMAN) {
+    return LogMode.HUMAN;
+  }
+
+  // Auto-detect based on terminal environment
+  const isTTY = process.stdout.isTTY;
+  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
+}
+
+// Get current log mode
+const currentLogMode = getLogMode();
+
+// Flag to explicitly enable agent logs in HUMAN mode
+const enableAgentLogs = process.env.ENABLE_AGENT_LOGS === "true";
+
 // Common format for agent logs (JSON)
 const agentLogFormat = format.combine(
   format.timestamp(),
@@ -47,15 +87,24 @@ const programLogFormat = format.combine(
   })
 );
 
-// Agent logger: structured JSON to stdout
+// Agent logger: structured JSON to stdout (when enabled)
 const agentLogger = winston.createLogger({
   level: logLevel,
   format: agentLogFormat,
-  transports: [new transports.Console({ stderrLevels: [] })], // Ensure only stdout
-  exceptionHandlers: [new transports.Console({ format: agentLogFormat, stderrLevels: [] })],
-  rejectionHandlers: [new transports.Console({ format: agentLogFormat, stderrLevels: [] })],
+  transports: [],
   exitOnError: false,
 });
+
+// Only add stdout transport if in STRUCTURED mode or explicitly enabled in HUMAN mode
+if (currentLogMode === LogMode.STRUCTURED || enableAgentLogs) {
+  agentLogger.add(new transports.Console({ stderrLevels: [] })); // Ensure only stdout
+  agentLogger.exceptions.handle(
+    new transports.Console({ format: agentLogFormat, stderrLevels: [] })
+  );
+  agentLogger.rejections.handle(
+    new transports.Console({ format: agentLogFormat, stderrLevels: [] })
+  );
+}
 
 // Program logger: plain text to stderr
 const programLogger = winston.createLogger({
@@ -66,25 +115,76 @@ const programLogger = winston.createLogger({
       stderrLevels: ["error", "warn", "info", "http", "verbose", "debug", "silly"],
     }),
   ], // Ensure only stderr
-  exceptionHandlers: [new transports.Console({ format: programLogFormat })],
-  rejectionHandlers: [new transports.Console({ format: programLogFormat })],
   exitOnError: false,
 });
+
+// Always setup exception handlers for programLogger
+programLogger.exceptions.handle(new transports.Console({ format: programLogFormat }));
+programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
 
 interface LogContext {
   [key: string]: any;
 }
 
+// Check if we're in structured mode
+export const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;
+// Check if we're in human mode
+export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
+
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (message: string, context?: LogContext) => agentLogger.info(message, context),
-  debug: (message: string, context?: LogContext) => agentLogger.debug(message, context),
-  warn: (message: string, context?: LogContext) => agentLogger.warn(message, context),
+  agent: (message: string, context?: LogContext) => {
+    // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      return;
+    }
+    agentLogger.info(message, context);
+  },
+  debug: (message: string, context?: LogContext) => {
+    // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      // No-op in HUMAN mode to prevent "no transports" warning
+      return;
+    }
+    // Otherwise, use agentLogger as normal
+    agentLogger.debug(message, context);
+  },
+  warn: (message: string, context?: LogContext) => {
+    // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      return;
+    }
+    agentLogger.warn(message, context);
+  },
   error: (
     message: string,
     context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
   ) => {
+    // For errors, in HUMAN mode route to programLogger.error instead of suppressing
+    if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
+      // Format the error for the programLogger
+      if (context instanceof Error) {
+        programLogger.error(`${message}: ${context.message}`);
+        if (context.stack) {
+          programLogger.error(context.stack);
+        }
+      } else if (
+        typeof context === "object" &&
+        context !== null &&
+        (context.originalError || context.stack)
+      ) {
+        programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
+        if (context.stack) {
+          programLogger.error(context.stack);
+        }
+      } else {
+        programLogger.error(message, context);
+      }
+      return;
+    }
+
+    // In STRUCTURED mode or if agent logs explicitly enabled, use agentLogger
     if (context instanceof Error) {
       agentLogger.error(message, {
         originalError: context.message,
@@ -112,6 +212,16 @@ export const log = {
   },
   // Add additional CLI-oriented debug log
   cliDebug: (message: string, ...args: any[]) => programLogger.debug(message, ...args),
+  // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
+  // Use this for important system debugging that should always be visible when debug level is set
+  systemDebug: (message: string, ...args: any[]) => {
+    // Always log to programLogger (stderr) regardless of mode
+    programLogger.debug(message, ...args);
+  },
+  // Expose log mode information
+  mode: currentLogMode,
+  isStructuredMode,
+  isHumanMode,
 };
 
 // Ensure logs are written before exiting on unhandled exceptions/rejections
@@ -148,9 +258,11 @@ if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("This is a CLI message.");
   log.cliWarn("This is a CLI warning.");
   log.cliError("This is a CLI error.");
+  log.systemDebug("This is a system debug message that works in all modes.");
 
-  // Example of an uncaught exception (uncomment to test exception handler)
-  // setTimeout(() => {
-  //   throw new Error("Test uncaught exception");
-  // }, 100);
+  console.log("\n--- Environment Information ---");
+  console.log(`Current Log Mode: ${log.mode}`);
+  console.log(`Is Structured Mode: ${log.isStructuredMode()}`);
+  console.log(`Is Human Mode: ${log.isHumanMode()}`);
+  console.log(`Is Terminal (TTY): ${Boolean(process.stdout.isTTY)}`);
 }
