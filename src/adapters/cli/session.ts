@@ -22,13 +22,13 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
 } from "../../domain/index.js";
-import { 
-  handleCliError, 
+import {
+  handleCliError,
   outputResult,
   addRepoOptions,
   addOutputOptions,
   addTaskOptions,
-  normalizeSessionParams
+  normalizeSessionParams,
 } from "./utils/index.js";
 
 interface GetCurrentSessionConfig {
@@ -39,45 +39,51 @@ interface GetCurrentSessionConfig {
  * Creates the session list command
  */
 export function createListCommand(): Command {
-  const command = new Command("list")
-    .description("List available sessions");
-  
+  const command = new Command("list").description("List available sessions");
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
-  command.action(async (options?: { repo?: string; json?: boolean; session?: string; "upstream-repo"?: string }) => {
-    try {
-      // Convert CLI options to domain parameters using normalization helper
-      const normalizedParams = normalizeSessionParams(options || {});
-      
-      // Convert CLI options to domain parameters
-      const params: SessionListParams = {
-        ...normalizedParams,
-      };
 
-      // Call the domain function
-      const sessions = await listSessionsFromParams(params);
+  command.action(
+    async (options?: {
+      repo?: string;
+      json?: boolean;
+      session?: string;
+      "upstream-repo"?: string;
+    }) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helper
+        const normalizedParams = normalizeSessionParams(options || {});
 
-      // Output result using the utility function
-      outputResult(sessions, {
-        json: options?.json,
-        formatter: (formattedSessions: any[]) => {
-          if (formattedSessions.length === 0) {
-            console.log("No sessions found.");
-            return;
-          }
-          console.log("Sessions:");
-          formattedSessions.forEach((session: any) => {
-            console.log(`- ${session.session}: ${session.branch}`);
-          });
-        },
-      });
-    } catch (error) {
-      handleCliError(error);
+        // Convert CLI options to domain parameters
+        const params: SessionListParams = {
+          ...normalizedParams,
+        };
+
+        // Call the domain function
+        const sessions = await listSessionsFromParams(params);
+
+        // Output result using the utility function
+        outputResult(sessions, {
+          json: options?.json,
+          formatter: (formattedSessions: any[]) => {
+            if (formattedSessions.length === 0) {
+              console.log("No sessions found.");
+              return;
+            }
+            console.log("Sessions:");
+            formattedSessions.forEach((session: any) => {
+              console.log(`- ${session.session}: ${session.branch || "undefined"}`);
+            });
+          },
+        });
+      } catch (error) {
+        handleCliError(error);
+      }
     }
-  });
-  
+  );
+
   return command;
 }
 
@@ -88,16 +94,16 @@ export function createGetCommand(): Command {
   const command = new Command("get")
     .description("Get session details")
     .argument("[name]", "Session name");
-  
+
   // Add shared options
   addOutputOptions(command);
   addTaskOptions(command);
-  
+
   command.action(async (name?: string, options?: { task?: string; json?: boolean }) => {
     try {
       // Convert CLI options to domain parameters using normalization helper
       const normalizedParams = normalizeSessionParams(options || {});
-      
+
       // Convert CLI options to domain parameters
       const params: SessionGetParams = {
         ...normalizedParams,
@@ -122,7 +128,7 @@ export function createGetCommand(): Command {
       handleCliError(error);
     }
   });
-  
+
   return command;
 }
 
@@ -149,11 +155,11 @@ export function createStartCommand(): Command {
     .option("--github-token <token>", "GitHub access token for authentication")
     .option("--github-owner <owner>", "GitHub repository owner/organization")
     .option("--github-repo <repo>", "GitHub repository name");
-  
+
   // Add shared options
   addRepoOptions(command);
   addTaskOptions(command);
-  
+
   command.action(
     async (
       name?: string,
@@ -175,7 +181,7 @@ export function createStartCommand(): Command {
       try {
         // Convert CLI options to domain parameters using normalization helper
         const normalizedParams = normalizeSessionParams(options || {});
-        
+
         // Convert CLI options to domain parameters
         const params = {
           ...normalizedParams,
@@ -211,30 +217,25 @@ export function createStartCommand(): Command {
         const result = await startSessionFromParams(params);
 
         // Output result
-        if (options?.quiet) {
-          // Get the session repo path for the quiet output
-          const { SessionDB } = await import("../../domain/session.js");
-          const sessionDB = new SessionDB();
-          const repoPath = await sessionDB.getRepoPath(result as any);
-          console.log(repoPath);
-        } else {
-          console.log(`Session '${result.session}' created successfully.`);
-          const { SessionDB } = await import("../../domain/session.js");
-          const sessionDB = new SessionDB();
-          console.log(`Session directory: ${await sessionDB.getRepoPath(result as any)}`);
-          console.log(`Branch: ${result.branch}`);
+        console.log(`Session '${result.session}' created successfully.`);
 
-          // Output backend-specific information if applicable
-          if ((result as any).backendType) {
-            console.log(`Backend type: ${(result as any).backendType}`);
-          }
+        // Get the session directory path
+        const { createSessionProvider } = await import("../../domain/session.js");
+        const sessionDB = createSessionProvider();
+        console.log(`Session directory: ${await sessionDB.getSessionWorkdir(result.session)}`);
+
+        console.log(`Branch: ${result.branch}`);
+
+        // If task ID is associated, log it
+        if (result.taskId) {
+          console.log(`Associated with task: ${result.taskId}`);
         }
       } catch (error) {
         handleCliError(error);
       }
     }
   );
-  
+
   return command;
 }
 
@@ -245,10 +246,10 @@ export function createDirCommand(): Command {
   const command = new Command("dir")
     .description("Get the session directory")
     .argument("[name]", "Session name (auto-detected if in a session workspace)");
-  
+
   // Add shared options
   addTaskOptions(command);
-  
+
   command.action(async (name?: string, options?: { task?: string }) => {
     try {
       // Auto-detect session if not provided
@@ -275,7 +276,7 @@ export function createDirCommand(): Command {
 
       // Convert CLI options to domain parameters using normalization helper
       const normalizedParams = normalizeSessionParams(options || {});
-      
+
       // Convert CLI options to domain parameters
       const params: SessionDirParams = {
         ...normalizedParams,
@@ -291,7 +292,7 @@ export function createDirCommand(): Command {
       handleCliError(error);
     }
   });
-  
+
   return command;
 }
 
@@ -303,33 +304,44 @@ export function createDeleteCommand(): Command {
     .description("Delete a session")
     .argument("[name]", "Session name")
     .option("--force", "Force deletion even if session has uncommitted changes");
-  
+
   // Add shared options
   addRepoOptions(command);
   addTaskOptions(command);
-  
-  command.action(async (name?: string, options?: { task?: string; repo?: string; session?: string; "upstream-repo"?: string; force?: boolean }) => {
-    try {
-      // Convert CLI options to domain parameters using normalization helper
-      const normalizedParams = normalizeSessionParams(options || {});
-      
-      // Convert CLI options to domain parameters
-      const params: SessionDeleteParams = {
-        ...normalizedParams,
-        name: name || "", // Ensure this is a string even if undefined
-        force: options?.force || false,
-      };
 
-      // Call the domain function
-      const deleted = await deleteSessionFromParams(params);
+  command.action(
+    async (
+      name?: string,
+      options?: {
+        task?: string;
+        repo?: string;
+        session?: string;
+        "upstream-repo"?: string;
+        force?: boolean;
+      }
+    ) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helper
+        const normalizedParams = normalizeSessionParams(options || {});
 
-      // Output result
-      console.log(`Session deleted successfully.`);
-    } catch (error) {
-      handleCliError(error);
+        // Convert CLI options to domain parameters
+        const params: SessionDeleteParams = {
+          ...normalizedParams,
+          name: name || "", // Ensure this is a string even if undefined
+          force: options?.force || false,
+        };
+
+        // Call the domain function
+        const deleted = await deleteSessionFromParams(params);
+
+        // Output result
+        console.log(`Session deleted successfully.`);
+      } catch (error) {
+        handleCliError(error);
+      }
     }
-  });
-  
+  );
+
   return command;
 }
 
@@ -341,41 +353,52 @@ export function createUpdateCommand(): Command {
     .description("Update session with latest changes from upstream repository")
     .argument("[name]", "Session name")
     .option("--force", "Force update even if the session workspace is dirty");
-  
+
   // Add shared options
   addRepoOptions(command);
   addTaskOptions(command);
-  
-  command.action(async (name?: string, options?: { task?: string; repo?: string; session?: string; "upstream-repo"?: string; force?: boolean }) => {
-    try {
-      // Convert CLI options to domain parameters using normalization helper
-      const normalizedParams = normalizeSessionParams(options || {});
-      
-      // Convert CLI options to domain parameters
-      const params: SessionUpdateParams = {
-        ...normalizedParams,
-        name: name || "", // Ensure this is a string even if undefined
-        force: options?.force || false,
-      };
 
-      // Call the domain function
-      const updateResult = await updateSessionFromParams(params);
-
-      // Output result
-      if (updateResult) {
-        console.log(`Session ${updateResult.session} updated successfully.`);
-        console.log(`Branch: ${updateResult.branch}`);
-        if ((updateResult as any).task) {
-          console.log(`Associated with task: ${(updateResult as any).task}`);
-        }
-      } else {
-        console.log("Session update failed or no result returned.");
+  command.action(
+    async (
+      name?: string,
+      options?: {
+        task?: string;
+        repo?: string;
+        session?: string;
+        "upstream-repo"?: string;
+        force?: boolean;
       }
-    } catch (error) {
-      handleCliError(error);
+    ) => {
+      try {
+        // Convert CLI options to domain parameters using normalization helper
+        const normalizedParams = normalizeSessionParams(options || {});
+
+        // Convert CLI options to domain parameters
+        const params: SessionUpdateParams = {
+          ...normalizedParams,
+          name: name || "", // Ensure this is a string even if undefined
+          force: options?.force || false,
+        };
+
+        // Call the domain function
+        const updateResult = await updateSessionFromParams(params);
+
+        // Output result
+        if (updateResult) {
+          console.log(`Session ${updateResult.session} updated successfully.`);
+          console.log(`Branch: ${updateResult.branch}`);
+          if ((updateResult as any).task) {
+            console.log(`Associated with task: ${(updateResult as any).task}`);
+          }
+        } else {
+          console.log("Session update failed or no result returned.");
+        }
+      } catch (error) {
+        handleCliError(error);
+      }
     }
-  });
-  
+  );
+
   return command;
 }
 

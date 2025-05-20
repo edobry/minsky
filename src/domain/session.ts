@@ -25,7 +25,12 @@ import { normalizeTaskId } from "./tasks/utils.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import { preparePrFromParams, createPullRequestFromParams, mergePrFromParams, createGitService } from "./git.js";
+import {
+  preparePrFromParams,
+  createPullRequestFromParams,
+  mergePrFromParams,
+  createGitService,
+} from "./git.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 
 // Remove locally defined interfaces since we're now importing them
@@ -47,6 +52,7 @@ export interface SessionRecord {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
+  branch?: string; // Branch property is already part of the interface
 }
 
 export interface Session {
@@ -87,37 +93,37 @@ export interface SessionProviderInterface {
    * Get all available sessions
    */
   listSessions(): Promise<SessionRecord[]>;
-  
+
   /**
    * Get a specific session by name
    */
   getSession(session: string): Promise<SessionRecord | null>;
-  
+
   /**
    * Get a specific session by task ID
    */
   getSessionByTaskId(taskId: string): Promise<SessionRecord | null>;
-  
+
   /**
    * Add a new session to the database
    */
   addSession(record: SessionRecord): Promise<void>;
-  
+
   /**
    * Update an existing session
    */
   updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
-  
+
   /**
    * Delete a session by name
    */
   deleteSession(session: string): Promise<boolean>;
-  
+
   /**
    * Get the repository path for a session
    */
   getRepoPath(record: SessionRecord | any): Promise<string>;
-  
+
   /**
    * Get the working directory for a session
    */
@@ -407,10 +413,10 @@ export async function getSessionFromParams(
   }
 ): Promise<Session | null> {
   const { name, task } = params;
-  
+
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider()
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
   // If task is provided but no name, find session by task ID
@@ -440,9 +446,9 @@ export async function listSessionsFromParams(
 ): Promise<Session[]> {
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider()
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
-  
+
   return deps.sessionDB.listSessions();
 }
 
@@ -467,12 +473,14 @@ export async function startSessionFromParams(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || new TaskService({
-      workspacePath: repo || process.cwd(),
-      backend: "markdown",
-    }),
+    taskService:
+      depsInput?.taskService ||
+      new TaskService({
+        workspacePath: repo || process.cwd(),
+        backend: "markdown",
+      }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
-    resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath
+    resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
   };
 
   try {
@@ -561,6 +569,7 @@ export async function startSessionFromParams(
       repoName,
       createdAt: new Date().toISOString(),
       taskId,
+      branch: branch || sessionName,
     };
 
     await deps.sessionDB.addSession(sessionRecord);
@@ -602,7 +611,7 @@ export async function startSessionFromParams(
       session: sessionName,
       repoUrl,
       repoName: normalizeRepoName(repoUrl),
-      branch,
+      branch: branchName,
       taskId,
     };
   } catch (error) {
@@ -628,10 +637,10 @@ export async function deleteSessionFromParams(
   }
 ): Promise<boolean> {
   const { name, task } = params;
-  
+
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider()
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
   if (task && !name) {
@@ -666,9 +675,9 @@ export async function getSessionDirFromParams(
 ): Promise<string> {
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider()
+    sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
-  
+
   let sessionName: string;
 
   if (params.task && !params.name) {
@@ -726,7 +735,7 @@ export async function updateSessionFromParams(
   const deps = {
     gitService: depsInput?.gitService || createGitService(),
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
-    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
   try {
@@ -927,12 +936,14 @@ export async function approveSessionFromParams(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || new TaskService({
-      workspacePath: params.repo || process.cwd(),
-      backend: "markdown",
-    }),
+    taskService:
+      depsInput?.taskService ||
+      new TaskService({
+        workspacePath: params.repo || process.cwd(),
+        backend: "markdown",
+      }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
-    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
   let sessionNameToUse = params.session;
@@ -1063,7 +1074,7 @@ export async function approveSessionFromParams(
 /**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
- * 
+ *
  * @param options Optional configuration options for the session provider
  * @returns A SessionProviderInterface implementation
  */
