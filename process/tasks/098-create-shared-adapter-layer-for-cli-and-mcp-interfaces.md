@@ -99,3 +99,129 @@ During the implementation of Git commands for the MCP server (task #51), several
 This task builds on the observations made during task #51 implementation, where we identified several opportunities for abstraction between CLI and MCP adapters. It leverages the groundwork laid by tasks #96 and #97 to create a more comprehensive abstraction layer.
 
 The abstraction should maintain the interface-agnostic command architecture pattern already established in the codebase, while further reducing duplication and ensuring consistency across interfaces. The goal is to have command logic defined once but exposed through multiple interfaces seamlessly.
+
+## Detailed Implementation Plan
+
+### Current Architecture Analysis
+
+The current implementation has:
+
+1. **CLI Adapter**:
+   - Uses Commander.js for command-line parsing
+   - Has specialized utils for error handling, output formatting, and option normalization
+   - Directly calls domain functions with normalized parameters
+
+2. **MCP Adapter**:
+   - Uses CommandMapper with Zod schemas
+   - Has some utility duplication with CLI adapter
+   - Directly calls domain functions with parameters from the MCP layer
+
+3. **Domain Layer**:
+   - Interface-agnostic functions
+   - Uses Zod schemas for parameter validation
+   - Returns structured data that adapters must format
+
+### Shared Adapter Layer Design
+
+The implementation will create a comprehensive shared abstraction layer with these key components:
+
+#### 1. Command Registry
+
+A generic command registry that will:
+- Define an interface for registering commands that can be exposed through multiple interfaces
+- Support command categorization (e.g., git commands, task commands)
+- Maintain metadata about command parameters, descriptions, and behavior
+- Provide access to registered commands through interface-specific bridges
+
+#### 2. Error Handling Strategy
+
+A unified error handling approach that will:
+- Create a common base error handler for adapter-agnostic processing
+- Implement interface-specific error formatters for CLI and MCP
+- Ensure consistent error codes and messages across interfaces
+- Extend the existing `handleCliError` functionality to be interface-agnostic
+
+#### 3. Schema Bridge
+
+A bridge between Zod schemas and Commander options that will:
+- Create utilities to derive Commander options from Zod schemas
+- Support bi-directional conversion between CLI options and structured objects
+- Ensure type safety and consistent validation
+- Maintain proper type inference
+
+#### 4. Response Formatting
+
+Common response formatting utilities that will:
+- Implement shared helpers for formatting command responses
+- Support multiple output formats (text, JSON) across interfaces
+- Create interface-specific formatters for CLI and MCP
+- Ensure consistent response structures
+
+### Folder Structure
+
+The implementation will use this folder structure:
+
+```
+src/adapters/
+├── shared/
+│   ├── command-registry.ts       # Common command registry interface
+│   ├── error-handling.ts         # Shared error handling logic
+│   ├── schema-bridge.ts          # Schema utilities
+│   ├── response-formatters.ts    # Output formatting utilities
+│   ├── options.ts                # Shared option definitions
+│   ├── bridges/                  # Interface bridges
+│   │   ├── cli-bridge.ts         # Bridge to CLI
+│   │   └── mcp-bridge.ts         # Bridge to MCP
+│   └── commands/                 # Shared command implementations
+│       ├── git.ts                # Git command implementations
+│       ├── tasks.ts              # Task command implementations
+│       ├── session.ts            # Session command implementations
+│       └── init.ts               # Init command implementations
+├── cli/                          # CLI-specific adapter (existing)
+└── mcp/                          # MCP-specific adapter (existing)
+```
+
+### Migration Strategy
+
+The implementation will use an incremental approach:
+
+1. Start with migrating git commands as a proof of concept
+2. Create a pattern for migrating other command groups
+3. Ensure backward compatibility during the transition
+4. Provide documentation for migrating existing commands
+
+## Remaining Work
+
+1. **Initial Setup**
+   - [ ] Create the shared adapter directory structure
+   - [ ] Define the core interfaces for the command registry
+   - [ ] Set up the basic bridge architecture
+
+2. **Core Functionality**
+   - [ ] Implement the base command registry
+   - [ ] Create the error handling utilities
+   - [ ] Develop the schema bridge utilities
+   - [ ] Build the response formatting helpers
+
+3. **Git Command Migration**
+   - [ ] Migrate git commit command
+   - [ ] Migrate git push command
+   - [ ] Migrate git PR command
+   - [ ] Ensure compatibility with existing code
+
+4. **Testing**
+   - [ ] Create tests for the shared adapter layer
+   - [ ] Verify command functionality across interfaces
+   - [ ] Test error handling and edge cases
+   - [ ] Ensure backward compatibility
+
+5. **Documentation**
+   - [ ] Document the abstraction layer architecture
+   - [ ] Create usage guidelines
+   - [ ] Provide examples for future command migrations
+   - [ ] Update existing documentation
+
+6. **Next Command Groups**
+   - [ ] Identify the next command group to migrate
+   - [ ] Apply lessons learned from git command migration
+   - [ ] Refine the abstraction layer as needed
