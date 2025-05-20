@@ -16,15 +16,16 @@ import type {
   SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-<<<<<<< HEAD
-import { GitService, type BranchOptions } from "./git.js";
-import { TaskService, TASK_STATUS } from "./tasks.js";
-import { isSessionWorkspace, getCurrentSession, isSessionRepository, getSessionFromWorkspace, getCurrentSessionContext } from "./workspace.js";
-=======
 import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
-import { isSessionWorkspace, type WorkspaceUtilsInterface } from "./workspace.js";
->>>>>>> origin/main
+import { 
+  isSessionWorkspace, 
+  getCurrentSession, 
+  isSessionRepository, 
+  getSessionFromWorkspace, 
+  getCurrentSessionContext,
+  type WorkspaceUtilsInterface 
+} from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
 import { normalizeTaskId } from "./tasks/utils.js";
 import * as WorkspaceUtils from "./workspace.js";
@@ -1077,7 +1078,6 @@ export async function approveSessionFromParams(
 }
 
 /**
-<<<<<<< HEAD
  * Inspects current session based on workspace location
  */
 export async function inspectSessionFromParams(params: { json?: boolean }): Promise<Session | null> {
@@ -1099,7 +1099,9 @@ export async function inspectSessionFromParams(params: { json?: boolean }): Prom
   }
   
   return session;
-=======
+}
+
+/**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  *
@@ -1108,5 +1110,4 @@ export async function inspectSessionFromParams(params: { json?: boolean }): Prom
  */
 export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
   return new SessionDB(options?.dbPath);
->>>>>>> origin/main
 }
