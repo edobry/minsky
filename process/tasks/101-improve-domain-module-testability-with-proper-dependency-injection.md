@@ -66,17 +66,17 @@ After fixing test failures in the domain module, we've identified several struct
 - 2024-07-16: Refactored `resolveRepoPath` with dependency injection
 - 2024-07-16: Refactored `approveSessionFromParams` to use new interfaces
 - 2024-07-16: Updated repo-utils.test.ts to use dependency injection pattern
+- 2024-07-17: Implemented `TaskServiceInterface` in tasks.ts
+- 2024-07-17: Implemented `WorkspaceUtilsInterface` in workspace.ts with factory function
+- 2024-07-17: Refactored `getCurrentSession` with proper dependency injection
+- 2024-07-17: Fixed interface conflicts and type issues across implementations
 
 ## Remaining Work Items
 
-1. **Incomplete Interfaces**:
-   - Define `TaskServiceInterface` for TaskService operations
-   - Define `WorkspaceUtilsInterface` for workspace utilities
+1. **Additional Function Refactoring**:
+   - Apply dependency injection pattern to `startSessionFromParams` correctly
+   - Apply pattern to `listSessionsFromParams` with proper interfaces
 
-2. **Incomplete Function Refactoring**:
-   - Refactor `getCurrentSession` and related workspace functions
-   - Apply pattern to `startSessionFromParams` and `listSessionsFromParams`
-
-3. **Additional Test Updates**:
+2. **Additional Test Updates**:
    - Update workspace tests with better dependency injection
-   - Fix session-approve tests without type casting 
+   - Fix remaining type issues and linter warnings
