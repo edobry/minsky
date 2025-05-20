@@ -165,4 +165,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
 
-- [ ] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
+- [+] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
