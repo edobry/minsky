@@ -1270,6 +1270,31 @@ export class GitService {
       mergedBy,
     };
   }
+
+  /**
+   * Fetch the default branch for a repository
+   * 
+   * @param repoPath - Path to the repository
+   * @returns The default branch name
+   */
+  async fetchDefaultBranch(repoPath: string): Promise<string> {
+    try {
+      // Try to get the default branch from the remote's HEAD ref
+      const defaultBranchCmd = "git symbolic-ref refs/remotes/origin/HEAD --short";
+      const defaultBranch = await this.execInRepository(repoPath, defaultBranchCmd);
+      // Format is usually "origin/main", so we need to remove the "origin/" prefix
+      const result = defaultBranch.trim().replace(/^origin\//, '');
+      return result;
+    } catch (error) {
+      // Log error but don't throw
+      console.error("Could not determine default branch, falling back to 'main'", { 
+        error: error instanceof Error ? error.message : String(error),
+        repoPath
+      });
+      // Fall back to main
+      return "main";
+    }
+  }
 }
 
 /**

@@ -34,7 +34,9 @@ async function mergePrFromParams(params: {
   try {
     const git = new GitService();
     const workdir = params.repo || process.cwd();
-    const baseBranch = params.baseBranch || "main";
+    
+    // If baseBranch is not provided, use the fetchDefaultBranch method to determine it
+    const baseBranch = params.baseBranch || await git.fetchDefaultBranch(workdir);
 
     // 1. Make sure we're on the base branch
     await git.execInRepository(workdir, `git checkout ${baseBranch}`);
@@ -217,7 +219,7 @@ export function createMergePrCommand(): Command {
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
     .option("--repo <repositoryUri>", "Repository URI")
-    .option("--base <branch>", "Base branch to merge into (defaults to main)")
+    .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)")
     .option("--session <session>", "Session to merge PR for")
     .option("--json", "Output as JSON")
     .action(
@@ -268,7 +270,7 @@ export function createCommitCommand(): Command {
     .description("Commit changes")
     .requiredOption("-m, --message <message>", "Commit message")
     .option("--session <session>", "Session to commit in")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--push", "Push changes after committing")
     .option("--all", "Stage all files")
     .option("--amend", "Amend the previous commit")
@@ -326,7 +328,7 @@ export function createPushCommand(): Command {
   return new Command("push")
     .description("Push changes to remote")
     .option("--session <session>", "Session to push in")
-    .option("--repo <path>", "Repository path")
+    .option("--repo <repositoryUri>", "Repository URI")
     .option("--remote <remote>", "Remote to push to (defaults to origin)")
     .option("--force", "Force push (use with caution)")
     .option("--json", "Output as JSON")

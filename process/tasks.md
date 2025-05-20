@@ -133,7 +133,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Standardize Repository URI Handling [#088](process/tasks/088-standardize-repository-uri-handling.md)
 
-- [-] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
+- [x] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
