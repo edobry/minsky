@@ -13,6 +13,102 @@ const execAsync = promisify(childExec);
 
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
+/**
+ * Interface for Git service operations
+ * This defines the contract for Git-related functionality
+ */
+export interface GitServiceInterface {
+  /**
+   * Clone a repository
+   */
+  clone(options: CloneOptions): Promise<CloneResult>;
+  
+  /**
+   * Create a new branch in a session
+   */
+  branch(options: BranchOptions): Promise<BranchResult>;
+  
+  /**
+   * Generate a pull request from a session
+   */
+  pr(options: PrOptions): Promise<PrResult>;
+  
+  /**
+   * Get the Git status of a repository
+   */
+  getStatus(repoPath?: string): Promise<GitStatus>;
+  
+  /**
+   * Stage all changes in a repository
+   */
+  stageAll(repoPath?: string): Promise<void>;
+  
+  /**
+   * Stage modified files in a repository
+   */
+  stageModified(repoPath?: string): Promise<void>;
+  
+  /**
+   * Commit changes in a repository
+   */
+  commit(message: string, repoPath?: string, amend?: boolean): Promise<string>;
+  
+  /**
+   * Stash changes in a repository
+   */
+  stashChanges(workdir: string): Promise<StashResult>;
+  
+  /**
+   * Pop stashed changes in a repository
+   */
+  popStash(workdir: string): Promise<StashResult>;
+  
+  /**
+   * Pull latest changes from a remote
+   */
+  pullLatest(workdir: string, remote?: string): Promise<PullResult>;
+  
+  /**
+   * Merge a branch into the current branch
+   */
+  mergeBranch(workdir: string, branch: string): Promise<MergeResult>;
+  
+  /**
+   * Push changes to a remote
+   */
+  push(options: PushOptions): Promise<PushResult>;
+  
+  /**
+   * Prepare a pull request
+   */
+  preparePr(options: PreparePrOptions): Promise<PreparePrResult>;
+  
+  /**
+   * Merge a pull request
+   */
+  mergePr(options: MergePrOptions): Promise<MergePrResult>;
+  
+  /**
+   * Fetch the default branch of a repository
+   */
+  fetchDefaultBranch(repoPath: string): Promise<string>;
+  
+  /**
+   * Execute a Git command in a repository
+   */
+  execInRepository(workdir: string, command: string): Promise<string>;
+  
+  /**
+   * Get a session record
+   */
+  getSessionRecord(sessionName: string): Promise<any | undefined>;
+  
+  /**
+   * Get the working directory for a session
+   */
+  getSessionWorkdir(repoName: string, session: string): string;
+}
+
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
@@ -135,7 +231,7 @@ export interface MergePrResult {
   mergedBy: string;
 }
 
-export class GitService {
+export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
   private sessionDb: SessionDB;
 
@@ -1530,4 +1626,15 @@ export async function pushFromParams(params: {
     });
     throw error;
   }
+}
+
+/**
+ * Creates a default GitService implementation
+ * This factory function provides a consistent way to get a git service with optional customization
+ * 
+ * @param options Optional configuration options for the git service
+ * @returns A GitServiceInterface implementation
+ */
+export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
+  return new GitService(options?.baseDir);
 }
