@@ -70,13 +70,12 @@ After fixing test failures in the domain module, we've identified several struct
 - 2024-07-17: Implemented `WorkspaceUtilsInterface` in workspace.ts with factory function
 - 2024-07-17: Refactored `getCurrentSession` with proper dependency injection
 - 2024-07-17: Fixed interface conflicts and type issues across implementations
+- 2024-07-17: Added `createWorkspaceUtils` factory function
+- 2024-07-17: Refactored `startSessionFromParams` with proper dependency injection
+- 2024-07-17: Refactored `listSessionsFromParams`, `getSessionFromParams`, and other session functions with dependency injection
 
 ## Remaining Work Items
 
-1. **Additional Function Refactoring**:
-   - Apply dependency injection pattern to `startSessionFromParams` correctly
-   - Apply pattern to `listSessionsFromParams` with proper interfaces
-
-2. **Additional Test Updates**:
+1. **Additional Test Updates**:
    - Update workspace tests with better dependency injection
-   - Fix remaining type issues and linter warnings
+   - Fix remaining type issues and linter warnings in test files
