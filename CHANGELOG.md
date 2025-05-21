@@ -17,9 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created schema conversion utilities for validation and type safety
   - Implemented response formatters for consistent output
   - Added shared git commands implementation (commit and push)
+  - Added shared tasks commands implementation (status get/set)
   - Created integration examples for both CLI and MCP
   - Added comprehensive test coverage for shared components
   - Ensured the implementation supports progressive migration from existing adapters
+  - Fixed TypeScript errors in shared components
 
 _See: SpecStory history [2025-06-10_create-shared-adapter-layer](mdc:.specstory/history/2025-06-10_create-shared-adapter-layer.md) for implementation details._
 
