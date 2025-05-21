@@ -76,7 +76,7 @@ _See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/histo
   - Added automatic detection of current session when run without parameters
   - Implemented user-friendly formatted output for console viewing
 
-_See: SpecStory history [2025-07-10_add-session-review-command](mdc:.specstory/history/2025-07-10_add-session-review-command.md) for implementation details._
+_See: SpecStory history [2025-05-19_21-29-pr-review-command-implementation-discussion](mdc:.specstory/history/2025-05-19_21-29-pr-review-command-implementation-discussion.md) for implementation details._
 
 - Task #098: Created Shared Adapter Layer for CLI and MCP Interfaces
   - Created a shared command registry to enable code reuse between interfaces

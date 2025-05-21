@@ -1171,8 +1171,9 @@ export interface SessionReviewParams {
   session?: string;
   task?: string;
   repo?: string;
-  json?: boolean;
   output?: string;
+  json?: boolean;
+  prBranch?: string;
 }
 
 /**
@@ -1180,40 +1181,32 @@ export interface SessionReviewParams {
  */
 export interface SessionReviewResult {
   session: string;
-  taskSpec?: {
-    id: string;
-    title: string;
-    content: string;
-    specPath: string;
-  };
-  prDescription?: {
-    title: string;
-    body: string;
-  };
-  diff: {
-    stats: string;
-    files: string[];
-    fullDiff: string;
-  };
-  metadata: {
-    branch: string;
-    prBranch?: string;
-    baseBranch?: string;
-    commitCount: number;
+  taskId?: string;
+  taskSpec?: string;
+  prDescription?: string;
+  prBranch: string;
+  baseBranch: string;
+  diff?: string;
+  diffStats?: {
+    filesChanged: number;
+    insertions: number;
+    deletions: number;
   };
 }
 
 /**
- * Reviews a session PR, gathering information about the task and changes
+ * Reviews a session PR by gathering and displaying relevant information
  */
 export async function sessionReviewFromParams(
   params: SessionReviewParams,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
     gitService?: GitServiceInterface;
-    taskService?: TaskServiceInterface;
+    taskService?: TaskServiceInterface & {
+      getTaskSpecData?: (taskId: string) => Promise<string>;
+    };
     workspaceUtils?: WorkspaceUtilsInterface;
-    getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<SessionReviewResult> {
   // Set up default dependencies if not provided
@@ -1250,11 +1243,27 @@ export async function sessionReviewFromParams(
     sessionNameToUse = session.session;
   }
 
-  // If session is still not set, try to detect it from current working directory
+  // If session is still not set, try to detect it from repo path
+  if (!sessionNameToUse && params.repo) {
+    try {
+      const sessionContext = await deps.getCurrentSession(params.repo);
+      if (sessionContext) {
+        sessionNameToUse = sessionContext;
+      }
+    } catch (error) {
+      // Just log and continue - session detection is optional
+      log.debug("Failed to detect session from repo path", {
+        error: error instanceof Error ? error.message : String(error),
+        repoPath: params.repo,
+      });
+    }
+  }
+
+  // If session is still not set, try to detect from current directory
   if (!sessionNameToUse) {
     try {
-      const repoPath = params.repo || process.cwd();
-      const sessionContext = await deps.getCurrentSession(repoPath);
+      const currentDir = getCurrentWorkingDirectory();
+      const sessionContext = await deps.getCurrentSession(currentDir);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
       }
@@ -1262,6 +1271,7 @@ export async function sessionReviewFromParams(
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
         error: error instanceof Error ? error.message : String(error),
+        currentDir: getCurrentWorkingDirectory(),
       });
     }
   }
@@ -1289,194 +1299,123 @@ export async function sessionReviewFromParams(
   // Get session workdir
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 
-  // 1. Get task specification if associated with a task
-  let taskSpec: SessionReviewResult["taskSpec"] | undefined;
+  // Determine PR branch name (pr/<session-name>)
+  const prBranchToUse = params.prBranch || `pr/${sessionNameToUse}`;
+  const baseBranch = "main"; // Default base branch, could be made configurable
+
+  // Initialize result
+  const result: SessionReviewResult = {
+    session: sessionNameToUse,
+    taskId,
+    prBranch: prBranchToUse,
+    baseBranch,
+  };
+
+  // 1. Get task specification if available
   if (taskId) {
     try {
-      const task = await deps.taskService.getTask(taskId);
-      if (task && task.specPath) {
-        // Read the task specification file
-        const backend = await deps.taskService.getBackendForTask(taskId);
-        if (backend && typeof backend !== 'string' && 'getTaskSpecData' in backend) {
-          // Type assertion for the backend object
-          type TaskBackendWithGetTaskSpecData = {
-            getTaskSpecData: (path: string) => Promise<{ success: boolean; content?: string }>;
-          };
-          const typedBackend = backend as TaskBackendWithGetTaskSpecData;
-          const specResult = await typedBackend.getTaskSpecData(task.specPath);
-          if (specResult.success && specResult.content) {
-            taskSpec = {
-              id: taskId,
-              title: task.title,
-              content: specResult.content,
-              specPath: task.specPath,
-            };
-          }
-        }
+      const taskService = deps.taskService;
+
+      // Check if taskService has getTaskSpecData method dynamically
+      if (
+        "getTaskSpecData" in taskService &&
+        typeof (taskService as any).getTaskSpecData === "function"
+      ) {
+        const taskSpec = await (taskService as any).getTaskSpecData(taskId);
+        result.taskSpec = taskSpec;
+      } else {
+        log.debug("Task service does not support getTaskSpecData method");
       }
     } catch (error) {
-      log.debug("Failed to retrieve task specification", {
+      log.debug("Error getting task specification", {
         error: error instanceof Error ? error.message : String(error),
         taskId,
       });
-      // Don't throw error, continue with other information
     }
   }
 
-  // 2. Get PR branch info
-  const featureBranch = sessionNameToUse;
-  const prBranch = `pr/${featureBranch}`;
-  const baseBranch = "main"; // Default base branch, could be made configurable
-
-  // 3. Check for PR branch and get PR description
-  let prDescription: SessionReviewResult["prDescription"] | undefined;
+  // 2. Get PR description (from git log of the PR branch)
   try {
-    // Check if PR branch exists
-    await deps.gitService.execInRepository(
+    // First check if the branch exists remotely
+    const remoteBranchOutput = await deps.gitService.execInRepository(
       sessionWorkdir,
-      `git show-ref --verify --quiet refs/heads/${prBranch}`
+      `git ls-remote --heads origin ${prBranchToUse}`
+    );
+    const remoteBranchExists = remoteBranchOutput.trim().length > 0;
+
+    if (remoteBranchExists) {
+      // Fetch the PR branch to ensure we have latest
+      await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin ${prBranchToUse}`);
+
+      // Get the PR description from the remote branch's last commit
+      const prDescription = await deps.gitService.execInRepository(
+        sessionWorkdir,
+        `git log -1 --pretty=format:%B origin/${prBranchToUse}`
+      );
+
+      result.prDescription = prDescription;
+    } else {
+      // Check if branch exists locally
+      const localBranchOutput = await deps.gitService.execInRepository(
+        sessionWorkdir,
+        `git show-ref --verify --quiet refs/heads/${prBranchToUse} || echo 'not-exists'`
+      );
+      const localBranchExists = localBranchOutput.trim() !== "not-exists";
+
+      if (localBranchExists) {
+        // Get the PR description from the local branch's last commit
+        const prDescription = await deps.gitService.execInRepository(
+          sessionWorkdir,
+          `git log -1 --pretty=format:%B ${prBranchToUse}`
+        );
+
+        result.prDescription = prDescription;
+      }
+    }
+  } catch (error) {
+    log.debug("Error getting PR description", {
+      error: error instanceof Error ? error.message : String(error),
+      prBranch: prBranchToUse,
+    });
+  }
+
+  // 3. Get diff stats and full diff
+  try {
+    // Fetch latest changes
+    await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin`);
+
+    // Get diff stats
+    const diffStatsOutput = await deps.gitService.execInRepository(
+      sessionWorkdir,
+      `git diff --stat origin/${baseBranch}...origin/${prBranchToUse}`
     );
 
-    // Get the description from the merge commit message
-    const commitMessage = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git log -1 --format=%B ${prBranch}`
+    // Parse diff stats
+    const statsMatch = diffStatsOutput.match(
+      /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
     );
-
-    if (commitMessage) {
-      const lines = commitMessage.split("\n");
-      const title = lines[0] || ''; // Use empty string if undefined
-      const body = lines.slice(2).join("\n").trim();
-
-      prDescription = {
-        title,
-        body,
+    if (statsMatch) {
+      result.diffStats = {
+        filesChanged: parseInt(statsMatch[1] || "0", 10),
+        insertions: parseInt(statsMatch[2] || "0", 10),
+        deletions: parseInt(statsMatch[3] || "0", 10),
       };
     }
+
+    // Get full diff
+    const diffOutput = await deps.gitService.execInRepository(
+      sessionWorkdir,
+      `git diff origin/${baseBranch}...origin/${prBranchToUse}`
+    );
+
+    result.diff = diffOutput;
   } catch (error) {
-    log.debug("PR branch not found or error retrieving PR description", {
+    log.debug("Error getting diff information", {
       error: error instanceof Error ? error.message : String(error),
-      prBranch,
+      baseBranch,
+      prBranch: prBranchToUse,
     });
-    // PR branch might not exist yet - don't throw error
   }
-
-  // 4. Get current branch
-  const currentBranch = (
-    await deps.gitService.execInRepository(sessionWorkdir, `git rev-parse --abbrev-ref HEAD`)
-  ).trim();
-
-  // 5. Get commit count
-  const commitCountStr = await deps.gitService.execInRepository(
-    sessionWorkdir,
-    `git rev-list --count ${currentBranch}`
-  );
-  const commitCount = parseInt(commitCountStr.trim(), 10);
-
-  // 6. Get diff statistics
-  let diffStats = "";
-  try {
-    diffStats = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git diff --stat origin/main..${currentBranch}`
-    );
-    diffStats = diffStats.trim();
-  } catch (error) {
-    // If diff with origin/main fails, try using the first commit
-    try {
-      const firstCommit = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git rev-list --max-parents=0 HEAD`
-      );
-      const firstCommitHash = firstCommit.trim();
-
-      diffStats = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git diff --stat ${firstCommitHash}..${currentBranch}`
-      );
-      diffStats = diffStats.trim();
-    } catch (fallbackError) {
-      diffStats = "Could not calculate diff stats";
-      log.debug("Failed to get diff statistics", {
-        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-      });
-    }
-  }
-
-  // 7. Get modified files
-  let modifiedFiles: string[] = [];
-  try {
-    const nameOnly = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git diff --name-only origin/main..${currentBranch}`
-    );
-    modifiedFiles = nameOnly.trim().split("\n").filter(Boolean);
-  } catch (error) {
-    // If diff with origin/main fails, try using the first commit
-    try {
-      const firstCommit = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git rev-list --max-parents=0 HEAD`
-      );
-      const firstCommitHash = firstCommit.trim();
-
-      const nameOnly = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git diff --name-only ${firstCommitHash}..${currentBranch}`
-      );
-      modifiedFiles = nameOnly.trim().split("\n").filter(Boolean);
-    } catch (fallbackError) {
-      log.debug("Failed to get modified files", {
-        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-      });
-    }
-  }
-
-  // 8. Get full diff
-  let fullDiff = "";
-  try {
-    fullDiff = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git diff origin/main..${currentBranch}`
-    );
-  } catch (error) {
-    // If diff with origin/main fails, try using the first commit
-    try {
-      const firstCommit = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git rev-list --max-parents=0 HEAD`
-      );
-      const firstCommitHash = firstCommit.trim();
-
-      fullDiff = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git diff ${firstCommitHash}..${currentBranch}`
-      );
-    } catch (fallbackError) {
-      fullDiff = "Could not generate full diff";
-      log.debug("Failed to get full diff", {
-        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-      });
-    }
-  }
-
-  // Construct the result
-  const result: SessionReviewResult = {
-    session: sessionNameToUse,
-    taskSpec,
-    prDescription,
-    diff: {
-      stats: diffStats,
-      files: modifiedFiles,
-      fullDiff,
-    },
-    metadata: {
-      branch: currentBranch,
-      prBranch: prDescription ? prBranch : undefined,
-      baseBranch: prDescription ? baseBranch : undefined,
-      commitCount,
-    },
-  };
 
   return result;
 }

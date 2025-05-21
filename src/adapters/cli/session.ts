@@ -566,137 +566,142 @@ export function createInspectCommand(): Command {
  * Creates the session review command
  */
 export function createReviewCommand(): Command {
-  return new Command("review")
-    .description("Review a session's PR, showing task spec, PR description, and changes")
+  const command = new Command("review")
+    .description("Review a session PR with consolidated view of task, PR description, and changes")
     .argument("[name]", "Session name")
     .option("--task <taskId>", "Task ID to match")
-    .option("--repo <path>", "Repository path")
-    .option("--output <path>", "Path to save the review output to (defaults to console)")
-    .option("--json", "Output in JSON format")
-    .action(
-      async (
-        name?: string,
-        options?: {
-          task?: string;
-          repo?: string;
-          output?: string;
-          json?: boolean;
-        }
-      ) => {
-        try {
-          const params = {
-            session: name,
-            task: options?.task,
-            repo: options?.repo,
-            output: options?.output,
-            json: options?.json || false,
-          };
+    .option("--output <file>", "Output the review to a file")
+    .option("--pr-branch <branch>", "PR branch name (defaults to 'pr/<session>')")
+    .option("--repo <path>", "Repository path");
 
-          // Call the domain function
-          const result = await sessionReviewFromParams(params);
+  // Add shared options
+  addOutputOptions(command);
 
-          // If output path is provided, write to file
-          if (options?.output) {
-            const fs = await import("fs/promises");
-            await fs.writeFile(
-              options.output,
-              options.json ? JSON.stringify(result, null, 2) : formatReviewResult(result),
-              "utf8"
-            );
-            console.log(`Review output written to ${options.output}`);
-            return;
-          }
-
-          // Output the review information
-          if (options?.json) {
-            console.log(JSON.stringify(result, null, 2));
-          } else {
-            console.log(formatReviewResult(result));
-          }
-        } catch (error) {
-          handleCliError(error);
-        }
+  command.action(
+    async (
+      name?: string,
+      options?: {
+        task?: string;
+        repo?: string;
+        output?: string;
+        prBranch?: string;
+        json?: boolean;
       }
-    );
-}
+    ) => {
+      try {
+        // Call the domain function with the parameters
+        const result = await sessionReviewFromParams({
+          session: name,
+          task: options?.task,
+          repo: options?.repo,
+          output: options?.output,
+          prBranch: options?.prBranch,
+          json: options?.json,
+        });
 
-/**
- * Format review result for console output
- */
-function formatReviewResult(result: any): string {
-  const lines: string[] = [];
-  
-  // Header
-  lines.push(`# Session Review: ${result.session}`);
-  lines.push("");
-  
-  // Task specification section
-  if (result.taskSpec) {
-    lines.push("## Task Specification");
-    lines.push(`Task ID: ${result.taskSpec.id}`);
-    lines.push(`Title: ${result.taskSpec.title}`);
-    lines.push(`Spec Path: ${result.taskSpec.specPath}`);
-    lines.push("");
-    lines.push("```");
-    lines.push(result.taskSpec.content);
-    lines.push("```");
-    lines.push("");
-  }
-  
-  // PR description section
-  if (result.prDescription) {
-    lines.push("## PR Description");
-    lines.push(`Title: ${result.prDescription.title}`);
-    lines.push("");
-    lines.push("```");
-    lines.push(result.prDescription.body);
-    lines.push("```");
-    lines.push("");
-  }
-  
-  // Metadata section
-  lines.push("## Metadata");
-  lines.push(`Branch: ${result.metadata.branch}`);
-  if (result.metadata.prBranch) {
-    lines.push(`PR Branch: ${result.metadata.prBranch}`);
-  }
-  if (result.metadata.baseBranch) {
-    lines.push(`Base Branch: ${result.metadata.baseBranch}`);
-  }
-  lines.push(`Commit Count: ${result.metadata.commitCount}`);
-  lines.push("");
-  
-  // Diff section
-  lines.push("## Changes");
-  lines.push("### Modified Files");
-  if (result.diff.files.length === 0) {
-    lines.push("No files modified");
-  } else {
-    result.diff.files.forEach((file: string) => {
-      lines.push(`- ${file}`);
-    });
-  }
-  lines.push("");
-  
-  // Diff stats
-  lines.push("### Diff Stats");
-  lines.push("```");
-  lines.push(result.diff.stats);
-  lines.push("```");
-  lines.push("");
-  
-  // Full diff (if not too large)
-  if (result.diff.fullDiff.length < 10000) {
-    lines.push("### Full Diff");
-    lines.push("```diff");
-    lines.push(result.diff.fullDiff);
-    lines.push("```");
-  } else {
-    lines.push("### Full Diff");
-    lines.push("(Diff too large to display, use --output option to save to file)");
-  }
-  
-  return lines.join("\n");
+        // Format and output the result
+        if (options?.json) {
+          // If JSON output is requested, use the output utility
+          outputResult(result, { json: true });
+          return;
+        }
+
+        // For text output, format it nicely
+        const lines: string[] = [];
+        
+        // Session information
+        lines.push(`# Session Review: ${result.session}`);
+        lines.push("");
+        
+        // PR Description
+        if (result.prDescription) {
+          const titleMatch = result.prDescription.match(/^([^\n]+)/);
+          const title = titleMatch ? titleMatch[1] : "No title found";
+          
+          lines.push(`## PR Information`);
+          lines.push("");
+          lines.push(`Title: ${title}`);
+          lines.push("");
+          lines.push(`Branch: ${result.prBranch}`);
+          lines.push(`Base: ${result.baseBranch}`);
+          lines.push("");
+          
+          // Extract body by removing the title and any separator lines
+          const body = result.prDescription
+            .replace(/^[^\n]+\n+/, "") // Remove title line
+            .replace(/^-+\s*\n+/m, ""); // Remove separator line if any
+          
+          if (body.trim()) {
+            lines.push(`### Description`);
+            lines.push("");
+            lines.push(body);
+            lines.push("");
+          }
+        } else {
+          lines.push(`## PR Information`);
+          lines.push("");
+          lines.push(`No PR description found. PR may not have been created yet.`);
+          lines.push("");
+          lines.push(`Expected branch: ${result.prBranch}`);
+          lines.push(`Base branch: ${result.baseBranch}`);
+          lines.push("");
+        }
+        
+        // Task Specification
+        if (result.taskSpec) {
+          lines.push(`## Task Specification`);
+          lines.push("");
+          lines.push(result.taskSpec);
+          lines.push("");
+        }
+        
+        // Diff Statistics
+        if (result.diffStats) {
+          lines.push(`## Changes`);
+          lines.push("");
+          lines.push(`Files changed: ${result.diffStats.filesChanged}`);
+          if (result.diffStats.insertions) {
+            lines.push(`Insertions: ${result.diffStats.insertions}`);
+          }
+          if (result.diffStats.deletions) {
+            lines.push(`Deletions: ${result.diffStats.deletions}`);
+          }
+          lines.push("");
+        }
+        
+        // Full Diff
+        if (result.diff) {
+          lines.push(`## Diff`);
+          lines.push("```diff");
+          lines.push(result.diff);
+          lines.push("```");
+        }
+        
+        // Generate output text
+        const outputText = lines.join("\n");
+        
+        // Write to file if output path is provided
+        if (options?.output) {
+          try {
+            const fs = await import("fs/promises");
+            await fs.writeFile(options.output, outputText);
+            console.log(`Review saved to: ${options.output}`);
+          } catch (error) {
+            console.error(`Error writing to file: ${error instanceof Error ? error.message : String(error)}`);
+            // Still output to console if file write fails
+            console.log(outputText);
+          }
+        } else {
+          // Output to console
+          console.log(outputText);
+        }
+      } catch (error) {
+        handleCliError(error);
+      }
+    }
+  );
+
+  return command;
 }
 
 /**
