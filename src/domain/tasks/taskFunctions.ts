@@ -258,7 +258,17 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
     if (filter.id) {
       const normalizedFilterId = normalizeTaskId(filter.id);
       const normalizedTaskId = normalizeTaskId(task.id);
-      if (normalizedFilterId !== normalizedTaskId) {
+      
+      // Handle null cases safely
+      if (!normalizedFilterId || !normalizedTaskId) {
+        return false;
+      }
+      
+      // Compare numeric values to handle "2" matching "#002" or "#2"
+      const filterNum = parseInt(normalizedFilterId.replace(/^#/, ''), 10);
+      const taskNum = parseInt(normalizedTaskId.replace(/^#/, ''), 10);
+      
+      if (filterNum !== taskNum) {
         return false;
       }
     }

@@ -13,6 +13,78 @@
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
 
+// Define interfaces for our mock function implementation
+interface MockResult {
+  type: "return" | "throw";
+  value: any;
+}
+
+interface MockFunctionImplementation {
+  (...args: any[]): any;
+  mock: {
+    calls: any[][];
+    results: MockResult[];
+  };
+  mockImplementation: (fn: Function) => MockFunctionImplementation;
+  mockReturnValue: (value: any) => MockFunctionImplementation;
+  mockResolvedValue: (value: any) => MockFunctionImplementation;
+  mockRejectedValue: (reason: any) => MockFunctionImplementation;
+}
+
+// Declare the mock.fn property to make TypeScript happy
+declare module "bun:test" {
+  interface Mock {
+    fn?: (implementation?: Function) => MockFunctionImplementation;
+  }
+}
+
+// Define a polyfill for mock.fn if it doesn't exist
+if (!mock.fn) {
+  mock.fn = (implementation?: Function): MockFunctionImplementation => {
+    const mockFn = (...args: any[]): any => {
+      mockFn.mock.calls.push(args);
+      try {
+        const result = implementation ? implementation(...args) : undefined;
+        mockFn.mock.results.push({
+          type: "return",
+          value: result
+        });
+        return result;
+      } catch (error) {
+        mockFn.mock.results.push({
+          type: "throw",
+          value: error instanceof Error ? error : new Error(String(error))
+        });
+        throw error;
+      }
+    };
+    
+    mockFn.mock = {
+      calls: [] as any[][],
+      results: [] as MockResult[]
+    };
+    
+    mockFn.mockImplementation = (fn: Function): MockFunctionImplementation => {
+      implementation = fn;
+      return mockFn;
+    };
+    
+    mockFn.mockReturnValue = (value: any): MockFunctionImplementation => {
+      return mockFn.mockImplementation(() => value);
+    };
+    
+    mockFn.mockResolvedValue = (value: any): MockFunctionImplementation => {
+      return mockFn.mockImplementation(() => Promise.resolve(value));
+    };
+    
+    mockFn.mockRejectedValue = (reason: any): MockFunctionImplementation => {
+      return mockFn.mockImplementation(() => Promise.reject(reason));
+    };
+    
+    return mockFn;
+  };
+}
+
 type MockFnType = <T extends (...args: any[]) => any>(implementation?: T) => any;
 
 // Define a MockFunction type to replace jest.Mock
@@ -75,8 +147,50 @@ export function mockFunction<T extends (...args: any[]) => any>(implementation?:
  * expect(mockFn()).toBe("new result");
  */
 export function createMock<T extends (...args: any[]) => any>(implementation?: T) {
-  // Use mock.fn instead of jest.fn
-  return mock.fn(implementation);
+  // Create our own mock function implementation instead of using mock.fn
+  const mockFn = function(...args: any[]) {
+    mockFn.mock.calls.push(args);
+    try {
+      const result = currentImpl ? currentImpl(...args) : undefined;
+      mockFn.mock.results.push({
+        type: "return",
+        value: result
+      });
+      return result;
+    } catch (error) {
+      mockFn.mock.results.push({
+        type: "throw",
+        value: error instanceof Error ? error : new Error(String(error))
+      });
+      throw error;
+    }
+  };
+
+  let currentImpl = implementation;
+  
+  mockFn.mock = {
+    calls: [],
+    results: []
+  };
+  
+  mockFn.mockImplementation = function(fn) {
+    currentImpl = fn;
+    return mockFn;
+  };
+  
+  mockFn.mockReturnValue = function(value) {
+    return mockFn.mockImplementation(() => value);
+  };
+  
+  mockFn.mockResolvedValue = function(value) {
+    return mockFn.mockImplementation(() => Promise.resolve(value));
+  };
+  
+  mockFn.mockRejectedValue = function(reason) {
+    return mockFn.mockImplementation(() => Promise.reject(reason));
+  };
+  
+  return mockFn;
 }
 
 /**
