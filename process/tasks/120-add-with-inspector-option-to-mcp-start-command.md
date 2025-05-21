@@ -30,24 +30,87 @@ When using the Minsky MCP server for development and testing, it's often necessa
    - Provide clear error messages if the inspector fails to start
    - Ensure the main MCP server continues running even if the inspector fails
 
+## Implementation Plan
+
+### 1. Install Inspector Dependencies
+
+1. Add the `@modelcontextprotocol/inspector` as a dev dependency to the project
+2. Ensure the inspector is compatible with the current version of `fastmcp` (currently v1.27.4)
+
+### 2. Update MCP Start Command
+
+1. Modify `src/commands/mcp/index.ts` to:
+   - Add the `--with-inspector` option to the start command with appropriate description
+   - Add an optional `--inspector-port` option with a default value (e.g., 6274)
+   - Update the action handler to check for the flag and launch the inspector
+
+### 3. Create Inspector Launcher Module
+
+1. Create a new module `src/mcp/inspector-launcher.ts` that will:
+   - Export a function to launch the inspector
+   - Handle the spawning of the child process
+   - Configure the inspector to connect to the MCP server
+   - Set up error handling for the inspector process
+   - Provide helper functions to determine if the inspector is available
+
+### 4. Implement Error Handling
+
+1. Add robust error handling that:
+   - Catches and logs inspector startup failures
+   - Provides clear user messages when the inspector fails
+   - Ensures the MCP server continues running even if the inspector fails
+   - Adds debug logging for troubleshooting
+
+### 5. Update Documentation
+
+1. Update `README-MCP.md` to:
+   - Document the new `--with-inspector` and `--inspector-port` options
+   - Add examples showing how to use the options
+   - Explain the benefits of using the inspector for debugging
+   - Include a new section on debugging with the inspector
+
+### 6. Testing
+
+1. Create manual test scenarios:
+   - Test starting the server with `--with-inspector`
+   - Test with different transport options (stdio, SSE, HTTP Stream)
+   - Test error handling when the inspector fails to start
+   - Test that the server continues running if the inspector is closed
+
 ## Implementation Steps
 
-1. [ ] Update the `mcp start` command in `src/commands/mcp/index.ts`:
+1. [ ] Install the MCP inspector package as a dev dependency:
+
+   ```
+   bun add -d @modelcontextprotocol/inspector
+   ```
+
+2. [ ] Update the `mcp start` command in `src/commands/mcp/index.ts`:
 
    - [ ] Add the `--with-inspector` option with appropriate description
+   - [ ] Add the optional `--inspector-port` option with a default value
    - [ ] Modify the action handler to check for the flag and launch the inspector
    - [ ] Add code to spawn the inspector process when the flag is enabled
    - [ ] Add error handling for inspector process errors
 
-2. [ ] Update README-MCP.md:
+3. [ ] Create a new file `src/mcp/inspector-launcher.ts`:
+
+   - [ ] Implement the inspector launcher function
+   - [ ] Set up proper error handling and logging
+   - [ ] Configure the inspector to connect to the MCP server
+
+4. [ ] Update README-MCP.md:
 
    - [ ] Document the new `--with-inspector` option in the "Starting the MCP Server" section
-   - [ ] Add an example showing how to use the option
+   - [ ] Add the optional `--inspector-port` option documentation
+   - [ ] Add examples showing how to use the options
    - [ ] Explain when and why to use the inspector
+   - [ ] Add a new section about debugging with the inspector
 
-3. [ ] Test the implementation:
+5. [ ] Test the implementation:
    - [ ] Verify that the MCP server starts correctly with the `--with-inspector` flag
    - [ ] Verify that the inspector launches and connects to the MCP server
+   - [ ] Test different transport options
    - [ ] Test error scenarios and ensure appropriate error messages
 
 ## Verification
@@ -57,15 +120,16 @@ When using the Minsky MCP server for development and testing, it's often necessa
   - Launches the MCP inspector
   - The inspector connects to the MCP server
 - [ ] The inspector opens in a browser window or provides a URL
+- [ ] Using `--inspector-port` allows specifying a custom port
 - [ ] Error handling works correctly if issues occur
-- [ ] Documentation is updated to reflect the new option
+- [ ] Documentation is updated to reflect the new options
 
 ## Example Output
 
 ```bash
 $ minsky mcp start --with-inspector
 Minsky MCP Server started with stdio transport
-MCP Inspector started. A browser window should open automatically.
-If it doesn't, you can access it at http://localhost:6274
+MCP Inspector started on port 6274
+Open your browser at http://localhost:6274 to access the inspector
 Press Ctrl+C to stop
 ```
