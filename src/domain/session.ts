@@ -326,6 +326,17 @@ export class SessionDB implements SessionProviderInterface {
     // Check for new path first (with sessions subdirectory)
     const newPath = join(this.baseDir, normalizedRepoName, "sessions", record.session);
     if (await this.repoExists(newPath)) {
+      // Update the session record with the correct repoPath for future use
+      try {
+        // Only update if this is a real session record (has session property)
+        if (typeof record.session === "string") {
+          await this.updateSession(record.session, { repoPath: newPath });
+        }
+      } catch (error) {
+        console.error(
+          `Failed to update session record with repoPath: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       return newPath;
     }
 
@@ -337,12 +348,32 @@ export class SessionDB implements SessionProviderInterface {
       record.session
     );
     if (await this.repoExists(altPath)) {
+      // Update the session record with the correct repoPath for future use
+      try {
+        if (typeof record.session === "string") {
+          await this.updateSession(record.session, { repoPath: altPath });
+        }
+      } catch (error) {
+        console.error(
+          `Failed to update session record with repoPath: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       return altPath;
     }
 
     // Fall back to legacy path
     const legacyPath = join(this.baseDir, normalizedRepoName, record.session);
     if (await this.repoExists(legacyPath)) {
+      // Update the session record with the correct repoPath for future use
+      try {
+        if (typeof record.session === "string") {
+          await this.updateSession(record.session, { repoPath: legacyPath });
+        }
+      } catch (error) {
+        console.error(
+          `Failed to update session record with repoPath: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       return legacyPath;
     }
 
