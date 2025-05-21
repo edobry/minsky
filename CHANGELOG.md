@@ -563,6 +563,12 @@ _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/histor
 
 _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
 
+- Fixed circular dependency in error handling code that prevented any CLI commands from running
+
+  - Refactored error class structure to use a base-errors.ts file for the core MinskyError class
+  - Updated network-errors.ts to import from base-errors.js instead of index.js
+  - Fixed "Cannot access 'MinskyError' before initialization" error that occurred with all commands
+
 - Fixed task serialization in MCP adapter to prevent double-stringification
   - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
   - Changed the return value structure to avoid JSON stringification conflicts
