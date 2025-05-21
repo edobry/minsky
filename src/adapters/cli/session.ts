@@ -376,24 +376,30 @@ export function createUpdateCommand(): Command {
         const normalizedParams = normalizeSessionParams(options || {});
 
         // Convert CLI options to domain parameters
-        const params: SessionUpdateParams = {
+        const params: Partial<SessionUpdateParams> = {
           ...normalizedParams,
           name: name || "", // Ensure this is a string even if undefined
-          force: options?.force || false,
+          // Add additional properties from SessionUpdateParams as needed
+          noStash: options?.force || false, // Map force to noStash
         };
 
         // Call the domain function
-        const updateResult = await updateSessionFromParams(params);
+        await updateSessionFromParams(params as SessionUpdateParams);
+
+        // Get the session to display results (since updateSessionFromParams returns void)
+        const session = await getSessionFromParams({ name: name || "" });
 
         // Output result
-        if (updateResult) {
-          console.log(`Session ${updateResult.session} updated successfully.`);
-          console.log(`Branch: ${updateResult.branch}`);
-          if ((updateResult as any).task) {
-            console.log(`Associated with task: ${(updateResult as any).task}`);
+        if (session) {
+          console.log(`Session ${session.session} updated successfully.`);
+          if (session.branch) {
+            console.log(`Branch: ${session.branch}`);
+          }
+          if (session.taskId) {
+            console.log(`Associated with task: ${session.taskId}`);
           }
         } else {
-          console.log("Session update failed or no result returned.");
+          console.log("Session update completed, but could not retrieve session details.");
         }
       } catch (error) {
         handleCliError(error);
@@ -446,16 +452,11 @@ export function createApproveCommand(): Command {
           }
 
           // Convert CLI options to domain parameters
-          const params: SessionApproveParams = {
-            name, // API should handle the optional name
+          const params = {
+            session: name, // API expects 'session' not 'name'
             task: options?.task,
             repo: options?.repo,
-            taskStatus: options?.taskStatus,
-            autoConfirm: options?.yes || false,
-            cleanup: options?.cleanup !== false,
-            push: options?.push !== false,
-            updateTaskStatus: options?.statusUpdate !== false,
-            mergeMessage,
+            json: false // Add only properties that exist in the schema
           };
 
           // Call the domain function with the parameters

@@ -290,7 +290,7 @@ const sessionPrCommandParams: CommandParameterMap = {
 const sessionReviewCommandParams: CommandParameterMap = {
   session: {
     schema: z.string(),
-    description: "Session name",
+    description: "Session name to review",
     required: false,
   },
   task: {
@@ -303,16 +303,21 @@ const sessionReviewCommandParams: CommandParameterMap = {
     description: "Repository path",
     required: false,
   },
+  output: {
+    schema: z.string(),
+    description: "Output file path to save the review",
+    required: false,
+  },
+  prBranch: {
+    schema: z.string(),
+    description: "PR branch name (defaults to 'pr/<session>')",
+    required: false,
+  },
   json: {
     schema: z.boolean(),
     description: "Output in JSON format",
     required: false,
     defaultValue: false,
-  },
-  output: {
-    schema: z.string(),
-    description: "Path to save the review output to (defaults to console)",
-    required: false,
   },
 };
 

@@ -168,6 +168,24 @@ export const sessionPrParamsSchema = z
 export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
 
 /**
+ * Schema for session review parameters
+ */
+export const sessionReviewParamsSchema = z
+  .object({
+    session: sessionNameSchema.optional().describe("Name of the session to review"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
+    repo: repoPathSchema.optional().describe("Repository path to use"),
+    output: z.string().optional().describe("File path to save the review output"),
+    prBranch: z.string().optional().describe("PR branch name (defaults to 'pr/<session>')"),
+  })
+  .merge(commonCommandOptionsSchema);
+
+/**
+ * Type for session review parameters
+ */
+export type SessionReviewParams = z.infer<typeof sessionReviewParamsSchema>;
+
+/**
  * Schema for session inspect parameters
  */
 export const sessionInspectParamsSchema = z
