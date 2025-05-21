@@ -8,6 +8,7 @@
 
 import { CommandSchema } from "@minsky/core";
 import { registerGitCommands } from "../shared/commands/git.js";
+import { registerTasksCommands } from "../shared/commands/tasks.js";
 import { CommandCategory } from "../shared/command-registry.js";
 import { log } from "../../utils/logger.js";
 
@@ -63,6 +64,40 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
 };
 
 /**
+ * Sample MCP command schema for tasks status get
+ */
+const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
+  name: "tasks.status.get",
+  description: "Get the status of a task",
+  parameters: {
+    taskId: {
+      type: "string",
+      description: "Task ID",
+      required: true,
+    },
+    repo: {
+      type: "string",
+      description: "Repository path",
+      required: false,
+    },
+    session: {
+      type: "string",
+      description: "Session identifier",
+      required: false,
+    },
+  },
+  // In real implementation, this would call the shared command registry
+  handler: async (params) => {
+    log.debug("MCP tasks.status.get called with params:", params);
+    return {
+      success: true,
+      taskId: params.taskId,
+      status: "TODO", // Example status
+    };
+  },
+};
+
+/**
  * Demonstrates how to integrate shared commands with MCP
  * 
  * This is an example of how the Minsky MCP server could be updated
@@ -71,14 +106,18 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
 export function setupMcpWithSharedCommands(): void {
   log.debug("Setting up MCP with shared commands");
   
-  // Register git commands in the shared registry
+  // Register shared commands in the registry
   registerGitCommands();
+  registerTasksCommands();
   
   // Bridge the commands to MCP
-  mcpBridge.registerSharedCommands([CommandCategory.GIT]);
+  mcpBridge.registerSharedCommands([CommandCategory.GIT, CommandCategory.TASKS]);
   
   log.debug("MCP setup complete with shared commands");
 }
 
 // Export for use in tests
-export { gitCommitCommandSchema }; 
+export { 
+  gitCommitCommandSchema,
+  tasksStatusGetCommandSchema
+}; 

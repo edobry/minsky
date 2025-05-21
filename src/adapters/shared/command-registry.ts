@@ -1,35 +1,32 @@
 /**
  * Shared Command Registry
  * 
- * This module provides the core abstractions for a unified command registry
- * that can be used by both CLI and MCP adapters. It allows commands to be
- * registered once and exposed through multiple interfaces.
+ * Central registry for commands that can be exposed through multiple interfaces
+ * (CLI, MCP, etc.). This provides a shared abstraction layer to reduce duplication
+ * and ensure consistency.
  */
 
 import { z } from "zod";
 import { MinskyError } from "../../errors/index.js";
 
 /**
- * Represents a command parameter with type information and metadata
+ * Command category enum
+ * 
+ * Used to organize commands into logical groups
  */
-export interface CommandParameter<T extends z.ZodTypeAny = z.ZodTypeAny> {
-  /** Parameter schema used for validation */
-  schema: T;
-  /** Human-readable description */
-  description: string;
-  /** Whether the parameter is required */
-  required: boolean;
-  /** Default value for the parameter */
-  defaultValue?: z.infer<T>;
+export enum CommandCategory {
+  CORE = "CORE",
+  GIT = "GIT",
+  TASKS = "TASKS",
+  SESSION = "SESSION",
+  RULES = "RULES",
+  INIT = "INIT",
 }
 
 /**
- * Type representing a map of parameter names to their definitions
- */
-export type CommandParameterMap = Record<string, CommandParameter>;
-
-/**
- * Type representing a command execution context
+ * Command execution context
+ * 
+ * Provides context about how a command was invoked
  */
 export interface CommandExecutionContext {
   /** The interface that's invoking the command (cli, mcp, etc.) */
@@ -41,6 +38,29 @@ export interface CommandExecutionContext {
 }
 
 /**
+ * Represents a command parameter with type information and metadata
+ */
+export interface CommandParameterDefinition<T extends z.ZodTypeAny = z.ZodTypeAny> {
+  /** Parameter schema used for validation */
+  schema: T;
+  /** Human-readable description */
+  description?: string;
+  /** Whether the parameter is required */
+  required: boolean;
+  /** Default value for the parameter */
+  defaultValue?: z.infer<T>;
+  /** Whether to hide the parameter in CLI interfaces */
+  cliHidden?: boolean;
+  /** Whether to hide the parameter in MCP interfaces */
+  mcpHidden?: boolean;
+}
+
+/**
+ * Type representing a map of parameter names to their definitions
+ */
+export type CommandParameterMap = Record<string, CommandParameterDefinition>;
+
+/**
  * Represents a command execution handler function
  */
 export type CommandExecutionHandler<
@@ -50,18 +70,6 @@ export type CommandExecutionHandler<
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
   context: CommandExecutionContext
 ) => Promise<R>;
-
-/**
- * Command category identifiers
- */
-export enum CommandCategory {
-  GIT = "git",
-  TASK = "task",
-  SESSION = "session",
-  RULE = "rule",
-  INIT = "init",
-  CORE = "core",
-}
 
 /**
  * Represents a command registration in the shared registry
@@ -85,6 +93,19 @@ export interface CommandDefinition<
 }
 
 /**
+ * Shared command interface that doesn't rely on generic types
+ * for easier use in bridge implementations
+ */
+export interface SharedCommand {
+  id: string;
+  category: CommandCategory;
+  name: string;
+  description: string;
+  parameters: CommandParameterMap;
+  execute: (params: Record<string, any>, context: CommandExecutionContext) => Promise<any>;
+}
+
+/**
  * Registry for maintaining all available commands
  */
 export interface CommandRegistry {
@@ -103,7 +124,7 @@ export interface CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): CommandDefinition<any, any> | undefined;
+  getCommand(id: string): SharedCommand | undefined;
 
   /**
    * Get all commands in a specific category
@@ -111,21 +132,21 @@ export interface CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): CommandDefinition<any, any>[];
+  getCommandsByCategory(category: CommandCategory): SharedCommand[];
 
   /**
    * List all registered commands
    * 
    * @returns All registered command definitions
    */
-  getAllCommands(): CommandDefinition<any, any>[];
+  getAllCommands(): SharedCommand[];
 }
 
 /**
- * Core implementation of the command registry
+ * Implementation of the command registry
  */
 export class SharedCommandRegistry implements CommandRegistry {
-  private commands: Map<string, CommandDefinition<any, any>> = new Map();
+  private commands: Map<string, SharedCommand> = new Map();
 
   /**
    * Register a command in the registry
@@ -140,7 +161,7 @@ export class SharedCommandRegistry implements CommandRegistry {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
     
-    this.commands.set(commandDef.id, commandDef as CommandDefinition<any, any>);
+    this.commands.set(commandDef.id, commandDef as unknown as SharedCommand);
   }
 
   /**
@@ -149,7 +170,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): CommandDefinition<any, any> | undefined {
+  getCommand(id: string): SharedCommand | undefined {
     return this.commands.get(id);
   }
 
@@ -159,7 +180,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): CommandDefinition<any, any>[] {
+  getCommandsByCategory(category: CommandCategory): SharedCommand[] {
     return Array.from(this.commands.values())
       .filter(cmd => cmd.category === category);
   }
@@ -169,12 +190,12 @@ export class SharedCommandRegistry implements CommandRegistry {
    * 
    * @returns All registered command definitions
    */
-  getAllCommands(): CommandDefinition<any, any>[] {
+  getAllCommands(): SharedCommand[] {
     return Array.from(this.commands.values());
   }
 }
 
 /**
- * Create a singleton instance of the shared command registry
+ * Global singleton instance of the shared command registry
  */
 export const sharedCommandRegistry = new SharedCommandRegistry(); 

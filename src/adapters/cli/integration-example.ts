@@ -8,6 +8,7 @@
 
 import { Command } from "commander";
 import { registerGitCommands } from "../shared/commands/git.js";
+import { registerTasksCommands } from "../shared/commands/tasks.js";
 import { registerCategorizedCliCommands } from "../shared/bridges/cli-bridge.js";
 import { CommandCategory } from "../shared/command-registry.js";
 import { log } from "../../utils/logger.js";
@@ -29,13 +30,14 @@ export function createIntegratedCliProgram(): Command {
     .description("Minsky CLI - Task-based workspace management")
     .version("1.0.0");
   
-  // Register git commands in the shared registry
+  // Register shared commands in the registry
   registerGitCommands();
+  registerTasksCommands();
   
   // Bridge the commands to CLI
   registerCategorizedCliCommands(
     program,
-    [CommandCategory.GIT],
+    [CommandCategory.GIT, CommandCategory.TASKS],
     true // Create subcommands for categories
   );
   
