@@ -79,50 +79,50 @@ When using the Minsky MCP server for development and testing, it's often necessa
 
 ## Implementation Steps
 
-1. [ ] Install the MCP inspector package as a dev dependency:
+1. [x] Install the MCP inspector package as a dev dependency:
 
    ```
    bun add -d @modelcontextprotocol/inspector
    ```
 
-2. [ ] Update the `mcp start` command in `src/commands/mcp/index.ts`:
+2. [x] Update the `mcp start` command in `src/commands/mcp/index.ts`:
 
-   - [ ] Add the `--with-inspector` option with appropriate description
-   - [ ] Add the optional `--inspector-port` option with a default value
-   - [ ] Modify the action handler to check for the flag and launch the inspector
-   - [ ] Add code to spawn the inspector process when the flag is enabled
-   - [ ] Add error handling for inspector process errors
+   - [x] Add the `--with-inspector` option with appropriate description
+   - [x] Add the optional `--inspector-port` option with a default value
+   - [x] Modify the action handler to check for the flag and launch the inspector
+   - [x] Add code to spawn the inspector process when the flag is enabled
+   - [x] Add error handling for inspector process errors
 
-3. [ ] Create a new file `src/mcp/inspector-launcher.ts`:
+3. [x] Create a new file `src/mcp/inspector-launcher.ts`:
 
-   - [ ] Implement the inspector launcher function
-   - [ ] Set up proper error handling and logging
-   - [ ] Configure the inspector to connect to the MCP server
+   - [x] Implement the inspector launcher function
+   - [x] Set up proper error handling and logging
+   - [x] Configure the inspector to connect to the MCP server
 
-4. [ ] Update README-MCP.md:
+4. [x] Update README-MCP.md:
 
-   - [ ] Document the new `--with-inspector` option in the "Starting the MCP Server" section
-   - [ ] Add the optional `--inspector-port` option documentation
-   - [ ] Add examples showing how to use the options
-   - [ ] Explain when and why to use the inspector
-   - [ ] Add a new section about debugging with the inspector
+   - [x] Document the new `--with-inspector` option in the "Starting the MCP Server" section
+   - [x] Add the optional `--inspector-port` option documentation
+   - [x] Add examples showing how to use the options
+   - [x] Explain when and why to use the inspector
+   - [x] Add a new section about debugging with the inspector
 
-5. [ ] Test the implementation:
-   - [ ] Verify that the MCP server starts correctly with the `--with-inspector` flag
-   - [ ] Verify that the inspector launches and connects to the MCP server
-   - [ ] Test different transport options
-   - [ ] Test error scenarios and ensure appropriate error messages
+5. [x] Test the implementation:
+   - [x] Verify that the MCP server starts correctly with the `--with-inspector` flag
+   - [x] Verify that the inspector launches and connects to the MCP server
+   - [x] Test different transport options
+   - [x] Test error scenarios and ensure appropriate error messages
 
 ## Verification
 
-- [ ] Running `minsky mcp start --with-inspector` successfully:
+- [x] Running `minsky mcp start --with-inspector` successfully:
   - Starts the MCP server
   - Launches the MCP inspector
   - The inspector connects to the MCP server
-- [ ] The inspector opens in a browser window or provides a URL
-- [ ] Using `--inspector-port` allows specifying a custom port
-- [ ] Error handling works correctly if issues occur
-- [ ] Documentation is updated to reflect the new options
+- [x] The inspector opens in a browser window or provides a URL
+- [x] Using `--inspector-port` allows specifying a custom port
+- [x] Error handling works correctly if issues occur
+- [x] Documentation is updated to reflect the new options
 
 ## Example Output
 
