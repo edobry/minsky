@@ -94,6 +94,32 @@ customizeCommand("session.delete", {
   }
 });
 
+// Add customization for the session update command
+customizeCommand("session.update", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    session: {
+      // This maps the session parameter to the first positional argument
+      asArgument: true,
+      description: "Session name to update"
+    },
+    title: {
+      description: "New title for the session",
+      alias: "t"
+    },
+    branch: {
+      description: "New branch name for the session",
+      alias: "b" 
+    },
+    force: {
+      description: "Force update even if it would modify an active branch",
+      alias: "f"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -107,9 +133,12 @@ const bridgeGeneratedGetCommand = createCommand("session.get");
 const bridgeGeneratedDirCommand = createCommand("session.dir");
 // Generate the "session delete" command via the bridge
 const bridgeGeneratedDeleteCommand = createCommand("session.delete");
+// Generate the "session update" command via the bridge
+const bridgeGeneratedUpdateCommand = createCommand("session.update");
 
 if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
-    bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand) {
+    bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
+    bridgeGeneratedUpdateCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
@@ -122,7 +151,8 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   // Copy all commands except the ones we're replacing with bridge-generated commands
   sessionCommand.commands.forEach(cmd => {
     if (cmd.name() !== "list" && cmd.name() !== "get" && 
-        cmd.name() !== "dir" && cmd.name() !== "delete") {
+        cmd.name() !== "dir" && cmd.name() !== "delete" &&
+        cmd.name() !== "update") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -132,6 +162,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedGetCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedDirCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedDeleteCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedUpdateCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
@@ -144,7 +175,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   tempProgram.addCommand(createRulesCommand());
   
   // Log that we're using the bridge-generated commands
-  log.cli("Using bridge-generated commands for 'session list', 'session get', 'session dir', and 'session delete'");
+  log.cli("Using bridge-generated commands for multiple session subcommands");
   
   // Use the temp program for parsing
   tempProgram.parse();
