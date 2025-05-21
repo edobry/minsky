@@ -26,16 +26,16 @@ The MCP version of the `rules.list` command currently returns the full content o
 1. [x] Locate the MCP adapter implementation for the rules.list command
 2. [x] Modify the command's execute function to exclude rule content
 3. [-] Consider adding an option to include content if explicitly requested (decided against this)
-4. [ ] Test the command to ensure it works correctly
-5. [ ] Verify that other rules commands are not affected
+4. [x] Test the command to ensure it works correctly
+5. [x] Verify that other rules commands are not affected
 
 ## Verification
 
-- [ ] Running the MCP `rules.list` command returns rules without the content field
-- [ ] All metadata is still present and correct
-- [ ] The command respects all existing filter options
-- [ ] All tests pass
-- [ ] Other rules commands continue to function correctly
+- [x] Running the MCP `rules.list` command returns rules without the content field
+- [x] All metadata is still present and correct
+- [x] The command respects all existing filter options
+- [x] All tests pass
+- [x] Other rules commands continue to function correctly
 
 ## Detailed Implementation Plan
 
