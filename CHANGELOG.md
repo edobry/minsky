@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #128: Implement Local DB Tasks Backend
+  - Created a task to implement a local database backend for task management
+  - Will develop a solution similar to SessionDB for centralized task storage
+  - Will provide synchronization of task data across sessions and workspaces
+  - Will extract common database functionality where possible for code reuse
+  - Will implement migration tools for smooth transition from tasks.md
+
+_See: SpecStory history [2025-07-20_local-db-tasks-backend](mdc:.specstory/history/2025-07-20_local-db-tasks-backend.md) for task creation._
+
 - Updated task-management-related rules to include the new `task spec` command
   - Added information about the `minsky tasks spec` command to minsky-cli-usage rule
   - Updated task-implementation-workflow rule to recommend using `task spec` for viewing task details
