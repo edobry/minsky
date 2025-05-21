@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Task #128: Implement Local DB Tasks Backend
+- Task #129: Implement Local DB Tasks Backend
   - Created a task to implement a local database backend for task management
   - Will develop a solution similar to SessionDB for centralized task storage
   - Will provide synchronization of task data across sessions and workspaces

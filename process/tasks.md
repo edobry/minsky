@@ -142,7 +142,7 @@
 
 - [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
-- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+- [+] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
@@ -249,3 +249,17 @@
 - [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
 
 - [ ] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
+
+- [ ] Implement Local DB Tasks Backend [#128](process/tasks/128-implement-local-db-tasks-backend.md)
+  - The current Minsky CLI uses a file-based approach (`tasks.md`) as its default task management backend, with a placeholder for a GitHub backend. This approach creates synchronization challenges when working across multiple sessions or workspaces. Specifically:
+  - 1. When a user edits the `tasks.md` file in a session, those changes are not reflected in other sessions or in the main workspace
+  - 2. This can lead to out-of-date task information when working in different contexts
+  - 3. Sometimes conflicting task IDs can occur due to this lack of synchronization
+  - We need a more robust backend similar to the SessionDB, which already uses a local JSON file stored in a centralized location.
+
+- [ ] Implement Local DB Tasks Backend [#129](/Users/edobry/Projects/minsky/process/tasks/129-implement-local-db-tasks-backend.md)
+  - The current Minsky CLI uses a file-based approach (`tasks.md`) as its default task management backend, with a placeholder for a GitHub backend. This approach creates synchronization challenges when working across multiple sessions or workspaces. Specifically:
+  - 1. When a user edits the `tasks.md` file in a session, those changes are not reflected in other sessions or in the main workspace
+  - 2. This can lead to out-of-date task information when working in different contexts
+  - 3. Sometimes conflicting task IDs can occur due to this lack of synchronization
+  - We need a more robust backend similar to the SessionDB, which already uses a local JSON file stored in a centralized location.
