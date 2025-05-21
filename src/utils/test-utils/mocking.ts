@@ -46,7 +46,8 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const result = mockGreet("World"); // TypeScript knows this returns string
  */
 export function mockFunction<T extends (...args: any[]) => any>(implementation?: T) {
-  return createMock(implementation) as MockFunction<ReturnType<T>, Parameters<T>> & T;
+  // Cast to unknown first to avoid TypeScript errors
+  return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
 
 /**
@@ -75,8 +76,8 @@ export function mockFunction<T extends (...args: any[]) => any>(implementation?:
  * expect(mockFn()).toBe("new result");
  */
 export function createMock<T extends (...args: any[]) => any>(implementation?: T) {
-  // Use mock.fn instead of jest.fn
-  return mock.fn(implementation);
+  // Use Bun's mock directly instead of trying to access mock.fn
+  return implementation ? mock(implementation) : mock(() => {});
 }
 
 /**
@@ -395,51 +396,43 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
 }
 
 /**
- * Creates a spy on an object method, similar to jest.spyOn.
- * Unlike jest.spyOn, this works with TypeScript's type system.
+ * Creates a spy on an object method.
+ * Similar to Jest's spyOn, but using Bun's mock functionality.
  *
+ * @template T - The object type
+ * @template M - The method key type
  * @param obj - The object containing the method to spy on
- * @param method - The name of the method to spy on
- * @returns The spy function that tracks calls to the original method
+ * @param method - The method name to spy on
+ * @returns A mock function that can track calls to the original method
  *
  * @example
  * // Spy on a method
- * const user = {
- *   getName() { return "original"; }
- * };
- * 
+ * const user = { getName: () => "John" };
  * const spy = createSpyOn(user, "getName");
- * 
- * // The original method still works
- * expect(user.getName()).toBe("original");
- * 
- * // But we can also check if it was called
+ * user.getName(); // Original method is called
  * expect(spy).toHaveBeenCalled();
- * 
- * // We can also change the implementation
- * spy.mockImplementation(() => "mocked");
- * expect(user.getName()).toBe("mocked");
  */
 export function createSpyOn<T extends object, M extends keyof T>(
   obj: T,
   method: M
-): ReturnType<typeof mock.fn> {
-  // Store the original method
+): ReturnType<typeof mock> {
   const original = obj[method];
-
-  // Create a mock function that delegates to the original
-  const spy = mock.fn((...args: any[]) => {
-    if (typeof original === 'function') {
-      return (original as Function).apply(obj, args);
-    }
-    return undefined;
+  
+  if (typeof original !== 'function') {
+    throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
+  }
+  
+  // Create a mock function that calls the original
+  const mockFn = mock((...args: any[]) => {
+    return (original as Function).apply(obj, args);
   });
-
-  // Replace the method with the spy
-  (obj as any)[method] = spy;
-
-  // Return the spy for further configuration
-  return spy;
+  
+  // Replace the original method with our mock
+  // @ts-ignore - We've already verified this is a function
+  obj[method] = mockFn;
+  
+  // Return the mock function for assertions
+  return mockFn;
 }
 
 /**
