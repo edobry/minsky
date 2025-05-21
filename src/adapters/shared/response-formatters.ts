@@ -5,7 +5,7 @@
  * consistently across different interfaces (CLI, MCP).
  */
 
-import { CommandExecutionContext } from "./command-registry.js";
+import type { CommandExecutionContext } from "./command-registry.js";
 import chalk from "chalk";
 
 /**

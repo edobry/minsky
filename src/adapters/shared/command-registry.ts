@@ -103,7 +103,7 @@ export interface CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): CommandDefinition | undefined;
+  getCommand(id: string): CommandDefinition<any, any> | undefined;
 
   /**
    * Get all commands in a specific category
@@ -111,21 +111,21 @@ export interface CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): CommandDefinition[];
+  getCommandsByCategory(category: CommandCategory): CommandDefinition<any, any>[];
 
   /**
    * List all registered commands
    * 
    * @returns All registered command definitions
    */
-  getAllCommands(): CommandDefinition[];
+  getAllCommands(): CommandDefinition<any, any>[];
 }
 
 /**
  * Core implementation of the command registry
  */
 export class SharedCommandRegistry implements CommandRegistry {
-  private commands: Map<string, CommandDefinition> = new Map();
+  private commands: Map<string, CommandDefinition<any, any>> = new Map();
 
   /**
    * Register a command in the registry
@@ -140,7 +140,7 @@ export class SharedCommandRegistry implements CommandRegistry {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
     
-    this.commands.set(commandDef.id, commandDef);
+    this.commands.set(commandDef.id, commandDef as CommandDefinition<any, any>);
   }
 
   /**
@@ -149,7 +149,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): CommandDefinition | undefined {
+  getCommand(id: string): CommandDefinition<any, any> | undefined {
     return this.commands.get(id);
   }
 
@@ -159,7 +159,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): CommandDefinition[] {
+  getCommandsByCategory(category: CommandCategory): CommandDefinition<any, any>[] {
     return Array.from(this.commands.values())
       .filter(cmd => cmd.category === category);
   }
@@ -169,7 +169,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * 
    * @returns All registered command definitions
    */
-  getAllCommands(): CommandDefinition[] {
+  getAllCommands(): CommandDefinition<any, any>[] {
     return Array.from(this.commands.values());
   }
 }

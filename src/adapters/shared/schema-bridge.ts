@@ -7,7 +7,7 @@
 
 import { Command, Option } from "commander";
 import { z } from "zod";
-import { CommandParameter, CommandParameterMap } from "./command-registry.js";
+import type { CommandParameter, CommandParameterMap } from "./command-registry.js";
 
 /**
  * Type for CLI option flag definition
@@ -18,7 +18,7 @@ export interface OptionFlag {
   /** Option description */
   description: string;
   /** Default value */
-  defaultValue?: unknown;
+  defaultValue?: string | boolean | string[];
 }
 
 /**
@@ -161,10 +161,24 @@ export function parameterToOptionFlag(
   // Get description
   const description = param.description || getSchemaDescription(param.schema);
   
+  let defaultValue = param.defaultValue;
+  // Ensure defaultValue is compatible with Commander
+  if (defaultValue !== undefined && typeof defaultValue !== 'string' && typeof defaultValue !== 'boolean' && !Array.isArray(defaultValue)) {
+    // If it's an object or other incompatible type, try to stringify or set to undefined
+    // This is a basic attempt; more sophisticated handling might be needed based on use cases
+    defaultValue = typeof defaultValue === 'object' ? JSON.stringify(defaultValue) : String(defaultValue);
+    // If after stringification, it's still not a primitive that commander accepts, or if it's an empty array (commander might not like empty array as default for non-array types)
+    if (typeof defaultValue !== 'string' && typeof defaultValue !== 'boolean') {
+        defaultValue = undefined; // Fallback to undefined if conversion is problematic
+    }
+  } else if (defaultValue === null) {
+    defaultValue = undefined;
+  }
+  
   return {
     flag,
     description,
-    defaultValue: param.defaultValue,
+    defaultValue: defaultValue as string | boolean | string[] | undefined,
   };
 }
 
