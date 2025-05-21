@@ -408,4 +408,6 @@ _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/hist
 
 - Updated the `user-preferences` rule to include a heuristic for interpreting ambiguous queries about "available" items, defaulting to active/actionable items. Also updated the rule's description in the Minsky system.
 
-_See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on this rule update._
+- Enhanced the `workspace-verification` rule with a new "Resource Management Verification Protocol" section to ensure project-specific tools are used for resource management instead of direct file editing.
+
+_See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on these rule updates._

@@ -14,6 +14,7 @@ Always verify your workspace context and command availability before making any 
 - **Verify workspace context** before starting any work
 - **Confirm command availability and syntax** before running commands
 - **Address all linter errors** in modified files
+- **Verify resource management protocols** before editing configuration or metadata files
 - **Apply alongside session-first-workflow and minsky-cli-usage rules**
 
 ## Workspace Verification Protocol
@@ -31,6 +32,15 @@ When using CLI commands, especially Minsky-specific commands:
 - **Verify Command Availability:** Always check command availability with `--help` before attempting to use unfamiliar commands
 - **Confirm Command Options:** For Minsky commands, verify syntax and options with `minsky <command> --help`
 - **Handle Command Errors:** If a command fails, verify syntax using help before proceeding
+
+## Resource Management Verification Protocol
+
+Before modifying project configuration, rules, metadata, or other special resources:
+
+- **Check for Project-Specific Management Tools:** Always verify if the project provides dedicated CLI commands, APIs, or tools for managing specific resources (e.g., `minsky rules` for rule management)
+- **Prefer Dedicated Tools Over Direct Editing:** If such tools exist, they MUST be used instead of directly editing files to ensure system integrity and adherence to project conventions
+- **Verify Tool Command Syntax:** Use `--help` flags to confirm the correct command syntax for the resource management tool
+- **Resource Path Verification:** Confirm the authoritative location for resources, as CLI-managed resources may be stored in locations different from apparent or conventional paths
 
 ## Error Handling Protocol
 
@@ -53,9 +63,9 @@ $ pwd
 $ minsky rules --help
 Commands:
   minsky rules list                List all rules
-  minsky rules get <name>          Get a rule by name
-  minsky rules create <name>       Create a new rule
-  minsky rules update <name>       Update an existing rule
+  minsky rules get <n>          Get a rule by name
+  minsky rules create <n>       Create a new rule
+  minsky rules update <n>       Update an existing rule
 
 // Then proceed with command
 $ minsky rules list
@@ -72,6 +82,10 @@ Error: Unknown command: rule
 $ pwd
 /Users/dev/Projects/minsky  // Main workspace, not session workspace!
 $ vi src/domain/workspace.ts  // Modifying main workspace file!
+
+// Directly editing a rule file instead of using the CLI tool
+$ vi .cursor/rules/user-preferences.mdc  // Direct file editing!
+// CORRECT: $ minsky rules update user-preferences --description "..." --content path/to/content.md
 ```
 
 ## Related Rules

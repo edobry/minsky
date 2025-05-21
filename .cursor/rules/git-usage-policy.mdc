@@ -3,6 +3,7 @@ name: Git Usage Policy
 description: REQUIRED when executing Git commands
 ---
 # Git Usage Policy
+# Git Usage Policy
 
 This rule outlines the mandatory policies and best practices for using Git within the Minsky project. Adherence to these guidelines is critical for maintaining repository integrity, collaboration, and preventing data loss.
 
@@ -56,6 +57,11 @@ Accidental or unapproved use of `git push --force` that results in data loss or 
 - **Pull Before Push**: Before pushing your changes, especially to shared branches, run `git pull --rebase` (or `git pull` and handle merges) to integrate the latest remote changes.
 - **Branching Strategy**: Follow the project's defined branching strategy (e.g., GitFlow, feature branches).
 - **Clear Commit Messages**: Write commit messages that explain _why_ a change was made, not just _what_ was changed. Follow conventional commit formats if adopted by the project.
+  - **Multi-line Commit Messages**: When using `git commit` via automation or direct terminal commands and requiring a multi-line message (e.g., for a body in conventional commits):
+    1. Write the full commit message (subject and body) to a temporary file (e.g., `TEMP_COMMIT_MSG.txt`).
+    2. Use the command `git commit -F TEMP_COMMIT_MSG.txt`.
+    3. Securely delete the temporary file immediately after the commit is successful.
+    4. Avoid embedding raw newline characters directly within the `-m` flag of `git commit` when using automated tools, as this can lead to errors.
 - **Avoid Large Commits**: Do not commit large binary files or generated files unless absolutely necessary and approved.
 
 ## See Also
