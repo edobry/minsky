@@ -7,20 +7,16 @@ import { SessionAdapter } from "./session-adapter";
 import * as fs from "fs";
 import * as path from "path";
 
-// Type augmentation for Bun's expect
-declare module "bun:test" {
-  interface ExpectNot {
+// Type helper for tests (only used for type checking, not at runtime)
+type ExtendedExpect = {
+  toHaveProperty(property: string, value?: any): void;
+  toHaveLength(length: number): void;
+  toThrow(message?: string | RegExp | Error): void;
+  not: {
     toBeNull(): void;
-    // Add other negative matchers if used, e.g.:
-    // toHaveProperty(property: string, value?: any): void;
-  }
-  interface Expect {
     toHaveProperty(property: string, value?: any): void;
-    toHaveLength(length: number): void;
-    toThrow(message?: string | RegExp | Error): void;
-    not: ExpectNot; // Typed as ExpectNot
-  }
-}
+  };
+};
 
 describe("SessionAdapter", () => {
   // Create a temp test directory
@@ -71,7 +67,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSession("test-session");
     
-    expect(retrievedSession).not.toBeNull();
+    (expect(retrievedSession) as unknown as ExtendedExpect).not.toBeNull();
     expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#123");
   });
@@ -90,7 +86,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSessionByTaskId("123");
     
-    expect(retrievedSession).not.toBeNull();
+    (expect(retrievedSession) as unknown as ExtendedExpect).not.toBeNull();
     expect(retrievedSession?.session).toBe("test-session");
   });
 
@@ -169,7 +165,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const workdir = await adapter.getSessionWorkdir("test-session");
     
-    expect(workdir).not.toBeNull();
+    (expect(workdir) as unknown as ExtendedExpect).not.toBeNull();
     expect(workdir).toContain("test-repo/sessions/test-session");
   });
 }); 

@@ -17,18 +17,16 @@ import {
   type SessionDbState,
 } from './session-db';
 
-// Type augmentation for Bun's expect
-declare module "bun:test" {
-  interface Expect {
-    toHaveProperty(property: string, value?: any): void;
-    toHaveLength(length: number): void;
-    toThrow(message?: string | RegExp | Error): void;
-    // For `not`, Bun's `Expect` type likely has a `not: ExpectNot` or similar
-    // where `ExpectNot` would mirror `Expect` but for negative assertions.
-    // If `expect(value).not.toHaveProperty` is the usage, then `ExpectNot` needs `toHaveProperty`.
-    // Let's assume `Expect` itself should have these, and `not` provides an inverted context.
-  }
-}
+// Type helper for tests (only used for type checking, not at runtime)
+type ExtendedExpect = {
+  toHaveProperty: (property: string, value?: any) => void;
+  toHaveLength: (length: number) => void;
+  toThrow: (message?: string | RegExp | Error) => void;
+  not: {
+    toBeNull: () => void;
+    toHaveProperty: (property: string, value?: any) => void;
+  };
+};
 
 describe('SessionDB Functional Implementation', () => {
   // Helper function to create a test state
@@ -61,9 +59,9 @@ describe('SessionDB Functional Implementation', () => {
   describe('initializeSessionDbState', () => {
     it('should initialize state with default values', () => {
       const state = initializeSessionDbState();
-      expect(state).toHaveProperty('sessions');
+      (expect(state) as unknown as ExtendedExpect).toHaveProperty('sessions');
       expect(state.sessions).toEqual([]);
-      expect(state).toHaveProperty('baseDir');
+      (expect(state) as unknown as ExtendedExpect).toHaveProperty('baseDir');
     });
 
     it('should initialize state with custom baseDir', () => {
@@ -77,7 +75,7 @@ describe('SessionDB Functional Implementation', () => {
     it('should return all sessions', () => {
       const state = createTestState();
       const sessions = listSessionsFn(state);
-      expect(sessions).toHaveLength(2);
+      (expect(sessions) as unknown as ExtendedExpect).toHaveLength(2);
       expect(sessions[0]!.session).toBe('test-session-1');
       expect(sessions[1]!.session).toBe('test-session-2');
     });
@@ -87,7 +85,7 @@ describe('SessionDB Functional Implementation', () => {
     it('should return the session by name', () => {
       const state = createTestState();
       const session = getSessionFn(state, 'test-session-1');
-      expect(session).not.toBeNull();
+      (expect(session) as unknown as ExtendedExpect).not.toBeNull();
       expect(session?.session).toBe('test-session-1');
       expect(session?.taskId).toBe('#101');
     });
@@ -103,14 +101,14 @@ describe('SessionDB Functional Implementation', () => {
     it('should return the session by task ID', () => {
       const state = createTestState();
       const session = getSessionByTaskIdFn(state, '101');
-      expect(session).not.toBeNull();
+      (expect(session) as unknown as ExtendedExpect).not.toBeNull();
       expect(session?.session).toBe('test-session-1');
     });
 
     it('should return the session when task ID includes #', () => {
       const state = createTestState();
       const session = getSessionByTaskIdFn(state, '#101');
-      expect(session).not.toBeNull();
+      (expect(session) as unknown as ExtendedExpect).not.toBeNull();
       expect(session?.session).toBe('test-session-1');
     });
 
@@ -134,7 +132,7 @@ describe('SessionDB Functional Implementation', () => {
       };
 
       const newState = addSessionFn(state, newSession);
-      expect(newState.sessions).toHaveLength(3);
+      (expect(newState.sessions) as unknown as ExtendedExpect).toHaveLength(3);
       expect(newState.sessions[2]!.session).toBe('test-session-3');
       expect(newState.sessions[2]!.taskId).toBe('#103');
     });
@@ -170,7 +168,7 @@ describe('SessionDB Functional Implementation', () => {
       } as any;
 
       const newState = updateSessionFn(state, 'test-session-1', updates);
-      expect(getSessionFn(newState, 'test-session-1')).not.toBeNull();
+      (expect(getSessionFn(newState, 'test-session-1')) as unknown as ExtendedExpect).not.toBeNull();
       expect(getSessionFn(newState, 'attempted-rename')).toBeNull();
     });
   });
@@ -179,7 +177,7 @@ describe('SessionDB Functional Implementation', () => {
     it('should delete an existing session', () => {
       const state = createTestState();
       const newState = deleteSessionFn(state, 'test-session-1');
-      expect(newState.sessions).toHaveLength(1);
+      (expect(newState.sessions) as unknown as ExtendedExpect).toHaveLength(1);
       expect(getSessionFn(newState, 'test-session-1')).toBeNull();
       // Check that only test-session-2 remains
       expect(newState.sessions[0]!.session).toBe('test-session-2');
@@ -210,7 +208,7 @@ describe('SessionDB Functional Implementation', () => {
 
     it('should throw error for invalid input', () => {
       const state = createTestState();
-      expect(() => getRepoPathFn(state, null as any)).toThrow('Session record is required');
+      (expect(() => getRepoPathFn(state, null as any)) as unknown as ExtendedExpect).toThrow('Session record is required');
     });
   });
 
