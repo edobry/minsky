@@ -161,6 +161,32 @@ customizeCommand("session.approve", {
   }
 });
 
+// Add customization for the session pr command
+customizeCommand("session.pr", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    session: {
+      // This maps the session parameter to the first positional argument
+      asArgument: true,
+      description: "Session name for the PR (auto-detected if in a session workspace)"
+    },
+    title: {
+      description: "Title for the PR",
+      alias: "t"
+    },
+    body: {
+      description: "Body content for the PR",
+      alias: "b"
+    },
+    noStatusUpdate: {
+      description: "Skip updating task status",
+      alias: "n"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -180,11 +206,13 @@ const bridgeGeneratedUpdateCommand = createCommand("session.update");
 const bridgeGeneratedStartCommand = createCommand("session.start");
 // Generate the "session approve" command via the bridge
 const bridgeGeneratedApproveCommand = createCommand("session.approve");
+// Generate the "session pr" command via the bridge
+const bridgeGeneratedPrCommand = createCommand("session.pr");
 
 if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
     bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
     bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand &&
-    bridgeGeneratedApproveCommand) {
+    bridgeGeneratedApproveCommand && bridgeGeneratedPrCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
@@ -199,7 +227,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
     if (cmd.name() !== "list" && cmd.name() !== "get" && 
         cmd.name() !== "dir" && cmd.name() !== "delete" &&
         cmd.name() !== "update" && cmd.name() !== "start" &&
-        cmd.name() !== "approve") {
+        cmd.name() !== "approve" && cmd.name() !== "pr") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -212,6 +240,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedUpdateCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedStartCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedApproveCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedPrCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
