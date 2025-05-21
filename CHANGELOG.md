@@ -11,16 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Task #124: Add Repository Path Parameter to MCP Server
-  - Added `--repo <path>` parameter to the `minsky mcp start` command
-  - Created `ProjectContext` concept to store repository information at the server level
-  - Added automatic injection of repository path for all MCP tools
-  - Updated MCP commands to use server-level repository path as default
-  - Added validation for repository paths with helpful error messages
-  - Updated documentation in README-MCP.md to explain the project context concept
-  - Implemented tests for the new functionality
+- Task #126: Add Task Specification Content Reading Capability
+  - Created a task to add the ability to read and display task specification content
+  - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
+  - Will implement functionality to read full task spec content from the command line
+  - Will add proper error handling and output formatting
 
-_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for implementation details._
+_See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstory/history/2025-05-21_add-task-spec-content-reading.md) for task creation._
+
+- Task #120: Add --with-inspector Option to `mcp start` Command
+  - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
+  - Added an optional `--inspector-port` option to specify a custom port for the inspector
+  - Created a new inspector launcher module that handles inspector process management
+  - Implemented robust error handling to ensure MCP server continues running even if inspector fails
+  - Updated README-MCP.md with comprehensive documentation for the inspector features
+  - Added a new "Debugging with the MCP Inspector" section with usage examples
+
+_See: SpecStory history [2025-06-30_add-inspector-option-to-mcp](mdc:.specstory/history/2025-06-30_add-inspector-option-to-mcp.md) for implementation details._
 
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
@@ -55,6 +62,27 @@ _See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/histo
   - Will maintain detailed logging for debugging purposes
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
+
+- Task #124: Add Repository Path Parameter to MCP Server
+  - Added `--repo <path>` parameter to the `minsky mcp start` command
+  - Created `ProjectContext` interface to store repository information at the server level
+  - Added automatic injection of repository path for all MCP tools
+  - Updated MCP commands to use server-level repository path as default
+  - Added repository path validation with helpful error messages
+  - Updated documentation in README-MCP.md to explain the project context concept
+  - Note: While the core functionality works correctly, there appears to be an issue with the FastMCP library that prevents method registration, resulting in "Method not found" errors when calling MCP methods.
+
+_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for implementation details._
+
+- Task #126: Fix FastMCP Method Registration Issues
+  - Created a task to address the method registration issues discovered in Task #124
+  - Will investigate why method registration in FastMCP is not working properly 
+  - Will fix the issue with JSON-RPC method registration in the MCP server
+  - Will ensure that common methods like `tasks.list` can be called successfully
+  - Will add proper error handling for method registration failures
+  - Will add tests to verify method registration and invocation
+
+_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for issue discovery._
 
 ### Changed
 
