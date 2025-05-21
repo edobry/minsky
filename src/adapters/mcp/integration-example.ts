@@ -6,7 +6,18 @@
  * migration of other commands.
  */
 
-import { CommandSchema } from "@minsky/core";
+// Define local type for CommandSchema since @minsky/core isn't available in this context
+interface CommandSchema<Params, Result> {
+  name: string;
+  description: string;
+  parameters: Record<string, {
+    type: string;
+    description: string;
+    required: boolean;
+  }>;
+  handler: (params: Params) => Promise<Result>;
+}
+
 import { registerGitCommands } from "../shared/commands/git.js";
 import { registerTasksCommands } from "../shared/commands/tasks.js";
 import { registerSessionCommands } from "../shared/commands/session.js";
