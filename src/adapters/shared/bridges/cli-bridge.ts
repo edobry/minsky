@@ -17,6 +17,7 @@ import {
 import { getErrorHandler } from "../error-handling.js";
 import { ensureError } from "../../../errors/index.js";
 import { handleCliError, outputResult } from "../../cli/utils/index.js";
+import { log } from "../../../utils/logger.js";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,
@@ -137,7 +138,8 @@ export class CliCommandBridge {
     
     // Hide from help if specified
     if (options.hidden) {
-      command.hideHelp();
+      // Alternative approach: use a special prefix that can be filtered out
+      command.description(`[HIDDEN] ${command.description()}`);
     }
     
     // Create parameter mappings
@@ -185,7 +187,7 @@ export class CliCommandBridge {
         );
         
         // Execute the command with parameters and context
-        const result = await commandDef.execute(normalizedParams as any, context);
+        const result = await commandDef.execute(normalizedParams, context);
         
         // Handle output
         if (options.outputFormatter) {
@@ -282,7 +284,7 @@ export class CliCommandBridge {
         mapping => mapping.paramDef.required
       );
       
-      if (firstRequiredIndex >= 0) {
+      if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
         // Mark it as an argument
         mappings[firstRequiredIndex].options.asArgument = true;
       }
@@ -332,12 +334,12 @@ export class CliCommandBridge {
         // If the result has a simple shape, format it nicely
         Object.entries(result).forEach(([key, value]) => {
           if (typeof value !== 'object' || value === null) {
-            console.log(`${key}: ${value}`);
+            log.cli(`${key}: ${value}`);
           }
         });
       } else if (result !== undefined) {
         // Just print the result as is
-        console.log(result);
+        log.cli(String(result));
       }
     };
   }

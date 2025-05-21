@@ -5,7 +5,7 @@
  */
 
 import { Command } from "commander";
-import { CommandCategory } from "../../domain/types.js";
+import { CommandCategory } from "../shared/command-registry.js";
 import {
   CliCommandBridge,
   type CliCommandOptions,

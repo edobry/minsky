@@ -7,7 +7,7 @@
 
 import { Command, Option } from "commander";
 import { z } from "zod";
-import { CommandParameterDefinition } from "../command-registry.js";
+import type { CommandParameterDefinition } from "../command-registry.js";
 
 /**
  * Configuration options for parameter mapping
