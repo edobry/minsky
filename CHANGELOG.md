@@ -659,3 +659,10 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
   - Resolved the issue where tasks were not properly returned through the MCP interface
+
+- Task #119: Fix MCP Rules.list Command to Exclude Rule Content
+  - Modified the MCP adapter for the `rules.list` command to exclude the `content` field from the returned rules
+  - Made list responses more manageable by removing potentially large rule content data
+  - Maintained consistent behavior with the CLI interface where list commands only show metadata
+  - Ensured all other rule metadata (id, name, description, globs, tags) is still returned
+  - Kept the `rules.get` command behavior unchanged, still returning full rule content
