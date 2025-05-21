@@ -4,6 +4,7 @@ import { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
 import { isNetworkError, createNetworkError, formatNetworkErrorMessage } from "../../errors/network-errors.js";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
+import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher.js";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session.js";
@@ -29,6 +30,8 @@ export function createMCPCommand(): Command {
     .option("--http-stream", "Use HTTP Stream transport")
     .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
     .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
+    .option("--with-inspector", "Launch MCP inspector alongside the server")
+    .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
     .action(async (options) => {
       try {
         // Determine transport type based on options
@@ -45,7 +48,9 @@ export function createMCPCommand(): Command {
         log.debug("Starting MCP server", {
           transportType,
           port,
-          host: options.host
+          host: options.host,
+          withInspector: options.withInspector || false,
+          inspectorPort: options.inspectorPort
         });
 
         // Create server with appropriate options
@@ -78,6 +83,36 @@ export function createMCPCommand(): Command {
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
         }
+        
+        // Launch inspector if requested
+        if (options.withInspector) {
+          // Check if inspector is available
+          if (!isInspectorAvailable()) {
+            log.cliError(
+              "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
+            );
+          } else {
+            const inspectorPort = parseInt(options.inspectorPort, 10);
+            
+            // Launch the inspector
+            const inspectorResult = launchInspector({
+              port: inspectorPort,
+              openBrowser: true,
+              mcpTransportType: transportType,
+              mcpPort: transportType !== "stdio" ? port : undefined,
+              mcpHost: transportType !== "stdio" ? options.host : undefined
+            });
+            
+            if (inspectorResult.success) {
+              log.cli(`MCP Inspector started on port ${inspectorPort}`);
+              log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
+            } else {
+              log.cliError(`Failed to start MCP Inspector: ${inspectorResult.error}`);
+              log.cliError("The MCP server will continue running without the inspector.");
+            }
+          }
+        }
+        
         log.cli("Press Ctrl+C to stop");
 
         // Keep the process running
@@ -99,6 +134,7 @@ export function createMCPCommand(): Command {
           transportType: options.sse ? "sse" : options.httpStream ? "httpStream" : "stdio",
           port: options.port,
           host: options.host,
+          withInspector: options.withInspector || false,
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined
         });
