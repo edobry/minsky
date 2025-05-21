@@ -189,7 +189,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
-- [-] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
+- [x] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
 - [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
 

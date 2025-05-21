@@ -353,7 +353,9 @@ export function createUpdateCommand(): Command {
   const command = new Command("update")
     .description("Update session with latest changes from upstream repository")
     .argument("[name]", "Session name")
-    .option("--force", "Force update even if the session workspace is dirty");
+    .option("--force", "Force update even if the session workspace is dirty")
+    .option("--no-stash", "Skip stashing local changes")
+    .option("--no-push", "Skip pushing changes to remote after update");
 
   // Add shared options
   addRepoOptions(command);
@@ -368,6 +370,8 @@ export function createUpdateCommand(): Command {
         session?: string;
         "upstream-repo"?: string;
         force?: boolean;
+        stash?: boolean;
+        push?: boolean;
       }
     ) => {
       try {
@@ -379,21 +383,25 @@ export function createUpdateCommand(): Command {
           ...normalizedParams,
           name: name || "", // Ensure this is a string even if undefined
           force: options?.force || false,
+          noStash: options?.stash === false,
+          noPush: options?.push === false,
         };
 
         // Call the domain function
-        const updateResult = await updateSessionFromParams(params);
+        const updatedSession = await updateSessionFromParams(params);
 
-        // Output result
-        if (updateResult) {
-          console.log(`Session ${updateResult.session} updated successfully.`);
-          console.log(`Branch: ${updateResult.branch}`);
-          if ((updateResult as any).task) {
-            console.log(`Associated with task: ${(updateResult as any).task}`);
-          }
-        } else {
-          console.log("Session update failed or no result returned.");
+        // Output result using session information
+        console.log(`Session ${updatedSession.session} updated successfully.`);
+        
+        if (updatedSession.branch) {
+          console.log(`Branch: ${updatedSession.branch}`);
         }
+        
+        if (updatedSession.taskId) {
+          console.log(`Associated with task: ${updatedSession.taskId}`);
+        }
+        
+        console.log(`Session directory: ${updatedSession.repoPath}`);
       } catch (error) {
         handleCliError(error);
       }

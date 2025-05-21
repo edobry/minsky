@@ -120,6 +120,7 @@ export const sessionUpdateParamsSchema = z
     remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
     noStash: flagSchema("Skip stashing local changes"),
     noPush: flagSchema("Skip pushing changes to remote after update"),
+    force: flagSchema("Force update even if the session workspace is dirty"),
   })
   .merge(commonCommandOptionsSchema);
 

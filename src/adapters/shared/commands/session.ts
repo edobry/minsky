@@ -205,6 +205,12 @@ const sessionUpdateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  force: {
+    schema: z.boolean(),
+    description: "Force update",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -462,19 +468,23 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.update command", { params, context });
 
       try {
-        await updateSessionFromParams({
+        const updatedSession = await updateSessionFromParams({
           name: params.session, // Match expected parameter name
           task: params.task,
           repo: params.repo,
           branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
+          force: params.force,
           json: params.json,
         });
 
         return {
           success: true,
-          session: params.session || params.task,
+          session: updatedSession.session,
+          branch: updatedSession.branch,
+          taskId: updatedSession.taskId,
+          repoPath: updatedSession.repoPath,
         };
       } catch (error) {
         log.error("Failed to update session", {

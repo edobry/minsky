@@ -66,6 +66,11 @@ export interface GitServiceInterface {
    * Apply stashed changes
    */
   popStash(repoPath: string): Promise<void>;
+
+  /**
+   * Get the status of a repository
+   */
+  getStatus(repoPath?: string): Promise<GitStatus>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
