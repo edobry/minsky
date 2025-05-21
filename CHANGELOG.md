@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #126: Add Task Specification Content Reading Capability
+  - Created a task to add the ability to read and display task specification content
+  - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
+  - Will implement functionality to read full task spec content from the command line
+  - Will add proper error handling and output formatting
+
+_See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstory/history/2025-05-21_add-task-spec-content-reading.md) for task creation._
+
 - Task #120: Add --with-inspector Option to `mcp start` Command
   - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
   - Added an optional `--inspector-port` option to specify a custom port for the inspector
@@ -293,6 +301,7 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
 
 - Task #104: Re-implemented Disabled Integration Tests
+
   - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
   - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
   - Implemented proper tests for the GitHub backend with dependency injection
@@ -665,6 +674,7 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Fixed "Cannot access 'MinskyError' before initialization" error that occurred with all commands
 
 - Fixed task serialization in MCP adapter to prevent double-stringification
+
   - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
