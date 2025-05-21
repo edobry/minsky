@@ -147,6 +147,20 @@ customizeCommand("session.start", {
   }
 });
 
+// Add customization for the session approve command
+customizeCommand("session.approve", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    session: {
+      // This maps the session parameter to the first positional argument
+      asArgument: true,
+      description: "Session name to approve (auto-detected if in a session workspace)"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -164,10 +178,13 @@ const bridgeGeneratedDeleteCommand = createCommand("session.delete");
 const bridgeGeneratedUpdateCommand = createCommand("session.update");
 // Generate the "session start" command via the bridge
 const bridgeGeneratedStartCommand = createCommand("session.start");
+// Generate the "session approve" command via the bridge
+const bridgeGeneratedApproveCommand = createCommand("session.approve");
 
 if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
     bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
-    bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand) {
+    bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand &&
+    bridgeGeneratedApproveCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
@@ -181,7 +198,8 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   sessionCommand.commands.forEach(cmd => {
     if (cmd.name() !== "list" && cmd.name() !== "get" && 
         cmd.name() !== "dir" && cmd.name() !== "delete" &&
-        cmd.name() !== "update" && cmd.name() !== "start") {
+        cmd.name() !== "update" && cmd.name() !== "start" &&
+        cmd.name() !== "approve") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -193,6 +211,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedDeleteCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedUpdateCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedStartCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedApproveCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
