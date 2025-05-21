@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #120: Add --with-inspector Option to `mcp start` Command
+  - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
+  - Added an optional `--inspector-port` option to specify a custom port for the inspector
+  - Created a new inspector launcher module that handles inspector process management
+  - Implemented robust error handling to ensure MCP server continues running even if inspector fails
+  - Updated README-MCP.md with comprehensive documentation for the inspector features
+  - Added a new "Debugging with the MCP Inspector" section with usage examples
+
+_See: SpecStory history [2025-06-30_add-inspector-option-to-mcp](mdc:.specstory/history/2025-06-30_add-inspector-option-to-mcp.md) for implementation details._
+
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
     - Main documentation file with overview and getting started guides (`TEST_UTILITIES.md`)
