@@ -5,6 +5,8 @@ All notable changes to the Minsky project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+
 ## [Unreleased]
 
 ### Added
@@ -413,3 +415,13 @@ _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/hist
 - Enhanced the `workspace-verification` rule to reference the new resource-management-protocol rule for guidance on managing project resources.
 
 _See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on these rule updates._
+
+- Task #106: Refactor SessionDB to Functional Patterns (Subtask of #102)
+  - Implemented functional programming patterns for SessionDB
+  - Created pure functions module (session-db.ts) that contains no side effects
+  - Created I/O operations module (session-db-io.ts) to isolate file system interactions
+  - Implemented adapter class (session-adapter.ts) for backward compatibility
+  - Added factory function for creating session providers
+  - Fixed critical bug with session directory creation and path normalization
+
+_See: Latest SpecStory history for session refactoring and session creation bugfix._
