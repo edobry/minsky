@@ -37,27 +37,271 @@ This task is a subtask of #102 (Refactor Domain Objects to Follow Functional Pat
 
 ## Implementation Steps
 
-1.  [ ] Analyze current `GitService` methods, identify git commands executed, and inputs/outputs.
-2.  [ ] Define data structures for representing git command descriptions/operations.
-3.  [ ] Implement pure function versions for each `GitService` operation to generate these descriptions:
-    - Example: `generateCloneCommand(repoUrl, localPath, options)`
-    - Example: `generateCommitCommand(message, options)`
-    - ...
-4.  [ ] Create a `GitCommandExecutor` service/module responsible for:
-    - [ ] Taking a command description and executing it (e.g., using `child_process`).
-    - [ ] Handling stdout, stderr, and exit codes.
-    - [ ] Returning results or throwing structured errors.
-5.  [ ] Refactor existing code using `GitService` to use the new pure functions and the `GitCommandExecutor`.
-6.  [ ] Update unit tests for `GitService` logic (now command generation).
-7.  [ ] Update/create integration tests for the `GitCommandExecutor` and for workflows involving multiple git operations.
-8.  [ ] Document the new architecture for `GitService` and its usage.
+1. **Analyze Current GitService Implementation**
+
+   - [ ] Document all core methods in `GitService` and their primary responsibilities
+   - [ ] Identify methods with side effects (file system interactions, git command execution)
+   - [ ] Create an inventory of input parameters and return values for each method
+   - [ ] Analyze dependencies between methods to identify compositional opportunities
+
+2. **Design Data Structures and Types**
+
+   - [ ] Define a `GitCommand` type to represent git commands (e.g., `{ command: string, args: string[], cwd: string }`)
+   - [ ] Create type definitions for all command parameters and results
+   - [ ] Design error types for various git operation failures
+
+3. **Create Pure Command Generator Functions**
+
+   - [ ] Implement `generateCloneCommand`: Creates command for cloning a repository
+   - [ ] Implement `generateBranchCommand`: Creates command for creating/checking out a branch
+   - [ ] Implement `generateCommitCommand`: Creates command for committing changes
+   - [ ] Implement `generatePushCommand`: Creates command for pushing changes
+   - [ ] Implement `generatePullCommand`: Creates command for pulling latest changes
+   - [ ] Implement `generateMergeCommand`: Creates command for merging branches
+   - [ ] Implement `generateStashCommand`: Creates command for stashing changes
+   - [ ] Implement `generatePopStashCommand`: Creates command for applying stashed changes
+   - [ ] Implement `generateStatusCommand`: Creates command for checking git status
+   - [ ] Implement `generateFetchCommand`: Creates command for fetching from remote
+   - [ ] Implement additional command generators for other GitService operations
+
+4. **Create GitCommandExecutor Service**
+
+   - [ ] Implement `executeGitCommand`: Executes a git command and processes results
+   - [ ] Add error handling and standardized error responses
+   - [ ] Implement parsing functions for processing git command output
+   - [ ] Add logging and debugging capabilities
+
+5. **Create Higher-Order Functions for Common Workflows**
+
+   - [ ] Implement compositional functions for multi-step git operations
+   - [ ] Create utility functions for common git tasks (e.g., ensuring a clean working directory)
+   - [ ] Add helper functions for standard git workflows
+
+6. **Refactor GitService Interface**
+
+   - [ ] Create a new `GitServiceFunctional` module that implements the same interface using pure functions
+   - [ ] Ensure backward compatibility with existing callers
+   - [ ] Add inline documentation explaining the functional approach
+
+7. **Update Tests**
+
+   - [ ] Refactor unit tests for pure command generator functions
+   - [ ] Create tests for the GitCommandExecutor
+   - [ ] Add tests for compositional functions and workflows
+   - [ ] Create integration tests that verify the full stack
+
+8. **Migrate Existing Code**
+
+   - [ ] Update code that depends on GitService to use the new implementation
+   - [ ] Fix any issues with integration points
+   - [ ] Verify all functionality remains intact
+
+9. **Finalize and Document**
+   - [ ] Complete API documentation
+   - [ ] Add usage examples
+   - [ ] Document design decisions and patterns
+   - [ ] Create architecture diagrams showing the new functional approach
 
 ## Verification
 
-- [ ] Core `GitService` logic is implemented as pure functions generating command descriptions.
-- [ ] Git command execution is isolated in a dedicated executor.
-- [ ] All existing tests pass or are updated; new tests provide adequate coverage.
-- [ ] Git-dependent features of the application remain functional.
-- [ ] Conforms to linting and style guidelines.
+- [ ] All pure functions have no side effects and are deterministic
+- [ ] Command execution is fully isolated in the GitCommandExecutor
+- [ ] All tests pass with the new implementation
+- [ ] The refactored code maintains backward compatibility with existing callers
+- [ ] The code follows functional programming principles (immutability, pure functions, composition)
+- [ ] Documentation is complete and accurate
+- [ ] Performance is equivalent or better than the previous implementation
+
+## Implementation Sketch
+
+Below is a sketch of how the refactored code might look:
+
+### Types and Interfaces
+
+```typescript
+// Types for git commands
+export interface GitCommand {
+  command: string;
+  args: string[];
+  cwd: string;
+}
+
+// Types for command results
+export interface GitCommandResult {
+  stdout: string;
+  stderr: string;
+  success: boolean;
+  exitCode: number;
+}
+
+// Error types
+export class GitCommandError extends Error {
+  constructor(
+    message: string,
+    public readonly command: GitCommand,
+    public readonly result: GitCommandResult
+  ) {
+    super(message);
+    this.name = "GitCommandError";
+  }
+}
+```
+
+### Pure Command Generator Functions
+
+```typescript
+// Pure function to generate a clone command
+export function generateCloneCommand(
+  repoUrl: string,
+  destination: string,
+  options?: { branch?: string; depth?: number }
+): GitCommand {
+  const args = ["clone", repoUrl, destination];
+
+  if (options?.branch) {
+    args.push("--branch", options.branch);
+  }
+
+  if (options?.depth) {
+    args.push("--depth", options.depth.toString());
+  }
+
+  return {
+    command: "git",
+    args,
+    cwd: process.cwd(), // This is the only non-pure aspect but is required for the initial clone
+  };
+}
+
+// Pure function to generate a commit command
+export function generateCommitCommand(message: string, options?: { amend?: boolean }): GitCommand {
+  const args = ["commit", "-m", message];
+
+  if (options?.amend) {
+    args.push("--amend");
+  }
+
+  return {
+    command: "git",
+    args,
+    cwd: "", // Will be filled in by the executor
+  };
+}
+```
+
+### Command Executor
+
+```typescript
+// Isolated side-effect handler
+export async function executeGitCommand(command: GitCommand): Promise<GitCommandResult> {
+  try {
+    const { stdout, stderr } = await execAsync(`${command.command} ${command.args.join(" ")}`, {
+      cwd: command.cwd,
+    });
+
+    return {
+      stdout,
+      stderr,
+      success: true,
+      exitCode: 0,
+    };
+  } catch (error) {
+    if (error instanceof Error && "code" in error) {
+      return {
+        stdout: "",
+        stderr: error.message,
+        success: false,
+        exitCode: (error as any).code || 1,
+      };
+    }
+
+    throw error;
+  }
+}
+
+// Parse git status output into structured data
+export function parseGitStatus(statusOutput: string): GitStatus {
+  const modified: string[] = [];
+  const untracked: string[] = [];
+  const deleted: string[] = [];
+
+  // Parsing logic here
+
+  return { modified, untracked, deleted };
+}
+```
+
+### Functional GitService Implementation
+
+```typescript
+export class GitServiceFunctional implements GitServiceInterface {
+  private readonly baseDir: string;
+
+  constructor(baseDir?: string) {
+    this.baseDir =
+      baseDir ||
+      join(
+        process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+        "minsky",
+        "git"
+      );
+  }
+
+  async clone(options: CloneOptions): Promise<CloneResult> {
+    const { repoUrl, session = this.generateSessionId(), branch } = options;
+
+    const repoName = normalizeRepoName(repoUrl);
+    const workdir = this.getSessionWorkdir(repoName, session);
+
+    // Generate session directory
+    await mkdir(join(this.baseDir, repoName, "sessions"), { recursive: true });
+
+    // Generate command
+    const cloneCommand = generateCloneCommand(repoUrl, workdir, { branch });
+
+    // Execute command
+    const result = await executeGitCommand(cloneCommand);
+
+    if (!result.success) {
+      throw new GitCommandError(`Failed to clone repository: ${repoUrl}`, cloneCommand, result);
+    }
+
+    return { workdir, session };
+  }
+
+  // Other methods would follow the same pattern:
+  // 1. Process inputs and validate
+  // 2. Generate command(s) using pure functions
+  // 3. Execute command(s)
+  // 4. Process results
+  // 5. Return typed response
+}
+```
+
+### Example Test for a Pure Function
+
+```typescript
+describe("generateCommitCommand", () => {
+  test("should generate correct commit command", () => {
+    const command = generateCommitCommand("feat: add new feature");
+
+    expect(command).toEqual({
+      command: "git",
+      args: ["commit", "-m", "feat: add new feature"],
+      cwd: "",
+    });
+  });
+
+  test("should include amend flag when option is provided", () => {
+    const command = generateCommitCommand("fix: update bug", { amend: true });
+
+    expect(command).toEqual({
+      command: "git",
+      args: ["commit", "-m", "fix: update bug", "--amend"],
+      cwd: "",
+    });
+  });
+});
+```
 
 Parent Task: #102

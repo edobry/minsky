@@ -165,10 +165,10 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
 
-- [ ] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
+- [x] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
 
-- [ ] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
+- [-] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
 
-- [ ] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
+- [-] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
 
-- [ ] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
+- [-] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
