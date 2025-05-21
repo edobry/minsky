@@ -59,3 +59,4 @@ This task is a subtask of #102 (Refactor Domain Objects to Follow Functional Pat
 - [ ] Code adheres to project standards.
 
 Parent Task: #102
+# Additional Notes
