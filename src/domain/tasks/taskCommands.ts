@@ -5,8 +5,9 @@
 
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
-import { resolveRepoPath, resolveWorkspacePath } from "../../utils/repository-utils.js";
-import { createTaskService } from "./taskService.js";
+import { resolveRepoPath } from "../repo-utils.js";
+import { resolveWorkspacePath } from "../workspace.js";
+import { createTaskService, TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import fs from "fs/promises";
@@ -31,7 +32,6 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
-  taskSpecContentParamsSchema,
 } from "../../schemas/tasks.js";
 
 // Import params types
@@ -41,8 +41,24 @@ import type {
   TaskStatusGetParams,
   TaskStatusSetParams,
   TaskCreateParams,
-  TaskSpecContentParams,
 } from "../../schemas/tasks.js";
+
+// Define the schema and type for task spec content parameters
+// These will eventually be moved to the tasks.js schema file
+export const taskSpecContentParamsSchema = z
+  .object({
+    taskId: z.string().min(1).describe("ID of the task to retrieve specification content for"),
+    section: z.string().optional().describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
+    backend: z.string().optional().describe("Specify task backend (markdown, github)"),
+  })
+  .merge(z.object({
+    repo: z.string().optional().describe("Repository path"),
+    session: z.string().optional().describe("Session identifier"),
+    workspace: z.string().optional().describe("Workspace path"),
+  }));
+
+// Type for task spec content parameters
+export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;
 
 /**
  * List tasks using the provided parameters
@@ -55,7 +71,7 @@ export async function listTasksFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -121,7 +137,7 @@ export async function getTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -190,7 +206,7 @@ export async function getTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -262,7 +278,7 @@ export async function setTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -335,7 +351,7 @@ export async function createTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -389,7 +405,7 @@ export async function getTaskSpecContentFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
