@@ -9,6 +9,7 @@ import { resolveRepoPath, resolveWorkspacePath } from "../../utils/repository-ut
 import { createTaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+import fs from "fs/promises";
 
 // Re-export task data types
 export type { TaskData } from "../../types/tasks/taskData.js";
@@ -30,6 +31,7 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
+  taskSpecContentParamsSchema,
 } from "../../schemas/tasks.js";
 
 // Import params types
@@ -39,6 +41,7 @@ import type {
   TaskStatusGetParams,
   TaskStatusSetParams,
   TaskCreateParams,
+  TaskSpecContentParams,
 } from "../../schemas/tasks.js";
 
 /**
@@ -370,6 +373,97 @@ export async function createTaskFromParams(
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for creating task", error.format(), error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get task specification content using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for getting task specification content
+ * @returns The task specification content
+ */
+export async function getTaskSpecContentFromParams(
+  params: TaskSpecContentParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => ReturnType<typeof createTaskService>;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => createTaskService(options),
+  }
+): Promise<{ task: any; specPath: string; content: string; section?: string }> {
+  try {
+    // Validate params with Zod schema
+    const validParams = taskSpecContentParamsSchema.parse(params);
+
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveWorkspacePath({
+      workspace: validParams.workspace,
+      sessionRepo: repoPath,
+    });
+
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend,
+    });
+
+    // Get the task
+    const task = await taskService.getTask(validParams.taskId);
+    if (!task) {
+      throw new ResourceNotFoundError(
+        `Task #${validParams.taskId} not found`,
+        "task",
+        validParams.taskId
+      );
+    }
+
+    // Get the task spec path
+    const specPath = task.specPath;
+    if (!specPath) {
+      throw new ResourceNotFoundError(
+        `Task #${validParams.taskId} has no specification file`,
+        "task",
+        validParams.taskId
+      );
+    }
+
+    // Read the spec content
+    let content: string;
+    try {
+      content = await fs.readFile(specPath, "utf8");
+    } catch (error) {
+      throw new ResourceNotFoundError(
+        `Could not read specification file at ${specPath}`,
+        "file",
+        specPath
+      );
+    }
+
+    // Return the task and content
+    return {
+      task,
+      specPath,
+      content,
+      section: validParams.section,
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError(
+        "Invalid parameters for getting task specification",
+        error.format(),
+        error
+      );
     }
     throw error;
   }

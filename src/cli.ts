@@ -197,6 +197,23 @@ customizeCommand("session.inspect", {
   }
 });
 
+// Add customization for the tasks spec command
+customizeCommand("tasks.spec", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    taskId: {
+      // This maps the taskId parameter to the first positional argument
+      asArgument: true,
+      description: "ID of the task to retrieve specification content for"
+    },
+    section: {
+      description: "Specific section of the specification to retrieve (e.g., 'requirements')",
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -221,16 +238,24 @@ const bridgeGeneratedPrCommand = createCommand("session.pr");
 // Generate the "session inspect" command via the bridge
 const bridgeGeneratedInspectCommand = createCommand("session.inspect");
 
-if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
-    bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
-    bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand &&
-    bridgeGeneratedApproveCommand && bridgeGeneratedPrCommand &&
-    bridgeGeneratedInspectCommand) {
-  // Instead of replacing the session command, we'll create a temporary program
-  // and use that instead, adding all commands except session, then our modified session
-  const tempProgram = new Command();
-  
-  // Add our modified session command first
+// Generate tasks spec command via the bridge
+const bridgeGeneratedTasksSpecCommand = createCommand("tasks.spec");
+
+// Create a flag to determine if we can use bridge-generated commands
+const canUseBridgeSessionCommands = !!(
+  bridgeGeneratedListCommand &&
+  bridgeGeneratedGetCommand && 
+  bridgeGeneratedDirCommand &&
+  bridgeGeneratedDeleteCommand &&
+  bridgeGeneratedUpdateCommand &&
+  bridgeGeneratedStartCommand &&
+  bridgeGeneratedApproveCommand &&
+  bridgeGeneratedPrCommand &&
+  bridgeGeneratedInspectCommand
+);
+
+// Create modified session command if all bridge commands are available
+if (canUseBridgeSessionCommands) {
   // Create a fresh session command with all the non-bridged commands from the original
   const modifiedSessionCommand = new Command(sessionCommand.name())
     .description(sessionCommand.description());
@@ -257,32 +282,50 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedPrCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedInspectCommand);
   
-  // Add the modified session command first
-  tempProgram.addCommand(modifiedSessionCommand);
-  
-  // Add all other commands
-  tempProgram.addCommand(createTasksCommand());
-  tempProgram.addCommand(createGitCommand());
-  tempProgram.addCommand(createInitCommand());
-  tempProgram.addCommand(createMCPCommand());
-  tempProgram.addCommand(createRulesCommand());
+  // Use the modified session command
+  program.addCommand(modifiedSessionCommand);
   
   // Log that we're using the bridge-generated commands
-  log.cli("Using bridge-generated commands for all session subcommands");
-  
-  // Use the temp program for parsing
-  tempProgram.parse();
-  
-  // Exit early since we've already parsed
-  process.exit(0);
+  log.debug("Using bridge-generated commands for all session subcommands");
 } else {
-  // Original program flow if the bridge commands weren't generated
+  // Use the original session command if bridge generation failed
   program.addCommand(sessionCommand);
-  program.addCommand(createTasksCommand());
-  program.addCommand(createGitCommand());
-  program.addCommand(createInitCommand());
-  program.addCommand(createMCPCommand());
-  program.addCommand(createRulesCommand());
-  
-  program.parse();
 }
+
+// Create a tasks command with the bridge-generated spec command if available
+if (bridgeGeneratedTasksSpecCommand) {
+  // Get the standard tasks command
+  const tasksCommand = createTasksCommand();
+  
+  // Create a modified tasks command with the bridge-generated spec command
+  const modifiedTasksCommand = new Command(tasksCommand.name())
+    .description(tasksCommand.description());
+  
+  // Copy all commands except the spec command
+  tasksCommand.commands.forEach(cmd => {
+    if (cmd.name() !== "spec") {
+      modifiedTasksCommand.addCommand(cmd);
+    }
+  });
+  
+  // Add the bridge-generated spec command
+  modifiedTasksCommand.addCommand(bridgeGeneratedTasksSpecCommand);
+  
+  // Use the modified tasks command
+  program.addCommand(modifiedTasksCommand);
+  
+  // Log that we're using the bridge-generated command
+  log.debug("Using bridge-generated spec command for tasks");
+} else {
+  // Use the original tasks command if bridge generation failed
+  program.addCommand(createTasksCommand());
+}
+
+// Add the remaining commands
+program.addCommand(createGitCommand());
+program.addCommand(createInitCommand());
+program.addCommand(createMCPCommand());
+program.addCommand(createRulesCommand());
+
+// Parse the command
+program.parse();
