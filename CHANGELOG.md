@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #118: Fix Rule Format Errors in rules.ts
+  - Diagnose and fix issues with rule file lookup in the rules system
+  - Ensure all existing rule files in .cursor/rules can be properly found and loaded
+  - Eliminate "Rule not found" errors when running the `minsky rules list` command
+  - Improve error handling in the rule system to provide more helpful diagnostics
+
+_See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
+
 - Task (New): Add "session review" Command for PR Review
 
   - Create a new command to help users review PRs by collecting and displaying all relevant information
