@@ -19,6 +19,7 @@ import { registerTaskTools } from "../../adapters/mcp/tasks.js";
 import { registerGitTools } from "../../adapters/mcp/git.js";
 import { registerInitTools } from "../../adapters/mcp/init.js";
 import { registerRulesTools } from "../../adapters/mcp/rules.js";
+import { registerDebugTools } from "../../adapters/mcp/debug.js";
 
 /**
  * Create the MCP command
@@ -114,6 +115,10 @@ export function createMCPCommand(): Command {
           server.getFastMCPServer(),
           server.getProjectContext()
         );
+        // Register debug tools first to ensure they're available for debugging
+        registerDebugTools(commandMapper);
+        
+        // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         registerGitTools(commandMapper);

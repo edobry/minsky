@@ -149,31 +149,7 @@ export class MinskyMCPServer {
       });
     });
 
-    // Add a special method to list all available methods for debugging
-    this.server.addTool({
-      name: "debug.listMethods",
-      description: "List all available methods in the server for debugging",
-      parameters: {},
-      execute: async () => {
-        // Get all registered methods from internal FastMCP state
-        // This is a workaround to get the method names since FastMCP doesn't expose them directly
-        const methods = [];
-        try {
-          // @ts-ignore - Accessing a private property for debugging
-          if (this.server._tools) {
-            // @ts-ignore
-            methods.push(...Object.keys(this.server._tools).map(name => `${name}`));
-          }
-        } catch (e) {
-          // Silently ignore errors when accessing private properties
-        }
-        
-        return JSON.stringify({
-          methods,
-          count: methods.length
-        });
-      }
-    });
+    // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
   }
 
   /**

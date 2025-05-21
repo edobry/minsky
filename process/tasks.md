@@ -248,6 +248,6 @@
 
 - [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
 
-- [ ] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
+- [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
 - [ ] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)

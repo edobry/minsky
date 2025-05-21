@@ -124,6 +124,11 @@ _See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/impl
 
 _See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for issue discovery._
 
+- Add new `normalizeMethodName` utility in CommandMapper for consistent method naming
+- Add method name tracking in CommandMapper with `registeredMethodNames` array and `getRegisteredMethodNames()` method
+- Add automatic registration of underscore-based aliases for methods with dot notation
+- Add improved debug tools including `debug.listMethods`, `debug.echo`, and `debug.systemInfo`
+
 ### Changed
 
 - Task #118: Fixed Rule Format Errors in rules.ts
@@ -421,8 +426,6 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Example-based practical guide with real-world testing scenarios
 
 _See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specstory/history/2023-07-18_20-15-test-utility-documentation.md) for test utilities documentation._
-
-### Changed
 
 - Refactored CLI command implementations to use shared option utilities
 - Improved error handling with centralized utilities
