@@ -3,5 +3,112 @@ name: Resource Management Protocol
 description: REQUIRED guidelines for managing project resources using dedicated tools rather than direct file editing
 ---
 # New Rule Content
+# Resource Management Protocol
 
-Add your rule content here.
+## Core Principle
+
+Always use dedicated project tools and commands to manage resources, configuration, and metadata rather than directly editing the underlying files.
+
+## When to Apply This Rule
+
+This rule MUST be applied:
+- When modifying any project configuration files
+- When creating, updating, or removing rules
+- When managing metadata, schemas, or other project-specific resources
+- Whenever a project provides dedicated CLI commands, APIs, or tools for resource management
+
+## Requirements
+
+1. **Tool Verification**
+   - Before modifying any project resource, check if a dedicated tool or command exists for managing it
+   - Search project documentation and help commands (e.g., `minsky --help`, `minsky rules --help`)
+   - Consider the resource type (configuration, rule, schema, etc.) and look for corresponding commands
+
+2. **Tool Usage Mandate**
+   - If a dedicated tool exists, it MUST be used instead of direct file editing
+   - NEVER modify resource files directly if a management tool is available
+   - Consider any direct file editing of managed resources as a critical error
+
+3. **Command Syntax Verification**
+   - Always verify the correct command syntax using `--help` flags
+   - Check available parameters and options before running commands
+   - Read command documentation to understand expected input and output formats
+
+4. **Resource Path Awareness**
+   - Be aware that CLI-managed resources may be stored in locations different from apparent or conventional paths
+   - Verify the authoritative location of resources using appropriate commands
+   - Respect the project's resource management system rather than assuming conventional file paths
+
+## Examples
+
+### ✅ PREFER
+
+```bash
+# Check if a tool exists for managing rules
+minsky rules --help
+
+# Use the tool to view a rule
+minsky rules get user-preferences
+
+# Use the tool to update a rule
+minsky rules update user-preferences --description "User preferences for AI behavior"
+```
+
+### ❌ AVOID
+
+```bash
+# Directly editing a rule file
+vi .cursor/rules/user-preferences.mdc  # WRONG!
+
+# Assuming conventional paths for resources
+echo "New content" > .ai/rules/user-preferences.mdc  # WRONG!
+```
+
+## Resource Types and Their Management Tools
+
+| Resource Type | Management Tool | Direct File Access |
+|---------------|-----------------|-------------------|
+| Rules | `minsky rules` commands | FORBIDDEN |
+| Tasks | `minsky tasks` commands | FORBIDDEN |
+| Sessions | `minsky session` commands | FORBIDDEN |
+| State Files | Appropriate `minsky` commands | STRICTLY FORBIDDEN |
+| Project Config | Project-specific tools if available | Only if no tool exists |
+| Package Dependencies | `bun add/remove` commands | FORBIDDEN for package.json |
+| Documentation | Appropriate documentation tools if available | Allowed with caution |
+
+## Rationale
+
+1. **System Integrity**
+   - Resource management tools often maintain internal state or perform validation
+   - Direct file editing can lead to corrupt or inconsistent state
+   - Tools may store metadata in multiple locations that need to remain synchronized
+
+2. **Correctness and Validation**
+   - Management tools typically include validation to ensure correctness
+   - Direct editing bypasses these validations, potentially causing subtle bugs
+   - Tools enforce schema compliance and format requirements
+
+3. **Future Compatibility**
+   - Resource formats and locations may change over time
+   - Management tools provide abstraction over these details
+   - Direct editing creates brittle dependencies on current implementation details
+
+## Protocol for Discovering Resource Management Tools
+
+1. **Documentation Search**
+   - Check project README and documentation for command references
+   - Look for sections describing resource management
+
+2. **CLI Exploration**
+   - Use top-level help commands: `minsky --help`
+   - Explore category-specific help: `minsky rules --help`, `minsky tasks --help`
+
+3. **Verification Process**
+   - After identifying a potential tool, verify it can perform the needed operation
+   - Test with minimal examples before making significant changes
+
+## Related Rules
+
+- Apply alongside [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) when working with Minsky CLI commands
+- Apply with [workspace-verification](mdc:.cursor/rules/workspace-verification.mdc) for complete workspace context verification
+- Apply with [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc) when working in session workspaces

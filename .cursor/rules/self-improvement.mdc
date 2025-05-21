@@ -248,6 +248,69 @@ Assistant:
 ### Meta-Error Prevention
 - If this protocol is not followed, treat it as a critical protocol failure and immediately update this rule and process.
 
+## ⚠️ Critical Error Recovery Protocol
+
+### High-Risk Operation Identification
+- Before executing ANY operation that:
+  1. Modifies data permanently (deletion, overwriting)
+  2. Affects shared resources (remote repositories, shared branches)
+  3. Uses tools with destructive capabilities (`git reset --hard`, `rm -rf`, etc.)
+  4. Cannot be easily undone
+  - You MUST explicitly acknowledge the operation as high-risk and follow the steps below.
+
+### Pre-Execution Documentation
+1. **State of the System**:
+   - Document the current state using appropriate commands (`git status`, `ls`, etc.)
+   - Save critical information (e.g., commit hashes, file listings) that would be needed for recovery
+   - Create reference points (e.g., temporary branches in Git) when applicable
+
+2. **Execution Plan**:
+   - Explicitly state the exact command(s) to be executed
+   - Document expected outcome in detail
+   - Identify potential failure modes and their consequences
+   - Document recovery options for each potential failure
+
+3. **Safer Alternatives Analysis**:
+   - Always consider and document at least one safer alternative approach
+   - Compare risk profiles of different approaches
+   - Justify choice of approach based on risk vs. benefit
+
+### Post-Error Recovery Procedure
+If a critical error occurs during execution:
+
+1. **Immediate Containment**:
+   - STOP all operations immediately
+   - DO NOT attempt further operations that could complicate recovery
+   - Document the exact state after error (evidence collection)
+   - Preserve all information needed for recovery
+
+2. **Systematic Analysis**:
+   - Compare actual state to pre-execution documented state
+   - Identify exactly what changed and what was lost
+   - Determine if the changes can be recovered and how
+   - Map out all possible recovery paths
+
+3. **Staged Recovery**:
+   - Create isolated environment for recovery when possible
+   - Never attempt recovery directly on production/shared resources if avoidable
+   - Execute recovery steps in stages with verification between each stage
+   - Create recovery checkpoints to avoid compounding errors
+
+4. **Prevent Recurrence**:
+   - Document the error and recovery process in detail
+   - Update relevant rules with specific preventative measures
+   - Create verification steps that would have prevented the error
+   - Add explicit warnings about the specific error scenario
+
+### Terminal Error Response
+For catastrophic errors (data loss, corruption of shared resources, security breaches):
+
+1. **Immediate Notification**: Explicitly inform the user of the severity using "TERMINAL ERROR" language
+2. **Complete Operational Pause**: Halt ALL operations until user guidance is received
+3. **Full Transparency**: Provide complete details of what happened, why, and potential consequences
+4. **Comprehensive Documentation**: Document exact commands that led to the error
+5. **Rule System Update**: IMMEDIATELY update rules to prevent recurrence
+
 ## When to Apply This Rule
 
 This rule MUST be applied whenever:

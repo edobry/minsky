@@ -14,8 +14,8 @@ Always verify your workspace context and command availability before making any 
 - **Verify workspace context** before starting any work
 - **Confirm command availability and syntax** before running commands
 - **Address all linter errors** in modified files
-- **Verify resource management protocols** before editing configuration or metadata files
 - **Apply alongside session-first-workflow and minsky-cli-usage rules**
+- **For resource management, apply with resource-management-protocol rule**
 
 ## Workspace Verification Protocol
 
@@ -32,15 +32,6 @@ When using CLI commands, especially Minsky-specific commands:
 - **Verify Command Availability:** Always check command availability with `--help` before attempting to use unfamiliar commands
 - **Confirm Command Options:** For Minsky commands, verify syntax and options with `minsky <command> --help`
 - **Handle Command Errors:** If a command fails, verify syntax using help before proceeding
-
-## Resource Management Verification Protocol
-
-Before modifying project configuration, rules, metadata, or other special resources:
-
-- **Check for Project-Specific Management Tools:** Always verify if the project provides dedicated CLI commands, APIs, or tools for managing specific resources (e.g., `minsky rules` for rule management)
-- **Prefer Dedicated Tools Over Direct Editing:** If such tools exist, they MUST be used instead of directly editing files to ensure system integrity and adherence to project conventions
-- **Verify Tool Command Syntax:** Use `--help` flags to confirm the correct command syntax for the resource management tool
-- **Resource Path Verification:** Confirm the authoritative location for resources, as CLI-managed resources may be stored in locations different from apparent or conventional paths
 
 ## Error Handling Protocol
 
@@ -83,12 +74,13 @@ $ pwd
 /Users/dev/Projects/minsky  // Main workspace, not session workspace!
 $ vi src/domain/workspace.ts  // Modifying main workspace file!
 
-// Directly editing a rule file instead of using the CLI tool
+// Directly editing a rule file instead of using appropriate tools
 $ vi .cursor/rules/user-preferences.mdc  // Direct file editing!
-// CORRECT: $ minsky rules update user-preferences --description "..." --content path/to/content.md
+// CORRECT: Use resource management tools per resource-management-protocol rule
 ```
 
 ## Related Rules
 
 - Apply alongside [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc) for complete session management protocol
 - Apply with [minsky-cli-usage](mdc:.cursor/rules/minsky-cli-usage.mdc) when working with Minsky CLI commands
+- Apply with [resource-management-protocol](mdc:.cursor/rules/resource-management-protocol.mdc) for managing project resources
