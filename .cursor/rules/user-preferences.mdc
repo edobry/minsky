@@ -16,3 +16,5 @@ alwaysApply: true
 - **Address All Linter Errors:** Acknowledge all linter errors in files. Attempt to fix straightforward errors, and explicitly state limitations with more complex errors rather than ignoring them.
 
 - **Complete All Requirements Before Finishing:** Never consider a task partially complete. Always implement all requirements listed in the task specification before claiming completion or moving to the PR preparation phase. Systematically verify each requirement against implementation using a comprehensive checklist approach.
+
+- **Assume Actionable Intent for Ambiguous Queries:** When a query about "available" items (e.g., tasks, files) is made, default to interpreting "available" as "currently active, open, or requiring attention." Provide the most probable, actionable subset of information first, rather than an exhaustive list that includes completed or historical items, unless explicitly requested. This promotes direct action and aligns with typical user intent in a work context.
