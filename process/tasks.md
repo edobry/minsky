@@ -206,3 +206,5 @@ This file tracks work items for the project. Each task follows this format:
 - [+] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [ ] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+
+- [ ] Fix FastMCP Method Registration Issues [#126](process/tasks/126-fix-fastmcp-method-registration-issues.md)

@@ -148,10 +148,36 @@ export class MinskyMCPServer {
         transport: this.options.transportType
       });
     });
+
+    // Add a special method to list all available methods for debugging
+    this.server.addTool({
+      name: "debug.listMethods",
+      description: "List all available methods in the server for debugging",
+      parameters: {},
+      execute: async () => {
+        // Get all registered methods from internal FastMCP state
+        // This is a workaround to get the method names since FastMCP doesn't expose them directly
+        const methods = [];
+        try {
+          // @ts-ignore - Accessing a private property for debugging
+          if (this.server._tools) {
+            // @ts-ignore
+            methods.push(...Object.keys(this.server._tools).map(name => `${name}`));
+          }
+        } catch (e) {
+          // Silently ignore errors when accessing private properties
+        }
+        
+        return JSON.stringify({
+          methods,
+          count: methods.length
+        });
+      }
+    });
   }
 
   /**
-   * Start the MCP server
+   * Start the server with the configured transport type
    */
   async start(): Promise<void> {
     try {
@@ -181,12 +207,33 @@ export class MinskyMCPServer {
         // Default to stdio if transport type is invalid
         await this.server.start({ transportType: "stdio" });
       }
+
+      // Log server started message with structured information for monitoring
       log.agent("Minsky MCP Server started", {
         transport: this.options.transportType,
         serverName: this.options.name,
         version: this.options.version,
         repositoryPath: this.projectContext.repositoryPath
       });
+      
+      // Debug log of registered methods
+      try {
+        // Get the tool names
+        const methods = [];
+        // @ts-ignore - Accessing a private property for debugging
+        if (this.server._tools) {
+          // @ts-ignore
+          methods.push(...Object.keys(this.server._tools));
+        }
+        log.debug("MCP Server registered methods", {
+          methodCount: methods.length,
+          methods
+        });
+      } catch (e) {
+        log.debug("Could not log MCP server methods", {
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
     } catch (error) {
       // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
@@ -194,7 +241,7 @@ export class MinskyMCPServer {
         stack: error instanceof Error ? error.stack : undefined,
         transport: this.options.transportType
       });
-      
+
       // Always rethrow the error - the caller is responsible for user-friendly handling
       throw error;
     }
