@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated CLI shared options to use centralized descriptions
   - Updated MCP adapters (tasks, session, git, rules) to use the same descriptions
   - Added tests to verify description consistency and naming conventions
+  - Created parameter schemas utility in `src/utils/param-schemas.ts` for reducing Zod schema duplication 
+  - Implemented reusable parameter schema functions for common parameter types
+  - Updated MCP adapters to use shared parameter schemas
   - Reduced string duplication and improved maintainability of option documentation
   - Ensured consistent terminology across all interfaces
 
