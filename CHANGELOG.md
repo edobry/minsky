@@ -16,9 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
   - Will add specific error detection for network-related errors
   - Will implement user-friendly messages with suggested actions
-  - Will maintain detailed logging for debugging while simplifying user-facing output
+  - Will maintain detailed logging for debugging purposes
+  
+_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
-_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for task creation._
+### Changed
+
+- Improved error handling for common network errors in the MCP server
+  - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
+  - Implemented user-friendly error messages with suggested actions for port conflicts
+  - Added detailed error logging with stack traces in debug mode only
+  - Improved error detection for network-related issues like port conflicts (EADDRINUSE)
+
+_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
 - Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
 
