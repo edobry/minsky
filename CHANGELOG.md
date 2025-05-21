@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _See: SpecStory history [2025-07-20_local-db-tasks-backend](mdc:.specstory/history/2025-07-20_local-db-tasks-backend.md) for task creation._
 
+- Task #074: Implemented Auto-Dependency Installation for Session Workspaces
+  - Added package manager detection utility for automatic detection of bun, npm, yarn, and pnpm
+  - Added dependency installation after session creation to eliminate manual installation step
+  - Added `--skip-install` flag to bypass dependency installation when desired
+  - Added `--package-manager` option to override the detected package manager
+  - Implemented error handling that doesn't fail session creation when installation fails
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
+
 - Updated task-management-related rules to include the new `task spec` command
   - Added information about the `minsky tasks spec` command to minsky-cli-usage rule
   - Updated task-implementation-workflow rule to recommend using `task spec` for viewing task details
@@ -754,3 +763,13 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Maintained consistent behavior with the CLI interface where list commands only show metadata
   - Ensured all other rule metadata (id, name, description, globs, tags) is still returned
   - Kept the `rules.get` command behavior unchanged, still returning full rule content
+
+- Task #074: Improved Auto-Dependency Installation for Session Workspaces Specification
+  - Refined the task specification with clearer implementation details and error handling
+  - Simplified flag design by removing redundancy between `--install-dependencies` and `--skip-install`
+  - Improved the error handling approach to be more resilient (warn but don't fail session creation)
+  - Enhanced implementation details with complete code examples for integration
+  - Added comprehensive testing strategy with specific test scenarios and mock strategies
+  - Created a senior engineer analysis document with recommendations for implementation
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._

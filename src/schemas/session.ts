@@ -69,6 +69,8 @@ export const sessionStartParamsSchema = z
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
+    skipInstall: flagSchema("Skip automatic dependency installation"),
+    packageManager: z.enum(["bun", "npm", "yarn", "pnpm"]).optional().describe("Override the detected package manager"),
   })
   .merge(commonCommandOptionsSchema);
 

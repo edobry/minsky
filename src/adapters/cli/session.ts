@@ -138,9 +138,15 @@ export function createGetCommand(): Command {
  */
 export function createStartCommand(): Command {
   const command = new Command("start")
-    .description("Start a new session")
+    .description("Start a new session for a task")
     .argument("[name]", "Session name")
-    .option("--quiet", "Only output the session directory path")
+    .option("--quiet", "Suppress output and only print the session directory")
+    .option("--no-status-update", "Don't update task status to IN-PROGRESS")
+    .option("--skip-install", "Skip automatic dependency installation")
+    .option(
+      "--package-manager <manager>",
+      "Override the detected package manager (bun, npm, yarn, pnpm)"
+    )
     // Backend type option
     .option("--backend <type>", "Repository backend type (local, remote, github)")
     // Remote Git specific options
@@ -165,11 +171,14 @@ export function createStartCommand(): Command {
     async (
       name?: string,
       options?: {
+        task?: string;
         repo?: string;
         session?: string;
         "upstream-repo"?: string;
-        task?: string;
         quiet?: boolean;
+        statusUpdate?: boolean;
+        skipInstall?: boolean;
+        packageManager?: string;
         backend?: "local" | "remote" | "github";
         repoUrl?: string;
         authMethod?: "ssh" | "https" | "token";
@@ -188,7 +197,9 @@ export function createStartCommand(): Command {
           ...normalizedParams,
           name,
           quiet: options?.quiet || false,
-          noStatusUpdate: false,
+          noStatusUpdate: options?.statusUpdate === false, // Note the inverted logic
+          skipInstall: options?.skipInstall || false,
+          packageManager: options?.packageManager as any // will be validated by zod schema
         } as SessionStartParams;
 
         // Add backend-specific parameters if provided
