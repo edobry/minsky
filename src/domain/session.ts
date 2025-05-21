@@ -1142,6 +1142,7 @@ export async function approveSessionFromParams(
  * This factory function provides a consistent way to get a session provider with optional customization
  */
 export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
+  // Use the new functional implementation
   return new SessionDB(options?.dbPath);
 }
 

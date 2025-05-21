@@ -5,6 +5,8 @@ All notable changes to the Minsky project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **Note:** This changelog references SpecStory conversation histories. See [.specstory/.what-is-this.md](mdc:.specstory/.what-is-this.md) for details on the SpecStory artifact system.
+
 ## [Unreleased]
 
 ### Added
@@ -442,3 +444,24 @@ _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/hist
 - Enhanced the `workspace-verification` rule to reference the new resource-management-protocol rule for guidance on managing project resources.
 
 _See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on these rule updates._
+
+- Task #106: Refactor SessionDB to Functional Patterns (Subtask of #102)
+  - Implemented functional programming patterns for SessionDB
+  - Created pure functions module (session-db.ts) that contains no side effects
+  - Created I/O operations module (session-db-io.ts) to isolate file system interactions
+  - Implemented adapter class (session-adapter.ts) for backward compatibility
+  - Added factory function for creating session providers
+  - Added comprehensive tests for all pure functions and adapter class
+  - Improved type safety with proper interfaces and type definitions
+  - Enhanced error handling with more descriptive error messages
+  - Fixed repoPath generation to properly handle repository names with slashes
+
+_See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:.specstory/history/2025-05-20_refactor-sessiondb-functional-patterns.md) for implementation details._
+
+- Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
+  - Fixed type checking errors in session module test files
+  - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions 
+  - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
+
+_See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._

@@ -167,7 +167,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
 
-- [-] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
+- [x] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
 
 - [x] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
 
