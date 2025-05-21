@@ -159,10 +159,16 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
 
-- [-] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
+- [x] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
 
 - [ ] Enhance Test Utilities for Better Domain Testing [#103](process/tasks/103-enhance-test-utilities-for-better-domain-testing.md)
 
 - [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
 
 - [ ] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
+
+- [ ] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
+
+- [ ] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
+
+- [ ] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)

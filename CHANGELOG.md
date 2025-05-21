@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-05-22_improve-cli-adapter-structure](mdc:.specstory/history/2025-05-22_improve-cli-adapter-structure.md) for implementation details._
 
 - Task #105: Add Session Inspect Subcommand for Current Session Detection
+
   - Added a new `inspect` subcommand to the `minsky session` command
   - Implemented auto-detection using the `getCurrentSessionContext` utility
   - Provided both human-readable and JSON output formats
@@ -363,11 +364,14 @@ _See: SpecStory history [2025-05-19_20-36-task-88-standardize-repository-uri-han
   - Defined approach for improved test utilities
   - Will reduce reliance on type casting and improve test maintainability
 
-- Task #102: Refactor Domain Objects to Follow Functional Patterns
+- Task #102: Refactored Domain Objects to Follow Functional Patterns
+  - Marked task #102 as DONE.
+  - Broke down the original task #102 into three new, more focused subtasks:
+    - Task #106: Refactor SessionDB to Functional Patterns ([#106](mdc:tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md))
+    - Task #107: Refactor GitService to Functional Patterns ([#107](mdc:tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md))
+    - Task #108: Refactor TaskService to Functional Patterns ([#108](mdc:tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md))
 
-  - Defined path to move from class-based to functional design
-  - Will make side effects explicit for better testability
-  - Will improve state management with immutable patterns
+_See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-DD_HH-MM-topic.md) for these changes (TODO: Add actual SpecStory ref once available)_.
 
 - Task #103: Enhance Test Utilities for Better Domain Testing
 
