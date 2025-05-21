@@ -50,70 +50,210 @@ This duplicates effort and creates opportunity for inconsistencies between inter
    - Allow coexistence of both approaches during migration
    - Provide documentation for converting existing manual adapters
 
+## Technical Design
+
+After analyzing the existing codebase, I've identified the following components needed for the CLI bridge:
+
+### 1. CLI Bridge Core Components
+
+1. **CliCommandBridge**: The main class responsible for translating shared commands to Commander.js commands
+   - Will connect to the shared command registry
+   - Generate CLI commands from shared command definitions
+   - Handle argument normalization and validation
+   - Support hierarchical command structures
+
+2. **ParameterMapper**: Utility for mapping shared command parameters to CLI options
+   - Convert Zod schemas to Commander.js options
+   - Handle parameter validation
+   - Support complex types like arrays and objects
+   - Generate appropriate help text
+
+3. **CliExecutionContext**: Custom execution context for CLI interface
+   - Track CLI-specific state
+   - Provide access to CLI environment
+   - Handle output formatting based on context
+
+### 2. Architecture Integration
+
+1. **CLI Command Generator Factory**:
+   - Create CLI commands from shared command definitions
+   - Support customization hooks for special cases
+   - Handle command hierarchies and nesting
+
+2. **CliCommandRegistry**: Extension of the shared command registry for CLI-specific customizations
+   - Register CLI-specific command metadata
+   - Store customization information
+   - Maintain CLI command hierarchies
+
+3. **SharedCliExecutor**: Execute shared commands from CLI context
+   - Handle parameter validation and normalization
+   - Convert CLI arguments to shared command parameters
+   - Handle errors and format output
+
+### 3. Integration Approach
+
+The bridge will support three modes of operation:
+
+1. **Auto-generated Mode**: Completely auto-generate CLI commands from shared command registry
+2. **Customized Mode**: Auto-generate but with specific customizations for CLI experience
+3. **Legacy Mode**: Continue supporting manually created CLI commands
+
 ## Implementation Steps
 
 1. [ ] Research and analyze current CLI adapter patterns
 
    - [ ] Identify common patterns across existing CLI adapters
+      - [ ] Examine parameter handling (required vs optional)
+      - [ ] Document how arguments vs options are used
+      - [ ] Analyze output formatting approaches
    - [ ] Document output formatting, error handling, and parameter mapping patterns
    - [ ] Analyze Commander.js usage in existing adapters
+      - [ ] Study how command hierarchies are created
+      - [ ] Document help text generation
+      - [ ] Analyze error handling patterns
 
 2. [ ] Design the CLI bridge architecture
 
-   - [ ] Define interfaces and class structure
-   - [ ] Design parameter mapping strategy
-   - [ ] Design command generation approach
-   - [ ] Create a strategy for handling output formatting
+   - [ ] Define interfaces for CliCommandBridge and related components
+   - [ ] Design parameter mapping strategy from Zod to Commander.js options
+   - [ ] Create class diagrams for the bridge components
+   - [ ] Design the extension points for customization
 
-3. [ ] Implement core CLI bridge functionality
+3. [ ] Implement core CLI bridge components
 
-   - [ ] Create a bridge class that connects to the shared command registry
-   - [ ] Implement automatic parameter mapping from shared command parameters to CLI options
-   - [ ] Add support for generating help text and documentation
-   - [ ] Implement standard output formatting
+   - [ ] Create CliCommandBridge class in src/adapters/shared/bridges/cli-bridge.ts
+   - [ ] Implement ParameterMapper for converting Zod schemas to CLI options
+   - [ ] Create CliExecutionContext for CLI-specific execution
+   - [ ] Implement command generation utilities
 
-4. [ ] Create a prototype using an existing command
+4. [ ] Develop the shared-to-CLI parameter mapping system
 
-   - [ ] Select a simple command (e.g., "session list") to generate via the bridge
-   - [ ] Implement a bridge-generated version of the command
-   - [ ] Compare behavior with the manually created version
-   - [ ] Refine bridge implementation based on findings
+   - [ ] Create mapper for string parameters
+   - [ ] Create mapper for boolean parameters
+   - [ ] Create mapper for number parameters
+   - [ ] Create mapper for enum/options parameters
+   - [ ] Implement support for array parameters
+   - [ ] Add support for optional vs required parameters
 
-5. [ ] Expand implementation to support all parameter types
+5. [ ] Implement CLI context management
 
-   - [ ] Add support for boolean flags, strings, numbers
-   - [ ] Implement handling for arrays and complex objects
-   - [ ] Add support for optional vs. required parameters
-   - [ ] Implement validation logic
+   - [ ] Create CLI execution context
+   - [ ] Implement CLI-specific output formatting
+   - [ ] Add support for CLI error handling with proper exit codes
+   - [ ] Implement debug/verbose mode support
 
-6. [ ] Implement error handling and output formatting
+6. [ ] Create a prototype using an existing command
 
-   - [ ] Create consistent error handling for CLI context
-   - [ ] Implement JSON output mode
-   - [ ] Add support for verbose/debug output
+   - [ ] Select "session list" command to generate via the bridge
+   - [ ] Implement bridge-generated version of the command
+   - [ ] Create integration with CLI entry point
+   - [ ] Test and verify functionality matches existing implementation
 
-7. [ ] Create migration tools and documentation
+7. [ ] Develop the command customization system
 
-   - [ ] Document process for converting manual adapters to bridge-generated commands
-   - [ ] Implement helper utilities for migration
-   - [ ] Create examples for common command patterns
+   - [ ] Create customization API for CLI commands
+   - [ ] Implement hooks for description, argument, and option customization
+   - [ ] Add support for CLI-specific help text
+   - [ ] Create mechanism to extend auto-generated commands
 
-8. [ ] Migrate selected commands to use the bridge
+8. [ ] Implement hierarchical command structure support
 
-   - [ ] Convert a set of CLI commands to use the bridge
-   - [ ] Verify functionality matches original implementations
-   - [ ] Document any issues or limitations encountered
+   - [ ] Support generating category-based command hierarchies
+   - [ ] Implement proper command nesting
+   - [ ] Add support for command aliases
+   - [ ] Handle subcommand help text generation
 
-9. [ ] Add tests
+9. [ ] Create migration tools and documentation
 
-   - [ ] Create unit tests for the bridge functionality
-   - [ ] Add integration tests for bridge-generated commands
-   - [ ] Ensure test coverage for parameter mapping and output formatting
+   - [ ] Create utility for converting manual CLI adapters to bridge configuration
+   - [ ] Document the migration process with examples
+   - [ ] Create templates for common command patterns
+   - [ ] Add developer documentation for the CLI bridge
 
-10. [ ] Update documentation
+10. [ ] Migrate selected commands to use the bridge
+
+    - [ ] Convert "session list" command completely to the bridge
+    - [ ] Convert "session get" command with customizations
+    - [ ] Try converting a complex command with subcommands
+    - [ ] Document any issues or limitations encountered
+
+11. [ ] Add comprehensive test coverage
+
+    - [ ] Unit tests for CliCommandBridge
+    - [ ] Unit tests for parameter mapping
+    - [ ] Integration tests for bridge-generated commands
+    - [ ] E2E tests for command execution
+
+12. [ ] Update documentation and user guides
     - [ ] Add developer documentation for the CLI bridge
+    - [ ] Create migration guide for existing commands
     - [ ] Update command creation guidelines to prefer bridge-generated commands
-    - [ ] Document any customization options or limitations
+    - [ ] Document customization options and extension points
+
+## Implementation Details
+
+### CliCommandBridge API (Draft)
+
+```typescript
+interface CliCommandOptions {
+  // Whether to automatically generate arguments from required parameters
+  useArgumentsForRequiredParams?: boolean;
+  // Custom argument definition
+  argumentDefinition?: {
+    name: string;
+    description: string;
+    required: boolean;
+    valueFromParam?: string; // Which parameter to use for value
+  }[];
+  // Custom option definitions
+  optionCustomizations?: Record<string, {
+    alias?: string;
+    description?: string;
+    hidden?: boolean;
+    defaultValue?: any;
+  }>;
+  // Custom help text
+  helpText?: string;
+  // Custom examples to show in help
+  examples?: string[];
+}
+
+class CliCommandBridge {
+  /**
+   * Generate a Commander.js command from a shared command
+   */
+  generateCommand(commandId: string, options?: CliCommandOptions): Command;
+
+  /**
+   * Generate a Commander.js command for all commands in a category
+   */
+  generateCategoryCommand(category: CommandCategory, options?: {
+    name?: string;
+    description?: string;
+    subcommandOptions?: Record<string, CliCommandOptions>;
+  }): Command;
+
+  /**
+   * Register all commands from the shared registry as CLI commands
+   */
+  registerAllCommands(program: Command): void;
+}
+```
+
+### File Structure
+
+```
+src/
+  adapters/
+    shared/
+      bridges/
+        cli-bridge.ts         # Main CLI bridge implementation
+        parameter-mapper.ts   # Shared parameter to CLI option mapper
+      cli/
+        cli-command-factory.ts    # Factory for generating CLI commands
+        cli-execution-context.ts  # CLI-specific execution context
+        cli-customization.ts      # CLI command customization utilities
+```
 
 ## Verification
 
