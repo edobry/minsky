@@ -12,6 +12,11 @@ This file tracks the progress and patterns identified during the migration of hi
 - Created prioritized migration backlog with rationale
 - Established verification and success criteria
 
+### Recent Progress
+- Created custom assertion helpers in `src/utils/test-utils/assertions.ts` to bridge Jest/Bun differences
+- Added thorough tests for all assertion helpers
+- Created a detailed assertion method migration guide
+
 ### Next Steps
 - Continue with migration of the second priority test (mocking.test.ts)
 - Document patterns and challenges encountered
@@ -29,12 +34,29 @@ Below are common patterns encountered during migrations:
 | `jest.spyOn(object, 'method')` | Custom spy implementation | Needs special handling |
 | `beforeEach/afterEach` | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks |
 | Missing import extensions | `import from './file.js'` | ESM requires explicit extensions |
+| `expect(x).toMatch(regex)` | `expect(x.match(regex)).toBeTruthy()` or `expectToMatch(x, regex)` | Regex matching - Bun doesn't have toMatch |
+
+## Custom Assertion Helpers
+
+We've created a set of custom assertion helpers in `src/utils/test-utils/assertions.ts` to bridge the gap between Jest and Bun assertions:
+
+| Jest/Vitest Method | Our Custom Helper | Notes |
+|---------------------|----------------|-------|
+| `expect(x).toMatch(regex)` | `expectToMatch(x, regex)` | For regex pattern matching |
+| `expect(x).toHaveLength(n)` | `expectToHaveLength(x, n)` | For arrays and strings |
+| `expect(x).toBeInstanceOf(Class)` | `expectToBeInstanceOf(x, Class)` | For instanceof checks |
+| `expect(x).toHaveProperty(prop, value)` | `expectToHaveProperty(x, prop, value)` | For property existence checks |
+| `expect(x).toBeCloseTo(n, precision)` | `expectToBeCloseTo(x, n, precision)` | For floating point comparisons |
+| `expect(arr).toContainEqual(obj)` | `expectToContainEqual(arr, obj)` | For deep equality array item checks |
+
+See the [assertion methods documentation](../../src/test-migration/examples/assertion-methods.md) for detailed usage examples.
 
 ## Test Migration Status
 
 | Test File | Status | Migration Difficulty | Notes |
 |-----------|--------|----------------------|-------|
 | `src/utils/test-utils/__tests__/enhanced-utils.test.ts` | Completed | Easy | Fixed import issues, added explicit beforeEach/afterEach imports, added .js extensions |
+| `src/utils/test-utils/__tests__/assertions.test.ts` | Completed | New file | Created custom assertion helpers to bridge Jest/Bun differences |
 | `src/utils/test-utils/__tests__/mocking.test.ts` | Not Started | Easy | Priority 1, Contains jest.spyOn |
 | `src/utils/filter-messages.test.ts` | Not Started | Easy | Priority 1 |
 | `src/utils/logger.test.ts` | Not Started | Easy | Priority 1 |
@@ -64,3 +86,9 @@ Below are common patterns encountered during migrations:
 2. **Lifecycle Hook Imports**
    - `beforeEach` and `afterEach` must be explicitly imported from `bun:test`
    - Global Jest equivalents are not available in Bun
+
+3. **Assertion Method Differences**
+   - Bun's test framework doesn't support all Jest assertion methods
+   - `toMatch()` assertion method isn't available in Bun's expect
+   - Created custom assertion helpers that mirror Jest's assertion methods
+   - Custom helpers provide type safety and familiar patterns for test writers

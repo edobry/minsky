@@ -50,6 +50,7 @@ Common migration patterns are documented in the Migration Patterns Library:
 | `jest.mock('module')` | `mock.module('module', () => { /* implementation */ })` |
 | `jest.spyOn(object, 'method')` | Use dependency injection or mock utilities |
 | `expect(x).toEqual(y)` | `expect(x).toEqual(y)` (compatible) |
+| `expect(x).toMatch(regex)` | `expect(x.match(regex)).toBeTruthy()` |
 
 ## Error Handling
 
@@ -66,6 +67,11 @@ Common migration errors and their solutions:
 3. **Lifecycle hook differences**
    - Ensure `beforeEach`/`afterEach` are imported from `bun:test`
    - Use the `cleanupMocks()` utility from test utils
+
+4. **Assertion method differences**
+   - Some Jest assertion methods like `toMatch()` aren't directly available in Bun
+   - Use alternative assertion patterns or implement custom matchers
+   - Document replacements in the migration notes
 
 ## Documentation Requirements
 
