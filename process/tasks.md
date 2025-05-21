@@ -96,7 +96,7 @@
 
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 
-- [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
+- [x] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
 
 - [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
 
