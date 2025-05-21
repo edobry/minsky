@@ -11,14 +11,47 @@
  * 
  * @module mocking
  */
-import { jest, mock, afterEach } from "bun:test"; // Import both jest and mock
+import { mock, afterEach } from "bun:test"; // Import mock from bun:test
 
 type MockFnType = <T extends (...args: any[]) => any>(implementation?: T) => any;
-// type MockResultType = ReturnType<typeof jest.fn>; // Using jest.fn for createMock
+
+// Define a MockFunction type to replace jest.Mock
+export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
+  (...args: TArgs): TReturn;
+  mock: {
+    calls: TArgs[];
+    results: Array<{
+      type: "return" | "throw";
+      value: TReturn | Error;
+    }>;
+  };
+  mockImplementation: (fn: (...args: TArgs) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockReturnValue: (value: TReturn) => MockFunction<TReturn, TArgs>;
+  mockResolvedValue: <U>(value: U) => MockFunction<Promise<U>, TArgs>;
+  mockRejectedValue: (reason: Error) => MockFunction<Promise<never>, TArgs>;
+}
+
+/**
+ * Creates a type-safe mock function with tracking capabilities.
+ * This is a more strongly typed version of createMock.
+ *
+ * @template T - The function signature to mock
+ * @param implementation - Optional initial implementation of the mock
+ * @returns A mock function that tracks calls and can be configured with proper type inference
+ *
+ * @example
+ * // Create a type-safe mock with implementation
+ * type GreetFn = (name: string) => string;
+ * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
+ * const result = mockGreet("World"); // TypeScript knows this returns string
+ */
+export function mockFunction<T extends (...args: any[]) => any>(implementation?: T) {
+  return createMock(implementation) as MockFunction<ReturnType<T>, Parameters<T>> & T;
+}
 
 /**
  * Creates a mock function with type safety and tracking capabilities.
- * This is a wrapper around Bun's `jest.fn()` with improved TypeScript support.
+ * This is a wrapper around Bun's mock function with improved TypeScript support.
  *
  * @template T - The function signature to mock
  * @param implementation - Optional initial implementation of the mock
@@ -42,7 +75,8 @@ type MockFnType = <T extends (...args: any[]) => any>(implementation?: T) => any
  * expect(mockFn()).toBe("new result");
  */
 export function createMock<T extends (...args: any[]) => any>(implementation?: T) {
-  return jest.fn(implementation); // Use jest.fn for creating function mocks
+  // Use mock.fn instead of jest.fn
+  return mock.fn(implementation);
 }
 
 /**
@@ -276,4 +310,241 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     // Access the internal files map for validation in tests
     _files: files
   };
+}
+
+/**
+ * Creates a partial mock of an interface with custom implementations.
+ * This is useful for creating test doubles that implement interfaces
+ * without having to implement every method.
+ *
+ * @template T - The interface type to mock
+ * @param implementations - Partial implementations of interface methods
+ * @returns A mock object that implements the interface T
+ *
+ * @example
+ * // Define an interface
+ * interface UserService {
+ *   getUser(id: string): Promise<User | null>;
+ *   updateUser(id: string, data: any): Promise<boolean>;
+ *   deleteUser(id: string): Promise<boolean>;
+ * }
+ * 
+ * // Create a partial mock with only some methods implemented
+ * const mockUserService = createPartialMock<UserService>({
+ *   getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
+ * });
+ * 
+ * // Other methods are automatically mocked and can be used in tests
+ * await mockUserService.updateUser("123", { name: "Updated" });
+ * expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated" });
+ */
+export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {
+  // Create a base object with the provided implementations
+  const base = { ...implementations } as any;
+
+  // Create a proxy that will handle method calls
+  return new Proxy(base, {
+    get: (target, prop: string | symbol) => {
+      // If the property exists on the target, return it
+      if (prop in target) {
+        return target[prop];
+      }
+
+      // For methods that don't exist, create a mock function
+      if (typeof prop === 'string') {
+        const mockFn = createMock();
+        target[prop] = mockFn;
+        return mockFn;
+      }
+
+      return undefined;
+    }
+  }) as T;
+}
+
+/**
+ * Mocks a readonly property on an object.
+ * This is useful for testing code that uses getters or Object.defineProperty.
+ *
+ * @param obj - The object containing the property to mock
+ * @param propName - The name of the property to mock
+ * @param mockValue - The mock value to return when the property is accessed
+ *
+ * @example
+ * // Mock a readonly property
+ * const config = {
+ *   get environment() { return "production"; }
+ * };
+ * 
+ * // Mock the property
+ * mockReadonlyProperty(config, "environment", "test");
+ * 
+ * // Now accessing the property returns the mock value
+ * expect(config.environment).toBe("test");
+ */
+export function mockReadonlyProperty<T extends object, K extends keyof T>(
+  obj: T,
+  propName: K,
+  mockValue: any
+): void {
+  // Use Object.defineProperty to override the property
+  Object.defineProperty(obj, propName, {
+    configurable: true,
+    get: () => mockValue
+  });
+}
+
+/**
+ * Creates a spy on an object method, similar to jest.spyOn.
+ * Unlike jest.spyOn, this works with TypeScript's type system.
+ *
+ * @param obj - The object containing the method to spy on
+ * @param method - The name of the method to spy on
+ * @returns The spy function that tracks calls to the original method
+ *
+ * @example
+ * // Spy on a method
+ * const user = {
+ *   getName() { return "original"; }
+ * };
+ * 
+ * const spy = createSpyOn(user, "getName");
+ * 
+ * // The original method still works
+ * expect(user.getName()).toBe("original");
+ * 
+ * // But we can also check if it was called
+ * expect(spy).toHaveBeenCalled();
+ * 
+ * // We can also change the implementation
+ * spy.mockImplementation(() => "mocked");
+ * expect(user.getName()).toBe("mocked");
+ */
+export function createSpyOn<T extends object, M extends keyof T>(
+  obj: T,
+  method: M
+): ReturnType<typeof mock.fn> {
+  // Store the original method
+  const original = obj[method];
+
+  // Create a mock function that delegates to the original
+  const spy = mock.fn((...args: any[]) => {
+    if (typeof original === 'function') {
+      return (original as Function).apply(obj, args);
+    }
+    return undefined;
+  });
+
+  // Replace the method with the spy
+  (obj as any)[method] = spy;
+
+  // Return the spy for further configuration
+  return spy;
+}
+
+/**
+ * Represents a test context that manages resources and cleanup.
+ */
+export class TestContext {
+  private cleanupFns: (() => void | Promise<void>)[] = [];
+
+  /**
+   * Registers a cleanup function to be run during teardown.
+   * @param fn - The cleanup function to register
+   */
+  registerCleanup(fn: () => void | Promise<void>): void {
+    this.cleanupFns.push(fn);
+  }
+
+  /**
+   * Runs all registered cleanup functions.
+   */
+  async runCleanup(): Promise<void> {
+    // Run cleanup functions in reverse order (LIFO)
+    for (let i = this.cleanupFns.length - 1; i >= 0; i--) {
+      const cleanupFn = this.cleanupFns[i];
+      if (cleanupFn) {
+        await cleanupFn();
+      }
+    }
+    // Clear the cleanup functions
+    this.cleanupFns = [];
+  }
+}
+
+// Global test context instance
+let currentTestContext: TestContext | null = null;
+
+/**
+ * Creates a test suite with managed setup and teardown.
+ * This provides functions to use in beforeEach and afterEach hooks.
+ *
+ * @returns Object with beforeEach and afterEach functions
+ *
+ * @example
+ * // In your test file
+ * const { beforeEachTest, afterEachTest } = createTestSuite();
+ * 
+ * describe("My Test Suite", () => {
+ *   beforeEach(beforeEachTest);
+ *   afterEach(afterEachTest);
+ *   
+ *   test("my test", () => {
+ *     const resource = acquireResource();
+ *     withCleanup(() => releaseResource(resource));
+ *     
+ *     // Test code...
+ *   });
+ * });
+ */
+export function createTestSuite() {
+  return {
+    /**
+     * Sets up a fresh test context for each test.
+     * Use this in beforeEach hooks.
+     */
+    beforeEachTest: () => {
+      currentTestContext = new TestContext();
+    },
+
+    /**
+     * Runs cleanup for the current test context.
+     * Use this in afterEach hooks.
+     */
+    afterEachTest: async () => {
+      if (currentTestContext) {
+        await currentTestContext.runCleanup();
+        currentTestContext = null;
+      }
+    }
+  };
+}
+
+/**
+ * Registers a cleanup function to run after the current test.
+ * This ensures resources are properly released even if the test fails.
+ *
+ * @param cleanupFn - The function to run during test cleanup
+ *
+ * @example
+ * test("resource management", () => {
+ *   const resource = acquireResource();
+ *   
+ *   // Register cleanup to happen automatically
+ *   withCleanup(() => {
+ *     releaseResource(resource);
+ *   });
+ *   
+ *   // Test code that might throw
+ *   expect(resource.getData()).toBeDefined();
+ * }); 
+ * // Cleanup happens automatically after the test
+ */
+export function withCleanup(cleanupFn: () => void | Promise<void>): void {
+  if (!currentTestContext) {
+    throw new Error(
+      "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."
+    );
+  }
+  currentTestContext.registerCleanup(cleanupFn);
 }
