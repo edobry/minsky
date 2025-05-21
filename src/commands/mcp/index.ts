@@ -2,7 +2,11 @@ import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server.js";
 import { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
-import { isNetworkError, createNetworkError, formatNetworkErrorMessage } from "../../errors/network-errors.js";
+import {
+  isNetworkError,
+  createNetworkError,
+  formatNetworkErrorMessage,
+} from "../../errors/network-errors.js";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher.js";
 import { createProjectContext } from "../../types/project.js";
@@ -33,7 +37,10 @@ export function createMCPCommand(): Command {
     .option("--http-stream", "Use HTTP Stream transport")
     .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
     .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
-    .option("--repo <path>", "Repository path for operations that require repository context (default: current directory)")
+    .option(
+      "--repo <path>",
+      "Repository path for operations that require repository context (default: current directory)"
+    )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
     .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
     .action(async (options) => {
@@ -62,11 +69,11 @@ export function createMCPCommand(): Command {
             log.cliError(`Repository path is not a directory: ${repositoryPath}`);
             process.exit(1);
           }
-          
+
           try {
             projectContext = createProjectContext(repositoryPath);
             log.debug("Using repository path from command line", {
-              repositoryPath
+              repositoryPath,
             });
           } catch (error) {
             log.cliError(`Invalid repository path: ${repositoryPath}`);
@@ -81,9 +88,9 @@ export function createMCPCommand(): Command {
           transportType,
           port,
           host: options.host,
-          repositoryPath: projectContext?.repositoryPath || process.cwd()
+          repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
-          inspectorPort: options.inspectorPort
+          inspectorPort: options.inspectorPort,
         });
 
         // Create server with appropriate options
@@ -103,7 +110,10 @@ export function createMCPCommand(): Command {
         });
 
         // Register tools via adapter-based approach
-        const commandMapper = new CommandMapper(server.getFastMCPServer(), server.getProjectContext());
+        const commandMapper = new CommandMapper(
+          server.getFastMCPServer(),
+          server.getProjectContext()
+        );
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         registerGitTools(commandMapper);
@@ -120,7 +130,7 @@ export function createMCPCommand(): Command {
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
         }
-        
+
         // Launch inspector if requested
         if (options.withInspector) {
           // Check if inspector is available
@@ -130,16 +140,16 @@ export function createMCPCommand(): Command {
             );
           } else {
             const inspectorPort = parseInt(options.inspectorPort, 10);
-            
+
             // Launch the inspector
             const inspectorResult = launchInspector({
               port: inspectorPort,
               openBrowser: true,
               mcpTransportType: transportType,
               mcpPort: transportType !== "stdio" ? port : undefined,
-              mcpHost: transportType !== "stdio" ? options.host : undefined
+              mcpHost: transportType !== "stdio" ? options.host : undefined,
             });
-            
+
             if (inspectorResult.success) {
               log.cli(`MCP Inspector started on port ${inspectorPort}`);
               log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
@@ -149,7 +159,7 @@ export function createMCPCommand(): Command {
             }
           }
         }
-        
+
         log.cli("Press Ctrl+C to stop");
 
         // Keep the process running
@@ -173,18 +183,18 @@ export function createMCPCommand(): Command {
           host: options.host,
           withInspector: options.withInspector || false,
           error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
+          stack: error instanceof Error ? error.stack : undefined,
         });
-        
+
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
           const port = parseInt(options.port, 10);
           const networkError = createNetworkError(error, port, options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
-          
+
           // Output user-friendly message with suggestions
           log.cliError(formatNetworkErrorMessage(networkError, isDebug));
-          
+
           // Only show stack trace in debug mode
           if (isDebug && error instanceof Error && error.stack) {
             log.cliError("\nDebug information:");
@@ -192,15 +202,17 @@ export function createMCPCommand(): Command {
           }
         } else {
           // For other errors, provide a simpler message
-          log.cliError(`Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`);
-          
+          log.cliError(
+            `Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`
+          );
+
           // Show stack trace only in debug mode
           if (SharedErrorHandler.isDebugMode() && error instanceof Error && error.stack) {
             log.cliError("\nDebug information:");
             log.cliError(error.stack);
           }
         }
-        
+
         process.exit(1);
       }
     });

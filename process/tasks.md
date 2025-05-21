@@ -242,7 +242,7 @@
 
 - [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
-- [+] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
+- [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
