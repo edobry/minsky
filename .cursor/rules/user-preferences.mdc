@@ -1,5 +1,5 @@
 ---
-description: null
+description: User-specific preferences for AI behavior, including query interpretation, direct action, and commit/push automation.
 globs: null
 alwaysApply: true
 ---

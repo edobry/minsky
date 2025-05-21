@@ -396,7 +396,12 @@ _See: SpecStory history [2025-06-21_improving-domain-testability](mdc:.specstory
 _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/history/2024-07-17_16-20-fix-test-failures.md) for test failure fixes._
 
 - Fixed an issue with the session start command where branch information was not correctly displayed
+
   - Updated `startSessionFromParams` function to return the actual branch name created
   - Modified the session record to store the branch name in the database
   - Enhanced the CLI output to correctly display branch information for new sessions
   - Fixed incorrect branch display in session list output by adding fallback for undefined values
+
+- Updated the `user-preferences` rule to include a heuristic for interpreting ambiguous queries about "available" items, defaulting to active/actionable items. Also updated the rule's description in the Minsky system.
+
+_See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on this rule update._
