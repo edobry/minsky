@@ -8,7 +8,27 @@ import { ensureError } from "../../../errors/index.js";
 import { log } from "../../../utils/logger.js";
 
 // Re-export shared options functions needed by other modules
-export { normalizeSessionParams } from "./shared-options.js";
+export { 
+  normalizeSessionParams,
+  normalizeRepoOptions,
+  normalizeOutputOptions,
+  normalizeTaskOptions,
+  normalizeTaskParams,
+  addRepoOptions,
+  addOutputOptions,
+  addTaskOptions,
+  addBackendOptions,
+  addForceOptions
+} from "./shared-options.js";
+
+// Re-export types from shared options
+export type {
+  RepoOptions,
+  OutputOptions as SharedOutputOptions,
+  TaskOptions,
+  BackendOptions,
+  ForceOptions,
+} from "./shared-options.js";
 
 /**
  * Options for formatting output
@@ -54,7 +74,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
       }
     }
   } catch (error) {
-    log.error("Failed to format output:", error);
+    console.error("Failed to format output:", error);
     console.log(String(result));
   }
 }
@@ -67,7 +87,7 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
   
   if (options.debug) {
     // Detailed error in debug mode
-    log.error("Command execution failed:", err);
+    console.error("Command execution failed:", err);
     if (err.stack) {
       console.error(err.stack);
     }
