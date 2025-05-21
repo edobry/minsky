@@ -177,7 +177,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Create a Complete Test Inventory and Classification System [#110](process/tasks/110-create-a-complete-test-inventory-and-classification-system.md)
 
-- [ ] Build Core Mock Compatibility Layer [#111](process/tasks/111-build-core-mock-compatibility-layer.md)
+- [-] Build Core Mock Compatibility Layer [#111](process/tasks/111-build-core-mock-compatibility-layer.md)
 
 - [ ] Implement Comprehensive Test Utility Documentation [#112](process/tasks/112-implement-comprehensive-test-utility-documentation.md)
 
