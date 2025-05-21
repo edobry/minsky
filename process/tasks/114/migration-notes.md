@@ -19,9 +19,10 @@ This file tracks the progress and patterns identified during the migration of hi
 - Migrated enhanced-utils.test.ts with proper ESM imports
 - Migrated mocking.test.ts with improved type safety and error verification
 - Migrated filter-messages.test.ts with custom assertion helpers
+- Migrated src/domain/__tests__/tasks.test.ts with centralized mocking utilities
 
 ### Next Steps
-- Continue with migration of next priority test (src/domain/__tests__/tasks.test.ts)
+- Continue with migration of next priority test (src/domain/git.test.ts)
 - Document patterns and challenges encountered
 - Create reusable utilities for common patterns
 
@@ -31,15 +32,18 @@ Below are common patterns encountered during migrations:
 
 | Jest/Vitest Pattern | Bun Equivalent | Notes |
 |---------------------|----------------|-------|
-| `jest.fn()` | `mock()` | Basic function mocking |
-| `jest.fn().mockReturnValue(x)` | `mock(() => x)` | Mocking return values |
-| `jest.mock('module')` | `mock.module('module', () => {})` | Module mocking |
-| `jest.spyOn(object, 'method')` | Custom spy implementation | Needs special handling |
+| `jest.fn()` | `createMock()` | Use centralized mocking utilities instead of direct Bun APIs |
+| `jest.fn().mockReturnValue(x)` | `createMock(() => x)` | Mocking return values |
+| `jest.mock('module')` | `mockModule('module', () => {})` | Module mocking |
+| `jest.spyOn(object, 'method')` | `createSpyOn(object, 'method')` | Object method spying |
 | `beforeEach/afterEach` | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks |
 | Missing import extensions | `import from './file.js'` | ESM requires explicit extensions |
 | `expect(x).toMatch(regex)` | `expect(x.match(regex)).toBeTruthy()` or `expectToMatch(x, regex)` | Regex matching - Bun doesn't have toMatch |
 | `@ts-ignore` in tests | Type assertions `(x as any)` | Better type safety than ignoring errors |
 | `expect(x).toHaveLength(n)` | `expectToHaveLength(x, n)` | Bun doesn't have toHaveLength |
+| `mockFn.mockClear()` | `setupTestMocks()` | Automatic mock cleanup between tests |
+| `expect(e instanceof Error)` | `expectToBeInstanceOf(e, Error)` | Type checking with custom helper |
+| `mockFn.mockImplementationOnce()` | `mockFn.mockImplementation()` | Bun only has mockImplementation |
 
 ## Custom Assertion Helpers
 
@@ -64,7 +68,7 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
 | `src/utils/test-utils/__tests__/assertions.test.ts` | Completed | New file | Created custom assertion helpers to bridge Jest/Bun differences |
 | `src/utils/test-utils/__tests__/mocking.test.ts` | Completed | Easy | Fixed type errors with type assertions, improved error message verification |
 | `src/utils/filter-messages.test.ts` | Completed | Easy | Added .js extensions, used custom expectToHaveLength helper |
-| `src/domain/__tests__/tasks.test.ts` | Not Started | Medium | Priority 2 |
+| `src/domain/__tests__/tasks.test.ts` | Completed | Medium | Used centralized mocking utilities, fixed type issues, used setupTestMocks() for cleanup |
 | `src/domain/git.test.ts` | Not Started | Medium | Priority 2 |
 | `src/domain/git.pr.test.ts` | Not Started | Medium | Priority 2 |
 | `src/domain/session/session-db.test.ts` | Not Started | Easy | Priority 2 |
@@ -102,7 +106,19 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
    - Replace `@ts-ignore` comments with proper type assertions (`as any`)
    - Add error type checking when working with exceptions (`if (e instanceof Error)`)
    - Use stronger typing in function parameters where possible
+   - Using custom `expectToBeInstanceOf()` helper improves code readability
 
 5. **Documentation Benefits**
    - Adding `@migrated` tags to JSDoc comments helps track migration status
    - Documenting migration patterns helps maintain consistency across the codebase
+
+6. **Mock Cleanup Approach**
+   - Bun doesn't have `mockClear()` or `mockReset()` methods
+   - Use `setupTestMocks()` to automatically reset mocks between tests
+   - This approach is cleaner than manually resetting mocks in `beforeEach`
+
+7. **Mock Implementation Behavior**
+   - Bun only has `mockImplementation()` without `mockImplementationOnce()`
+   - Mock implementations persist between tests if not explicitly reset
+   - Need to be mindful of test ordering and mock restoration
+   - For tests that modify shared mocks, reset the mock to default state at the start of the test

@@ -19,7 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Created prioritized test migration backlog
   - Compiled a migration pattern library with common transformations
   - Built extensive documentation for assertion method differences
-  - Migrated first priority test (enhanced-utils.test.ts)
+  - Successfully migrated core tests to native Bun patterns:
+    - Enhanced utility tests (enhanced-utils.test.ts)
+    - Mocking utility tests (mocking.test.ts)
+    - Filter messages utility tests (filter-messages.test.ts)
+    - Core domain task tests (tasks.test.ts)
 
 _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
 
