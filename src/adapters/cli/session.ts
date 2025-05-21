@@ -22,6 +22,7 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
   inspectSessionFromParams,
+  sessionReviewFromParams,
 } from "../../domain/index.js";
 import {
   handleCliError,
@@ -364,9 +365,7 @@ export function createUpdateCommand(): Command {
   const command = new Command("update")
     .description("Update session with latest changes from upstream repository")
     .argument("[name]", "Session name")
-    .option("--force", "Force update even if the session workspace is dirty")
-    .option("--no-stash", "Skip stashing local changes")
-    .option("--no-push", "Skip pushing changes to remote after update");
+    .option("--force", "Force update even if the session workspace is dirty");
 
   // Add shared options
   addRepoOptions(command);
@@ -390,29 +389,48 @@ export function createUpdateCommand(): Command {
         const normalizedParams = normalizeSessionParams(options || {});
 
         // Convert CLI options to domain parameters
-        const params: SessionUpdateParams = {
+        const params: Partial<SessionUpdateParams> = {
           ...normalizedParams,
           name: name || "", // Ensure this is a string even if undefined
-          force: options?.force || false,
-          noStash: options?.stash === false,
+          noStash: options?.force || options?.stash === false,
           noPush: options?.push === false,
         };
 
         // Call the domain function
-        const updatedSession = await updateSessionFromParams(params);
+        const updatedSession = await updateSessionFromParams(params as SessionUpdateParams);
 
         // Output result using session information
-        console.log(`Session ${updatedSession.session} updated successfully.`);
-        
-        if (updatedSession.branch) {
-          console.log(`Branch: ${updatedSession.branch}`);
+        if (updatedSession) {
+          // If updateSessionFromParams returns a session, use it
+          console.log(`Session ${updatedSession.session} updated successfully.`);
+          
+          if (updatedSession.branch) {
+            console.log(`Branch: ${updatedSession.branch}`);
+          }
+          
+          if (updatedSession.taskId) {
+            console.log(`Associated with task: ${updatedSession.taskId}`);
+          }
+          
+          if (updatedSession.repoPath) {
+            console.log(`Session directory: ${updatedSession.repoPath}`);
+          }
+        } else {
+          // Fall back to fetching the session if updateSessionFromParams returns void
+          const session = await getSessionFromParams({ name: name || "" });
+          
+          if (session) {
+            console.log(`Session ${session.session} updated successfully.`);
+            if (session.branch) {
+              console.log(`Branch: ${session.branch}`);
+            }
+            if (session.taskId) {
+              console.log(`Associated with task: ${session.taskId}`);
+            }
+          } else {
+            console.log("Session update completed, but could not retrieve session details.");
+          }
         }
-        
-        if (updatedSession.taskId) {
-          console.log(`Associated with task: ${updatedSession.taskId}`);
-        }
-        
-        console.log(`Session directory: ${updatedSession.repoPath}`);
       } catch (error) {
         handleCliError(error);
       }
@@ -464,16 +482,11 @@ export function createApproveCommand(): Command {
           }
 
           // Convert CLI options to domain parameters
-          const params: SessionApproveParams = {
-            name, // API should handle the optional name
+          const params = {
+            session: name, // API expects 'session' not 'name'
             task: options?.task,
             repo: options?.repo,
-            taskStatus: options?.taskStatus,
-            autoConfirm: options?.yes || false,
-            cleanup: options?.cleanup !== false,
-            push: options?.push !== false,
-            updateTaskStatus: options?.statusUpdate !== false,
-            mergeMessage,
+            json: false // Add only properties that exist in the schema
           };
 
           // Call the domain function with the parameters
@@ -581,6 +594,148 @@ export function createInspectCommand(): Command {
 }
 
 /**
+ * Creates the session review command
+ */
+export function createReviewCommand(): Command {
+  const command = new Command("review")
+    .description("Review a session PR with consolidated view of task, PR description, and changes")
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--output <file>", "Output the review to a file")
+    .option("--pr-branch <branch>", "PR branch name (defaults to 'pr/<session>')")
+    .option("--repo <path>", "Repository path");
+
+  // Add shared options
+  addOutputOptions(command);
+
+  command.action(
+    async (
+      name?: string,
+      options?: {
+        task?: string;
+        repo?: string;
+        output?: string;
+        prBranch?: string;
+        json?: boolean;
+      }
+    ) => {
+      try {
+        // Call the domain function with the parameters
+        const result = await sessionReviewFromParams({
+          session: name,
+          task: options?.task,
+          repo: options?.repo,
+          output: options?.output,
+          prBranch: options?.prBranch,
+          json: options?.json,
+        });
+
+        // Format and output the result
+        if (options?.json) {
+          // If JSON output is requested, use the output utility
+          outputResult(result, { json: true });
+          return;
+        }
+
+        // For text output, format it nicely
+        const lines: string[] = [];
+        
+        // Session information
+        lines.push(`# Session Review: ${result.session}`);
+        lines.push("");
+        
+        // PR Description
+        if (result.prDescription) {
+          const titleMatch = result.prDescription.match(/^([^\n]+)/);
+          const title = titleMatch ? titleMatch[1] : "No title found";
+          
+          lines.push(`## PR Information`);
+          lines.push("");
+          lines.push(`Title: ${title}`);
+          lines.push("");
+          lines.push(`Branch: ${result.prBranch}`);
+          lines.push(`Base: ${result.baseBranch}`);
+          lines.push("");
+          
+          // Extract body by removing the title and any separator lines
+          const body = result.prDescription
+            .replace(/^[^\n]+\n+/, "") // Remove title line
+            .replace(/^-+\s*\n+/m, ""); // Remove separator line if any
+          
+          if (body.trim()) {
+            lines.push(`### Description`);
+            lines.push("");
+            lines.push(body);
+            lines.push("");
+          }
+        } else {
+          lines.push(`## PR Information`);
+          lines.push("");
+          lines.push(`No PR description found. PR may not have been created yet.`);
+          lines.push("");
+          lines.push(`Expected branch: ${result.prBranch}`);
+          lines.push(`Base branch: ${result.baseBranch}`);
+          lines.push("");
+        }
+        
+        // Task Specification
+        if (result.taskSpec) {
+          lines.push(`## Task Specification`);
+          lines.push("");
+          lines.push(result.taskSpec);
+          lines.push("");
+        }
+        
+        // Diff Statistics
+        if (result.diffStats) {
+          lines.push(`## Changes`);
+          lines.push("");
+          lines.push(`Files changed: ${result.diffStats.filesChanged}`);
+          if (result.diffStats.insertions) {
+            lines.push(`Insertions: ${result.diffStats.insertions}`);
+          }
+          if (result.diffStats.deletions) {
+            lines.push(`Deletions: ${result.diffStats.deletions}`);
+          }
+          lines.push("");
+        }
+        
+        // Full Diff
+        if (result.diff) {
+          lines.push(`## Diff`);
+          lines.push("```diff");
+          lines.push(result.diff);
+          lines.push("```");
+        }
+        
+        // Generate output text
+        const outputText = lines.join("\n");
+        
+        // Write to file if output path is provided
+        if (options?.output) {
+          try {
+            const fs = await import("fs/promises");
+            await fs.writeFile(options.output, outputText);
+            console.log(`Review saved to: ${options.output}`);
+          } catch (error) {
+            console.error(`Error writing to file: ${error instanceof Error ? error.message : String(error)}`);
+            // Still output to console if file write fails
+            console.log(outputText);
+          }
+        } else {
+          // Output to console
+          console.log(outputText);
+        }
+      } catch (error) {
+        handleCliError(error);
+      }
+    }
+  );
+
+  return command;
+}
+
+/**
  * Creates the session command
  */
 export function createSessionCommand(config?: GetCurrentSessionConfig): Command {
@@ -596,6 +751,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createApproveCommand());
   sessionCommand.addCommand(createPrCommand());
   sessionCommand.addCommand(createInspectCommand());
+  sessionCommand.addCommand(createReviewCommand());
 
   return sessionCommand;
 }
