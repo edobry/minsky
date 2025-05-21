@@ -78,13 +78,15 @@ _See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/histo
 
 _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specstory/history/2025-05-22_standardize-option-descriptions.md) for implementation details._
 
-- Task #117: Fix Session Update Command Implementation
+- Task #117: Fixed Session Update Command Implementation
+  - Fixed return value inconsistency in `updateSessionFromParams` function to properly return session object
+  - Implemented proper handling of the `--force` option to allow updating sessions with uncommitted changes
+  - Added `--no-stash` and `--no-push` CLI options for better control over the update process
+  - Updated CLI, shared, and MCP adapters to handle the returned session information consistently
+  - Added comprehensive tests for the session update functionality
+  - Improved error messages when workspace has uncommitted changes
 
-  - Created a task to fix issues with the `session update` command
-  - Will address parameter naming inconsistency across different interfaces
-  - Will update domain function to return session information after updates
-  - Will improve handling of `--force` option
-  - Will enhance error handling and output formatting
+_See: SpecStory history [2023-06-30_fix-session-update-command](mdc:.specstory/history/2023-06-30_fix-session-update-command.md) for implementation details._
 
 - Task #118: Fix Rule Format Errors in rules.ts
   - Diagnose and fix issues with rule file lookup in the rules system
