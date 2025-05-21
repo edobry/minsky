@@ -22,6 +22,7 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  inspectSessionFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
 
@@ -550,6 +551,41 @@ export function registerSessionCommands(): void {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
           task: params.task,
+        });
+        throw error;
+      }
+    },
+  });
+
+  // Register session inspect command
+  sharedCommandRegistry.registerCommand({
+    id: "session.inspect",
+    category: CommandCategory.SESSION,
+    name: "inspect",
+    description: "Inspect the current session (auto-detected from workspace)",
+    parameters: {
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.inspect command", { params, context });
+
+      try {
+        const session = await inspectSessionFromParams({
+          json: params.json,
+        });
+
+        return {
+          success: true,
+          session,
+        };
+      } catch (error) {
+        log.error("Failed to inspect session", {
+          error: error instanceof Error ? error.message : String(error),
         });
         throw error;
       }

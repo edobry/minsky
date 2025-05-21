@@ -187,6 +187,16 @@ customizeCommand("session.pr", {
   }
 });
 
+// Add customization for the session inspect command
+customizeCommand("session.inspect", {
+  parameters: {
+    json: {
+      description: "Output in JSON format",
+      alias: "j"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -208,11 +218,14 @@ const bridgeGeneratedStartCommand = createCommand("session.start");
 const bridgeGeneratedApproveCommand = createCommand("session.approve");
 // Generate the "session pr" command via the bridge
 const bridgeGeneratedPrCommand = createCommand("session.pr");
+// Generate the "session inspect" command via the bridge
+const bridgeGeneratedInspectCommand = createCommand("session.inspect");
 
 if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
     bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
     bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand &&
-    bridgeGeneratedApproveCommand && bridgeGeneratedPrCommand) {
+    bridgeGeneratedApproveCommand && bridgeGeneratedPrCommand &&
+    bridgeGeneratedInspectCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
@@ -227,7 +240,8 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
     if (cmd.name() !== "list" && cmd.name() !== "get" && 
         cmd.name() !== "dir" && cmd.name() !== "delete" &&
         cmd.name() !== "update" && cmd.name() !== "start" &&
-        cmd.name() !== "approve" && cmd.name() !== "pr") {
+        cmd.name() !== "approve" && cmd.name() !== "pr" &&
+        cmd.name() !== "inspect") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -241,6 +255,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedStartCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedApproveCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedPrCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedInspectCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
@@ -253,7 +268,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   tempProgram.addCommand(createRulesCommand());
   
   // Log that we're using the bridge-generated commands
-  log.cli("Using bridge-generated commands for multiple session subcommands");
+  log.cli("Using bridge-generated commands for all session subcommands");
   
   // Use the temp program for parsing
   tempProgram.parse();
