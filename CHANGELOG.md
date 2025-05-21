@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Mocking utility tests (mocking.test.ts)
     - Filter messages utility tests (filter-messages.test.ts)
     - Core domain task tests (tasks.test.ts)
+    - Git service tests (git.test.ts)
+    - Git PR service tests (git.pr.test.ts)
+  - Established new testing patterns to improve maintainability:
+    - Direct Method Mocking pattern for complex dependencies
+    - Centralized test utility usage for consistent patterns
+    - Enhanced error handling with proper TypeScript types
+    - Explicit cleanup of all mocks between tests
 
 _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
 

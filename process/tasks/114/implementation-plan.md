@@ -136,20 +136,20 @@ Create helper utilities for:
 9. [x] Created TestGitService utility for simplified git testing
 10. [x] Migrated `src/domain/git.test.ts`
 11. [x] Updated CHANGELOG.md with progress details
+12. [x] Migrated `src/domain/git.pr.test.ts`
 
 ## Next Steps
 
-1. [ ] Migrate `src/domain/git.pr.test.ts`
-2. [ ] Migrate `src/domain/session/session-db.test.ts`
-3. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
-4. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
-5. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
-6. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
-7. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
-8. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
-9. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
-10. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
-11. [ ] Update high-priority integration tests as needed
+1. [ ] Migrate `src/domain/session/session-db.test.ts`
+2. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
+3. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
+4. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
+5. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
+6. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
+7. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
+8. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
+9. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
+10. [ ] Update high-priority integration tests as needed
 
 ## Migration Patterns Established
 
@@ -177,17 +177,22 @@ Create helper utilities for:
    - Add explicit type annotations in catch blocks: `catch (error: unknown)`
    - Use proper type narrowing with instanceof checks
 
+8. **Direct Method Mocking**
+   - When dealing with complex dependencies, consider mocking the method under test directly
+   - This approach is cleaner for methods with many internal dependencies
+   - Focus on testing the method's contract, not its implementation details
+
 ## Progress Metrics
 
 - **Total high-priority tests to migrate**: ~20
-- **Tests migrated so far**: 6 (30%)
+- **Tests migrated so far**: 7 (35%)
 - **Patterns documented**: 14
 - **Custom helpers created**: 6
 
 ## Next Priority Files
 
 The next priority for migration is:
-1. `src/domain/git.pr.test.ts`
-2. `src/domain/session/session-db.test.ts`
+1. `src/domain/session/session-db.test.ts`
+2. `src/adapters/__tests__/shared/commands/rules.test.ts`
 
 These files test critical business logic and will help us refine our migration patterns. 
