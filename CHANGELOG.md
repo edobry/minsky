@@ -11,14 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Task #051: Add Git Commands to MCP Server
-  - Implemented Git command support in the MCP server for AI assistants to interact with Git repositories
-  - Added domain-level interface-agnostic functions for Git operations: `cloneFromParams`, `branchFromParams`, and `pushFromParams`
-  - Created MCP commands for Git operations: `git.clone`, `git.branch`, and `git.push`
-  - Added Git command documentation in README-MCP.md
-  - Ensured all commands follow consistent patterns for error handling and response formatting
+- Updated task-management-related rules to include the new `task spec` command
+  - Added information about the `minsky tasks spec` command to minsky-cli-usage rule
+  - Updated task-implementation-workflow rule to recommend using `task spec` for viewing task details
+  - Added `task spec` command to task-status-protocol rule's Status Checking Commands section
+  - Updated creating-tasks rule with a new section on viewing task specifications
 
-_See: SpecStory history [2024-05-19_add-git-commands-to-mcp](mdc:.specstory/history/2024-05-19_add-git-commands-to-mcp.md) for implementation details._
+_See: SpecStory history [2025-07-15_update-rules-for-task-spec-command](mdc:.specstory/history/2025-07-15_update-rules-for-task-spec-command.md) for rule documentation updates._
 
 - Task #126: Add Task Specification Content Reading Capability
   - Created a task to add the ability to read and display task specification content
@@ -27,6 +26,15 @@ _See: SpecStory history [2024-05-19_add-git-commands-to-mcp](mdc:.specstory/hist
   - Will add proper error handling and output formatting
 
 _See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstory/history/2025-05-21_add-task-spec-content-reading.md) for task creation._
+
+- Task #051: Add Git Commands to MCP Server
+  - Implemented Git command support in the MCP server for AI assistants to interact with Git repositories
+  - Added domain-level interface-agnostic functions for Git operations: `cloneFromParams`, `branchFromParams`, and `pushFromParams`
+  - Created MCP commands for Git operations: `git.clone`, `git.branch`, and `git.push`
+  - Added Git command documentation in README-MCP.md
+  - Ensured all commands follow consistent patterns for error handling and response formatting
+
+_See: SpecStory history [2024-05-19_add-git-commands-to-mcp](mdc:.specstory/history/2024-05-19_add-git-commands-to-mcp.md) for implementation details._
 
 - Task #120: Add --with-inspector Option to `mcp start` Command
   - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
