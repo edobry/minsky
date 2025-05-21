@@ -306,27 +306,59 @@ export class SessionDB implements SessionProviderInterface {
       throw new Error("Invalid session record: missing repoName or session");
     }
 
-    // Check for new path first (with sessions subdirectory)
-    const newPath = join(this.baseDir, record.repoName, "sessions", record.session);
-    const legacyPath = join(this.baseDir, record.repoName, record.session);
-
     // If the record already has a repoPath, use that
     if (record.repoPath) {
       return record.repoPath;
     }
 
-    // Check if the sessions subdirectory structure exists
+    // Fix for local repository paths: handle the case where repoName contains slashes
+    // GitService.clone normalizes slashes to dashes, so we need to do the same here
+    let normalizedRepoName = record.repoName;
+    if (normalizedRepoName.startsWith("local/")) {
+      // Replace slashes with dashes in the path segments after "local/"
+      const parts = normalizedRepoName.split("/");
+      if (parts.length > 1) {
+        // Keep "local" as is, but normalize the rest
+        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+      }
+    }
+
+    // Check for new path first (with sessions subdirectory)
+    const newPath = join(this.baseDir, normalizedRepoName, "sessions", record.session);
     if (await this.repoExists(newPath)) {
       return newPath;
     }
 
+    // Try another common pattern for local repos
+    const altPath = join(
+      this.baseDir,
+      normalizedRepoName.replace(/\//g, "-"),
+      "sessions",
+      record.session
+    );
+    if (await this.repoExists(altPath)) {
+      return altPath;
+    }
+
     // Fall back to legacy path
+    const legacyPath = join(this.baseDir, normalizedRepoName, record.session);
     if (await this.repoExists(legacyPath)) {
       return legacyPath;
     }
 
     // Default to new path structure even if it doesn"t exist yet
-    return newPath;
+    try {
+      // If the directory doesn't exist, try to create it
+      // This ensures session directories are created even if git clone encounters issues
+      await mkdir(join(this.baseDir, normalizedRepoName, "sessions"), { recursive: true });
+      return newPath;
+    } catch (error) {
+      // If we can't create the directory, fall back to the original path
+      console.error(
+        `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return newPath;
+    }
   }
 
   /**
@@ -568,6 +600,33 @@ export async function startSessionFromParams(
     // Extract the repository name
     const repoName = normalizeRepoName(repoUrl);
 
+    // Normalize the repo name for local repositories to ensure path consistency
+    let normalizedRepoName = repoName;
+    if (repoName.startsWith("local/")) {
+      // Replace slashes with dashes in the path segments after "local/"
+      const parts = repoName.split("/");
+      if (parts.length > 1) {
+        // Keep "local" as is, but normalize the rest
+        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+      }
+    } else {
+      // For other repository types, normalize as usual
+      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    }
+
+    // Generate the expected repository path
+    const sessionDir =
+      deps.sessionDB instanceof SessionDB
+        ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
+        : join(
+            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+            "minsky",
+            "git",
+            normalizedRepoName,
+            "sessions",
+            sessionName
+          );
+
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
       session: sessionName,
@@ -576,6 +635,7 @@ export async function startSessionFromParams(
       createdAt: new Date().toISOString(),
       taskId,
       branch: branch || sessionName,
+      repoPath: sessionDir, // Include the repository path explicitly
     };
 
     await deps.sessionDB.addSession(sessionRecord);

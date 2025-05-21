@@ -169,7 +169,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Refactor SessionDB to Functional Patterns (Subtask of #102) [#106](process/tasks/106-refactor-sessiondb-to-functional-patterns-subtask-of-102-.md)
 
-- [-] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
+- [x] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
 
 - [-] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
 

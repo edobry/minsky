@@ -21,43 +21,47 @@ export interface GitServiceInterface {
   /**
    * Clone a repository and set up a session workspace
    */
-  clone(options: { repoUrl: string; session: string; branch?: string }): Promise<{ workdir: string; session: string }>;
-  
+  clone(options: {
+    repoUrl: string;
+    session: string;
+    branch?: string;
+  }): Promise<{ workdir: string; session: string }>;
+
   /**
    * Create and checkout a new branch
    */
   branch(options: BranchOptions): Promise<any>;
-  
+
   /**
    * Execute a git command in a repository
    */
   execInRepository(workdir: string, command: string): Promise<string>;
-  
+
   /**
    * Get the working directory for a session
    */
   getSessionWorkdir(repoName: string, session: string): string;
-  
+
   /**
    * Stash changes in a repository
    */
   stashChanges(repoPath: string): Promise<void>;
-  
+
   /**
    * Pull latest changes from a remote
    */
   pullLatest(repoPath: string, remote?: string): Promise<void>;
-  
+
   /**
    * Merge a branch into the current branch
    */
   mergeBranch(repoPath: string, branch: string): Promise<{ conflicts: boolean }>;
-  
+
   /**
    * Push changes to a remote
    */
   push(options: { repoPath: string; remote?: string }): Promise<void>;
-  
+
   /**
    * Apply stashed changes
    */
@@ -236,9 +240,31 @@ export class GitService implements GitServiceInterface {
     const session = options.session || this.generateSessionId();
     log.debug("Using session name", { session, wasProvided: !!options.session });
 
+    // Get the repository name from the URL
     const repoName = normalizeRepoName(options.repoUrl);
-    const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
-    log.debug("Session and repo name determined", { session, repoName, normalizedRepoName });
+    log.debug("Repository name determined", { repoName });
+
+    // For compatibility with other code, ensure consistent normalization
+    // This is crucial for local repositories which may have paths with slashes
+    let normalizedRepoName = repoName;
+
+    // Special handling for local repositories to match SessionDB's normalization
+    if (repoName.startsWith("local/")) {
+      // First, try the format used in session records
+      const parts = repoName.split("/");
+      if (parts.length > 1) {
+        // Use "local-" prefix plus remaining parts normalized
+        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+      }
+    } else {
+      // For other repository types, replace any slashes with dashes
+      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    }
+
+    log.debug("Normalized repo name for directory structure", {
+      originalRepoName: repoName,
+      normalizedRepoName,
+    });
 
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
@@ -1200,11 +1226,11 @@ export class GitService implements GitServiceInterface {
     // Fix for task #95: Don't use title for branch naming
     const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
-    
-    log.debug(`Creating PR branch using git branch as basis`, { 
+
+    log.debug(`Creating PR branch using git branch as basis`, {
       sourceBranch,
       prBranch,
-      usedProvidedBranchName: Boolean(options.branchName)
+      usedProvidedBranchName: Boolean(options.branchName),
     });
 
     // Verify base branch exists
@@ -1324,7 +1350,7 @@ export class GitService implements GitServiceInterface {
 
   /**
    * Fetch the default branch for a repository
-   * 
+   *
    * @param repoPath - Path to the repository
    * @returns The default branch name
    */
@@ -1334,13 +1360,13 @@ export class GitService implements GitServiceInterface {
       const defaultBranchCmd = "git symbolic-ref refs/remotes/origin/HEAD --short";
       const defaultBranch = await this.execInRepository(repoPath, defaultBranchCmd);
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
-      const result = defaultBranch.trim().replace(/^origin\//, '');
+      const result = defaultBranch.trim().replace(/^origin\//, "");
       return result;
     } catch (error) {
       // Log error but don't throw
-      console.error("Could not determine default branch, falling back to 'main'", { 
+      console.error("Could not determine default branch, falling back to 'main'", {
         error: error instanceof Error ? error.message : String(error),
-        repoPath
+        repoPath,
       });
       // Fall back to main
       return "main";
@@ -1586,7 +1612,7 @@ export async function pushFromParams(params: {
 /**
  * Creates a default GitService implementation
  * This factory function provides a consistent way to get a git service with optional customization
- * 
+ *
  * @param options Optional configuration options for the git service
  * @returns A GitServiceInterface implementation
  */
