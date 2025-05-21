@@ -43,6 +43,25 @@ program.name("minsky").description("CLI for managing Minsky workflow").version("
 // Set up CLI bridge customizations
 setupCommonCommandCustomizations();
 
+// Add customization for the session get command
+customizeCommand("session.get", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    session: {
+      // This maps the session parameter to the first positional argument
+      asArgument: true,
+      description: "Session name"
+    },
+    // Add the include-details option as a custom parameter
+    includeDetails: {
+      description: "Include additional session details",
+      alias: "i"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -50,39 +69,42 @@ const sessionCommand = createSessionCommand({
 
 // Generate the "session list" command via the bridge
 const bridgeGeneratedListCommand = createCommand("session.list");
+// Generate the "session get" command via the bridge
+const bridgeGeneratedGetCommand = createCommand("session.get");
 
-if (bridgeGeneratedListCommand) {
+if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
   
   // Add our modified session command first
-  // Create a fresh session command with all the non-list commands from the original
+  // Create a fresh session command with all the non-list and non-get commands from the original
   const modifiedSessionCommand = new Command(sessionCommand.name())
     .description(sessionCommand.description());
   
-  // Copy all commands except the list command
+  // Copy all commands except the list and get commands
   sessionCommand.commands.forEach(cmd => {
-    if (cmd.name() !== "list") {
+    if (cmd.name() !== "list" && cmd.name() !== "get") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
   
-  // Add the bridge-generated list command
+  // Add the bridge-generated commands
   modifiedSessionCommand.addCommand(bridgeGeneratedListCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedGetCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
   
   // Add all other commands
-  program.addCommand(createTasksCommand());
-  program.addCommand(createGitCommand());
-  program.addCommand(createInitCommand());
-  program.addCommand(createMCPCommand());
-  program.addCommand(createRulesCommand());
+  tempProgram.addCommand(createTasksCommand());
+  tempProgram.addCommand(createGitCommand());
+  tempProgram.addCommand(createInitCommand());
+  tempProgram.addCommand(createMCPCommand());
+  tempProgram.addCommand(createRulesCommand());
   
-  // Log that we're using the bridge-generated command
-  log.cli("Using bridge-generated command for 'session list'");
+  // Log that we're using the bridge-generated commands
+  log.cli("Using bridge-generated commands for 'session list' and 'session get'");
   
   // Use the temp program for parsing
   tempProgram.parse();
@@ -90,7 +112,7 @@ if (bridgeGeneratedListCommand) {
   // Exit early since we've already parsed
   process.exit(0);
 } else {
-  // Original program flow if the bridge command wasn't generated
+  // Original program flow if the bridge commands weren't generated
   program.addCommand(sessionCommand);
   program.addCommand(createTasksCommand());
   program.addCommand(createGitCommand());
