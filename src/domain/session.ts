@@ -600,6 +600,33 @@ export async function startSessionFromParams(
     // Extract the repository name
     const repoName = normalizeRepoName(repoUrl);
 
+    // Normalize the repo name for local repositories to ensure path consistency
+    let normalizedRepoName = repoName;
+    if (repoName.startsWith("local/")) {
+      // Replace slashes with dashes in the path segments after "local/"
+      const parts = repoName.split("/");
+      if (parts.length > 1) {
+        // Keep "local" as is, but normalize the rest
+        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+      }
+    } else {
+      // For other repository types, normalize as usual
+      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    }
+
+    // Generate the expected repository path
+    const sessionDir =
+      deps.sessionDB instanceof SessionDB
+        ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
+        : join(
+            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+            "minsky",
+            "git",
+            normalizedRepoName,
+            "sessions",
+            sessionName
+          );
+
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
       session: sessionName,
@@ -608,6 +635,7 @@ export async function startSessionFromParams(
       createdAt: new Date().toISOString(),
       taskId,
       branch: branch || sessionName,
+      repoPath: sessionDir, // Include the repository path explicitly
     };
 
     await deps.sessionDB.addSession(sessionRecord);
