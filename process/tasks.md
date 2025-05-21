@@ -181,7 +181,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Implement Comprehensive Test Utility Documentation [#112](process/tasks/112-implement-comprehensive-test-utility-documentation.md)
 
-- [ ] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
+- [-] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
 
 - [ ] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
@@ -202,3 +202,5 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
 - [-] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
+
+- [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
