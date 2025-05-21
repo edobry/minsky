@@ -32,7 +32,7 @@ _See: SpecStory history [2025-06-10_create-shared-adapter-layer](mdc:.specstory/
 - Task #108: Refactor TaskService to Functional Patterns
   - Refactored TaskService and associated backends to follow functional programming principles
   - Implemented pure functions for core task manipulation logic
-  - Created explicit state handling with pure data transformation functions 
+  - Created explicit state handling with pure data transformation functions
   - Separated side effects (file I/O, API calls) from pure data operations
   - Added functional composition patterns for complex task operations
   - Improved testability with pure function unit tests
@@ -461,14 +461,16 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
 - Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
   - Fixed type checking errors in session module test files
   - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
-  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions 
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions
   - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
 
-- Task #109: Fixed compatibility issues after merging Task #098 and #108
-  - Fixed task ID filtering in `filterTasks` function to properly handle numeric equivalence (e.g., "2" vs "#002")
-  - Improved test type safety by adding optional chaining for array access
-  - Updated comparison logic to properly handle different ID formats
+- Fixed test failures after merging PRs #098 and #108:
+  - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
+  - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
+  - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Fixed mock implementations in rules and session test files
+  - Ensured consistent testing patterns across the codebase
 
-_See: SpecStory history [2025-06-25_fix-compatibility-issues](mdc:.specstory/history/2025-06-25_fix-compatibility-issues.md) for implementation details._
+_See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
