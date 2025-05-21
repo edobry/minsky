@@ -122,3 +122,6 @@ export function ensureError(error: unknown): Error {
     typeof error === "string" ? error : `Unknown error: ${JSON.stringify(error)}`
   );
 }
+
+// Export network errors from the network-errors module
+export * from './network-errors.js';

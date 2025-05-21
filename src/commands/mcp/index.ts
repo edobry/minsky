@@ -2,6 +2,8 @@ import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server.js";
 import { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
+import { isNetworkError, createNetworkError, formatNetworkErrorMessage } from "../../errors/network-errors.js";
+import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session.js";
@@ -92,6 +94,7 @@ export function createMCPCommand(): Command {
           process.exit(0);
         });
       } catch (error) {
+        // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.sse ? "sse" : options.httpStream ? "httpStream" : "stdio",
           port: options.port,
@@ -100,7 +103,31 @@ export function createMCPCommand(): Command {
           stack: error instanceof Error ? error.stack : undefined
         });
         
-        log.cliError(`Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`);
+        // Handle network errors in a user-friendly way
+        if (isNetworkError(error)) {
+          const port = parseInt(options.port, 10);
+          const networkError = createNetworkError(error, port, options.host);
+          const isDebug = SharedErrorHandler.isDebugMode();
+          
+          // Output user-friendly message with suggestions
+          log.cliError(formatNetworkErrorMessage(networkError, isDebug));
+          
+          // Only show stack trace in debug mode
+          if (isDebug && error instanceof Error && error.stack) {
+            log.cliError("\nDebug information:");
+            log.cliError(error.stack);
+          }
+        } else {
+          // For other errors, provide a simpler message
+          log.cliError(`Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`);
+          
+          // Show stack trace only in debug mode
+          if (SharedErrorHandler.isDebugMode() && error instanceof Error && error.stack) {
+            log.cliError("\nDebug information:");
+            log.cliError(error.stack);
+          }
+        }
+        
         process.exit(1);
       }
     });
