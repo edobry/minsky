@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented flexible parameter mapping between Zod schemas and CLI options/arguments
   - Added support for command customization with aliases, help text, and parameter configuration
   - Developed category-based command organization with hierarchical structuring
-  - Created prototype integrations with "session list", "session get", and "session dir" commands
+  - Created prototype integrations with "session list", "session get", "session dir", and "session delete" commands
   - Added comprehensive type definitions for bridge components
   - Implemented robust error handling and output formatting
 
