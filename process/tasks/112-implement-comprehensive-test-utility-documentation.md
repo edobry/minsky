@@ -4,7 +4,7 @@
 
 Our testing infrastructure is in transition as we move from Jest/Vitest patterns toward Bun's test runner with improved Dependency Injection. This has resulted in confusion about which testing patterns to use, how to structure tests, and what utilities are available.
 
-Recent tasks (#101: Improved Domain Module Testability, #103: Enhanced Test Utilities) have introduced new testing approaches, but comprehensive documentation is lacking. Additionally, the Core Mock Compatibility Layer being developed will require clear guidance to ensure proper usage.
+Recent tasks (#101: Improved Domain Module Testability, #103: Enhanced Test Utilities, #111: Core Mock Compatibility Layer) have introduced new testing approaches, but comprehensive documentation is lacking. The Core Mock Compatibility Layer implemented in task #111 provides Jest/Vitest compatible APIs for Bun tests, but requires clear guidance to ensure proper usage.
 
 This task aims to create clear, comprehensive documentation of our testing infrastructure to provide guidance during this transition period and support the migration to more maintainable testing patterns.
 
@@ -14,7 +14,7 @@ This task aims to create clear, comprehensive documentation of our testing infra
 
    - Document all available test utilities in the codebase
    - Include purpose, usage examples, and limitations for each utility
-   - Cover both existing utilities and those being added in the compatibility layer
+   - Cover both existing utilities and those from the compatibility layer
    - Organize by functional areas (mocking, assertions, DI helpers, etc.)
 
 2. **Migration Guides**
@@ -44,55 +44,97 @@ This task aims to create clear, comprehensive documentation of our testing infra
    - Include information about CI/CD integration
    - Document any environment-specific considerations
 
-## Implementation Steps
+## Implementation Plan
 
-1. [ ] Audit existing test utilities and patterns:
+1. **Audit and Catalog Existing Testing Utilities**
 
-   - [ ] Review the codebase for all test utilities
-   - [ ] Document their purpose and current usage
-   - [ ] Identify undocumented utilities and features
+   - [ ] Review core test utilities in `src/utils/test-utils/`
+     - [ ] Mocking utilities (`mocking.ts`)
+     - [ ] Dependency utilities (`dependencies.ts`)
+     - [ ] Factory utilities for test data generation
+     - [ ] Compatibility layer (`compatibility/`) created in task #111
+   - [ ] Document the purpose, API, and usage patterns for each utility
+   - [ ] Identify gaps in utility coverage and document workarounds
+   - [ ] Create a comprehensive catalog of all testing utilities
 
-2. [ ] Create comprehensive utility documentation:
+2. **Create Documentation Structure**
 
-   - [ ] Document all mock-related utilities
-   - [ ] Document assertion utilities and patterns
-   - [ ] Document dependency injection helpers
-   - [ ] Document test lifecycle utilities
+   - [ ] Create a top-level `TEST_UTILITIES.md` document
+   - [ ] Organize documentation by functional areas:
+     - [ ] Mocking (including Jest/Vitest compatibility layer)
+     - [ ] Assertions and expectations
+     - [ ] Dependency Injection utilities
+     - [ ] Test data generation
+     - [ ] Test lifecycle management
+   - [ ] Develop consistent format for utility documentation
+   - [ ] Include table of contents and navigation structure
 
-3. [ ] Develop migration guides:
+3. **Document Compatibility Layer**
 
-   - [ ] Create guides for function mock migration
-   - [ ] Create guides for module mock migration
-   - [ ] Create guides for assertion pattern migration
-   - [ ] Document compatibility layer usage
+   - [ ] Create detailed documentation for all compatibility layer components:
+     - [ ] Mock functions (`mock-function.ts`) - `createCompatMock()`, `mockReset()`, etc.
+     - [ ] Asymmetric matchers (`matchers.ts`) - `expect.anything()`, `expect.any()`, etc.
+     - [ ] Module mocking (`module-mock.ts`) - `mockModule()`, `jest.mock()` equivalents
+   - [ ] Include examples comparing Jest/Vitest syntax with compatibility layer usage
+   - [ ] Document limitations and differences from Jest/Vitest
+   - [ ] Provide troubleshooting guidance for common compatibility issues
 
-4. [ ] Define and document best practices:
+4. **Develop Migration Guides**
 
-   - [ ] Document recommended patterns for new tests
-   - [ ] Provide examples of well-structured tests
-   - [ ] Document anti-patterns to avoid
-   - [ ] Create templates for different types of tests
+   - [ ] Create migration guide template with:
+     - [ ] Before (Jest/Vitest) and After (Bun) code examples
+     - [ ] Step-by-step instructions
+     - [ ] Common pitfalls to avoid
+     - [ ] Verification steps
+   - [ ] Develop migration guides for common test patterns:
+     - [ ] Function mocking
+     - [ ] Module mocking
+     - [ ] Assertion patterns
+     - [ ] Test setup and teardown
+     - [ ] Asynchronous testing
 
-5. [ ] Document the test infrastructure architecture:
+5. **Document Best Practices**
 
-   - [ ] Create diagrams showing relationships between components
-   - [ ] Document the execution flow of tests
-   - [ ] Explain how the compatibility layer fits in
+   - [ ] Define and document testing principles for the codebase
+   - [ ] Provide guidance on:
+     - [ ] Test organization and structure
+     - [ ] Test naming conventions
+     - [ ] Mocking strategies (when to mock vs. use real implementations)
+     - [ ] Assertion patterns and error messages
+     - [ ] Test data management
+   - [ ] Include examples of well-structured tests
+   - [ ] Document anti-patterns to avoid with explanations
+
+6. **Document Test Infrastructure Architecture**
+
+   - [ ] Create architectural diagrams showing:
+     - [ ] Test execution flow
+     - [ ] Compatibility layer integration
+     - [ ] Dependency injection model
+     - [ ] Relationship between test utilities
+   - [ ] Document the design decisions behind the test infrastructure
+   - [ ] Explain how the compatibility layer works internally
    - [ ] Document the migration strategy and timeline
 
-6. [ ] Create user guides for testing workflows:
+7. **Create User Guides for Workflows**
 
-   - [ ] Document how to run tests in different environments
-   - [ ] Provide guidance on debugging test failures
-   - [ ] Explain test reporting and coverage
-   - [ ] Document CI/CD integration
+   - [ ] Document common testing workflows:
+     - [ ] Setting up a new test file
+     - [ ] Running specific tests
+     - [ ] Debugging test failures
+     - [ ] Measuring and improving test coverage
+   - [ ] Include CI/CD integration documentation
+   - [ ] Document environment-specific considerations
+   - [ ] Create cheat sheets for common testing tasks
 
-7. [ ] Establish a mechanism for keeping documentation updated:
-   - [ ] Define processes for updating docs when utilities change
+8. **Documentation Maintenance**
+
+   - [ ] Define processes for keeping documentation updated
    - [ ] Create templates for documenting new utilities
-   - [ ] Set up review processes for documentation changes
+   - [ ] Establish review processes for documentation changes
+   - [ ] Set up cross-references between documentation and code
 
-## Verification
+## Verification Criteria
 
 - [ ] Documentation covers all existing test utilities
 - [ ] Migration guides include concrete examples for common patterns
@@ -101,3 +143,14 @@ This task aims to create clear, comprehensive documentation of our testing infra
 - [ ] New team members can understand the testing approach from the documentation
 - [ ] Documentation includes practical, runnable examples
 - [ ] The process for updating documentation is clear and effective
+
+## Dependencies
+
+- This task builds on Task #111 (Core Mock Compatibility Layer) for documenting the compatibility utilities
+- This task supports Task #113 (Automated Test Migration Script) by providing migration patterns and guides
+- This task provides guidance for Task #114 (Migrate High-Priority Tests) and Task #115 (Dependency Injection Patterns)
+- The documentation will inform Task #116 (CI/CD Test Stability) by documenting the migration strategy
+
+## Work Log
+
+- Task started: [DATE]
