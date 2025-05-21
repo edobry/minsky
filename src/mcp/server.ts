@@ -162,11 +162,14 @@ export class MinskyMCPServer {
         version: this.options.version
       });
     } catch (error) {
+      // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
         transport: this.options.transportType
       });
+      
+      // Always rethrow the error - the caller is responsible for user-friendly handling
       throw error;
     }
   }
