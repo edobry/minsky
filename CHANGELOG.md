@@ -65,6 +65,16 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 
 ### Changed
 
+- Task #118: Fixed Rule Format Errors in rules.ts
+  - Improved error handling in the `getRule` function to gracefully handle YAML parsing errors in rule frontmatter
+  - Added better debugging for rule file lookup issues
+  - Fixed issues causing "Rule not found" errors for existing rules in .cursor/rules directory
+  - Made the system more robust by extracting rule content even when frontmatter cannot be parsed properly
+  - Added detailed logging to aid in diagnosing rule parsing issues
+  - Resolved errors with specific rules: no-dynamic-imports, designing-tests, rule-creation-guidelines, testing-router, bun-test-patterns, and framework-specific-tests
+
+_See: SpecStory history [2025-08-21_fix-rule-format-errors](mdc:.specstory/history/2025-08-21_fix-rule-format-errors.md) for rule format error fixes._
+
 - Improved error handling for common network errors in the MCP server
   - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
   - Implemented user-friendly error messages with suggested actions for port conflicts
@@ -105,14 +115,6 @@ _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specst
   - Improved error messages when workspace has uncommitted changes
 
 _See: SpecStory history [2023-06-30_fix-session-update-command](mdc:.specstory/history/2023-06-30_fix-session-update-command.md) for implementation details._
-
-- Task #118: Fix Rule Format Errors in rules.ts
-  - Diagnose and fix issues with rule file lookup in the rules system
-  - Ensure all existing rule files in .cursor/rules can be properly found and loaded
-  - Eliminate "Rule not found" errors when running the `minsky rules list` command
-  - Improve error handling in the rule system to provide more helpful diagnostics
-
-_See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
 
 - Task #111: Built Core Mock Compatibility Layer for Bun Tests
   - Created a Jest/Vitest compatibility layer to simplify migration of tests to Bun's test runner
