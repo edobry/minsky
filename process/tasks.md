@@ -195,7 +195,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
 
-- [ ] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
+- [-] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
 
 - [x] Add "session review" Command for PR Review [#121](process/tasks/121-add-session-review-command-for-pr-review.md)
 
@@ -204,3 +204,5 @@ This file tracks work items for the project. Each task follows this format:
 - [-] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
 - [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
+
+- [ ] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
