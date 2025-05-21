@@ -3,28 +3,12 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { registerRulesCommands } from "../../../../adapters/shared/commands/rules.js";
-import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+} from "../../../../adapters/shared/command-registry.js";
 import * as workspace from "../../../../domain/workspace.js";
 import * as rulesDomain from "../../../../domain/rules.js";
-
-// Custom matcher helper functions
-const arrayContaining = (arr: any[]) => ({
-  asymmetricMatch: (actual: any[]) => 
-    Array.isArray(actual) && 
-    arr.every(item => 
-      actual.some(actualItem => 
-        JSON.stringify(actualItem).includes(JSON.stringify(item))
-      )
-    )
-});
-
-const objectContaining = (obj: Record<string, any>) => ({
-  asymmetricMatch: (actual: Record<string, any>) => 
-    typeof actual === 'object' && 
-    Object.entries(obj).every(([key, value]) => 
-      key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))
-    )
-});
 
 // Define interfaces for mock object types
 interface MockRuleService {
@@ -45,15 +29,23 @@ describe("Shared Rules Commands", () => {
   let searchRulesSpy: ReturnType<typeof spyOn>;
   let ruleServiceConstructorSpy: ReturnType<typeof spyOn>;
   
+  // Mock for CLI rules module
+  let mockReadContentFromFileIfExists: any;
+
   beforeEach(() => {
+    // Mock CLI rules adapter - we'll handle this at test level
+    mockReadContentFromFileIfExists = spyOn(null, "readContentFromFileIfExists").mockImplementation((path) => {
+      return "# Rule Content from File";
+    });
+
     // Set up spy for workspace path resolution
-    resolveWorkspacePathSpy = spyOn(workspace, "resolveWorkspacePath").mockImplementation(() => 
+    resolveWorkspacePathSpy = spyOn(workspace, "resolveWorkspacePath").mockImplementation(() =>
       Promise.resolve("/test/workspace")
     );
-    
+
     // Create mock object for methods
     const mockMethods: MockRuleService = {
-      listRules: (options?: any) => 
+      listRules: (options?: any) =>
         Promise.resolve([
           {
             id: "test-rule-1",
@@ -76,7 +68,7 @@ describe("Shared Rules Commands", () => {
             tags: ["docs"]
           }
         ]),
-      getRule: (id: string, options?: any) => 
+      getRule: (id: string, options?: any) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
@@ -87,7 +79,7 @@ describe("Shared Rules Commands", () => {
           globs: ["*.ts"],
           tags: ["test"]
         }),
-      createRule: (id: string, content: string, meta: any, options?: any) => 
+      createRule: (id: string, content: string, meta: any, options?: any) =>
         Promise.resolve({
           id,
           name: meta.name,
@@ -98,7 +90,7 @@ describe("Shared Rules Commands", () => {
           globs: meta.globs,
           tags: meta.tags
         }),
-      updateRule: (id: string, updates: any, options?: any) => 
+      updateRule: (id: string, updates: any, options?: any) =>
         Promise.resolve({
           id,
           name: updates.meta?.name || `Rule ${id}`,
@@ -109,7 +101,7 @@ describe("Shared Rules Commands", () => {
           globs: updates.meta?.globs || ["*.ts"],
           tags: updates.meta?.tags || ["test"]
         }),
-      searchRules: (options?: any) => 
+      searchRules: (options?: any) =>
         Promise.resolve([
           {
             id: "test-search-rule",
@@ -142,14 +134,14 @@ describe("Shared Rules Commands", () => {
   });
 
   afterEach(() => {
-    // Restore original functions
-    resolveWorkspacePathSpy.mockRestore();
-    ruleServiceConstructorSpy.mockRestore();
-    listRulesSpy.mockRestore();
-    getRuleSpy.mockRestore();
-    createRuleSpy.mockRestore();
-    updateRuleSpy.mockRestore();
-    searchRulesSpy.mockRestore();
+    // Reset original functions
+    resolveWorkspacePathSpy.mockReset();
+    ruleServiceConstructorSpy.mockReset();
+    listRulesSpy.mockReset();
+    getRuleSpy.mockReset();
+    createRuleSpy.mockReset();
+    updateRuleSpy.mockReset();
+    searchRulesSpy.mockReset();
   });
 
   test("registerRulesCommands should register rules commands in registry", () => {
@@ -200,7 +192,7 @@ describe("Shared Rules Commands", () => {
     // Verify RuleService was constructed with correct workspace path
     expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
     
-    // Verify listRules was called with correct params
+    // Verify domain function was called with correct params
     expect(listRulesSpy).toHaveBeenCalledWith({
       format: "cursor",
       tag: "test",
@@ -210,15 +202,15 @@ describe("Shared Rules Commands", () => {
     // Verify result
     expect(result).toEqual({
       success: true,
-      rules: arrayContaining([
-        objectContaining({
-          id: "test-rule-1"
-        }),
-        objectContaining({
-          id: "test-rule-2"
-        })
-      ])
+      rules: expect.any(Array)
     });
+
+    // Validate contents instead of using arrayContaining
+    expect(result.rules.length).toBe(2);
+    expect(result.rules[0].id).toBe("test-rule-1");
+    expect(result.rules[0].name).toBe("Test Rule 1");
+    expect(result.rules[1].id).toBe("test-rule-2");
+    expect(result.rules[1].name).toBe("Test Rule 2");
   });
 
   test("rules.get command should call domain function with correct params", async () => {
@@ -268,44 +260,49 @@ describe("Shared Rules Commands", () => {
     const createCommand = sharedCommandRegistry.getCommand("rules.create");
     expect(createCommand).toBeDefined();
     
-    // Mock readContentFromFileIfExists to avoid fs dependency in tests
-    jest.mock("../../../../adapters/cli/rules.js", () => ({
-      readContentFromFileIfExists: jest.fn((content) => Promise.resolve(content)),
-      parseGlobs: jest.fn((globs) => globs?.split(",") || undefined)
-    }));
+    // Set up mock for content file reading
+    mockReadContentFromFileIfExists.mockReturnValue("# Rule Content from File");
     
     // Execute command
     const params = {
-      id: "new-rule",
-      content: "# New Rule Content",
-      description: "New rule description",
-      name: "New Rule Name",
-      globs: "*.ts,*.tsx",
-      tags: "typescript,react",
+      id: "test-rule-new",
+      name: "Test Rule New",
+      description: "Test rule description",
+      content: "content-file.md",
       format: "cursor",
-      overwrite: true,
+      globs: "*.ts,*.js",
+      tags: "test,new",
+      debug: true,
+      workspace: "/custom/workspace",
       json: true
     };
     const context = { interface: "test" };
     const result = await createCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
+    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({
+      workspace: "/custom/workspace" 
+    });
+    
+    // Verify content file was read
+    expect(mockReadContentFromFileIfExists).toHaveBeenCalledWith("content-file.md");
     
     // Verify RuleService was constructed with correct workspace path
     expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
     
-    // Verify createRule was called with correct params
+    // Verify domain function was called with correct params
     expect(createRuleSpy).toHaveBeenCalledWith(
-      "new-rule",
-      "# New Rule Content",
-      expect.objectContaining({
-        name: "New Rule Name",
-        description: "New rule description",
-      }),
+      "test-rule-new",
+      "# Rule Content from File",
+      {
+        name: "Test Rule New",
+        description: "Test rule description",
+        globs: ["*.ts", "*.js"],
+        tags: ["test", "new"]
+      },
       {
         format: "cursor",
-        overwrite: true
+        debug: true
       }
     );
     
@@ -314,8 +311,8 @@ describe("Shared Rules Commands", () => {
       success: true,
       rule: expect.any(Object)
     });
-    expect(result.rule.id).toBe("new-rule");
-    expect(result.rule.name).toBe("New Rule Name");
+    expect(result.rule.id).toBe("test-rule-new");
+    expect(result.rule.name).toBe("Test Rule New");
   });
 
   test("rules.update command should call domain function with correct params", async () => {
