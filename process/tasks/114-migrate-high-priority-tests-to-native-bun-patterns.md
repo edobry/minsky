@@ -84,6 +84,8 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
    - [x] Successfully migrated `src/utils/filter-messages.test.ts`
    - [x] Skipped `src/utils/logger.test.ts` as per user request
    - [x] Successfully migrated `src/domain/__tests__/tasks.test.ts` 
+   - [x] Successfully migrated `src/domain/git.test.ts`
+   - [x] Successfully migrated `src/domain/git.pr.test.ts`
    - [ ] Continue with remaining high-priority tests
 
 5. [x] Verify each migrated test:
@@ -113,7 +115,7 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - [x] Test readability and maintainability are improved
 - [x] Migration patterns are well-documented for future use
 - [✓] The migration report provides valuable insights for the automated migration tool (ongoing)
-- [ ] At least 20 high-priority tests are successfully migrated (4 of 20 completed)
+- [ ] At least 20 high-priority tests are successfully migrated (7 of 20 completed)
 
 ## Dependencies
 
@@ -143,6 +145,8 @@ So far, we have:
    - Migrated filter-messages.test.ts - Used custom assertion helpers
    - Skipped logger.test.ts - As per user request
    - Migrated tasks.test.ts - Used centralized mocking utilities and proper mock cleanup
+   - Migrated git.test.ts - Used spyOn for method mocking with proper cleanup via mock.restore()
+   - Migrated git.pr.test.ts - Used direct method mocking for tests with complex dependencies
 
 4. **Documented Migration Patterns and Lessons Learned**
    - ESM Import Requirements (file extensions)
@@ -152,5 +156,6 @@ So far, we have:
    - Documentation Benefits (migration tracking)
    - Mock Cleanup Approach (setupTestMocks())
    - Mock Implementation Behavior (persistence between tests)
+   - Direct Method Mocking (for complex dependencies, focus on contract testing)
 
-The next steps are to continue migrating the remaining high-priority tests, focusing on the domain layer tests, and further refine our migration approach based on lessons learned.
+The next steps are to continue migrating the remaining high-priority tests, focusing on the domain layer tests like `src/domain/session/session-db.test.ts`, and further refine our migration approach based on lessons learned.
