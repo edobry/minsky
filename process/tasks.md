@@ -163,7 +163,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Enhance Test Utilities for Better Domain Testing [#103](process/tasks/103-enhance-test-utilities-for-better-domain-testing.md)
 
-- [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
+- [-] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
 
 - [x] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
 
