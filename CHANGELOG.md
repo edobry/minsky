@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task (New): Add "session review" Command for PR Review
+
+  - Create a new command to help users review PRs by collecting and displaying all relevant information
+  - Implement functionality to retrieve task specification, PR description, and complete diff
+  - Add support for different output modes (console, file, JSON)
+  - Ensure compatibility with PRs created by both `git prepare-pr` and `session pr` commands
+  - Provide automatic detection of current session when run without parameters
+
 - Task #098: Created Shared Adapter Layer for CLI and MCP Interfaces
   - Created a shared command registry to enable code reuse between interfaces
   - Implemented shared command interfaces with Zod schema validation
@@ -474,3 +482,12 @@ _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specs
   - Ensured consistent testing patterns across the codebase
 
 _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
+
+- Enhanced test utilities for better domain testing
+  - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
+  - Test suite management utilities: `createTestSuite`, `withCleanup`
+  - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
+  - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
+  - Complete documentation in test-utils README
+
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._

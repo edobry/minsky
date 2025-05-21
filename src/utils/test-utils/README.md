@@ -5,350 +5,295 @@ This directory contains utilities for writing consistent, reliable tests through
 ## Table of Contents
 
 - [Mocking Utilities](#mocking-utilities)
-  - [Basic Usage](#basic-usage)
-  - [API Reference](#api-reference)
-  - [Usage Examples](#usage-examples)
-- [Test Pollution and How to Avoid It](#test-pollution-and-how-to-avoid-it)
-  - [What is Test Pollution?](#what-is-test-pollution)
-  - [Common Causes](#common-causes)
-  - [Best Practices](#best-practices)
-- [Additional Utilities](#additional-utilities)
+  - [Basic Mocking](#basic-mocking)
+  - [Enhanced Mocking](#enhanced-mocking)
+  - [Test Context Management](#test-context-management)
+- [Dependency Utilities](#dependency-utilities)
+  - [Creating Test Dependencies](#creating-test-dependencies)
+  - [Domain-Specific Dependencies](#domain-specific-dependencies)
+  - [Dependency Composition](#dependency-composition)
+- [Test Data Generation](#test-data-generation)
+  - [Domain Entity Factories](#domain-entity-factories)
+  - [Test Data Arrays](#test-data-arrays)
+  - [Randomization Utilities](#randomization-utilities)
+- [Best Practices](#best-practices)
+  - [Test Isolation](#test-isolation)
+  - [Avoiding Test Pollution](#avoiding-test-pollution)
+  - [Type Safety](#type-safety)
 
 ## Mocking Utilities
 
-The `mocking.ts` module provides centralized utilities for creating mocks in tests. These utilities encapsulate Bun's testing mocking patterns for easier and consistent usage.
-
-### Basic Usage
-
-```typescript
-import { 
-  createMock, 
-  mockModule, 
-  setupTestMocks 
-} from "../utils/test-utils";
-
-// Set up automatic mock cleanup
-setupTestMocks();
-
-describe("My Test Suite", () => {
-  it("should mock a function", () => {
-    const mockFn = createMock(() => "mock result");
-    expect(mockFn()).toBe("mock result");
-    expect(mockFn).toHaveBeenCalled();
-  });
-
-  it("should mock a module", async () => {
-    mockModule("fs", () => ({
-      readFileSync: createMock(() => "file content"),
-      existsSync: createMock(() => true)
-    }));
-
-    const fs = await import("fs");
-    expect(fs.readFileSync("any-path")).toBe("file content");
-  });
-});
-```
-
-### API Reference
-
-#### `createMock(implementation?)`
-
-Creates a mock function with type safety and call tracking.
-
-```typescript
-// Basic usage
-const mockFn = createMock();
-
-// With implementation
-const mockGreet = createMock((name: string) => `Hello, ${name}!`);
-
-// With call tracking
-mockFn("test");
-expect(mockFn).toHaveBeenCalledWith("test");
-```
-
-#### `mockModule(modulePath, factory)`
-
-Mocks a module with custom implementation.
-
-```typescript
-mockModule("path/to/module", () => ({
-  someFunction: createMock(() => "mocked result"),
-  someValue: "mocked value"
-}));
-
-// Later imports will use the mock
-const { someFunction } = await import("path/to/module");
-```
-
-#### `setupTestMocks()`
-
-Sets up automatic cleanup of mocks after each test.
-
-```typescript
-// Call this at the top level of your test file
-setupTestMocks();
-```
-
-#### `createMockObject(methods, implementations?)`
-
-Creates an object with all specified methods mocked.
-
-```typescript
-const userService = createMockObject([
-  "getUser",
-  "updateUser",
-  "deleteUser"
-]);
-
-// With implementations
-const userService = createMockObject(
-  ["getUser", "updateUser", "deleteUser"],
-  {
-    getUser: (id) => ({ id, name: "Test" })
-  }
-);
-```
-
-#### `createMockExecSync(commandResponses)`
-
-Creates a mock for child_process.execSync that responds based on command patterns.
-
-```typescript
-mockModule("child_process", () => ({
-  execSync: createMockExecSync({
-    "ls": "file1.txt\nfile2.txt",
-    "git status": "On branch main"
-  })
-}));
-```
-
-#### `createMockFileSystem(initialFiles?)`
-
-Creates a mock filesystem with basic operations.
-
-```typescript
-const mockFS = createMockFileSystem({
-  "/path/to/file.txt": "Initial content"
-});
-
-mockModule("fs", () => ({
-  existsSync: mockFS.existsSync,
-  readFileSync: mockFS.readFileSync,
-  // ...other fs functions
-}));
-```
-
-### Usage Examples
-
-#### Mocking Repository Operations
+### Basic Mocking
 
 ```typescript
 import { createMock, mockModule, setupTestMocks } from "../utils/test-utils";
 
+// Set up automatic mock cleanup
 setupTestMocks();
 
-describe("Repository Operations", () => {
-  it("should commit changes", async () => {
-    // Mock child_process.execSync
-    mockModule("child_process", () => ({
-      execSync: createMock((cmd) => {
-        if (cmd.includes("git commit")) return "1 file changed";
-        return "";
-      })
-    }));
+// Create a basic mock function
+const mockFn = createMock();
+mockFn("test");
+expect(mockFn).toHaveBeenCalledWith("test");
 
-    const { commitChanges } = await import("../src/repository");
-    const result = await commitChanges("test commit");
-    
-    expect(result).toContain("1 file changed");
-  });
-});
+// Create a mock with implementation
+const mockGreet = createMock((name: string) => `Hello, ${name}!`);
+expect(mockGreet("World")).toBe("Hello, World!");
+
+// Mock a module
+mockModule("fs", () => ({
+  readFileSync: createMock(() => "file content"),
+  existsSync: createMock(() => true)
+}));
 ```
 
-#### Mocking File System Operations
+### Enhanced Mocking
 
 ```typescript
-import { createMockFileSystem, mockModule, setupTestMocks } from "../utils/test-utils";
+import { 
+  mockFunction, 
+  createPartialMock, 
+  mockReadonlyProperty 
+} from "../utils/test-utils";
 
-setupTestMocks();
+// Create a type-safe mock function
+type GreetFn = (name: string) => string;
+const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
+const result = mockGreet("World"); // TypeScript knows result is string
 
-describe("Config Manager", () => {
-  it("should read config from file", async () => {
-    const mockFS = createMockFileSystem({
-      "/app/config.json": JSON.stringify({ apiKey: "test-key" })
+// Create a partial mock of an interface
+interface UserService {
+  getUser(id: string): Promise<User | null>;
+  updateUser(id: string, data: any): Promise<boolean>;
+  deleteUser(id: string): Promise<boolean>;
+}
+
+// Only implement the methods you need
+const mockUserService = createPartialMock<UserService>({
+  getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
+});
+
+// Other methods are still available and mocked
+await mockUserService.updateUser("123", { name: "Updated" });
+expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated" });
+
+// Mock readonly properties
+const config = {
+  get environment() { return "production"; }
+};
+mockReadonlyProperty(config, "environment", "test");
+expect(config.environment).toBe("test");
+```
+
+### Test Context Management
+
+```typescript
+import { createTestSuite, withCleanup } from "../utils/test-utils";
+
+// Create a test suite with cleanup management
+const { beforeEachTest, afterEachTest } = createTestSuite();
+
+describe("My Test Suite", () => {
+  // Set up automatic context management
+  beforeEach(beforeEachTest);
+  afterEach(afterEachTest);
+  
+  test("resource cleanup", () => {
+    const resource = acquireResource();
+    
+    // Register cleanup to happen automatically
+    withCleanup(() => {
+      releaseResource(resource);
     });
     
-    mockModule("fs", () => ({
-      existsSync: mockFS.existsSync,
-      readFileSync: mockFS.readFileSync,
-      writeFileSync: mockFS.writeFileSync
-    }));
-
-    const { ConfigManager } = await import("../src/config");
-    const config = new ConfigManager("/app/config.json");
-    
-    expect(config.get("apiKey")).toBe("test-key");
+    // Test code that might throw
+    expect(resource.getData()).toBeDefined();
   });
+  // Cleanup happens automatically, even if test throws
 });
 ```
 
-## Test Pollution and How to Avoid It
+## Dependency Utilities
 
-### What is Test Pollution?
-
-Test pollution occurs when state changes from one test affect the behavior of subsequent tests. This leads to:
-
-- Flaky tests that pass in isolation but fail when run as part of a suite
-- Tests that pass/fail depending on execution order
-- Difficult-to-debug test failures
-- False positives and false negatives
-
-In Bun/Jest testing, module mocking is a common source of test pollution since mocked modules may persist between tests if not properly reset.
-
-### Common Causes
-
-1. **Module Mocking Without Cleanup**
-   
-   When using `mock.module()` without properly restoring the original module.
-
-2. **Shared Mutable State**
-   
-   When tests share references to the same mutable objects.
-
-3. **Global State Modification**
-   
-   When tests modify global objects like `global`, `process`, or built-in prototypes.
-
-4. **Persistence of Mocks Across Tests**
-   
-   When mock implementations set in one test leak into another.
-
-### Best Practices
-
-#### 1. Use `setupTestMocks()`
-
-Always call `setupTestMocks()` at the top level of your test file. This ensures all mocks are automatically restored after each test.
+### Creating Test Dependencies
 
 ```typescript
-import { setupTestMocks } from "../utils/test-utils";
+import { createTestDeps } from "../utils/test-utils";
 
-// This ensures mocks are restored after each test
-setupTestMocks();
-```
+// Create default test dependencies with all required interfaces mocked
+const deps = createTestDeps();
 
-#### 2. Isolate Tests
+// Use the dependencies in tests
+const session = await deps.sessionDB.getSession("test-session");
+const task = await deps.taskService.getTask("#123");
 
-Each test should be completely independent. Avoid shared state between tests.
-
-```typescript
-// AVOID: Shared mock object across tests
-const mockFS = createMockFileSystem();
-
-// BETTER: Create fresh mocks in each test
-it("test 1", () => {
-  const mockFS = createMockFileSystem();
-  // Use mockFS
-});
-
-it("test 2", () => {
-  const mockFS = createMockFileSystem();
-  // Use mockFS with clean state
+// Override specific methods for testing
+const customDeps = createTestDeps({
+  sessionDB: {
+    getSession: createMock(() => Promise.resolve({
+      session: "custom-session",
+      taskId: "123",
+      // ...other properties
+    }))
+  }
 });
 ```
 
-#### 3. Scope Mocks Appropriately
-
-Define mocks at the narrowest possible scope:
+### Domain-Specific Dependencies
 
 ```typescript
-// AVOID: Mocking at describe level unless needed
-describe("Suite", () => {
-  beforeEach(() => {
-    mockModule("fs", () => ({ /* ... */ }));
-  });
-  
-  // All tests will use this mock
-});
+import { 
+  createTaskTestDeps,
+  createSessionTestDeps,
+  createGitTestDeps 
+} from "../utils/test-utils";
 
-// BETTER: Mock only in tests that need it
-describe("Suite", () => {
-  it("test that needs mock", () => {
-    mockModule("fs", () => ({ /* ... */ }));
-    // Only this test uses the mock
-  });
-});
+// Create task-specific dependencies
+const taskDeps = createTaskTestDeps();
+
+// Create session-specific dependencies
+const sessionDeps = createSessionTestDeps();
+
+// Create git-specific dependencies
+const gitDeps = createGitTestDeps();
 ```
 
-#### 4. Reset State After Tests
-
-Explicitly reset or clean up any global state modifications.
+### Dependency Composition
 
 ```typescript
-describe("Environment Tests", () => {
-  const originalEnv = { ...process.env };
-  
-  afterEach(() => {
-    // Reset to original state
-    process.env = { ...originalEnv };
-  });
-  
-  it("should test with custom env", () => {
-    process.env.TEST_VAR = "test";
-    // Test with modified environment
-  });
-});
-```
+import { withMockedDeps, createDeepTestDeps } from "../utils/test-utils";
 
-#### 5. Use Isolated File System Paths
+// Temporarily override dependencies for a specific test
+const result = withMockedDeps(
+  originalDeps,
+  {
+    sessionDB: {
+      getSession: createMock(() => Promise.resolve({ 
+        session: "temp-session",
+        // other properties
+      }))
+    }
+  },
+  async (mockDeps) => {
+    // Use mockDeps here with the temporary override
+    const session = await mockDeps.sessionDB.getSession("any");
+    return session;
+  }
+);
 
-When testing file operations, use unique paths for each test.
-
-```typescript
-import { randomUUID } from "crypto";
-
-it("should write to file", () => {
-  // Use a unique path for this test
-  const testPath = `/tmp/test-${randomUUID()}`;
-  // Test file operations at testPath
+// Create deeply nested dependencies with overrides
+const deepDeps = createDeepTestDeps({
+  sessionDB: {
+    getSession: createMock(() => Promise.resolve({ name: "test-session" }))
+  },
+  gitService: {
+    repoStatus: createMock(() => Promise.resolve({ clean: false }))
+  }
 });
 ```
 
-#### 6. Prefer Shallow Mocking
+## Test Data Generation
 
-Mock only what you need, not entire modules if possible.
-
-```typescript
-// AVOID: Mocking entire fs module when only need one function
-mockModule("fs", () => ({ /* everything */ }));
-
-// BETTER: Mock specific function
-const originalReadFile = fs.readFile;
-fs.readFile = createMock();
-// After test: fs.readFile = originalReadFile;
-```
-
-#### 7. Be Aware of Dynamic Imports
-
-Be especially careful with dynamic imports and ensure they're capturing mocked modules:
+### Domain Entity Factories
 
 ```typescript
-// This pattern is prone to test pollution:
-mockModule("module", () => ({ /* mock */ }));
-import { func } from "module"; // This might not see the mock!
+import { 
+  createTaskData, 
+  createSessionData, 
+  createRepositoryData 
+} from "../utils/test-utils";
 
-// BETTER: Use dynamic imports after mocking
-mockModule("module", () => ({ /* mock */ }));
-const { func } = await import("module");
+// Create a task with default values
+const defaultTask = createTaskData();
+
+// Create a task with custom values
+const customTask = createTaskData({
+  id: "#042",
+  title: "Custom Task",
+  status: "IN-PROGRESS"
+});
+
+// Create a session record
+const session = createSessionData({
+  taskId: "123",
+  session: "task#123"
+});
+
+// Create a repository configuration
+const repo = createRepositoryData({
+  type: "github",
+  repoUrl: "github.com/user/repo"
+});
 ```
 
-## Additional Utilities
+### Test Data Arrays
 
-Besides mocking utilities, this directory contains other testing helpers:
+```typescript
+import { createTaskDataArray, createSessionDataArray } from "../utils/test-utils";
 
-- **Console output capturing**: `setupConsoleSpy()`
-- **Temporary directory management**: `createTempTestDir()`
-- **Date and time mocking**: `mockDateFunctions()`
-- **Test environment setup**: `setupTestEnvironment()`
+// Create an array of 5 tasks
+const tasks = createTaskDataArray(5);
 
-See each utility's JSDoc comments for detailed usage instructions. 
+// Create 3 in-progress tasks
+const inProgressTasks = createTaskDataArray(3, { 
+  status: "IN-PROGRESS" 
+});
+
+// Create an array of 3 sessions
+const sessions = createSessionDataArray(3);
+```
+
+### Randomization Utilities
+
+```typescript
+import { 
+  createRandomId, 
+  createRandomString, 
+  createRandomFilePath,
+  createFieldData
+} from "../utils/test-utils";
+
+// Create a random ID
+const id = createRandomId(); // e.g., "test-12345"
+
+// Create a random task ID
+const taskId = createTaskId(); // e.g., "#123"
+
+// Create a random string
+const str = createRandomString(10); // 10 random characters
+
+// Create a random file path
+const path = createRandomFilePath("json"); // e.g., "src/abc123.json"
+
+// Auto-generate appropriate test data based on field name
+const user = {
+  id: createFieldData("id"),
+  name: createFieldData("name"),
+  email: createFieldData("email"),
+  createdAt: createFieldData("createdAt")
+};
+```
+
+## Best Practices
+
+### Test Isolation
+
+- Use `createTestSuite()` and `withCleanup()` to ensure proper cleanup between tests
+- Create fresh dependencies for each test with `createTestDeps()`
+- Never modify global state without proper cleanup
+
+### Avoiding Test Pollution
+
+- Use `setupTestMocks()` to ensure automatic mock cleanup
+- Register cleanup functions with `withCleanup()` for any resources created during tests
+- Use `withMockedDeps()` for temporary dependency overrides
+
+### Type Safety
+
+- Use `mockFunction<T>()` instead of `createMock()` for better type safety
+- Use `createPartialMock<T>()` to create interfaces with type-safe implementations
+- Use factory functions to create properly typed test data
+
+## Examples
+
+See `/src/utils/test-utils/__tests__/enhanced-utils.test.ts` for comprehensive examples of how to use these utilities effectively. 
