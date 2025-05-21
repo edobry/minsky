@@ -22,6 +22,16 @@ import type {
   SessionDeleteParams,
   SessionUpdateParams,
 } from "../../../schemas/session.js";
+import {
+  SESSION_DESCRIPTION,
+  REPO_DESCRIPTION,
+  UPSTREAM_REPO_DESCRIPTION,
+  JSON_DESCRIPTION,
+  DEBUG_DESCRIPTION,
+  TASK_ID_DESCRIPTION,
+  BACKEND_DESCRIPTION,
+  FORCE_DESCRIPTION
+} from "../../../utils/option-descriptions.js";
 
 // ------------------------------------------------------------------
 // Option Interfaces
@@ -92,11 +102,11 @@ export interface ForceOptions {
  */
 export function addRepoOptions(command: Command): Command {
   return command
-    .option("--session <session>", "Session name to use for repository resolution")
-    .option("--repo <repositoryUri>", "Repository URI (overrides session)")
+    .option("--session <session>", SESSION_DESCRIPTION)
+    .option("--repo <repositoryUri>", REPO_DESCRIPTION)
     .option(
       "--upstream-repo <upstreamRepoUri>",
-      "URI of the upstream repository (overrides repo and session)"
+      UPSTREAM_REPO_DESCRIPTION
     );
 }
 
@@ -107,8 +117,8 @@ export function addRepoOptions(command: Command): Command {
  */
 export function addOutputOptions(command: Command): Command {
   return command
-    .option("--json", "Output result as JSON")
-    .option("--debug", "Enable debug output");
+    .option("--json", JSON_DESCRIPTION)
+    .option("--debug", DEBUG_DESCRIPTION);
 }
 
 /**
@@ -118,7 +128,7 @@ export function addOutputOptions(command: Command): Command {
  */
 export function addTaskOptions(command: Command): Command {
   return command
-    .option("--task <taskId>", "Task ID to match");
+    .option("--task <taskId>", TASK_ID_DESCRIPTION);
 }
 
 /**
@@ -128,7 +138,7 @@ export function addTaskOptions(command: Command): Command {
  */
 export function addBackendOptions(command: Command): Command {
   return command
-    .option("-b, --backend <backend>", "Specify backend type");
+    .option("-b, --backend <backend>", BACKEND_DESCRIPTION);
 }
 
 /**
@@ -138,7 +148,7 @@ export function addBackendOptions(command: Command): Command {
  */
 export function addForceOptions(command: Command): Command {
   return command
-    .option("-f, --force", "Force the operation even with validation warnings or errors");
+    .option("-f, --force", FORCE_DESCRIPTION);
 }
 
 // ------------------------------------------------------------------

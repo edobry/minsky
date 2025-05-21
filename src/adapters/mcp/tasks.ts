@@ -4,6 +4,15 @@
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 
+// Import centralized descriptions
+import {
+  TASK_STATUS_FILTER_DESCRIPTION,
+  TASK_ALL_DESCRIPTION,
+  TASK_BACKEND_DESCRIPTION,
+  TASK_STATUS_DESCRIPTION,
+  FORCE_DESCRIPTION
+} from "../../utils/option-descriptions.js";
+
 // Import domain functions
 import {
   listTasksFromParams,
@@ -22,9 +31,9 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "list",
     "List all tasks",
     z.object({
-      filter: z.string().optional().describe("Filter tasks by status"),
-      all: z.boolean().optional().describe("Include completed tasks"),
-      backend: z.string().optional().describe("Task backend (markdown, github)"),
+      filter: z.string().optional().describe(TASK_STATUS_FILTER_DESCRIPTION),
+      all: z.boolean().optional().describe(TASK_ALL_DESCRIPTION),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -43,7 +52,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "Get a task by ID",
     z.object({
       taskId: z.string().describe("Task ID to retrieve"),
-      backend: z.string().optional().describe("Task backend (markdown, github)"),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -61,7 +70,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "Get the status of a task",
     z.object({
       taskId: z.string().describe("Task ID to retrieve status for"),
-      backend: z.string().optional().describe("Task backend (markdown, github)"),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -85,8 +94,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "Set the status of a task",
     z.object({
       taskId: z.string().describe("Task ID to set status for"),
-      status: z.string().describe("Status to set (TODO, IN-PROGRESS, IN-REVIEW, DONE)"),
-      backend: z.string().optional().describe("Task backend (markdown, github)"),
+      status: z.string().describe(TASK_STATUS_DESCRIPTION),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       const params = {
@@ -111,8 +120,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "Create a new task from a specification file",
     z.object({
       specPath: z.string().describe("Path to the task specification file"),
-      force: z.boolean().optional().describe("Force creation even if task already exists"),
-      backend: z.string().optional().describe("Task backend (markdown, github)"),
+      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
+      backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       const params = {

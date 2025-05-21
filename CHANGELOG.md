@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
+  - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
+  - Implemented consistent descriptions for common parameters across interfaces
+  - Updated CLI shared options to use centralized descriptions
+  - Updated MCP adapters (tasks, session, git, rules) to use the same descriptions
+  - Added tests to verify description consistency and naming conventions
+  - Created parameter schemas utility in `src/utils/param-schemas.ts` for reducing Zod schema duplication 
+  - Implemented reusable parameter schema functions for common parameter types
+  - Updated MCP adapters to use shared parameter schemas
+  - Reduced string duplication and improved maintainability of option documentation
+  - Ensured consistent terminology across all interfaces
+
+_See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specstory/history/2025-05-22_standardize-option-descriptions.md) for implementation details._
+
 - Task #117: Fix Session Update Command Implementation
 
   - Created a task to fix issues with the `session update` command
