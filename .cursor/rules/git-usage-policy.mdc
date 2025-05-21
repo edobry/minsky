@@ -1,0 +1,70 @@
+---
+name: Git Usage Policy
+description: REQUIRED when executing Git commands
+---
+# Git Usage Policy
+
+This rule outlines the mandatory policies and best practices for using Git within the Minsky project. Adherence to these guidelines is critical for maintaining repository integrity, collaboration, and preventing data loss.
+
+## ⚠️ CRITICAL: Prohibition and Strict Control of `git push --force`
+
+**`git push --force` (and its alias `git push -f`) is strictly prohibited under almost all circumstances due to its potential to cause irreversible data loss and disrupt collaboration.**
+
+This command overwrites the remote history. It does not just add new commits; it can delete existing ones from the remote branch, making them unrecoverable for collaborators who have already pulled those commits.
+
+### Conditions for Permitted Use (Extremely Rare):
+
+Using `git push --force` is **ONLY PERMISSIBLE** if **ALL** the following conditions are met:
+
+1.  **Target Branch**: The command targets a **personal feature branch** that you are certain **no other collaborator has pulled or based work upon**.
+    - It is **NEVER PERMITTED** on shared branches (e.g., `main`, `develop`, release branches, or any branch another team member might use or have checked out) **UNLESS condition #2 is fully met.**
+2.  **Explicit User Approval (for shared branches or any doubt)**: You have received **explicit, unambiguous, case-by-case approval from the USER in writing** to force push to a specific shared branch for a specific, documented reason.
+    - This approval MUST come AFTER the USER has personally performed the verification steps outlined below.
+3.  **Recent, Personal Error Correction**: The _sole reason_ for the force push is to correct a very recent commit error (e.g., a commit with sensitive data accidentally included, a fundamentally broken commit) that was made **by you**, on a branch **you exclusively control or have explicit approval for as per #2**.
+    - No other work (by you or anyone else) must be based on the commits that will be overwritten.
+
+### Mandatory Verification Steps (Before ANY `git push --force`):
+
+Even if the above conditions seem to be met, the following verification steps are **MANDATORY** by the person intending to execute the command, and **MUST be confirmed by the USER if user approval is required**:
+
+1.  **Local Status Check**: Run `git status` to ensure your local working directory is clean and there are no uncommitted changes that might be relevant.
+2.  **History Inspection**: Run `git log --graph --oneline --all --decorate` to visually inspect the full local commit history across all branches.
+3.  **Remote Comparison**: Run `git fetch origin` (or the relevant remote name). Then, run `git log --graph --oneline origin/<your-branch-name> HEAD` (replace `<your-branch-name>` with the actual branch name) to precisely compare your local branch with the remote version you intend to overwrite.
+4.  **Impact Assessment**: Clearly identify and document _exactly_ which commits will be removed or replaced on the remote. Understand the content of these commits.
+5.  **User Confirmation (if approval sought)**: Present the findings from steps 2-4 to the USER. Clearly explain the remote commits that will be lost. Obtain explicit, written go-ahead from the USER _after_ they have reviewed this information.
+
+### Preferred Alternatives to `git push --force`:
+
+Always prefer safer alternatives:
+
+- **`git revert <commit_hash>`**: This is the safest way to undo changes from a previous commit that has already been pushed. It creates a _new_ commit that reverses the problematic changes, preserving history.
+- **Rebasing on a New Branch**: If you need to rebase your feature branch (e.g., to clean up history before merging), do so on a _newly named local branch_ (e.g., `feature/my-feature-rebased`). Push this new branch and open a new Pull Request. Do not force push over an existing branch that others may have used.
+- **Amending a Recent, Unpushed Commit**: If the commit has _not yet been pushed_, you can safely use `git commit --amend`.
+
+### Consequences of Misuse:
+
+Accidental or unapproved use of `git push --force` that results in data loss or significant disruption to collaborators is considered a **TERMINAL ERROR**. Such an event will trigger:
+
+- An immediate halt to the offending process/automation.
+- A full root cause analysis.
+- Notification to the USER and affected team members.
+- An immediate review and update of this (`git-usage-policy`) and related rules (e.g., `self-improvement`) to prevent recurrence.
+
+## General Git Best Practices
+
+- **Commit Frequently**: Make small, atomic commits with clear, descriptive messages.
+- **Pull Before Push**: Before pushing your changes, especially to shared branches, run `git pull --rebase` (or `git pull` and handle merges) to integrate the latest remote changes.
+- **Branching Strategy**: Follow the project's defined branching strategy (e.g., GitFlow, feature branches).
+- **Clear Commit Messages**: Write commit messages that explain _why_ a change was made, not just _what_ was changed. Follow conventional commit formats if adopted by the project.
+- **Avoid Large Commits**: Do not commit large binary files or generated files unless absolutely necessary and approved.
+
+## See Also
+
+- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
+- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
+
+
+## See Also
+
+- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
+- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
