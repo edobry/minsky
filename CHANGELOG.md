@@ -742,3 +742,13 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Maintained consistent behavior with the CLI interface where list commands only show metadata
   - Ensured all other rule metadata (id, name, description, globs, tags) is still returned
   - Kept the `rules.get` command behavior unchanged, still returning full rule content
+
+- Task #074: Improved Auto-Dependency Installation for Session Workspaces Specification
+  - Refined the task specification with clearer implementation details and error handling
+  - Simplified flag design by removing redundancy between `--install-dependencies` and `--skip-install`
+  - Improved the error handling approach to be more resilient (warn but don't fail session creation)
+  - Enhanced implementation details with complete code examples for integration
+  - Added comprehensive testing strategy with specific test scenarios and mock strategies
+  - Created a senior engineer analysis document with recommendations for implementation
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
