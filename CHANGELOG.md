@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #098: Created Shared Adapter Layer for CLI and MCP Interfaces
+  - Created a shared command registry to enable code reuse between interfaces
+  - Implemented shared command interfaces with Zod schema validation
+  - Built bridges for CLI (Commander.js) and MCP interfaces
+  - Added unified error handling approach for all interfaces
+  - Created schema conversion utilities for validation and type safety
+  - Implemented response formatters for consistent output
+  - Added shared git commands implementation (commit and push)
+  - Added shared tasks commands implementation (status get/set)
+  - Added shared session commands implementation (list, get, start, dir, delete, update, approve, pr)
+  - Added shared rules commands implementation (list, get, create, update, search)
+  - Created integration examples for both CLI and MCP
+  - Added comprehensive test coverage for shared components
+  - Ensured the implementation supports progressive migration from existing adapters
+  - Fixed TypeScript errors in shared components
+
+_See: SpecStory history [2025-06-10_create-shared-adapter-layer](mdc:.specstory/history/2025-06-10_create-shared-adapter-layer.md) for implementation details._
+
 - Task #096: Improve CLI Adapter Structure for Shared Options
   - Created a shared options system to reduce code duplication and ensure consistency across CLI commands
   - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
