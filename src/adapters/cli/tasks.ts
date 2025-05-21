@@ -136,7 +136,7 @@ export function createListCommand(): Command {
 export function createGetCommand(): Command {
   const command = new Command("get")
     .description("Get task details")
-    .argument("<task-id>", "ID of the task to retrieve");
+    .argument("[task-ids...]", "ID(s) of the task(s) to retrieve. Multiple IDs can be provided as separate arguments or as a comma-separated list.");
   
   // Add shared options
   addRepoOptions(command);
@@ -145,7 +145,7 @@ export function createGetCommand(): Command {
   
   command.action(
     async (
-      taskId: string,
+      taskIds: string[],
       options: {
         session?: string;
         repo?: string;
@@ -155,42 +155,134 @@ export function createGetCommand(): Command {
       }
     ) => {
       try {
-        // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(taskId);
-        if (!normalizedTaskId) {
-          throw new ValidationError(
-            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-          );
+        // Handle case when no task IDs are provided
+        if (!taskIds || taskIds.length === 0) {
+          throw new ValidationError("Please provide at least one task ID.");
         }
 
-        // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options);
-        
-        // Convert CLI options to domain parameters
-        const params: TaskGetParams = {
-          ...normalizedParams,
-          taskId: normalizedTaskId,
-        };
+        // Process potential comma-separated values
+        const processedTaskIds: string[] = taskIds.flatMap(id => 
+          id.includes(',') ? id.split(',') : id
+        );
 
-        // Call the domain function
-        const task = await getTaskFromParams(params);
+        // If we have only one task ID, handle it as before
+        if (processedTaskIds.length === 1) {
+          // Normalize the task ID before passing to domain
+          const normalizedTaskId = normalizeTaskId(processedTaskIds[0]);
+          if (!normalizedTaskId) {
+            throw new ValidationError(
+              `Invalid task ID: '${processedTaskIds[0]}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            );
+          }
 
-        // Format and display the result
-        outputResult(task, {
-          json: options.json,
-          formatter: (task) => {
-            log.cli(`Task ${task.id}:`);
-            log.cli(`Title: ${task.title}`);
-            log.cli(`Status: ${task.status}`);
-            if (task.specPath) {
-              log.cli(`Spec: ${task.specPath}`);
+          // Convert CLI options to domain parameters using normalization helper
+          const normalizedParams = normalizeTaskParams(options);
+          
+          // Convert CLI options to domain parameters
+          const params: TaskGetParams = {
+            ...normalizedParams,
+            taskId: normalizedTaskId,
+          };
+
+          // Call the domain function
+          const task = await getTaskFromParams(params);
+
+          // Format and display the result
+          outputResult(task, {
+            json: options.json,
+            formatter: (task) => {
+              log.cli(`Task ${task.id}:`);
+              log.cli(`Title: ${task.title}`);
+              log.cli(`Status: ${task.status}`);
+              if (task.specPath) {
+                log.cli(`Spec: ${task.specPath}`);
+              }
+              if (task.description) {
+                log.cli("\nDescription:");
+                log.cli(task.description);
+              }
+            },
+          });
+        } else {
+          // Handle multiple task IDs
+          // Normalize all task IDs
+          const normalizedTaskIds = processedTaskIds.map(id => {
+            const normalized = normalizeTaskId(id);
+            if (!normalized) {
+              throw new ValidationError(
+                `Invalid task ID: '${id}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+              );
             }
-            if (task.description) {
-              log.cli("\nDescription:");
-              log.cli(task.description);
-            }
-          },
-        });
+            return normalized;
+          });
+
+          // Convert CLI options to domain parameters
+          const normalizedParams = normalizeTaskParams(options);
+          
+          // Create parameters with array of task IDs
+          const params: TaskGetParams = {
+            ...normalizedParams,
+            taskId: normalizedTaskIds,
+          };
+
+          // Call the domain function
+          const result = await getTaskFromParams(params);
+
+          // Format and display the results
+          outputResult(result, {
+            json: options.json,
+            formatter: (result) => {
+              // Handle the case where we get a single task (backward compatibility)
+              if (!result.tasks && !result.errors) {
+                const task = result;
+                log.cli(`Task ${task.id}:`);
+                log.cli(`Title: ${task.title}`);
+                log.cli(`Status: ${task.status}`);
+                if (task.specPath) {
+                  log.cli(`Spec: ${task.specPath}`);
+                }
+                if (task.description) {
+                  log.cli("\nDescription:");
+                  log.cli(task.description);
+                }
+                return;
+              }
+
+              // Display successful results
+              if (result.tasks && result.tasks.length > 0) {
+                log.cli(`Found ${result.tasks.length} tasks:`);
+                
+                // Display each task with a separator
+                result.tasks.forEach((task, index) => {
+                  if (index > 0) {
+                    log.cli('\n----------------------------------------\n');
+                  }
+                  
+                  log.cli(`Task ${task.id}:`);
+                  log.cli(`Title: ${task.title}`);
+                  log.cli(`Status: ${task.status}`);
+                  if (task.specPath) {
+                    log.cli(`Spec: ${task.specPath}`);
+                  }
+                  if (task.description) {
+                    log.cli("\nDescription:");
+                    log.cli(task.description);
+                  }
+                });
+              }
+
+              // Display errors if any
+              if (result.errors && result.errors.length > 0) {
+                log.cli(
+                  `\n${result.errors.length} task(s) could not be found or had errors:`
+                );
+                result.errors.forEach((error) => {
+                  log.cli(`- Task ${error.taskId}: ${error.error}`);
+                });
+              }
+            },
+          });
+        }
       } catch (error) {
         handleCliError(error);
       }

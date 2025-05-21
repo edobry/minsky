@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _See: SpecStory history [2023-06-30_test-utility-documentation](mdc:.specstory/history/2023-06-30_test-utility-documentation.md) for implementation details._
 
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information with separators
+  - Enhanced PR description guidelines with Direct Application Protocol for automatic improvements
+
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
+
 - Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
@@ -46,12 +56,13 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
 - Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information
 
-  - Will update the `tasks get` command to fetch information for multiple tasks at once
-  - Will support comma-separated format and multiple arguments syntax
-  - Will extend task schemas to handle arrays of task IDs
-  - Will improve CLI and MCP adapters to support this enhanced functionality
-  - Will update output formatting to clearly display multiple task information
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
 
 - Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
   - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
