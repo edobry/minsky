@@ -1,10 +1,23 @@
 /**
- * Test utilities for standardized testing patterns across the codebase.
- * This module provides centralized access to all test utilities.
+ * Test Utilities
+ * 
+ * This module exports utilities for testing Minsky components.
+ * It includes utilities for:
+ * - Mocking common functions and services
+ * - Creating test fixtures
+ * - Managing test state
+ * - Jest/Vitest compatibility with Bun's test runner
  */
 
-// Re-export mocking utilities
+// Import and re-export from mocking module
 export * from "./mocking";
+
+// Import and re-export compatibility layer with namespace to avoid conflicts
+import * as compat from "./compatibility";
+export { compat };
+
+// Export a convenient named export for the compatibility layer
+export { setupTestCompat as setupJestCompat } from "./compatibility";
 
 // Re-export dependency utilities
 export * from "./dependencies";
