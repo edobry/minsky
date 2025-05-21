@@ -474,3 +474,8 @@ _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specs
   - Complete documentation in test-utils README
 
 _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
+
+- Fixed task ID filtering in filterTasks function to correctly handle numeric ID comparison
+- Added custom mock function implementation to handle mock.fn being undefined in tests
+
+_See: SpecStory history [2025-07-10_fix-failing-tests](mdc:.specstory/history/2025-07-10_fix-failing-tests.md) for bug fix details._
