@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task (New): Add "session review" Command for PR Review
+
+  - Create a new command to help users review PRs by collecting and displaying all relevant information
+  - Implement functionality to retrieve task specification, PR description, and complete diff
+  - Add support for different output modes (console, file, JSON)
+  - Ensure compatibility with PRs created by both `git prepare-pr` and `session pr` commands
+  - Provide automatic detection of current session when run without parameters
+
 - Task #098: Created Shared Adapter Layer for CLI and MCP Interfaces
   - Created a shared command registry to enable code reuse between interfaces
   - Implemented shared command interfaces with Zod schema validation
@@ -32,7 +40,7 @@ _See: SpecStory history [2025-06-10_create-shared-adapter-layer](mdc:.specstory/
 - Task #108: Refactor TaskService to Functional Patterns
   - Refactored TaskService and associated backends to follow functional programming principles
   - Implemented pure functions for core task manipulation logic
-  - Created explicit state handling with pure data transformation functions 
+  - Created explicit state handling with pure data transformation functions
   - Separated side effects (file I/O, API calls) from pure data operations
   - Added functional composition patterns for complex task operations
   - Improved testability with pure function unit tests
@@ -461,14 +469,14 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
 - Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
   - Fixed type checking errors in session module test files
   - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
-  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions 
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions
   - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
 
-- Enhanced test utilities for better domain testing 
+- Enhanced test utilities for better domain testing
   - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
-  - Test suite management utilities: `createTestSuite`, `withCleanup` 
+  - Test suite management utilities: `createTestSuite`, `withCleanup`
   - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
   - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
   - Complete documentation in test-utils README
