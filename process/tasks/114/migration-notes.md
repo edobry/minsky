@@ -35,7 +35,7 @@ Below are common patterns encountered during migrations:
 | `jest.fn()` | `createMock()` | Use centralized mocking utilities instead of direct Bun APIs |
 | `jest.fn().mockReturnValue(x)` | `createMock(() => x)` | Mocking return values |
 | `jest.mock('module')` | `mockModule('module', () => {})` | Module mocking |
-| `jest.spyOn(object, 'method')` | `createSpyOn(object, 'method')` | Object method spying |
+| `jest.spyOn(object, 'method')` | `createSpyOn(object, 'method')` or `spyOn(object, 'method')` | Object method spying |
 | `beforeEach/afterEach` | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks |
 | Missing import extensions | `import from './file.js'` | ESM requires explicit extensions |
 | `expect(x).toMatch(regex)` | `expect(x.match(regex)).toBeTruthy()` or `expectToMatch(x, regex)` | Regex matching - Bun doesn't have toMatch |
@@ -44,6 +44,8 @@ Below are common patterns encountered during migrations:
 | `mockFn.mockClear()` | `setupTestMocks()` | Automatic mock cleanup between tests |
 | `expect(e instanceof Error)` | `expectToBeInstanceOf(e, Error)` | Type checking with custom helper |
 | `mockFn.mockImplementationOnce()` | `mockFn.mockImplementation()` | Bun only has mockImplementation |
+| `jest.restoreAllMocks()` | `mock.restore()` | Restoring mocked methods |
+| `expect(x).toInclude(y)` | `expect(x.includes(y)).toBe(true)` | String inclusion checking |
 
 ## Custom Assertion Helpers
 
@@ -69,7 +71,7 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
 | `src/utils/test-utils/__tests__/mocking.test.ts` | Completed | Easy | Fixed type errors with type assertions, improved error message verification |
 | `src/utils/filter-messages.test.ts` | Completed | Easy | Added .js extensions, used custom expectToHaveLength helper |
 | `src/domain/__tests__/tasks.test.ts` | Completed | Medium | Used centralized mocking utilities, fixed type issues, used setupTestMocks() for cleanup |
-| `src/domain/git.test.ts` | Not Started | Medium | Priority 2 |
+| `src/domain/git.test.ts` | Completed | Medium | Used spyOn for method mocking, added proper error handling in tests |
 | `src/domain/git.pr.test.ts` | Not Started | Medium | Priority 2 |
 | `src/domain/session/session-db.test.ts` | Not Started | Easy | Priority 2 |
 | `src/adapters/__tests__/shared/commands/rules.test.ts` | Not Started | Easy | Priority 3 |
@@ -122,3 +124,10 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
    - Mock implementations persist between tests if not explicitly reset
    - Need to be mindful of test ordering and mock restoration
    - For tests that modify shared mocks, reset the mock to default state at the start of the test
+
+8. **Direct Method Mocking**
+   - Use `spyOn(Class.prototype, "methodName")` for direct method mocking
+   - This approach is cleaner than mocking modules or dependencies
+   - Bun's `spyOn` supports `mockImplementation` similar to Jest
+   - Use `mock.restore()` in `afterEach` to clean up spies
+   - Type handling with Typescript requires explicit unknown type on catch blocks
