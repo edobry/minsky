@@ -431,7 +431,8 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
 
 - Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
   - Fixed type checking errors in session module test files
-  - Used type assertions to properly handle Bun test matchers without modifying global type definitions
+  - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions 
   - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
