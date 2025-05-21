@@ -308,7 +308,9 @@ This task reduces code duplication, improves maintainability, and ensures consis
   - session start
   - session approve
   - session pr
+  - session inspect
 
+- Registered session.inspect command in the shared command registry
 - Added comprehensive type definitions for bridge components
 - Implemented proper error handling and output formatting
 - Updated documentation and PR description
@@ -340,9 +342,6 @@ This task reduces code duplication, improves maintainability, and ensures consis
 
 4. **Init Command**:
    - init (main command)
-
-5. **Session Commands**:
-   - session inspect (only remaining session command)
 
 ### Additional Work
 
