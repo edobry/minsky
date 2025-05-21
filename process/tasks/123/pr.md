@@ -4,6 +4,19 @@
 
 This PR enhances the `tasks get` command to support retrieving information for multiple tasks in a single operation. This allows users to easily understand a task in the context of other related tasks.
 
+## Motivation & Context
+
+Currently, users need to run multiple commands to retrieve information about different tasks, making it difficult to compare task details efficiently. When working with related tasks, this creates unnecessary friction in the workflow. This enhancement streamlines the experience by allowing batch retrieval, reducing command repetition and improving productivity.
+
+## Design/Approach
+
+We implemented a solution that supports two intuitive syntax options (comma-separated values and multiple arguments) while maintaining backward compatibility with the existing single task retrieval. The implementation carefully separates the concerns between parameter handling, domain logic, and output formatting.
+
+Alternative approaches considered:
+
+- Using a dedicated flag (e.g., `--ids`) for multiple IDs, but this was rejected as less intuitive than direct argument passing
+- JSON file input for large task sets, which may be considered for a future enhancement if needed
+
 ## Changes
 
 ### Added
