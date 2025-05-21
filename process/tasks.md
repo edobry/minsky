@@ -171,6 +171,6 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Refactor GitService to Functional Patterns (Subtask of #102) [#107](process/tasks/107-refactor-gitservice-to-functional-patterns-subtask-of-102-.md)
 
-- [-] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
+- [x] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
 
 - [ ] Fix inconsistent repository name normalization between SessionDB and GitService [#109](process/tasks/109-fix-inconsistent-repository-name-normalization-between-sessiondb-and-gitservice.md)
