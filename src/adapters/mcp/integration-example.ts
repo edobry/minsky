@@ -10,6 +10,7 @@ import { CommandSchema } from "@minsky/core";
 import { registerGitCommands } from "../shared/commands/git.js";
 import { registerTasksCommands } from "../shared/commands/tasks.js";
 import { registerSessionCommands } from "../shared/commands/session.js";
+import { registerRulesCommands } from "../shared/commands/rules.js";
 import { CommandCategory } from "../shared/command-registry.js";
 import { log } from "../../utils/logger.js";
 
@@ -135,6 +136,51 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
 };
 
 /**
+ * Sample MCP command schema for rules list
+ */
+const rulesListCommandSchema: CommandSchema<any, any> = {
+  name: "rules.list",
+  description: "List all rules in the workspace",
+  parameters: {
+    format: {
+      type: "string",
+      description: "Filter by rule format (cursor or generic)",
+      required: false,
+    },
+    tag: {
+      type: "string",
+      description: "Filter by tag",
+      required: false,
+    },
+  },
+  // In real implementation, this would call the shared command registry
+  handler: async (params: any) => {
+    log.debug("MCP rules.list called with params:", params);
+    return {
+      success: true,
+      rules: [
+        {
+          id: "example-rule-1",
+          name: "Example Rule 1",
+          description: "Description for example rule 1",
+          format: "cursor",
+          globs: ["*.ts"],
+          tags: ["typescript"]
+        },
+        {
+          id: "example-rule-2",
+          name: "Example Rule 2",
+          description: "Description for example rule 2",
+          format: "generic",
+          globs: ["*.md"],
+          tags: ["docs"]
+        }
+      ]
+    };
+  },
+};
+
+/**
  * Demonstrates how to integrate shared commands with MCP
  * 
  * This is an example of how the Minsky MCP server could be updated
@@ -147,12 +193,14 @@ export function setupMcpWithSharedCommands(): void {
   registerGitCommands();
   registerTasksCommands();
   registerSessionCommands();
+  registerRulesCommands();
   
   // Bridge the commands to MCP
   mcpBridge.registerSharedCommands([
     CommandCategory.GIT, 
     CommandCategory.TASKS,
-    CommandCategory.SESSION
+    CommandCategory.SESSION,
+    CommandCategory.RULES
   ]);
   
   log.debug("MCP setup complete with shared commands");
@@ -162,5 +210,6 @@ export function setupMcpWithSharedCommands(): void {
 export { 
   gitCommitCommandSchema,
   tasksStatusGetCommandSchema,
-  sessionListCommandSchema
+  sessionListCommandSchema,
+  rulesListCommandSchema
 }; 
