@@ -6,6 +6,12 @@
 // Re-export mocking utilities
 export * from "./mocking";
 
+// Re-export dependency utilities
+export * from "./dependencies";
+
+// Re-export factory functions for test data
+export * from "./factories";
+
 // Additional exports from the main test-utils file
 export { 
   mockDateFunctions,

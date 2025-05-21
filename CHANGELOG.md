@@ -465,3 +465,12 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
   - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
+
+- Enhanced test utilities for better domain testing 
+  - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
+  - Test suite management utilities: `createTestSuite`, `withCleanup` 
+  - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
+  - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
+  - Complete documentation in test-utils README
+
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
