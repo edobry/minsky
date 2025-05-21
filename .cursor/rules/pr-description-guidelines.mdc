@@ -7,6 +7,28 @@ alwaysApply: false
 
 For any Pull Request, follow these standards to ensure clarity, consistency, and comprehensive documentation of changes.
 
+## Direct Application Protocol
+
+When a user mentions or references this rule (explicitly or implicitly) in the context of an existing PR:
+
+1. **Default to Direct Improvement**:
+   - Immediately locate the corresponding PR description file (typically in `process/tasks/<task-id>/pr.md`)
+   - Analyze the existing PR description for missing sections or improvements
+   - **Directly update the file** to bring it into compliance with these guidelines
+   - Commit and push the changes with an appropriate message (e.g., `docs(#<task-id>): Improve PR description`)
+
+2. **When to Apply vs. Explain**:
+   - **Apply Directly**: When a PR description file exists and the user references these guidelines
+   - **Explain Only**: When explicitly asked for an explanation or when no PR description exists yet
+   - **Both**: When asked to explain what changes would be needed and then implement them
+
+3. **Verification Protocol**:
+   - After updating, verify all required sections are present and formatted correctly
+   - Ensure special syntax (like nested code blocks) is properly implemented
+   - Confirm the changes are committed and pushed to the repository
+
+This protocol aligns with the direct action and automation preferences specified in the user-preferences rule.
+
 ## Output Format
 When generating a PR description, always wrap it in a markdown code block with the markdown language specifier:
 ```markdown

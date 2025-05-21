@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information with separators
+  - Enhanced PR description guidelines with Direct Application Protocol for automatic improvements
+
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
+
 - Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
