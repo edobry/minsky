@@ -1,15 +1,15 @@
 /**
  * Shared Git Commands Tests
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn, type SpyInstance } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { registerGitCommands } from "../../../../adapters/shared/commands/git.js";
 import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
 import * as gitDomain from "../../../../domain/git.js";
 
 describe("Shared Git Commands", () => {
   // Set up spies for domain functions
-  let commitSpy: SpyInstance;
-  let pushSpy: SpyInstance;
+  let commitSpy: ReturnType<typeof spyOn>;
+  let pushSpy: ReturnType<typeof spyOn>;
   
   beforeEach(() => {
     // Set up spies
