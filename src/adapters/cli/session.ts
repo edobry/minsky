@@ -22,6 +22,7 @@ import {
   approveSessionFromParams,
   sessionPrFromParams,
   inspectSessionFromParams,
+  sessionReviewFromParams,
 } from "../../domain/index.js";
 import {
   handleCliError,
@@ -562,6 +563,143 @@ export function createInspectCommand(): Command {
 }
 
 /**
+ * Creates the session review command
+ */
+export function createReviewCommand(): Command {
+  return new Command("review")
+    .description("Review a session's PR, showing task spec, PR description, and changes")
+    .argument("[name]", "Session name")
+    .option("--task <taskId>", "Task ID to match")
+    .option("--repo <path>", "Repository path")
+    .option("--output <path>", "Path to save the review output to (defaults to console)")
+    .option("--json", "Output in JSON format")
+    .action(
+      async (
+        name?: string,
+        options?: {
+          task?: string;
+          repo?: string;
+          output?: string;
+          json?: boolean;
+        }
+      ) => {
+        try {
+          const params = {
+            session: name,
+            task: options?.task,
+            repo: options?.repo,
+            output: options?.output,
+            json: options?.json || false,
+          };
+
+          // Call the domain function
+          const result = await sessionReviewFromParams(params);
+
+          // If output path is provided, write to file
+          if (options?.output) {
+            const fs = await import("fs/promises");
+            await fs.writeFile(
+              options.output,
+              options.json ? JSON.stringify(result, null, 2) : formatReviewResult(result),
+              "utf8"
+            );
+            console.log(`Review output written to ${options.output}`);
+            return;
+          }
+
+          // Output the review information
+          if (options?.json) {
+            console.log(JSON.stringify(result, null, 2));
+          } else {
+            console.log(formatReviewResult(result));
+          }
+        } catch (error) {
+          handleCliError(error);
+        }
+      }
+    );
+}
+
+/**
+ * Format review result for console output
+ */
+function formatReviewResult(result: any): string {
+  const lines: string[] = [];
+  
+  // Header
+  lines.push(`# Session Review: ${result.session}`);
+  lines.push("");
+  
+  // Task specification section
+  if (result.taskSpec) {
+    lines.push("## Task Specification");
+    lines.push(`Task ID: ${result.taskSpec.id}`);
+    lines.push(`Title: ${result.taskSpec.title}`);
+    lines.push(`Spec Path: ${result.taskSpec.specPath}`);
+    lines.push("");
+    lines.push("```");
+    lines.push(result.taskSpec.content);
+    lines.push("```");
+    lines.push("");
+  }
+  
+  // PR description section
+  if (result.prDescription) {
+    lines.push("## PR Description");
+    lines.push(`Title: ${result.prDescription.title}`);
+    lines.push("");
+    lines.push("```");
+    lines.push(result.prDescription.body);
+    lines.push("```");
+    lines.push("");
+  }
+  
+  // Metadata section
+  lines.push("## Metadata");
+  lines.push(`Branch: ${result.metadata.branch}`);
+  if (result.metadata.prBranch) {
+    lines.push(`PR Branch: ${result.metadata.prBranch}`);
+  }
+  if (result.metadata.baseBranch) {
+    lines.push(`Base Branch: ${result.metadata.baseBranch}`);
+  }
+  lines.push(`Commit Count: ${result.metadata.commitCount}`);
+  lines.push("");
+  
+  // Diff section
+  lines.push("## Changes");
+  lines.push("### Modified Files");
+  if (result.diff.files.length === 0) {
+    lines.push("No files modified");
+  } else {
+    result.diff.files.forEach((file: string) => {
+      lines.push(`- ${file}`);
+    });
+  }
+  lines.push("");
+  
+  // Diff stats
+  lines.push("### Diff Stats");
+  lines.push("```");
+  lines.push(result.diff.stats);
+  lines.push("```");
+  lines.push("");
+  
+  // Full diff (if not too large)
+  if (result.diff.fullDiff.length < 10000) {
+    lines.push("### Full Diff");
+    lines.push("```diff");
+    lines.push(result.diff.fullDiff);
+    lines.push("```");
+  } else {
+    lines.push("### Full Diff");
+    lines.push("(Diff too large to display, use --output option to save to file)");
+  }
+  
+  return lines.join("\n");
+}
+
+/**
  * Creates the session command
  */
 export function createSessionCommand(config?: GetCurrentSessionConfig): Command {
@@ -577,6 +715,7 @@ export function createSessionCommand(config?: GetCurrentSessionConfig): Command 
   sessionCommand.addCommand(createApproveCommand());
   sessionCommand.addCommand(createPrCommand());
   sessionCommand.addCommand(createInspectCommand());
+  sessionCommand.addCommand(createReviewCommand());
 
   return sessionCommand;
 }

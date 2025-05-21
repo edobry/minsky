@@ -32,11 +32,14 @@ export {
   sessionPrFromParams,
   createSessionProvider,
   inspectSessionFromParams,
+  sessionReviewFromParams,
+  type SessionReviewParams,
+  type SessionReviewResult,
 } from "./session.js";
 
 // Export the functional session module
 export {
   createSessionProvider as createFunctionalSessionProvider,
   type SessionDbState,
-  type SessionDbConfig,
+  type SessionDbFileOptions,
 } from "./session/index.js";

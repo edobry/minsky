@@ -22,6 +22,7 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  sessionReviewFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
 
@@ -280,6 +281,38 @@ const sessionPrCommandParams: CommandParameterMap = {
     description: "Enable debug output",
     required: false,
     defaultValue: false,
+  },
+};
+
+/**
+ * Parameters for the session review command
+ */
+const sessionReviewCommandParams: CommandParameterMap = {
+  session: {
+    schema: z.string(),
+    description: "Session name",
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: "Repository path",
+    required: false,
+  },
+  json: {
+    schema: z.boolean(),
+    description: "Output in JSON format",
+    required: false,
+    defaultValue: false,
+  },
+  output: {
+    schema: z.string(),
+    description: "Path to save the review output to (defaults to console)",
+    required: false,
   },
 };
 
@@ -547,6 +580,40 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to create session PR", {
+          error: error instanceof Error ? error.message : String(error),
+          session: params.session,
+          task: params.task,
+        });
+        throw error;
+      }
+    },
+  });
+
+  // Register session review command
+  sharedCommandRegistry.registerCommand({
+    id: "session.review",
+    category: CommandCategory.SESSION,
+    name: "review",
+    description: "Review a session's PR, showing task spec, PR description, and changes",
+    parameters: sessionReviewCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.review command", { params, context });
+
+      try {
+        const result = await sessionReviewFromParams({
+          session: params.session,
+          task: params.task,
+          repo: params.repo,
+          json: params.json,
+          output: params.output,
+        });
+
+        return {
+          success: true,
+          ...result,
+        };
+      } catch (error) {
+        log.error("Failed to review session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
           task: params.task,

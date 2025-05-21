@@ -67,13 +67,16 @@ _See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/histo
   - Provided migration recommendations with prioritized test lists
   - Identified common patterns causing incompatibility with Bun's test runner
 
-- Task (New): Add "session review" Command for PR Review
+- Task #121: Add "session review" Command for PR Review
 
-  - Create a new command to help users review PRs by collecting and displaying all relevant information
-  - Implement functionality to retrieve task specification, PR description, and complete diff
-  - Add support for different output modes (console, file, JSON)
-  - Ensure compatibility with PRs created by both `git prepare-pr` and `session pr` commands
-  - Provide automatic detection of current session when run without parameters
+  - Implemented a new command to help users review PRs by collecting and displaying all relevant information
+  - Added functionality to retrieve task specification, PR description, and complete diff
+  - Implemented support for different output modes (console, file, JSON)
+  - Created compatibility with PRs created by both `git prepare-pr` and `session pr` commands
+  - Added automatic detection of current session when run without parameters
+  - Implemented user-friendly formatted output for console viewing
+
+_See: SpecStory history [2025-07-10_add-session-review-command](mdc:.specstory/history/2025-07-10_add-session-review-command.md) for implementation details._
 
 - Task #098: Created Shared Adapter Layer for CLI and MCP Interfaces
   - Created a shared command registry to enable code reuse between interfaces
