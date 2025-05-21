@@ -15,6 +15,7 @@ This PR implements a shared adapter layer that enables code reuse between the CL
 - **CLI Bridge**: Adapter to connect shared commands to Commander.js
 - **MCP Bridge**: Adapter to connect shared commands to the MCP server
 - **Git Commands**: Implementation of shared git commands (commit, push)
+- **Tasks Commands**: Implementation of shared tasks commands (status get/set)
 - **Integration Examples**: Demonstration of using the shared layer in both CLI and MCP
 - **Comprehensive Tests**: Test coverage for all shared components
 
@@ -23,11 +24,13 @@ This PR implements a shared adapter layer that enables code reuse between the CL
 - Added shared components while maintaining compatibility with existing code
 - Enhanced TypeScript typing to ensure type safety across the interface layer
 - Refactored error handling to be more consistent between interfaces
+- Fixed TypeScript errors in shared adapter components
 
 ## Testing
 
 - Unit tests for the shared command registry
 - Unit tests for shared git commands
+- Unit tests for shared tasks commands
 - Integration tests for CLI adapter
 - End-to-end testing of the command flow from shared registry to CLI interface
 
