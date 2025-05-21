@@ -7,17 +7,6 @@ import { SessionAdapter } from "./session-adapter";
 import * as fs from "fs";
 import * as path from "path";
 
-// Type helper for tests (only used for type checking, not at runtime)
-type ExtendedExpect = {
-  toHaveProperty(property: string, value?: any): void;
-  toHaveLength(length: number): void;
-  toThrow(message?: string | RegExp | Error): void;
-  not: {
-    toBeNull(): void;
-    toHaveProperty(property: string, value?: any): void;
-  };
-};
-
 describe("SessionAdapter", () => {
   // Create a temp test directory
   const testDir = `/tmp/minsky-session-test-${Date.now()}`;
@@ -67,7 +56,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSession("test-session");
     
-    (expect(retrievedSession) as unknown as ExtendedExpect).not.toBeNull();
+    expect(retrievedSession).not.toBeNull();
     expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#123");
   });
@@ -86,7 +75,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSessionByTaskId("123");
     
-    (expect(retrievedSession) as unknown as ExtendedExpect).not.toBeNull();
+    expect(retrievedSession).not.toBeNull();
     expect(retrievedSession?.session).toBe("test-session");
   });
 
@@ -165,7 +154,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const workdir = await adapter.getSessionWorkdir("test-session");
     
-    (expect(workdir) as unknown as ExtendedExpect).not.toBeNull();
+    expect(workdir).not.toBeNull();
     expect(workdir).toContain("test-repo/sessions/test-session");
   });
 }); 
