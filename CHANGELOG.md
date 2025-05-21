@@ -484,18 +484,15 @@ _See: SpecStory history [YYYY-MM-DD_HH-MM-topic](mdc:.specstory/history/YYYY-MM-
   - Will add dependency generation, mock creation enhancements
   - Will standardize test data generation and setup/teardown
 
-- Task #104: Re-implement Disabled Integration Tests
-  - Will re-implement previously disabled integration tests
-  - Will leverage improved test utilities from Task #103
-  - Will apply dependency injection patterns from Task #101
-  - Will follow functional patterns from Task #102
-  - Will restore full test coverage for critical components
-
-_See: SpecStory history [2025-06-21_improving-domain-testability](mdc:.specstory/history/2025-06-21_improving-domain-testability.md) for task creation._
-
-### Fixed
-
-- Temporarily disabled flaky integration tests that were causing test failures by adding placeholder tests with comments. Full test implementations will be added in a future PR once the test utilities are improved.
+- Task #104: Re-implemented Disabled Integration Tests
+  - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
+  - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
+  - Implemented proper tests for the GitHub backend with dependency injection
+  - Implemented basic tests for GitHub functionality validation
+  - Fixed issues with test environment setup and mock handling
+  - Ensured all tests pass reliably on Bun test framework
+  - Fixed mocking utility to work correctly with Bun's native mock functionality
+  - Added test coverage for the mocking utility itself
 
 ### Changed
 
