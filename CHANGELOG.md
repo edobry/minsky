@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Task #001: Improve Error Handling for MCP Server Port Conflicts
+- Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
   - Will add specific error detection for network-related errors
