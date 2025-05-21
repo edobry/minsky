@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #051: Add Git Commands to MCP Server
+  - Implemented Git command support in the MCP server for AI assistants to interact with Git repositories
+  - Added domain-level interface-agnostic functions for Git operations: `cloneFromParams`, `branchFromParams`, and `pushFromParams`
+  - Created MCP commands for Git operations: `git.clone`, `git.branch`, and `git.push`
+  - Added Git command documentation in README-MCP.md
+  - Ensured all commands follow consistent patterns for error handling and response formatting
+
+_See: SpecStory history [2024-05-19_add-git-commands-to-mcp](mdc:.specstory/history/2024-05-19_add-git-commands-to-mcp.md) for implementation details._
+
 - Task #126: Add Task Specification Content Reading Capability
   - Created a task to add the ability to read and display task specification content
   - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
@@ -90,7 +99,7 @@ _See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/impl
 
 - Task #127: Fix FastMCP Method Registration Issues
   - Created a task to address the method registration issues discovered in Task #124
-  - Will investigate why method registration in FastMCP is not working properly 
+  - Will investigate why method registration in FastMCP is not working properly
   - Will fix the issue with JSON-RPC method registration in the MCP server
   - Will ensure that common methods like `tasks.list` can be called successfully
   - Will add proper error handling for method registration failures
