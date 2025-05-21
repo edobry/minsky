@@ -157,7 +157,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Align MCP API with CLI Implementation and Remove Placeholders [#100](process/tasks/100-align-mcp-api-with-cli-implementation-and-remove-placeholders.md)
 
-- [-] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
+- [x] Improve Domain Module Testability with Proper Dependency Injection [#101](process/tasks/101-improve-domain-module-testability-with-proper-dependency-injection.md)
 
 - [x] Refactor Domain Objects to Follow Functional Patterns [#102](process/tasks/102-refactor-domain-objects-to-follow-functional-patterns.md)
 
@@ -174,3 +174,17 @@ This file tracks work items for the project. Each task follows this format:
 - [x] Refactor TaskService to Functional Patterns (Subtask of #102) [#108](process/tasks/108-refactor-taskservice-to-functional-patterns-subtask-of-102-.md)
 
 - [x] Fix inconsistent repository name normalization between SessionDB and GitService [#109](process/tasks/109-fix-inconsistent-repository-name-normalization-between-sessiondb-and-gitservice.md)
+
+- [ ] Create a Complete Test Inventory and Classification System [#110](process/tasks/110-create-a-complete-test-inventory-and-classification-system.md)
+
+- [ ] Build Core Mock Compatibility Layer [#111](process/tasks/111-build-core-mock-compatibility-layer.md)
+
+- [ ] Implement Comprehensive Test Utility Documentation [#112](process/tasks/112-implement-comprehensive-test-utility-documentation.md)
+
+- [ ] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
+
+- [ ] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
+
+- [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
+
+- [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
