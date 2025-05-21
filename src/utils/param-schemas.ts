@@ -17,7 +17,7 @@ import * as descriptions from "./option-descriptions.js";
  * Create an optional string parameter with a description
  */
 export const optionalString = (description: string) => 
-  z.string().optional().describe(description);
+  z.string().describe(description).optional();
 
 /**
  * Create a required string parameter with a description
@@ -29,7 +29,7 @@ export const requiredString = (description: string) =>
  * Create an optional boolean parameter with a description
  */
 export const optionalBoolean = (description: string) => 
-  z.boolean().optional().describe(description);
+  z.boolean().describe(description).optional();
 
 // ------------------------------------------------------------------
 // Common Parameters - Repository
