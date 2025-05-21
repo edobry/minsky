@@ -1,0 +1,26 @@
+{
+  "name": "test-migration-tool",
+  "version": "0.1.0",
+  "description": "Tool for migrating Jest/Vitest tests to Bun test patterns",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "ts-morph": "^21.0.1",
+    "chalk": "^5.3.0",
+    "glob": "^10.3.10",
+    "ora": "^7.0.1",
+    "diff": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/diff": "^5.0.9",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
+  }
+} 

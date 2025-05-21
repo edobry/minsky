@@ -29,6 +29,20 @@ _See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstor
 
 _See: SpecStory history [2025-06-30_add-inspector-option-to-mcp](mdc:.specstory/history/2025-06-30_add-inspector-option-to-mcp.md) for implementation details._
 
+- Task #113: Implement Automated Test Migration Script
+  - Created a comprehensive tool for migrating Jest/Vitest tests to Bun test patterns
+  - Implemented test-analyzer.ts script to scan the codebase and identify test patterns
+  - Created detailed classification of tests by mocking complexity and migration difficulty
+  - Developed test-migration.ts script to apply transformations to test files
+  - Implemented pattern-based transformations for imports, mock functions, module mocks, and spies
+  - Added support for test verification to validate migrations work correctly
+  - Implemented backup and rollback capabilities for safer migrations
+  - Added detailed reporting in both JSON and Markdown formats
+  - Created comprehensive documentation with examples and best practices
+  - Integrated with the Core Mock Compatibility Layer from Task #111
+
+_See: SpecStory history [2023-10-17_14-25-implement-automated-test-migration-script](mdc:.specstory/history/2023-10-17_14-25-implement-automated-test-migration-script.md) for implementation details._
+
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
     - Main documentation file with overview and getting started guides (`TEST_UTILITIES.md`)
