@@ -16,9 +16,11 @@ This file tracks the progress and patterns identified during the migration of hi
 - Created custom assertion helpers in `src/utils/test-utils/assertions.ts` to bridge Jest/Bun differences
 - Added thorough tests for all assertion helpers
 - Created a detailed assertion method migration guide
+- Migrated enhanced-utils.test.ts with proper ESM imports
+- Migrated mocking.test.ts with improved type safety and error verification
 
 ### Next Steps
-- Continue with migration of the second priority test (mocking.test.ts)
+- Continue with migration of third priority test (filter-messages.test.ts)
 - Document patterns and challenges encountered
 - Create reusable utilities for common patterns
 
@@ -35,6 +37,7 @@ Below are common patterns encountered during migrations:
 | `beforeEach/afterEach` | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks |
 | Missing import extensions | `import from './file.js'` | ESM requires explicit extensions |
 | `expect(x).toMatch(regex)` | `expect(x.match(regex)).toBeTruthy()` or `expectToMatch(x, regex)` | Regex matching - Bun doesn't have toMatch |
+| `@ts-ignore` in tests | Type assertions `(x as any)` | Better type safety than ignoring errors |
 
 ## Custom Assertion Helpers
 
@@ -57,7 +60,7 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
 |-----------|--------|----------------------|-------|
 | `src/utils/test-utils/__tests__/enhanced-utils.test.ts` | Completed | Easy | Fixed import issues, added explicit beforeEach/afterEach imports, added .js extensions |
 | `src/utils/test-utils/__tests__/assertions.test.ts` | Completed | New file | Created custom assertion helpers to bridge Jest/Bun differences |
-| `src/utils/test-utils/__tests__/mocking.test.ts` | Not Started | Easy | Priority 1, Contains jest.spyOn |
+| `src/utils/test-utils/__tests__/mocking.test.ts` | Completed | Easy | Fixed type errors with type assertions, improved error message verification |
 | `src/utils/filter-messages.test.ts` | Not Started | Easy | Priority 1 |
 | `src/utils/logger.test.ts` | Not Started | Easy | Priority 1 |
 | `src/domain/__tests__/tasks.test.ts` | Not Started | Medium | Priority 2 |
@@ -92,3 +95,8 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
    - `toMatch()` assertion method isn't available in Bun's expect
    - Created custom assertion helpers that mirror Jest's assertion methods
    - Custom helpers provide type safety and familiar patterns for test writers
+
+4. **Type Safety Improvements**
+   - Replace `@ts-ignore` comments with proper type assertions (`as any`)
+   - Add error type checking when working with exceptions (`if (e instanceof Error)`)
+   - Use stronger typing in function parameters where possible
