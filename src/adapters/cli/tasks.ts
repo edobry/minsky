@@ -10,6 +10,7 @@ import type {
   TaskStatusGetParams,
   TaskStatusSetParams,
   TaskCreateParams,
+  TaskSpecContentParams,
 } from "../../schemas/tasks.js";
 import { taskStatusSchema } from "../../schemas/tasks.js"; // Import taskStatusSchema for type inference
 import {
@@ -20,10 +21,11 @@ import {
   createTaskFromParams,
   normalizeTaskId,
   TASK_STATUS,
+  getTaskSpecContentFromParams,
 } from "../../domain/tasks.js";
 import { MinskyError, ValidationError } from "../../errors/index.js";
 import * as p from "@clack/prompts";
-import { log } from "../../utils/logger";
+import { log } from "../../utils/logger.js";
 import { z } from "zod"; // Add import for z namespace
 import { 
   handleCliError, 
@@ -32,8 +34,11 @@ import {
   addRepoOptions,
   addOutputOptions,
   addBackendOptions,
-  normalizeTaskParams
+  normalizeTaskParams,
 } from "./utils/index.js";
+
+// Import task commands
+import { createSpecCommand } from './tasks/index.js';
 
 // Helper for exiting process consistently
 function exit(code: number): never {
@@ -521,6 +526,7 @@ export function createTasksCommand(): Command {
   tasksCommand.addCommand(createGetCommand());
   tasksCommand.addCommand(createStatusCommand());
   tasksCommand.addCommand(createCreateCommand());
+  tasksCommand.addCommand(createSpecCommand());
   // Future: tasksCommand.addCommand(createUpdateCommand());
   // Future: tasksCommand.addCommand(createDeleteCommand());
 

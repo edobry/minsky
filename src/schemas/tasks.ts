@@ -100,3 +100,19 @@ export const taskCreateParamsSchema = z
  * Type for task create parameters
  */
 export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
+
+/**
+ * Schema for task spec content parameters
+ */
+export const taskSpecContentParamsSchema = z
+  .object({
+    taskId: taskIdSchema.describe("ID of the task to retrieve specification content for"),
+    section: z.string().optional().describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
+    backend: z.string().optional().describe("Specify task backend (markdown, github)"),
+  })
+  .merge(commonCommandOptionsSchema);
+
+/**
+ * Type for task spec content parameters
+ */
+export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;

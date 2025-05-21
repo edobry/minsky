@@ -342,6 +342,36 @@ export class TaskService {
       throw new Error(`Failed to save updated spec file: ${saveSpecResult.error?.message}`);
     }
   }
+
+  /**
+   * Get the content of a task specification file
+   * @param id Task ID
+   * @returns Promise resolving to object with spec content and path
+   */
+  async getTaskSpecContent(id: string): Promise<{ content: string; specPath: string; task: TaskData }> {
+    // First verify the task exists
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task "${id}" not found`);
+    }
+
+    // Find the specification file path
+    if (!task.specPath) {
+      throw new Error(`No specification file path found for task "${id}"`);
+    }
+
+    // Read the spec file
+    const specResult = await this.currentBackend.getTaskSpecData(task.specPath);
+    if (!specResult.success || !specResult.content) {
+      throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
+    }
+
+    return {
+      content: specResult.content,
+      specPath: task.specPath,
+      task
+    };
+  }
 }
 
 /**

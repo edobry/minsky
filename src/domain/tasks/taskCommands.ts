@@ -31,6 +31,7 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
+  taskSpecContentParamsSchema,
 } from "../../schemas/tasks.js";
 
 // Import params types
@@ -40,6 +41,7 @@ import type {
   TaskStatusGetParams,
   TaskStatusSetParams,
   TaskCreateParams,
+  TaskSpecContentParams,
 } from "../../schemas/tasks.js";
 
 /**
@@ -482,6 +484,71 @@ export async function createTaskFromParams(
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for creating task", error.format(), error);
+    }
+    throw error;
+  }
+}
+
+export async function getTaskSpecContentFromParams(
+  params: TaskSpecContentParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: {
+      workspacePath: string;
+      backend?: string;
+    }) => ReturnType<typeof createTaskService>;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => createTaskService(options),
+  }
+): Promise<{ content: string; specPath: string; task: any; section?: string }> {
+  try {
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
+    // Validate params with Zod schema
+    const validParams = taskSpecContentParamsSchema.parse(paramsWithNormalizedId);
+
+    // Get the repo path and workspace path
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+
+    const workspacePath = await deps.resolveWorkspacePath({
+      workspace: validParams.workspace,
+      sessionRepo: repoPath,
+    });
+
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend,
+    });
+
+    // Get the task specification content using the TaskService method
+    const result = await taskService.getTaskSpecContent(validParams.taskId);
+    
+    // Include the requested section if specified
+    if (validParams.section) {
+      return {
+        ...result,
+        section: validParams.section
+      };
+    }
+    
+    return result;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for getting task spec", error.format(), error);
     }
     throw error;
   }
