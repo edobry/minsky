@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Will add specific error detection for network-related errors
   - Will implement user-friendly messages with suggested actions
   - Will maintain detailed logging for debugging purposes
-  
+
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
 ### Changed
@@ -562,3 +562,9 @@ _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/histor
   - Complete documentation in test-utils README
 
 _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
+
+- Fixed task serialization in MCP adapter to prevent double-stringification
+  - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
+  - Changed the return value structure to avoid JSON stringification conflicts
+  - Ensured proper type safety with TypeScript for returned task data
+  - Resolved the issue where tasks were not properly returned through the MCP interface

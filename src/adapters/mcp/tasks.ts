@@ -10,7 +10,7 @@ import {
   TASK_ALL_DESCRIPTION,
   TASK_BACKEND_DESCRIPTION,
   TASK_STATUS_DESCRIPTION,
-  FORCE_DESCRIPTION
+  FORCE_DESCRIPTION,
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions
@@ -42,7 +42,9 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      return JSON.stringify(await listTasksFromParams(params));
+      // Return task array and cast to Record<string, unknown> to satisfy TypeScript
+      const tasks = await listTasksFromParams(params);
+      return { tasks } as Record<string, unknown>;
     }
   );
 
@@ -60,7 +62,9 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      return JSON.stringify(await getTaskFromParams(params));
+      // Return task as part of an object to satisfy TypeScript
+      const task = await getTaskFromParams(params);
+      return { task } as Record<string, unknown>;
     }
   );
 
