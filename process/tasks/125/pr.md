@@ -23,6 +23,7 @@ This PR implements a CLI bridge that automatically generates Commander.js comman
   - session start
   - session approve
   - session pr
+  - session inspect (added to shared command registry)
 
 ### Changed
 
