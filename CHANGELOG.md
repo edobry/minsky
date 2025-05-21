@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #001: Improve Error Handling for MCP Server Port Conflicts
+  - Created task to improve error handling for network-related errors in the MCP server
+  - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
+  - Will add specific error detection for network-related errors
+  - Will implement user-friendly messages with suggested actions
+  - Will maintain detailed logging for debugging while simplifying user-facing output
+
+_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for task creation._
+
 - Task #121: Enhance `tasks get` Command to Support Multiple Task IDs
 
   - Will update the `tasks get` command to fetch information for multiple tasks at once
