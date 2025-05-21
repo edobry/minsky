@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #108: Refactor TaskService to Functional Patterns
+  - Refactored TaskService and associated backends to follow functional programming principles
+  - Implemented pure functions for core task manipulation logic
+  - Created explicit state handling with pure data transformation functions 
+  - Separated side effects (file I/O, API calls) from pure data operations
+  - Added functional composition patterns for complex task operations
+  - Improved testability with pure function unit tests
+  - Enhanced error handling with more explicit error states
+
+_See: SpecStory history [2025-06-24_refactor-taskservice-functional-patterns](mdc:.specstory/history/2025-06-24_refactor-taskservice-functional-patterns.md) for implementation details._
+
 - Task #096: Improve CLI Adapter Structure for Shared Options
   - Created a shared options system to reduce code duplication and ensure consistency across CLI commands
   - Added TypeScript interfaces for common option groups (repository resolution, output format, etc.)
