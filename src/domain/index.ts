@@ -1,23 +1,27 @@
 export * from "./git";
-export * from "./session";
 export * from "./tasks";
 export * from "./rules";
 export * from "./repo-utils";
 export * from "./workspace";
 export * from "./init";
 
-export { 
-  createPullRequestFromParams, 
-  preparePrFromParams, 
+// Export Git-related functions
+export {
+  createPullRequestFromParams,
+  preparePrFromParams,
   mergePrFromParams,
   cloneFromParams,
   branchFromParams,
   pushFromParams,
-  commitChangesFromParams 
+  commitChangesFromParams,
 } from "./git.js";
 
+// Export legacy SessionDB and related functions
 export {
   SessionDB,
+  type SessionProviderInterface,
+  type Session,
+  type SessionRecord,
   getSessionFromParams,
   listSessionsFromParams,
   startSessionFromParams,
@@ -26,5 +30,13 @@ export {
   getSessionDirFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  createSessionProvider,
   inspectSessionFromParams,
 } from "./session.js";
+
+// Export the functional session module
+export {
+  createSessionProvider as createFunctionalSessionProvider,
+  type SessionDbState,
+  type SessionDbConfig,
+} from "./session/index.js";
