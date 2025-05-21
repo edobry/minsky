@@ -170,15 +170,15 @@ export class CliCommandBridge {
         );
         
         // Create execution context
-        const context: CliExecutionContext = {
-          interface: "cli",
-          debug: !!rawParameters.debug,
-          format: rawParameters.json ? "json" : "text",
-          cliSpecificData: {
-            command: commandInstance,
-            rawArgs: commandInstance.args,
-          },
-        };
+              const context: CliExecutionContext = {
+        interface: "cli",
+        debug: !!rawParameters.debug,
+        format: rawParameters.json ? "json" : "text",
+        cliSpecificData: {
+          command: commandInstance,
+          rawArgs: commandInstance.args,
+        },
+      };
         
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(
@@ -330,10 +330,10 @@ export class CliCommandBridge {
   private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
     // Very simple default formatter
     return (result: any) => {
-      if (typeof result === 'object' && result !== null) {
+      if (typeof result === "object" && result !== null) {
         // If the result has a simple shape, format it nicely
         Object.entries(result).forEach(([key, value]) => {
-          if (typeof value !== 'object' || value === null) {
+          if (typeof value !== "object" || value === null) {
             log.cli(`${key}: ${value}`);
           }
         });
@@ -343,4 +343,10 @@ export class CliCommandBridge {
       }
     };
   }
-} 
+}
+
+/**
+ * Default exported instance for the CLI bridge
+ * This singleton is used by the CLI to generate commands from the shared registry
+ */
+export const cliBridge = new CliCommandBridge(); 

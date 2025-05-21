@@ -58,9 +58,10 @@ export function registerAllCommands(program: Command): void {
 
 /**
  * Helper function to setup common CLI command customizations
+ * @param program Optional Command instance to apply customizations to
  */
-export function setupCommonCommandCustomizations(): void {
-  // Example: Task commands customization
+export function setupCommonCommandCustomizations(program?: Command): void {
+  // Task commands customization
   customizeCategory(CommandCategory.TASKS, {
     aliases: ["task"],
     commandOptions: {
@@ -79,11 +80,23 @@ export function setupCommonCommandCustomizations(): void {
             asArgument: true
           }
         }
+      },
+      "tasks.spec": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          taskId: {
+            asArgument: true,
+            description: "ID of the task to retrieve specification content for"
+          },
+          section: {
+            description: "Specific section of the specification to retrieve"
+          }
+        }
       }
     }
   });
   
-  // Example: Git commands customization
+  // Git commands customization
   customizeCategory(CommandCategory.GIT, {
     commandOptions: {
       "git.commit": {
@@ -96,18 +109,33 @@ export function setupCommonCommandCustomizations(): void {
     }
   });
   
-  // Example: Session commands customization
+  // Session commands customization
   customizeCategory(CommandCategory.SESSION, {
     aliases: ["sess"],
     commandOptions: {
       "session.list": {
         aliases: ["ls"],
-        useFirstRequiredParamAsArgument: false
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          verbose: {
+            alias: "v",
+            description: "Show detailed session information"
+          }
+        }
       },
       "session.start": {
         parameters: {
           task: {
             alias: "t"
+          }
+        }
+      },
+      "session.get": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          sessionId: {
+            asArgument: true,
+            description: "Session ID or name"
           }
         }
       }
@@ -120,7 +148,7 @@ export function setupCommonCommandCustomizations(): void {
  */
 export function initializeCliCommands(program: Command): void {
   // Setup common customizations
-  setupCommonCommandCustomizations();
+  setupCommonCommandCustomizations(program);
   
   // Register all commands in the program
   registerAllCommands(program);

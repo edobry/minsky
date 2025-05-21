@@ -28,12 +28,12 @@ import { z } from "zod"; // Add import for z namespace
 import { 
   handleCliError, 
   outputResult, 
-  isDebugMode,
   addRepoOptions,
   addOutputOptions,
   addBackendOptions,
   normalizeTaskParams
 } from "./utils/index.js";
+import { createCommand } from "../cli/cli-command-factory.js";
 
 // Helper for exiting process consistently
 function exit(code: number): never {
@@ -420,17 +420,23 @@ export function createCreateCommand(): Command {
 }
 
 /**
- * Creates the main tasks command and adds subcommands
+ * Creates the tasks command
  */
 export function createTasksCommand(): Command {
-  const tasksCommand = new Command("tasks").description("Manage tasks");
+  const command = new Command("tasks")
+    .description("Manage tasks");
 
-  tasksCommand.addCommand(createListCommand());
-  tasksCommand.addCommand(createGetCommand());
-  tasksCommand.addCommand(createStatusCommand());
-  tasksCommand.addCommand(createCreateCommand());
-  // Future: tasksCommand.addCommand(createUpdateCommand());
-  // Future: tasksCommand.addCommand(createDeleteCommand());
-
-  return tasksCommand;
+  // Add existing subcommands
+  command.addCommand(createListCommand());
+  command.addCommand(createGetCommand());
+  command.addCommand(createStatusCommand());
+  command.addCommand(createCreateCommand());
+  
+  // Add the bridged tasks.spec command
+  const specCommand = createCommand("tasks.spec");
+  if (specCommand) {
+    command.addCommand(specCommand);
+  }
+  
+  return command;
 }
