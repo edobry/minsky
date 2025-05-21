@@ -14,7 +14,7 @@ import {
   filterTasks,
   parseTaskSpecFromMarkdown,
   formatTaskSpecToMarkdown,
-  isValidTaskStatus
+  isValidTaskStatus,
 } from "../taskFunctions.js";
 import type { TaskData, TaskSpecData } from "../../../types/tasks/taskData.js";
 
@@ -58,15 +58,15 @@ describe("Task Functions", () => {
 
       const tasks = parseTasksFromMarkdown(markdown);
       expect(tasks).toHaveLength(3);
-      
+
       expect(tasks[0].id).toBe("#001");
       expect(tasks[0].title).toBe("First task");
       expect(tasks[0].status).toBe("TODO");
       expect(tasks[0].description).toBe("Description line 1\nDescription line 2");
-      
+
       expect(tasks[1].id).toBe("#002");
       expect(tasks[1].status).toBe("DONE");
-      
+
       expect(tasks[2].id).toBe("#003");
       expect(tasks[2].status).toBe("IN-PROGRESS");
     });
@@ -101,13 +101,13 @@ Code block with task-like content:
           id: "#001",
           title: "First task",
           status: "TODO",
-          description: "Description line 1\nDescription line 2"
+          description: "Description line 1\nDescription line 2",
         },
         {
           id: "#002",
           title: "Completed task",
-          status: "DONE"
-        }
+          status: "DONE",
+        },
       ];
 
       const markdown = formatTasksToMarkdown(tasks);
@@ -123,8 +123,8 @@ Code block with task-like content:
           id: "#001",
           title: "Task with spec",
           status: "TODO",
-          specPath: "path/to/spec.md"
-        }
+          specPath: "path/to/spec.md",
+        },
       ];
 
       const markdown = formatTasksToMarkdown(tasks);
@@ -159,10 +159,8 @@ Code block with task-like content:
 
     test("should handle numeric equivalence", () => {
       // Test leading zeros are handled correctly
-      const tasksWithLeadingZeros: TaskData[] = [
-        { id: "#001", title: "Task 1", status: "TODO" },
-      ];
-      
+      const tasksWithLeadingZeros: TaskData[] = [{ id: "#001", title: "Task 1", status: "TODO" }];
+
       expect(getTaskById(tasksWithLeadingZeros, "1")?.id).toBe("#001");
       expect(getTaskById(tasksWithLeadingZeros, "01")?.id).toBe("#001");
       expect(getTaskById(tasksWithLeadingZeros, "001")?.id).toBe("#001");
@@ -181,7 +179,7 @@ Code block with task-like content:
         { id: "#005", title: "Task 5", status: "IN-PROGRESS" },
         { id: "#003", title: "Task 3", status: "DONE" },
       ];
-      
+
       expect(getNextTaskId(tasks)).toBe("#006");
     });
 
@@ -191,15 +189,13 @@ Code block with task-like content:
         { id: "#050", title: "Task 50", status: "IN-PROGRESS" },
         { id: "#030", title: "Task 30", status: "DONE" },
       ];
-      
+
       expect(getNextTaskId(tasks)).toBe("#051");
     });
 
     test("should pad with zeros", () => {
-      const tasks: TaskData[] = [
-        { id: "#9", title: "Task 9", status: "TODO" },
-      ];
-      
+      const tasks: TaskData[] = [{ id: "#9", title: "Task 9", status: "TODO" }];
+
       expect(getNextTaskId(tasks)).toBe("#010");
     });
   });
@@ -241,7 +237,7 @@ Code block with task-like content:
     test("should add a new task to the array", () => {
       const newTask: TaskData = { id: "#003", title: "Task 3", status: "TODO" };
       const updatedTasks = addTask(testTasks, newTask);
-      
+
       expect(updatedTasks).toHaveLength(3);
       expect(updatedTasks[2]).toEqual(newTask);
     });
@@ -249,7 +245,7 @@ Code block with task-like content:
     test("should replace an existing task with the same ID", () => {
       const replacementTask: TaskData = { id: "#002", title: "Updated Task 2", status: "DONE" };
       const updatedTasks = addTask(testTasks, replacementTask);
-      
+
       expect(updatedTasks).toHaveLength(2);
       expect(updatedTasks[1]).toEqual(replacementTask);
     });
@@ -257,7 +253,7 @@ Code block with task-like content:
     test("should generate an ID if not provided", () => {
       const taskWithoutId: TaskData = { id: "", title: "New Task", status: "TODO" };
       const updatedTasks = addTask(testTasks, taskWithoutId);
-      
+
       expect(updatedTasks).toHaveLength(3);
       expect(updatedTasks[2].id).toBe("#003"); // Next available ID
       expect(updatedTasks[2].title).toBe("New Task");
@@ -284,7 +280,7 @@ Code block with task-like content:
     test("should filter by ID", () => {
       const filtered = filterTasks(testTasks, { id: "2" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].id).toBe("#002");
+      expect(filtered[0]?.id).toBe("#002");
     });
 
     test("should filter by title (string match)", () => {
@@ -302,19 +298,19 @@ Code block with task-like content:
       const withSpec = filterTasks(testTasks, { hasSpecPath: true });
       expect(withSpec).toHaveLength(1);
       expect(withSpec[0].id).toBe("#003");
-      
+
       const withoutSpec = filterTasks(testTasks, { hasSpecPath: false });
       expect(withoutSpec).toHaveLength(2);
-      expect(withoutSpec.map(t => t.id)).toEqual(["#001", "#002"]);
+      expect(withoutSpec.map((t) => t.id)).toEqual(["#001", "#002"]);
     });
 
     test("should combine multiple filter criteria", () => {
-      const filtered = filterTasks(testTasks, { 
+      const filtered = filterTasks(testTasks, {
         title: /task/,
         hasSpecPath: false,
-        status: "IN-PROGRESS"
+        status: "IN-PROGRESS",
       });
-      
+
       expect(filtered).toHaveLength(1);
       expect(filtered[0].id).toBe("#002");
     });
@@ -368,14 +364,14 @@ Description here.
     });
 
     test("should return empty values for invalid input", () => {
-      expect(parseTaskSpecFromMarkdown("")).toEqual({ 
-        title: "", 
-        description: "" 
+      expect(parseTaskSpecFromMarkdown("")).toEqual({
+        title: "",
+        description: "",
       });
-      
-      expect(parseTaskSpecFromMarkdown("No headings here")).toEqual({ 
-        title: "", 
-        description: "" 
+
+      expect(parseTaskSpecFromMarkdown("No headings here")).toEqual({
+        title: "",
+        description: "",
       });
     });
   });
@@ -385,7 +381,7 @@ Description here.
       const spec: TaskSpecData = {
         title: "Test Task",
         description: "This is a test description.",
-        id: "#123"
+        id: "#123",
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);
@@ -399,7 +395,7 @@ Description here.
     test("should format task spec without ID", () => {
       const spec: TaskSpecData = {
         title: "Test Task Without ID",
-        description: "Description here."
+        description: "Description here.",
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);
@@ -422,4 +418,4 @@ Description here.
       expect(isValidTaskStatus("todo")).toBe(false); // case-sensitive
     });
   });
-}); 
+});

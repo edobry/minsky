@@ -474,6 +474,15 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
 
+- Fixed test failures after merging PRs #098 and #108:
+  - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
+  - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
+  - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Fixed mock implementations in rules and session test files
+  - Ensured consistent testing patterns across the codebase
+
+_See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
+
 - Enhanced test utilities for better domain testing
   - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
   - Test suite management utilities: `createTestSuite`, `withCleanup`
