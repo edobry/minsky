@@ -4,41 +4,26 @@
  * and connects the pure functions with the I/O operations.
  */
 
-import { MinskyError, ResourceNotFoundError } from "../../errors/index.js";
-import type { SessionProviderInterface } from "../session.js";
-import type { SessionRecord } from "./session-db.js";
+import { join } from "path";
+import type { SessionRecord, SessionDbState } from "./session-db"; // Type-only imports
 import {
-  addSessionFn,
-  deleteSessionFn,
-  getNewSessionRepoPathFn,
-  getRepoPathFn,
-  getSessionByTaskIdFn,
-  getSessionFn,
-  getSessionWorkdirFn,
   initializeSessionDbState,
   listSessionsFn,
+  getSessionFn,
+  getSessionByTaskIdFn,
+  addSessionFn,
   updateSessionFn,
-  type SessionDbState,
-} from "./session-db.js";
-import {
-  ensureBaseDir,
-  getDefaultBaseDir,
-  getDefaultDbPath,
-  migrateSessionsToSubdirectoryFn,
-  readSessionDbFile,
-  writeSessionDbFile,
-} from "./session-db-io.js";
-import { join } from "path";
-
-/**
- * Adapter class for SessionDB
- * Provides backward compatibility with the class-based implementation
- */
+  deleteSessionFn,
+  getRepoPathFn,
+  getSessionWorkdirFn,
+} from "./session-db"; // Value imports
+import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
 
 /**
  * Interface for session provider
+ * This local definition avoids conflict with any potential global/external one.
  */
-export interface SessionProviderInterface {
+export interface LocalSessionProviderInterface {
   /**
    * Get all available sessions
    */
@@ -84,7 +69,7 @@ export interface SessionProviderInterface {
  * Adapter class for the functional SessionDB implementation
  * Maintains backward compatibility with the original class-based implementation
  */
-export class SessionAdapter implements SessionProviderInterface {
+export class SessionAdapter implements LocalSessionProviderInterface {
   private readonly dbPath: string;
   private readonly baseDir: string;
   private state: SessionDbState;
@@ -153,7 +138,7 @@ export class SessionAdapter implements SessionProviderInterface {
    * Add a new session
    */
   async addSession(record: SessionRecord): Promise<void> {
-    const sessions = await this.readDb();
+    await this.readDb();
     const newState = addSessionFn(this.state, record);
     await this.writeDb(newState.sessions);
   }
@@ -174,23 +159,17 @@ export class SessionAdapter implements SessionProviderInterface {
    * Delete a session
    */
   async deleteSession(session: string): Promise<boolean> {
-    try {
-      await this.readDb();
-      const newState = deleteSessionFn(this.state, session);
-      
-      // If no change occurred (session not found)
-      if (newState.sessions.length === this.state.sessions.length) {
-        return false;
-      }
-      
-      await this.writeDb(newState.sessions);
-      return true;
-    } catch (error) {
-      console.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
+    await this.readDb();
+    const originalLength = this.state.sessions.length;
+    const newState = deleteSessionFn(this.state, session);
+    
+    // If no change occurred (session not found)
+    if (newState.sessions.length === originalLength) {
       return false;
     }
+    
+    await this.writeDb(newState.sessions);
+    return true;
   }
 
   /**
@@ -214,6 +193,6 @@ export class SessionAdapter implements SessionProviderInterface {
  * Factory function to create a session provider instance
  * This allows for easier testing and dependency injection
  */
-export function createSessionProvider(dbPath?: string): SessionProviderInterface {
+export function createSessionProvider(dbPath?: string): LocalSessionProviderInterface {
   return new SessionAdapter(dbPath);
 }

@@ -9,11 +9,16 @@ import * as path from "path";
 
 // Type augmentation for Bun's expect
 declare module "bun:test" {
+  interface ExpectNot {
+    toBeNull(): void;
+    // Add other negative matchers if used, e.g.:
+    // toHaveProperty(property: string, value?: any): void;
+  }
   interface Expect {
-    toHaveProperty(property: string): void;
+    toHaveProperty(property: string, value?: any): void;
     toHaveLength(length: number): void;
-    toThrow(message?: string): void;
-    not: Expect;
+    toThrow(message?: string | RegExp | Error): void;
+    not: ExpectNot; // Typed as ExpectNot
   }
 }
 

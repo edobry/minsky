@@ -3,15 +3,15 @@
  * Exports all components for the Session domain module
  */
 
-// Import SessionProviderInterface
-import type { SessionProviderInterface } from "../session.js";
-import { SessionDbAdapter } from "./session-adapter.js";
+// Export the adapter and its interface
+export { SessionAdapter, createSessionProvider, type LocalSessionProviderInterface } from "./session-adapter";
 
-// Export core types and interfaces
-export type { SessionRecord, SessionDbState, SessionDbConfig } from "./session-db.js";
+// Export core types from session-db
+export type { SessionRecord, SessionDbState } from "./session-db";
 
-// Export pure functions
+// Export pure functions from session-db
 export {
+  initializeSessionDbState,
   listSessionsFn,
   getSessionFn,
   getSessionByTaskIdFn,
@@ -19,53 +19,12 @@ export {
   updateSessionFn,
   deleteSessionFn,
   getRepoPathFn,
-  getSessionWorkdirFn,
-  getNewSessionRepoPathFn,
-  initializeSessionDbState,
-} from "./session-db.js";
+  getSessionWorkdirFn
+} from "./session-db";
 
-// Export I/O operations
-export {
-  readSessionDbFile,
-  writeSessionDbFile,
-  ensureDbDir,
-  repoExistsFn,
-  getDefaultDbPath,
-  getDefaultBaseDir,
-  ensureBaseDir,
-  migrateSessionsToSubdirectoryFn,
-} from "./session-db-io.js";
+// Export I/O functions and types from session-db-io
+export { readSessionDbFile, writeSessionDbFile, ensureDbDir, type SessionDbFileOptions } from "./session-db-io";
 
-// Export adapter for backward compatibility
-export { SessionDbAdapter } from "./session-adapter.js";
-
-// Factory function for creating a session provider
-export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
-  return new SessionDbAdapter(options?.dbPath);
-}
-
-/**
- * Session module exports
- */
-
-// Export the adapter as the default session provider
-export { 
-  SessionAdapter,
-  createSessionProvider,
-  type SessionProviderInterface 
-} from "./session-adapter";
-
-// Export session record type
-export type { SessionRecord, SessionDbState } from "./session-db";
-
-// Export I/O functions
-export {
-  readSessionDbFile,
-  writeSessionDbFile,
-  ensureDbDir,
-  type SessionDbFileOptions
-} from "./session-db-io";
-
-// Create and export default session provider instance
-import { createSessionProvider } from "./session-adapter";
-export const SessionDB = createSessionProvider();
+// Create and export a default session provider instance for convenience
+import { createSessionProvider as createSessionProviderInternal } from "./session-adapter";
+export const SessionDB = createSessionProviderInternal();

@@ -18,12 +18,15 @@ import {
 } from './session-db';
 
 // Type augmentation for Bun's expect
-declare module 'bun:test' {
+declare module "bun:test" {
   interface Expect {
-    toHaveProperty(property: string): void;
+    toHaveProperty(property: string, value?: any): void;
     toHaveLength(length: number): void;
-    toThrow(message?: string): void;
-    not: Expect;
+    toThrow(message?: string | RegExp | Error): void;
+    // For `not`, Bun's `Expect` type likely has a `not: ExpectNot` or similar
+    // where `ExpectNot` would mirror `Expect` but for negative assertions.
+    // If `expect(value).not.toHaveProperty` is the usage, then `ExpectNot` needs `toHaveProperty`.
+    // Let's assume `Expect` itself should have these, and `not` provides an inverted context.
   }
 }
 
