@@ -207,4 +207,4 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
-- [ ] Fix FastMCP Method Registration Issues [#126](process/tasks/126-fix-fastmcp-method-registration-issues.md)
+- [ ] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)

@@ -74,7 +74,7 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 
 _See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for implementation details._
 
-- Task #126: Fix FastMCP Method Registration Issues
+- Task #127: Fix FastMCP Method Registration Issues
   - Created a task to address the method registration issues discovered in Task #124
   - Will investigate why method registration in FastMCP is not working properly 
   - Will fix the issue with JSON-RPC method registration in the MCP server

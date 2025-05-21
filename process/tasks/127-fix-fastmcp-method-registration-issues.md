@@ -1,4 +1,4 @@
-# Task #126: Fix FastMCP Method Registration Issues
+# Task #127: Fix FastMCP Method Registration Issues
 
 ## Context
 The MCP (Minsky Command Protocol) server uses the FastMCP library to provide JSON-RPC functionality for communicating with various tools. During the implementation of task #124, we added a repository path parameter to the MCP server to provide context to all commands. However, we discovered that the method registration in FastMCP has issues - methods like `tasks.list` couldn't be called despite being properly registered, resulting in "Method not found" errors.
