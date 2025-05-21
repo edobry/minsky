@@ -6,6 +6,25 @@ import { registerSessionCommands } from "../../../../adapters/shared/commands/se
 import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
 import * as sessionDomain from "../../../../domain/session.js";
 
+// Custom matcher helper functions
+const arrayContaining = (arr: any[]) => ({
+  asymmetricMatch: (actual: any[]) => 
+    Array.isArray(actual) && 
+    arr.every(item => 
+      actual.some(actualItem => 
+        JSON.stringify(actualItem).includes(JSON.stringify(item))
+      )
+    )
+});
+
+const objectContaining = (obj: Record<string, any>) => ({
+  asymmetricMatch: (actual: Record<string, any>) => 
+    typeof actual === 'object' && 
+    Object.entries(obj).every(([key, value]) => 
+      key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))
+    )
+});
+
 describe("Shared Session Commands", () => {
   // Set up spies for domain functions
   let getSessionSpy: ReturnType<typeof spyOn>;
@@ -163,12 +182,12 @@ describe("Shared Session Commands", () => {
     // Verify result
     expect(result).toEqual({
       success: true,
-      sessions: expect.arrayContaining([
-        expect.objectContaining({
+      sessions: arrayContaining([
+        objectContaining({
           session: "test-session-1",
           repoName: "test-repo-1"
         }),
-        expect.objectContaining({
+        objectContaining({
           session: "test-session-2",
           repoName: "test-repo-2"
         })
@@ -203,7 +222,7 @@ describe("Shared Session Commands", () => {
     // Verify result
     expect(result).toEqual({
       success: true,
-      session: expect.objectContaining({
+      session: objectContaining({
         session: "test-session",
         taskId: "123"
       })
@@ -245,7 +264,7 @@ describe("Shared Session Commands", () => {
     // Verify result
     expect(result).toEqual({
       success: true,
-      session: expect.objectContaining({
+      session: objectContaining({
         session: "new-session",
         taskId: "789"
       })
