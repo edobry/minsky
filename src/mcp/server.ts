@@ -1,5 +1,7 @@
 import { FastMCP } from "fastmcp";
-import { log } from "../utils/logger";
+import { log } from "../utils/logger.js";
+import type { ProjectContext } from "../types/project.js";
+import { createProjectContextFromCwd } from "../types/project.js";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -22,6 +24,13 @@ export interface MinskyMCPServerOptions {
    * @default "stdio"
    */
   transportType?: "stdio" | "sse" | "httpStream";
+
+  /**
+   * Project context containing repository information
+   * Used for operations that require repository context
+   * @default Context created from process.cwd()
+   */
+  projectContext?: ProjectContext;
 
   /**
    * SSE configuration options
@@ -65,16 +74,32 @@ export interface MinskyMCPServerOptions {
 export class MinskyMCPServer {
   private server: FastMCP;
   private options: MinskyMCPServerOptions;
+  private projectContext: ProjectContext;
 
   /**
    * Create a new MinskyMCPServer
    * @param options Configuration options for the server
    */
   constructor(options: MinskyMCPServerOptions = {}) {
+    // Store the project context or create a default one
+    try {
+      this.projectContext = options.projectContext || createProjectContextFromCwd();
+      log.debug("Using project context", {
+        repositoryPath: this.projectContext.repositoryPath
+      });
+    } catch (error) {
+      log.warn("Failed to create project context from current directory, tools requiring repository context may not work", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Create a minimal context with an empty path, tools will need to handle this
+      this.projectContext = { repositoryPath: "" };
+    }
+
     this.options = {
       name: options.name || "Minsky MCP Server",
       version: options.version || "1.0.0", // Should be dynamically pulled from package.json
       transportType: options.transportType || "stdio",
+      projectContext: this.projectContext,
       sse: {
         endpoint: options.sse?.endpoint || "/sse",
         port: options.sse?.port || 8080,
@@ -159,7 +184,8 @@ export class MinskyMCPServer {
       log.agent("Minsky MCP Server started", {
         transport: this.options.transportType,
         serverName: this.options.name,
-        version: this.options.version
+        version: this.options.version,
+        repositoryPath: this.projectContext.repositoryPath
       });
     } catch (error) {
       // Log error with full details (for structured logging/debugging)
@@ -179,5 +205,13 @@ export class MinskyMCPServer {
    */
   getFastMCPServer(): FastMCP {
     return this.server;
+  }
+
+  /**
+   * Get the project context for this server instance
+   * @returns The project context containing repository information
+   */
+  getProjectContext(): ProjectContext {
+    return this.projectContext;
   }
 }

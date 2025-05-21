@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #124: Add Repository Path Parameter to MCP Server
+  - Added `--repo <path>` parameter to the `minsky mcp start` command
+  - Created `ProjectContext` concept to store repository information at the server level
+  - Added automatic injection of repository path for all MCP tools
+  - Updated MCP commands to use server-level repository path as default
+  - Added validation for repository paths with helpful error messages
+  - Updated documentation in README-MCP.md to explain the project context concept
+  - Implemented tests for the new functionality
+
+_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for implementation details._
+
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
     - Main documentation file with overview and getting started guides (`TEST_UTILITIES.md`)

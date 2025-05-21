@@ -1,6 +1,7 @@
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { log } from "../utils/logger";
+import { log } from "../utils/logger.js";
+import type { ProjectContext } from "../types/project.js";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
@@ -8,13 +9,30 @@ import { log } from "../utils/logger";
  */
 export class CommandMapper {
   private server: FastMCP;
+  private projectContext: ProjectContext | undefined;
 
   /**
    * Create a new CommandMapper
    * @param server The FastMCP server instance
+   * @param projectContext Optional project context containing repository information
    */
-  constructor(server: FastMCP) {
+  constructor(server: FastMCP, projectContext?: ProjectContext) {
     this.server = server;
+    this.projectContext = projectContext;
+    
+    if (projectContext) {
+      log.debug("CommandMapper initialized with project context", {
+        repositoryPath: projectContext.repositoryPath
+      });
+    }
+  }
+
+  /**
+   * Get the current project context
+   * @returns The current project context, or undefined if not available
+   */
+  getProjectContext(): ProjectContext | undefined {
+    return this.projectContext;
   }
 
   /**
@@ -33,6 +51,20 @@ export class CommandMapper {
       parameters: command.parameters || z.object({}),
       execute: async (args) => {
         try {
+          // If the command might use repository context and no explicit repository is provided,
+          // inject the default repository path from project context
+          if (this.projectContext && this.projectContext.repositoryPath && args && typeof args === 'object') {
+            if (!('repositoryPath' in args) || !args.repositoryPath) {
+              args = {
+                ...args,
+                repositoryPath: this.projectContext.repositoryPath
+              };
+              log.debug(`Using default repository path for command ${command.name}`, {
+                repositoryPath: this.projectContext.repositoryPath
+              });
+            }
+          }
+          
           const result = await command.execute(args);
           // If result is a string, return it directly
           if (typeof result === "string") {
@@ -67,10 +99,21 @@ export class CommandMapper {
     parameters: T,
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
   ): void {
+    // Extend parameters to include optional repositoryPath if not already present
+    const hasRepositoryPath = Object.keys(parameters.shape || {}).includes('repositoryPath');
+    
+    let extendedParameters: z.ZodTypeAny = parameters;
+    if (!hasRepositoryPath) {
+      // Using type assertion since we're dynamically extending the schema
+      extendedParameters = parameters.extend({
+        repositoryPath: z.string().optional().describe("Repository path to use for this operation (overrides server context)"),
+      }) as z.ZodTypeAny;
+    }
+    
     this.addCommand({
       name: `tasks.${name}`,
       description,
-      parameters,
+      parameters: extendedParameters,
       execute: executeFunction,
     });
   }
@@ -88,10 +131,21 @@ export class CommandMapper {
     parameters: T,
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
   ): void {
+    // Extend parameters to include optional repositoryPath if not already present
+    const hasRepositoryPath = Object.keys(parameters.shape || {}).includes('repositoryPath');
+    
+    let extendedParameters: z.ZodTypeAny = parameters;
+    if (!hasRepositoryPath) {
+      // Using type assertion since we're dynamically extending the schema
+      extendedParameters = parameters.extend({
+        repositoryPath: z.string().optional().describe("Repository path to use for this operation (overrides server context)"),
+      }) as z.ZodTypeAny;
+    }
+    
     this.addCommand({
       name: `session.${name}`,
       description,
-      parameters,
+      parameters: extendedParameters,
       execute: executeFunction,
     });
   }
@@ -109,10 +163,21 @@ export class CommandMapper {
     parameters: T,
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
   ): void {
+    // Extend parameters to include optional repositoryPath if not already present
+    const hasRepositoryPath = Object.keys(parameters.shape || {}).includes('repositoryPath');
+    
+    let extendedParameters: z.ZodTypeAny = parameters;
+    if (!hasRepositoryPath) {
+      // Using type assertion since we're dynamically extending the schema
+      extendedParameters = parameters.extend({
+        repositoryPath: z.string().optional().describe("Repository path to use for this operation (overrides server context)"),
+      }) as z.ZodTypeAny;
+    }
+    
     this.addCommand({
       name: `git.${name}`,
       description,
-      parameters,
+      parameters: extendedParameters,
       execute: executeFunction,
     });
   }
@@ -130,10 +195,21 @@ export class CommandMapper {
     parameters: T,
     executeFunction: (args: z.infer<T>) => Promise<string | Record<string, unknown>>
   ): void {
+    // Extend parameters to include optional repositoryPath if not already present
+    const hasRepositoryPath = Object.keys(parameters.shape || {}).includes('repositoryPath');
+    
+    let extendedParameters: z.ZodTypeAny = parameters;
+    if (!hasRepositoryPath) {
+      // Using type assertion since we're dynamically extending the schema
+      extendedParameters = parameters.extend({
+        repositoryPath: z.string().optional().describe("Repository path to use for this operation (overrides server context)"),
+      }) as z.ZodTypeAny;
+    }
+    
     this.addCommand({
       name: `rules.${name}`,
       description,
-      parameters,
+      parameters: extendedParameters,
       execute: executeFunction,
     });
   }

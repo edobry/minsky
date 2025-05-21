@@ -19,6 +19,9 @@ minsky mcp start --sse --port 8080
 
 # Start with HTTP streaming
 minsky mcp start --http-stream --port 9000
+
+# Start with a specified repository path
+minsky mcp start --repo /path/to/your/repository
 ```
 
 ## Transport Options
@@ -28,6 +31,53 @@ The Minsky MCP server supports multiple transport mechanisms:
 - **stdio** (default): Standard input/output transport, suitable for direct process communication
 - **SSE** (Server-Sent Events): For web-based communication over HTTP
 - **HTTP Streaming**: For more efficient web-based communication with larger payloads
+
+## Project Context
+
+The Minsky MCP server uses a concept called "Project Context" to maintain information about the project being worked on. This context includes:
+
+- **Repository Path**: The path to the repository root directory
+
+When you start the MCP server with the `--repo` parameter, this repository path is stored at the server level and used as the default context for all MCP operations that require repository information.
+
+```bash
+# Start the MCP server with a specific repository path
+minsky mcp start --repo /path/to/your/repository
+```
+
+Without this parameter, the MCP server will use the current working directory as the repository path. This can cause issues if the MCP client is running in a different directory context.
+
+### Using Project Context in MCP Tools
+
+All MCP tools that require repository information will:
+
+1. Use the server-level repository path by default
+2. Allow overriding this path with an explicit `repositoryPath` parameter
+
+For example:
+
+```json
+{
+  "name": "tasks.list",
+  "params": {
+    "filter": "IN-PROGRESS"
+  }
+}
+```
+
+This will use the repository path provided when starting the MCP server.
+
+You can also override the repository path for a specific operation:
+
+```json
+{
+  "name": "tasks.list",
+  "params": {
+    "filter": "IN-PROGRESS",
+    "repositoryPath": "/different/repo/path"
+  }
+}
+```
 
 ## Available Tools
 
