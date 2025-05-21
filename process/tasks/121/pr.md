@@ -60,4 +60,4 @@ The command's output includes:
 - Task specification from the associated task
 - PR description from the PR branch commit message
 - Detailed diff statistics (files changed, insertions, deletions)
-- Full diff showing all changes 
+- Full diff showing all changes

@@ -3,6 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
+import { log } from "../../utils/logger.js";
 
 // Import centralized descriptions
 import {
@@ -10,7 +11,7 @@ import {
   TASK_ALL_DESCRIPTION,
   TASK_BACKEND_DESCRIPTION,
   TASK_STATUS_DESCRIPTION,
-  FORCE_DESCRIPTION
+  FORCE_DESCRIPTION,
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions
@@ -36,13 +37,23 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.list", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         all: args.all ?? false, // Provide default for 'all'
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      return JSON.stringify(await listTasksFromParams(params));
+      // Return task array and cast to Record<string, unknown> to satisfy TypeScript
+      const tasks = await listTasksFromParams(params);
+      return { tasks } as Record<string, unknown>;
     }
   );
 
@@ -51,16 +62,29 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "get",
     "Get a task by ID",
     z.object({
-      taskId: z.string().describe("Task ID to retrieve"),
+      taskId: z.union([
+        z.string().describe("Task ID to retrieve"),
+        z.array(z.string()).describe("Array of task IDs to retrieve")
+      ]).describe("Task ID or array of task IDs to retrieve"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.get", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      return JSON.stringify(await getTaskFromParams(params));
+      // Return task as part of an object to satisfy TypeScript
+      const task = await getTaskFromParams(params);
+      return { task } as Record<string, unknown>;
     }
   );
 
@@ -73,9 +97,17 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.status.get", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       const status = await getTaskStatusFromParams(params);
@@ -98,9 +130,17 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.status.set", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         status: args.status as "TODO" | "IN-PROGRESS" | "IN-REVIEW" | "DONE", // Cast to expected type
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       await setTaskStatusFromParams(params);
@@ -124,10 +164,18 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.create", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         force: args.force ?? false, // Provide default for 'force'
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       const task = await createTaskFromParams(params);

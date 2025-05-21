@@ -505,7 +505,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
+  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } = params;
 
   // Create dependencies with defaults
   const deps = {
@@ -529,6 +529,8 @@ export async function startSessionFromParams(
       noStatusUpdate,
       quiet,
       json,
+      skipInstall,
+      packageManager,
     });
 
     const currentDir = process.env.PWD || process.cwd();
@@ -652,6 +654,32 @@ export async function startSessionFromParams(
       session: sessionName,
       branch: branchName,
     });
+
+    // Install dependencies if not skipped
+    if (!skipInstall) {
+      try {
+        // Dynamically import the package manager module to avoid circular dependencies
+        const { installDependencies } = await import("../utils/package-manager.js");
+        
+        const { success, error } = await installDependencies(sessionDir, {
+          packageManager: packageManager,
+          quiet: quiet
+        });
+        
+        if (!success && !quiet) {
+          log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`);
+        }
+      } catch (installError) {
+        // Log but don't fail session creation
+        if (!quiet) {
+          log.cliWarn(
+            `Warning: Dependency installation failed. You may need to run install manually.
+Error: ${installError instanceof Error ? installError.message : String(installError)}`
+          );
+        }
+      }
+    }
 
     // Update task status to IN-PROGRESS if requested and if we have a task ID
     if (taskId && !noStatusUpdate) {
@@ -779,8 +807,7 @@ export async function getSessionDirFromParams(
 }
 
 /**
- * Updates a session based on parameters
- * Using proper dependency injection for better testability
+ * Interface-agnostic function for updating a session
  */
 export async function updateSessionFromParams(
   params: SessionUpdateParams,
@@ -789,8 +816,8 @@ export async function updateSessionFromParams(
     gitService?: GitServiceInterface;
     getCurrentSession?: typeof getCurrentSession;
   }
-): Promise<void> {
-  const { name, branch, remote, noStash, noPush } = params;
+): Promise<Session> {
+  const { name, branch, remote, noStash, noPush, force } = params;
 
   // Input validation
   if (!name) {
@@ -813,6 +840,16 @@ export async function updateSessionFromParams(
 
     // Get session working directory
     const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+
+    // Check if the workspace is dirty using git status command directly
+    const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
+    const isDirty = statusOutput.trim().length > 0;
+    
+    if (isDirty && !force) {
+      throw new MinskyError(
+        `Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override.`
+      );
+    }
 
     // Stash changes if needed
     if (!noStash) {
@@ -861,6 +898,17 @@ export async function updateSessionFromParams(
         stashError
       );
     }
+
+    // Return the updated session information
+    return {
+      session: sessionRecord.session,
+      repoName: sessionRecord.repoName,
+      repoUrl: sessionRecord.repoUrl,
+      branch: sessionRecord.branch,
+      createdAt: sessionRecord.createdAt,
+      taskId: sessionRecord.taskId,
+      repoPath: workdir,
+    };
   } catch (error) {
     if (error instanceof MinskyError) {
       throw error;

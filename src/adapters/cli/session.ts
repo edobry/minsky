@@ -139,9 +139,15 @@ export function createGetCommand(): Command {
  */
 export function createStartCommand(): Command {
   const command = new Command("start")
-    .description("Start a new session")
+    .description("Start a new session for a task")
     .argument("[name]", "Session name")
-    .option("--quiet", "Only output the session directory path")
+    .option("--quiet", "Suppress output and only print the session directory")
+    .option("--no-status-update", "Don't update task status to IN-PROGRESS")
+    .option("--skip-install", "Skip automatic dependency installation")
+    .option(
+      "--package-manager <manager>",
+      "Override the detected package manager (bun, npm, yarn, pnpm)"
+    )
     // Backend type option
     .option("--backend <type>", "Repository backend type (local, remote, github)")
     // Remote Git specific options
@@ -166,11 +172,14 @@ export function createStartCommand(): Command {
     async (
       name?: string,
       options?: {
+        task?: string;
         repo?: string;
         session?: string;
         "upstream-repo"?: string;
-        task?: string;
         quiet?: boolean;
+        statusUpdate?: boolean;
+        skipInstall?: boolean;
+        packageManager?: string;
         backend?: "local" | "remote" | "github";
         repoUrl?: string;
         authMethod?: "ssh" | "https" | "token";
@@ -189,7 +198,9 @@ export function createStartCommand(): Command {
           ...normalizedParams,
           name,
           quiet: options?.quiet || false,
-          noStatusUpdate: false,
+          noStatusUpdate: options?.statusUpdate === false, // Note the inverted logic
+          skipInstall: options?.skipInstall || false,
+          packageManager: options?.packageManager as any // will be validated by zod schema
         } as SessionStartParams;
 
         // Add backend-specific parameters if provided
@@ -369,6 +380,8 @@ export function createUpdateCommand(): Command {
         session?: string;
         "upstream-repo"?: string;
         force?: boolean;
+        stash?: boolean;
+        push?: boolean;
       }
     ) => {
       try {
@@ -379,27 +392,44 @@ export function createUpdateCommand(): Command {
         const params: Partial<SessionUpdateParams> = {
           ...normalizedParams,
           name: name || "", // Ensure this is a string even if undefined
-          // Add additional properties from SessionUpdateParams as needed
-          noStash: options?.force || false, // Map force to noStash
+          noStash: options?.force || options?.stash === false,
+          noPush: options?.push === false,
         };
 
         // Call the domain function
-        await updateSessionFromParams(params as SessionUpdateParams);
+        const updatedSession = await updateSessionFromParams(params as SessionUpdateParams);
 
-        // Get the session to display results (since updateSessionFromParams returns void)
-        const session = await getSessionFromParams({ name: name || "" });
-
-        // Output result
-        if (session) {
-          console.log(`Session ${session.session} updated successfully.`);
-          if (session.branch) {
-            console.log(`Branch: ${session.branch}`);
+        // Output result using session information
+        if (updatedSession) {
+          // If updateSessionFromParams returns a session, use it
+          console.log(`Session ${updatedSession.session} updated successfully.`);
+          
+          if (updatedSession.branch) {
+            console.log(`Branch: ${updatedSession.branch}`);
           }
-          if (session.taskId) {
-            console.log(`Associated with task: ${session.taskId}`);
+          
+          if (updatedSession.taskId) {
+            console.log(`Associated with task: ${updatedSession.taskId}`);
+          }
+          
+          if (updatedSession.repoPath) {
+            console.log(`Session directory: ${updatedSession.repoPath}`);
           }
         } else {
-          console.log("Session update completed, but could not retrieve session details.");
+          // Fall back to fetching the session if updateSessionFromParams returns void
+          const session = await getSessionFromParams({ name: name || "" });
+          
+          if (session) {
+            console.log(`Session ${session.session} updated successfully.`);
+            if (session.branch) {
+              console.log(`Branch: ${session.branch}`);
+            }
+            if (session.taskId) {
+              console.log(`Associated with task: ${session.taskId}`);
+            }
+          } else {
+            console.log("Session update completed, but could not retrieve session details.");
+          }
         }
       } catch (error) {
         handleCliError(error);

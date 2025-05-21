@@ -199,20 +199,26 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       noStash: z.boolean().optional().describe("Skip stashing local changes"),
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
+      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         noStash: args.noStash || false,
         noPush: args.noPush || false,
+        force: args.force || false,
       };
 
-      await updateSessionFromParams(params);
+      const updatedSession = await updateSessionFromParams(params);
 
-      // Format response for MCP
+      // Format response for MCP with session details
       return {
         success: true,
-        message: `Session ${args.name} updated successfully.`,
+        session: updatedSession.session,
+        branch: updatedSession.branch,
+        taskId: updatedSession.taskId,
+        repoPath: updatedSession.repoPath,
+        message: `Session ${updatedSession.session} updated successfully.`,
       };
     }
   );

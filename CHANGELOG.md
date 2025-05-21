@@ -11,22 +11,161 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Task #001: Improve Error Handling for MCP Server Port Conflicts
+- Task #129: Implement Local DB Tasks Backend
+  - Created a task to implement a local database backend for task management
+  - Will develop a solution similar to SessionDB for centralized task storage
+  - Will provide synchronization of task data across sessions and workspaces
+  - Will extract common database functionality where possible for code reuse
+  - Will implement migration tools for smooth transition from tasks.md
+
+_See: SpecStory history [2025-07-20_local-db-tasks-backend](mdc:.specstory/history/2025-07-20_local-db-tasks-backend.md) for task creation._
+
+- Task #074: Implemented Auto-Dependency Installation for Session Workspaces
+  - Added package manager detection utility for automatic detection of bun, npm, yarn, and pnpm
+  - Added dependency installation after session creation to eliminate manual installation step
+  - Added `--skip-install` flag to bypass dependency installation when desired
+  - Added `--package-manager` option to override the detected package manager
+  - Implemented error handling that doesn't fail session creation when installation fails
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
+
+- Updated task-management-related rules to include the new `task spec` command
+  - Added information about the `minsky tasks spec` command to minsky-cli-usage rule
+  - Updated task-implementation-workflow rule to recommend using `task spec` for viewing task details
+  - Added `task spec` command to task-status-protocol rule's Status Checking Commands section
+  - Updated creating-tasks rule with a new section on viewing task specifications
+
+_See: SpecStory history [2025-07-15_update-rules-for-task-spec-command](mdc:.specstory/history/2025-07-15_update-rules-for-task-spec-command.md) for rule documentation updates._
+
+- Task #126: Add Task Specification Content Reading Capability
+  - Created a task to add the ability to read and display task specification content
+  - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
+  - Will implement functionality to read full task spec content from the command line
+  - Will add proper error handling and output formatting
+
+_See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstory/history/2025-05-21_add-task-spec-content-reading.md) for task creation._
+
+- Task #051: Add Git Commands to MCP Server
+  - Implemented Git command support in the MCP server for AI assistants to interact with Git repositories
+  - Added domain-level interface-agnostic functions for Git operations: `cloneFromParams`, `branchFromParams`, and `pushFromParams`
+  - Created MCP commands for Git operations: `git.clone`, `git.branch`, and `git.push`
+  - Added Git command documentation in README-MCP.md
+  - Ensured all commands follow consistent patterns for error handling and response formatting
+
+_See: SpecStory history [2024-05-19_add-git-commands-to-mcp](mdc:.specstory/history/2024-05-19_add-git-commands-to-mcp.md) for implementation details._
+
+- Task #120: Add --with-inspector Option to `mcp start` Command
+  - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
+  - Added an optional `--inspector-port` option to specify a custom port for the inspector
+  - Created a new inspector launcher module that handles inspector process management
+  - Implemented robust error handling to ensure MCP server continues running even if inspector fails
+  - Updated README-MCP.md with comprehensive documentation for the inspector features
+  - Added a new "Debugging with the MCP Inspector" section with usage examples
+
+_See: SpecStory history [2025-06-30_add-inspector-option-to-mcp](mdc:.specstory/history/2025-06-30_add-inspector-option-to-mcp.md) for implementation details._
+
+- Task #113: Implement Automated Test Migration Script
+  - Created a comprehensive tool for migrating Jest/Vitest tests to Bun test patterns
+  - Implemented test-analyzer.ts script to scan the codebase and identify test patterns
+  - Created detailed classification of tests by mocking complexity and migration difficulty
+  - Developed test-migration.ts script to apply transformations to test files
+  - Implemented pattern-based transformations for imports, mock functions, module mocks, and spies
+  - Added support for test verification to validate migrations work correctly
+  - Implemented backup and rollback capabilities for safer migrations
+  - Added detailed reporting in both JSON and Markdown formats
+  - Created comprehensive documentation with examples and best practices
+  - Integrated with the Core Mock Compatibility Layer from Task #111
+
+_See: SpecStory history [2023-10-17_14-25-implement-automated-test-migration-script](mdc:.specstory/history/2023-10-17_14-25-implement-automated-test-migration-script.md) for implementation details._
+
+- Task #112: Implement Comprehensive Test Utility Documentation
+  - Created a comprehensive test utilities documentation suite:
+    - Main documentation file with overview and getting started guides (`TEST_UTILITIES.md`)
+    - Detailed documentation for the Jest/Vitest compatibility layer (`COMPATIBILITY_LAYER.md`)
+    - Migration guides for converting tests from Jest/Vitest to Bun (`MIGRATION_GUIDES.md`)
+    - Mocking utilities documentation (`MOCKING_UTILITIES.md`)
+    - Testing best practices guide (`TESTING_BEST_PRACTICES.md`)
+    - Example-based practical guide with real-world testing scenarios (`EXAMPLE_GUIDE.md`)
+  - Documented the complete testing infrastructure architecture
+  - Provided clear guidance for migrating tests between frameworks
+  - Added detailed API documentation for all testing utilities
+  - Included code examples for common testing patterns
+
+_See: SpecStory history [2023-06-30_test-utility-documentation](mdc:.specstory/history/2023-06-30_test-utility-documentation.md) for implementation details._
+
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information with separators
+  - Enhanced PR description guidelines with Direct Application Protocol for automatic improvements
+
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
+
+- Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
   - Will add specific error detection for network-related errors
   - Will implement user-friendly messages with suggested actions
-  - Will maintain detailed logging for debugging while simplifying user-facing output
+  - Will maintain detailed logging for debugging purposes
 
-_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for task creation._
+_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
-- Task #121: Enhance `tasks get` Command to Support Multiple Task IDs
+- Task #124: Add Repository Path Parameter to MCP Server
+  - Added `--repo <path>` parameter to the `minsky mcp start` command
+  - Created `ProjectContext` interface to store repository information at the server level
+  - Added automatic injection of repository path for all MCP tools
+  - Updated MCP commands to use server-level repository path as default
+  - Added repository path validation with helpful error messages
+  - Updated documentation in README-MCP.md to explain the project context concept
+  - Note: While the core functionality works correctly, there appears to be an issue with the FastMCP library that prevents method registration, resulting in "Method not found" errors when calling MCP methods.
 
-  - Will update the `tasks get` command to fetch information for multiple tasks at once
-  - Will support comma-separated format and multiple arguments syntax
-  - Will extend task schemas to handle arrays of task IDs
-  - Will improve CLI and MCP adapters to support this enhanced functionality
-  - Will update output formatting to clearly display multiple task information
+_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for implementation details._
+
+- Task #127: Fix FastMCP Method Registration Issues
+  - Created a task to address the method registration issues discovered in Task #124
+  - Will investigate why method registration in FastMCP is not working properly
+  - Will fix the issue with JSON-RPC method registration in the MCP server
+  - Will ensure that common methods like `tasks.list` can be called successfully
+  - Will add proper error handling for method registration failures
+  - Will add tests to verify method registration and invocation
+
+_See: SpecStory history [implementation-of-task-124](mdc:.specstory/history/implementation-of-task-124.md) for issue discovery._
+
+- Add new `normalizeMethodName` utility in CommandMapper for consistent method naming
+- Add method name tracking in CommandMapper with `registeredMethodNames` array and `getRegisteredMethodNames()` method
+- Add automatic registration of underscore-based aliases for methods with dot notation
+- Add improved debug tools including `debug.listMethods`, `debug.echo`, and `debug.systemInfo`
+
+### Changed
+
+- Task #118: Fixed Rule Format Errors in rules.ts
+  - Improved error handling in the `getRule` function to gracefully handle YAML parsing errors in rule frontmatter
+  - Added better debugging for rule file lookup issues
+  - Fixed issues causing "Rule not found" errors for existing rules in .cursor/rules directory
+  - Made the system more robust by extracting rule content even when frontmatter cannot be parsed properly
+  - Added detailed logging to aid in diagnosing rule parsing issues
+  - Resolved errors with specific rules: no-dynamic-imports, designing-tests, rule-creation-guidelines, testing-router, bun-test-patterns, and framework-specific-tests
+
+_See: SpecStory history [2025-08-21_fix-rule-format-errors](mdc:.specstory/history/2025-08-21_fix-rule-format-errors.md) for rule format error fixes._
+
+- Improved error handling for common network errors in the MCP server
+  - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
+  - Implemented user-friendly error messages with suggested actions for port conflicts
+  - Added detailed error logging with stack traces in debug mode only
+  - Improved error detection for network-related issues like port conflicts (EADDRINUSE)
+
+_See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
+
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information
+
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
 
 - Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
   - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
@@ -42,21 +181,26 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 
 _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specstory/history/2025-05-22_standardize-option-descriptions.md) for implementation details._
 
-- Task #117: Fix Session Update Command Implementation
+- Task #117: Fixed Session Update Command Implementation
+  - Fixed return value inconsistency in `updateSessionFromParams` function to properly return session object
+  - Implemented proper handling of the `--force` option to allow updating sessions with uncommitted changes
+  - Added `--no-stash` and `--no-push` CLI options for better control over the update process
+  - Updated CLI, shared, and MCP adapters to handle the returned session information consistently
+  - Added comprehensive tests for the session update functionality
+  - Improved error messages when workspace has uncommitted changes
 
-  - Created a task to fix issues with the `session update` command
-  - Will address parameter naming inconsistency across different interfaces
-  - Will update domain function to return session information after updates
-  - Will improve handling of `--force` option
-  - Will enhance error handling and output formatting
+_See: SpecStory history [2023-06-30_fix-session-update-command](mdc:.specstory/history/2023-06-30_fix-session-update-command.md) for implementation details._
 
-- Task #118: Fix Rule Format Errors in rules.ts
-  - Diagnose and fix issues with rule file lookup in the rules system
-  - Ensure all existing rule files in .cursor/rules can be properly found and loaded
-  - Eliminate "Rule not found" errors when running the `minsky rules list` command
-  - Improve error handling in the rule system to provide more helpful diagnostics
+- Task #111: Built Core Mock Compatibility Layer for Bun Tests
+  - Created a Jest/Vitest compatibility layer to simplify migration of tests to Bun's test runner
+  - Implemented mock function extensions with full Jest-like API (mockReset, mockClear, mockReturnValue, etc.)
+  - Added asymmetric matchers (anything(), any(), objectContaining(), etc.) for flexible assertions
+  - Created module mocking utilities to simulate Jest's module mocking capabilities
+  - Added comprehensive documentation on using and migrating to the compatibility layer
+  - Included unit tests to verify compatibility with existing test patterns
+  - Designed the system with progressive adoption in mind, allowing tests to be migrated incrementally
 
-_See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
+_See: SpecStory history [2025-06-30_build-core-mock-compatibility-layer](mdc:.specstory/history/2025-06-30_build-core-mock-compatibility-layer.md) for implementation details._
 
 - Task #110: Created a Complete Test Inventory and Classification System
 
@@ -239,6 +383,7 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
 
 - Task #104: Re-implemented Disabled Integration Tests
+
   - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
   - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
   - Implemented proper tests for the GitHub backend with dependency injection
@@ -246,7 +391,53 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
   - Fixed issues with test environment setup and mock handling
   - Ensured all tests pass reliably on Bun test framework
 
-### Changed
+- Task #106: Refactor SessionDB to Functional Patterns (Subtask of #102)
+  - Implemented functional programming patterns for SessionDB
+  - Created pure functions module (session-db.ts) that contains no side effects
+  - Created I/O operations module (session-db-io.ts) to isolate file system interactions
+  - Implemented adapter class (session-adapter.ts) for backward compatibility
+  - Added factory function for creating session providers
+  - Added comprehensive tests for all pure functions and adapter class
+  - Improved type safety with proper interfaces and type definitions
+  - Enhanced error handling with more descriptive error messages
+  - Fixed repoPath generation to properly handle repository names with slashes
+
+_See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:.specstory/history/2025-05-20_refactor-sessiondb-functional-patterns.md) for implementation details._
+
+- Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
+  - Fixed type checking errors in session module test files
+  - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions
+  - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
+
+_See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
+
+- Fixed test failures after merging PRs #098 and #108:
+  - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
+  - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
+  - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Ensured consistent testing patterns across the codebase
+
+_See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
+
+- Enhanced test utilities for better domain testing
+  - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
+  - Test suite management utilities: `createTestSuite`, `withCleanup`
+  - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
+  - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
+  - Complete documentation in test-utils README
+
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
+
+- Comprehensive test utility documentation:
+  - Main documentation file with overview and getting started guides
+  - Detailed documentation for the compatibility layer
+  - Migration guides for converting tests from Jest/Vitest to Bun
+  - Mocking utilities documentation
+  - Testing best practices guide
+  - Example-based practical guide with real-world testing scenarios
+
+_See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specstory/history/2023-07-18_20-15-test-utility-documentation.md) for test utilities documentation._
 
 - Refactored CLI command implementations to use shared option utilities
 - Improved error handling with centralized utilities
@@ -555,3 +746,33 @@ _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/histor
   - Complete documentation in test-utils README
 
 _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
+
+- Fixed circular dependency in error handling code that prevented any CLI commands from running
+
+  - Refactored error class structure to use a base-errors.ts file for the core MinskyError class
+  - Updated network-errors.ts to import from base-errors.js instead of index.js
+  - Fixed "Cannot access 'MinskyError' before initialization" error that occurred with all commands
+
+- Fixed task serialization in MCP adapter to prevent double-stringification
+
+  - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
+  - Changed the return value structure to avoid JSON stringification conflicts
+  - Ensured proper type safety with TypeScript for returned task data
+  - Resolved the issue where tasks were not properly returned through the MCP interface
+
+- Task #119: Fix MCP Rules.list Command to Exclude Rule Content
+  - Modified the MCP adapter for the `rules.list` command to exclude the `content` field from the returned rules
+  - Made list responses more manageable by removing potentially large rule content data
+  - Maintained consistent behavior with the CLI interface where list commands only show metadata
+  - Ensured all other rule metadata (id, name, description, globs, tags) is still returned
+  - Kept the `rules.get` command behavior unchanged, still returning full rule content
+
+- Task #074: Improved Auto-Dependency Installation for Session Workspaces Specification
+  - Refined the task specification with clearer implementation details and error handling
+  - Simplified flag design by removing redundancy between `--install-dependencies` and `--skip-install`
+  - Improved the error handling approach to be more resilient (warn but don't fail session creation)
+  - Enhanced implementation details with complete code examples for integration
+  - Added comprehensive testing strategy with specific test scenarios and mock strategies
+  - Created a senior engineer analysis document with recommendations for implementation
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._

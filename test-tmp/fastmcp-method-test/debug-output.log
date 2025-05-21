@@ -1,0 +1,6 @@
+{"level":"info","message":"Client connected to Minsky MCP Server","timestamp":"2025-05-21T19:38:15.798Z","transport":"stdio"}
+{"level":"info","message":"Minsky MCP Server started","repositoryPath":"/Users/edobry/.local/state/minsky/git/local-minsky/sessions/127","serverName":"Minsky MCP Server","timestamp":"2025-05-21T19:38:15.798Z","transport":"stdio","version":"1.0.0"}
+{"jsonrpc":"2.0","id":"debug-1","error":{"code":-32601,"message":"Method not found"}}
+{"jsonrpc":"2.0","id":"task-1","error":{"code":-32601,"message":"Method not found"}}
+{"jsonrpc":"2.0","id":"mcp-1","error":{"code":-32601,"message":"Method not found"}}
+{"jsonrpc":"2.0","id":"alt-1","error":{"code":-32601,"message":"Method not found"}}
