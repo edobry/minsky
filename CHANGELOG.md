@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #114: Migrate High-Priority Tests to Native Bun Patterns
+  - Created robust custom assertion helpers to bridge Jest and Bun differences
+  - Implemented comprehensive ESM import compatibility fixes
+  - Developed test-migration examples and documentation
+  - Created detailed migration criteria and verification steps
+  - Created prioritized test migration backlog
+  - Compiled a migration pattern library with common transformations
+  - Built extensive documentation for assertion method differences
+  - Migrated first priority test (enhanced-utils.test.ts)
+
+_See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
+
 - Task #126: Add Task Specification Content Reading Capability
   - Created a task to add the ability to read and display task specification content
   - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
