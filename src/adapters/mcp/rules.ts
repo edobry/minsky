@@ -5,17 +5,18 @@ import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 import { promises as fs, existsSync } from "fs";
 
-// Import centralized descriptions
+// Import parameter schemas
 import {
-  DEBUG_DESCRIPTION,
-  RULE_CONTENT_DESCRIPTION,
-  RULE_DESCRIPTION_DESCRIPTION,
-  RULE_NAME_DESCRIPTION,
-  RULE_GLOBS_DESCRIPTION,
-  RULE_TAGS_DESCRIPTION,
-  RULE_FORMAT_DESCRIPTION,
-  OVERWRITE_DESCRIPTION
-} from "../../utils/option-descriptions.js";
+  debugParam,
+  ruleFormatParam,
+  ruleContentParam,
+  ruleDescriptionParam,
+  ruleNameParam,
+  ruleTagsParam,
+  overwriteParam,
+  requiredString,
+  optionalString,
+} from "../../utils/param-schemas.js";
 
 // Import domain functions
 import { resolveWorkspacePath } from "../../domain/workspace.js";
@@ -83,9 +84,9 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.list",
     description: "List all rules in the workspace",
     parameters: z.object({
-      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
-      tag: z.string().optional().describe("Filter by tag"),
-      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
+      format: ruleFormatParam,
+      tag: optionalString("Filter by tag"),
+      debug: debugParam,
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -112,9 +113,9 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.get",
     description: "Get a specific rule by ID",
     parameters: z.object({
-      id: z.string().describe("Rule ID"),
-      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
-      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
+      id: requiredString("Rule ID"),
+      format: ruleFormatParam,
+      debug: debugParam,
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -140,14 +141,14 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.create",
     description: "Create a new rule",
     parameters: z.object({
-      id: z.string().describe("ID of the rule to create"),
-      content: z.string().optional().describe(RULE_CONTENT_DESCRIPTION),
-      description: z.string().optional().describe(RULE_DESCRIPTION_DESCRIPTION),
-      name: z.string().optional().describe(RULE_NAME_DESCRIPTION),
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe(RULE_GLOBS_DESCRIPTION),
-      tags: z.string().optional().describe(RULE_TAGS_DESCRIPTION),
-      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
-      overwrite: z.boolean().optional().describe(OVERWRITE_DESCRIPTION),
+      id: requiredString("ID of the rule to create"),
+      content: ruleContentParam,
+      description: ruleDescriptionParam,
+      name: ruleNameParam,
+      globs: z.union([z.string(), z.array(z.string())]).optional().describe("Glob patterns to match files"),
+      tags: ruleTagsParam,
+      format: ruleFormatParam,
+      overwrite: overwriteParam,
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -195,13 +196,13 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.update",
     description: "Update an existing rule",
     parameters: z.object({
-      id: z.string().describe("ID of the rule to update"),
-      content: z.string().optional().describe(RULE_CONTENT_DESCRIPTION),
-      description: z.string().optional().describe(RULE_DESCRIPTION_DESCRIPTION),
-      name: z.string().optional().describe(RULE_NAME_DESCRIPTION),
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe(RULE_GLOBS_DESCRIPTION),
-      tags: z.string().optional().describe(RULE_TAGS_DESCRIPTION),
-      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
+      id: requiredString("ID of the rule to update"),
+      content: ruleContentParam,
+      description: ruleDescriptionParam,
+      name: ruleNameParam,
+      globs: z.union([z.string(), z.array(z.string())]).optional().describe("Glob patterns to match files"),
+      tags: ruleTagsParam,
+      format: ruleFormatParam,
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -248,10 +249,10 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.search",
     description: "Search for rules by content",
     parameters: z.object({
-      query: z.string().describe("Search query"),
-      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
-      tag: z.string().optional().describe("Filter by tag"),
-      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
+      query: requiredString("Search query"),
+      format: ruleFormatParam,
+      tag: optionalString("Filter by tag"),
+      debug: debugParam,
     }),
     execute: async (args) => {
       // Resolve workspace path
