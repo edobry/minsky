@@ -7,6 +7,9 @@
 import { ensureError } from "../../../errors/index.js";
 import { log } from "../../../utils/logger.js";
 
+// Re-export shared options functions needed by other modules
+export { normalizeSessionParams } from "./shared-options.js";
+
 /**
  * Options for formatting output
  */
