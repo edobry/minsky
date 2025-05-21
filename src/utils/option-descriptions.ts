@@ -1,95 +1,149 @@
 /**
  * Option Descriptions
  * 
- * This module provides centralized option and parameter descriptions
- * for consistent usage across CLI and MCP interfaces in the Minsky project.
- * Descriptions are grouped by functional area to aid discoverability.
+ * This module provides standardized descriptions for command options across
+ * CLI and MCP adapters to ensure consistency in documentation and help text.
+ * 
+ * Descriptions are organized by functional area for easier maintenance.
  */
 
 // ------------------------------------------------------------------
-// Repository Resolution Option Descriptions
+// Repository Resolution
 // ------------------------------------------------------------------
 
 /**
- * Description for the session option used in repository resolution
+ * Description for session option
  */
-export const SESSION_DESCRIPTION = "Session name to use for repository resolution";
+export const SESSION_DESCRIPTION = "Name of the session to use";
 
 /**
- * Description for the repo option used in repository resolution
+ * Description for repository URI option
  */
-export const REPO_DESCRIPTION = "Repository URI (overrides session)";
+export const REPO_DESCRIPTION = "Repository URI (local path, URL, or shorthand)";
 
 /**
- * Description for the upstream repo option used in repository resolution
+ * Description for upstream repository URI option
  */
-export const UPSTREAM_REPO_DESCRIPTION = "URI of the upstream repository (overrides repo and session)";
+export const UPSTREAM_REPO_DESCRIPTION = "Upstream repository URI";
 
 // ------------------------------------------------------------------
-// Output Format Option Descriptions
-// ------------------------------------------------------------------
-
-/**
- * Description for the JSON output option
- */
-export const JSON_DESCRIPTION = "Output result as JSON";
-
-/**
- * Description for the debug output option
- */
-export const DEBUG_DESCRIPTION = "Enable debug output";
-
-// ------------------------------------------------------------------
-// Task Option Descriptions
+// Output Format
 // ------------------------------------------------------------------
 
 /**
- * Description for the task ID option
+ * Description for JSON output option
  */
-export const TASK_ID_DESCRIPTION = "Task ID to match";
+export const JSON_DESCRIPTION = "Format output as JSON";
 
 /**
- * Description for the task status filter option
+ * Description for debug output option
  */
-export const TASK_STATUS_FILTER_DESCRIPTION = "Filter tasks by status";
-
-/**
- * Description for the task status option
- */
-export const TASK_STATUS_DESCRIPTION = "Status to set (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
-
-/**
- * Description for the all tasks option
- */
-export const TASK_ALL_DESCRIPTION = "Include completed tasks";
+export const DEBUG_DESCRIPTION = "Show debug information";
 
 // ------------------------------------------------------------------
-// Backend Option Descriptions
+// Tasks
 // ------------------------------------------------------------------
 
 /**
- * Description for the backend type option
+ * Description for task ID option
  */
-export const BACKEND_DESCRIPTION = "Specify backend type";
+export const TASK_ID_DESCRIPTION = "ID of the task (with or without # prefix)";
 
 /**
- * Description for the task backend option
+ * Description for task status filter option
  */
-export const TASK_BACKEND_DESCRIPTION = "Task backend (markdown, github)";
+export const TASK_STATUS_FILTER_DESCRIPTION = "Filter tasks by status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
+
+/**
+ * Description for task status option
+ */
+export const TASK_STATUS_DESCRIPTION = "Task status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
+
+/**
+ * Description for all tasks option
+ */
+export const TASK_ALL_DESCRIPTION = "Include all tasks (including completed)";
 
 // ------------------------------------------------------------------
-// Force Option Descriptions
+// Backend
 // ------------------------------------------------------------------
 
 /**
- * Description for the force operation option
+ * Description for backend type option
  */
-export const FORCE_DESCRIPTION = "Force the operation even with validation warnings or errors";
+export const BACKEND_DESCRIPTION = "Type of backend to use";
 
 /**
- * Description for the overwrite option
+ * Description for task backend option
  */
-export const OVERWRITE_DESCRIPTION = "Overwrite existing files";
+export const TASK_BACKEND_DESCRIPTION = "Backend to use for task management";
+
+// ------------------------------------------------------------------
+// Force Options
+// ------------------------------------------------------------------
+
+/**
+ * Description for force option
+ */
+export const FORCE_DESCRIPTION = "Force the operation, ignoring warnings";
+
+/**
+ * Description for overwrite option
+ */
+export const OVERWRITE_DESCRIPTION = "Overwrite existing resources if they exist";
+
+// ------------------------------------------------------------------
+// Git Options
+// ------------------------------------------------------------------
+
+/**
+ * Description for git remote option
+ */
+export const GIT_REMOTE_DESCRIPTION = "Git remote to use";
+
+/**
+ * Description for git branch option
+ */
+export const GIT_BRANCH_DESCRIPTION = "Git branch name";
+
+/**
+ * Description for git force option
+ */
+export const GIT_FORCE_DESCRIPTION = "Force git operations (e.g., push, pull)";
+
+/**
+ * Description for no status update option
+ */
+export const NO_STATUS_UPDATE_DESCRIPTION = "Skip updating task status";
+
+// ------------------------------------------------------------------
+// Rules
+// ------------------------------------------------------------------
+
+/**
+ * Description for rule content option
+ */
+export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing content)";
+
+/**
+ * Description for rule description option
+ */
+export const RULE_DESCRIPTION_DESCRIPTION = "Description of the rule";
+
+/**
+ * Description for rule name option
+ */
+export const RULE_NAME_DESCRIPTION = "Display name of the rule (defaults to ID)";
+
+/**
+ * Description for rule format option
+ */
+export const RULE_FORMAT_DESCRIPTION = "Format of the rule file (cursor or generic)";
+
+/**
+ * Description for rule tags option
+ */
+export const RULE_TAGS_DESCRIPTION = "Comma-separated list of tags for the rule";
 
 // ------------------------------------------------------------------
 // Session Option Descriptions
@@ -113,62 +167,4 @@ export const AUTH_METHOD_DESCRIPTION = "Authentication method for remote reposit
 /**
  * Description for the clone depth option
  */
-export const CLONE_DEPTH_DESCRIPTION = "Clone depth for remote repositories";
-
-// ------------------------------------------------------------------
-// Git Option Descriptions
-// ------------------------------------------------------------------
-
-/**
- * Description for the remote option in git commands
- */
-export const GIT_REMOTE_DESCRIPTION = "Remote to push to (defaults to origin)";
-
-/**
- * Description for the branch option in git commands
- */
-export const GIT_BRANCH_DESCRIPTION = "Branch name";
-
-/**
- * Description for the git force option
- */
-export const GIT_FORCE_DESCRIPTION = "Force push (use with caution)";
-
-/**
- * Description for the no status update option
- */
-export const NO_STATUS_UPDATE_DESCRIPTION = "Skip updating task status";
-
-// ------------------------------------------------------------------
-// Rules Option Descriptions
-// ------------------------------------------------------------------
-
-/**
- * Description for rule content option
- */
-export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing content)";
-
-/**
- * Description for rule description option
- */
-export const RULE_DESCRIPTION_DESCRIPTION = "Description of the rule";
-
-/**
- * Description for rule name option
- */
-export const RULE_NAME_DESCRIPTION = "Display name of the rule";
-
-/**
- * Description for rule globs option
- */
-export const RULE_GLOBS_DESCRIPTION = "Comma-separated list or JSON array of glob patterns to match files";
-
-/**
- * Description for rule tags option
- */
-export const RULE_TAGS_DESCRIPTION = "Comma-separated list of tags for the rule";
-
-/**
- * Description for rule format option
- */
-export const RULE_FORMAT_DESCRIPTION = "Format of the rule file"; 
+export const CLONE_DEPTH_DESCRIPTION = "Clone depth for remote repositories"; 

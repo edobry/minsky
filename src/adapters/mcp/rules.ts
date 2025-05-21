@@ -21,7 +21,7 @@ import {
 // Import domain functions
 import { resolveWorkspacePath } from "../../domain/workspace.js";
 import { RuleService } from "../../domain/rules.js";
-import type { RuleFormat } from "../../domain/rules.js";
+import type { Rule, RuleFormat, UpdateRuleOptions, SearchRuleOptions } from "../../domain/rules.js";
 
 /**
  * Helper to read content from a file if the path exists
@@ -75,6 +75,11 @@ function parseGlobs(globsStr?: string): string[] | undefined {
   return globsStr.split(",").map((glob) => glob.trim());
 }
 
+// Type guard for string
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
 /**
  * Registers rules tools with the MCP command mapper
  */
@@ -88,23 +93,25 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (args) => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
 
-      // Convert parameters
-      const format = args.format as RuleFormat | undefined;
+      // Convert parameters with type safety
+      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const tag = isString(args.tag) ? args.tag : undefined;
+      const debug = args.debug === true;
 
       // Call domain function
       const rules = await ruleService.listRules({
         format,
-        tag: args.tag,
-        debug: args.debug,
+        tag,
+        debug,
       });
 
-      // Return formatted result
-      return rules;
+      // Return formatted result as a record
+      return { rules };
     },
   });
 
@@ -117,22 +124,28 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       format: ruleFormatParam,
       debug: debugParam,
     }),
-    execute: async (args) => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
 
-      // Convert parameters
-      const format = args.format as RuleFormat | undefined;
+      // Ensure id is string
+      if (!isString(args.id)) {
+        throw new Error("Rule ID must be a string");
+      }
+
+      // Convert parameters with type safety
+      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const debug = args.debug === true;
 
       // Call domain function
       const rule = await ruleService.getRule(args.id, {
         format,
-        debug: args.debug,
+        debug,
       });
 
-      // Return the rule object
-      return rule;
+      // Return the rule object as a record
+      return { rule };
     },
   });
 
@@ -145,43 +158,61 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe("Glob patterns to match files"),
+      globs: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe("Glob patterns to match files"),
       tags: ruleTagsParam,
       format: ruleFormatParam,
       overwrite: overwriteParam,
     }),
-    execute: async (args) => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
 
+      // Ensure id is string
+      if (!isString(args.id)) {
+        throw new Error("Rule ID must be a string");
+      }
+
       // Get content from file if it exists, otherwise use as-is
-      const content = args.content
+      const content = isString(args.content)
         ? await readContentFromFileIfExists(args.content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
       let globs: string[] | undefined;
-      if (typeof args.globs === 'string') {
+      if (isString(args.globs)) {
         globs = parseGlobs(args.globs);
       } else if (Array.isArray(args.globs)) {
         globs = args.globs;
       }
 
       // Parse tags
-      const tags = args.tags ? args.tags.split(',').map(tag => tag.trim()) : undefined;
+      const tags = isString(args.tags) 
+        ? args.tags.split(",").map(tag => tag.trim()) 
+        : undefined;
 
-      // Call domain function
-      const rule = await ruleService.createRule({
-        id: args.id,
+      // Convert formats with type safety
+      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const overwrite = args.overwrite === true;
+
+      // Call domain function with correct signature
+      const rule = await ruleService.createRule(
+        args.id,
         content,
-        description: args.description,
-        name: args.name,
-        globs,
-        tags,
-        format: args.format as RuleFormat,
-        overwrite: args.overwrite,
-      });
+        {
+          description: isString(args.description) ? args.description : undefined,
+          name: isString(args.name) ? args.name : undefined,
+          globs,
+          tags,
+        },
+        {
+          format,
+          overwrite,
+        }
+      );
 
       // Return the created rule
       return {
@@ -200,40 +231,59 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe("Glob patterns to match files"),
+      globs: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe("Glob patterns to match files"),
       tags: ruleTagsParam,
       format: ruleFormatParam,
     }),
-    execute: async (args) => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
       
+      // Ensure id is string
+      if (!isString(args.id)) {
+        throw new Error("Rule ID must be a string");
+      }
+
       // Process content if provided
       let content: string | undefined;
-      if (args.content) {
+      if (isString(args.content)) {
         content = await readContentFromFileIfExists(args.content);
       }
 
       // Parse globs (handling both string and array types)
       let globs: string[] | undefined;
-      if (typeof args.globs === 'string') {
+      if (isString(args.globs)) {
         globs = parseGlobs(args.globs);
       } else if (Array.isArray(args.globs)) {
         globs = args.globs;
       }
 
       // Parse tags
-      const tags = args.tags ? args.tags.split(',').map(tag => tag.trim()) : undefined;
+      const tags = isString(args.tags) 
+        ? args.tags.split(",").map(tag => tag.trim()) 
+        : undefined;
 
-      // Call domain function
-      const rule = await ruleService.updateRule(args.id, {
+      // Convert format with type safety
+      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+
+      // Create update options object
+      const updateOptions: UpdateRuleOptions = {
         content,
-        description: args.description,
-        name: args.name,
-        globs,
-        tags,
-        format: args.format as RuleFormat,
+        meta: {
+          description: isString(args.description) ? args.description : undefined,
+          name: isString(args.name) ? args.name : undefined,
+          globs,
+          tags,
+        },
+      };
+
+      // Call domain function with correct signature
+      const rule = await ruleService.updateRule(args.id, updateOptions, {
+        format,
       });
 
       // Return the updated rule
@@ -254,23 +304,34 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
-    execute: async (args) => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
 
-      // Convert parameters
-      const format = args.format as RuleFormat | undefined;
+      // Ensure query is string
+      if (!isString(args.query)) {
+        throw new Error("Search query must be a string");
+      }
 
-      // Call domain function
-      const rules = await ruleService.searchRules(args.query, {
+      // Convert parameters with type safety
+      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const tag = isString(args.tag) ? args.tag : undefined;
+      
+      // Note: debug parameter is accepted in the command but not passed to the domain
+      // as SearchRuleOptions doesn't include a debug option
+
+      // Call domain function with correct signature
+      const searchOptions: SearchRuleOptions = {
+        query: args.query,
         format,
-        tag: args.tag,
-        debug: args.debug,
-      });
+        tag,
+      };
+      
+      const rules = await ruleService.searchRules(searchOptions);
 
-      // Return search results
-      return rules;
+      // Return search results as a record
+      return { rules };
     },
   });
 } 
