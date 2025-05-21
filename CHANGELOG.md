@@ -442,3 +442,12 @@ _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/hist
 - Enhanced the `workspace-verification` rule to reference the new resource-management-protocol rule for guidance on managing project resources.
 
 _See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on these rule updates._
+
+- Enhanced test utilities for better domain testing 
+  - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
+  - Test suite management utilities: `createTestSuite`, `withCleanup` 
+  - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
+  - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
+  - Complete documentation in test-utils README
+
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
