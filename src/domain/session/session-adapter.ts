@@ -28,108 +28,162 @@ import {
   readSessionDbFile,
   writeSessionDbFile,
 } from "./session-db-io.js";
+import { join } from "path";
 
 /**
- * Adapter class that implements SessionProviderInterface using functional style
- * Connects pure functions with I/O operations for backward compatibility
+ * Adapter class for SessionDB
+ * Provides backward compatibility with the class-based implementation
  */
-export class SessionDbAdapter implements SessionProviderInterface {
+
+/**
+ * Interface for session provider
+ */
+export interface SessionProviderInterface {
+  /**
+   * Get all available sessions
+   */
+  listSessions(): Promise<SessionRecord[]>;
+
+  /**
+   * Get a specific session by name
+   */
+  getSession(session: string): Promise<SessionRecord | null>;
+
+  /**
+   * Get a specific session by task ID
+   */
+  getSessionByTaskId(taskId: string): Promise<SessionRecord | null>;
+
+  /**
+   * Add a new session to the database
+   */
+  addSession(record: SessionRecord): Promise<void>;
+
+  /**
+   * Update an existing session
+   */
+  updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+
+  /**
+   * Delete a session by name
+   */
+  deleteSession(session: string): Promise<boolean>;
+
+  /**
+   * Get the repository path for a session
+   */
+  getRepoPath(record: SessionRecord): Promise<string>;
+
+  /**
+   * Get the working directory for a session
+   */
+  getSessionWorkdir(sessionName: string): Promise<string | null>;
+}
+
+/**
+ * Adapter class for the functional SessionDB implementation
+ * Maintains backward compatibility with the original class-based implementation
+ */
+export class SessionAdapter implements SessionProviderInterface {
   private readonly dbPath: string;
   private readonly baseDir: string;
+  private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    this.dbPath = dbPath || getDefaultDbPath();
-    this.baseDir = dbPath ? getDefaultBaseDir() : getDefaultBaseDir();
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+
+    if (dbPath) {
+      this.dbPath = dbPath;
+      // For custom dbPath, set baseDir based on a parallel directory structure
+      this.baseDir = join(dbPath, "..", "..", "git");
+    } else {
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
+    }
+
+    // Initialize state (will be populated on first read)
+    this.state = initializeSessionDbState({ baseDir: this.baseDir });
   }
 
   /**
-   * Initializes the session database state
-   * @returns Initialized session database state
+   * Read database from disk
    */
-  private async getDbState(): Promise<SessionDbState> {
-    const sessions = await readSessionDbFile(this.dbPath);
-    return {
-      sessions,
-      baseDir: this.baseDir,
-    };
+  private async readDb(): Promise<SessionRecord[]> {
+    this.state = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
+    return this.state.sessions;
   }
 
   /**
-   * Lists all sessions in the database
-   * @returns Array of session records
+   * Write database to disk
+   */
+  private async writeDb(sessions: SessionRecord[]): Promise<void> {
+    // Update state first
+    this.state = {
+      ...this.state,
+      sessions,
+    };
+    // Then write to disk
+    writeSessionDbFile(this.state, { dbPath: this.dbPath });
+  }
+
+  /**
+   * Get all sessions
    */
   async listSessions(): Promise<SessionRecord[]> {
-    const state = await this.getDbState();
-    return listSessionsFn(state);
+    return this.readDb();
   }
 
   /**
-   * Gets a session by name
-   * @param session Session name
-   * @returns SessionRecord if found, null otherwise
+   * Get a session by name
    */
   async getSession(session: string): Promise<SessionRecord | null> {
-    const state = await this.getDbState();
-    return getSessionFn(state, session);
+    await this.readDb();
+    return getSessionFn(this.state, session);
   }
 
   /**
-   * Gets a session by task ID
-   * @param taskId Task ID
-   * @returns SessionRecord if found, null otherwise
+   * Get a session by task ID
    */
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    try {
-      const state = await this.getDbState();
-      return getSessionByTaskIdFn(state, taskId);
-    } catch (error) {
-      console.error(
-        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return null;
-    }
+    await this.readDb();
+    return getSessionByTaskIdFn(this.state, taskId);
   }
 
   /**
-   * Adds a new session to the database
-   * @param record Session record to add
+   * Add a new session
    */
   async addSession(record: SessionRecord): Promise<void> {
-    const state = await this.getDbState();
-    const newState = addSessionFn(state, record);
-    await writeSessionDbFile(this.dbPath, newState.sessions);
+    const sessions = await this.readDb();
+    const newState = addSessionFn(this.state, record);
+    await this.writeDb(newState.sessions);
   }
 
   /**
-   * Updates an existing session
-   * @param session Session name
-   * @param updates Partial session record with updates
+   * Update an existing session
    */
   async updateSession(
     session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
-    const state = await this.getDbState();
-    const newState = updateSessionFn(state, session, updates);
-    await writeSessionDbFile(this.dbPath, newState.sessions);
+    await this.readDb();
+    const newState = updateSessionFn(this.state, session, updates);
+    await this.writeDb(newState.sessions);
   }
 
   /**
-   * Deletes a session
-   * @param session Session name
-   * @returns True if session was deleted, false otherwise
+   * Delete a session
    */
   async deleteSession(session: string): Promise<boolean> {
     try {
-      const state = await this.getDbState();
-      const originalLength = state.sessions.length;
-      const newState = deleteSessionFn(state, session);
-
-      if (newState.sessions.length === originalLength) {
-        return false; // No session was deleted
+      await this.readDb();
+      const newState = deleteSessionFn(this.state, session);
+      
+      // If no change occurred (session not found)
+      if (newState.sessions.length === this.state.sessions.length) {
+        return false;
       }
-
-      await writeSessionDbFile(this.dbPath, newState.sessions);
+      
+      await this.writeDb(newState.sessions);
       return true;
     } catch (error) {
       console.error(
@@ -140,86 +194,26 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   /**
-   * Gets the repository path for a session
-   * @param record Session record or object containing session info
-   * @returns Repository path
+   * Get the repository path for a session
    */
-  async getRepoPath(record: SessionRecord | any): Promise<string> {
-    // Add defensive checks for the input
-    if (!record) {
-      throw new Error("Session record is required");
-    }
-
-    // Special handling for SessionResult type returned by startSessionFromParams
-    if (record.sessionRecord) {
-      return this.getRepoPath(record.sessionRecord);
-    }
-
-    // Special handling for CloneResult
-    if (record.cloneResult && record.cloneResult.workdir) {
-      return record.cloneResult.workdir;
-    }
-
-    const state = await this.getDbState();
-    return getRepoPathFn(state, record);
+  async getRepoPath(record: SessionRecord): Promise<string> {
+    await this.readDb();
+    return getRepoPathFn(this.state, record);
   }
 
   /**
-   * Gets the working directory for a session
-   * @param sessionName Session name
-   * @returns Working directory path
+   * Get the working directory for a session
    */
-  async getSessionWorkdir(sessionName: string): Promise<string> {
-    const state = await this.getDbState();
-    const workdir = getSessionWorkdirFn(state, sessionName);
-    if (!workdir) {
-      throw new ResourceNotFoundError(
-        `Session "${sessionName}" not found.`,
-        "session",
-        sessionName
-      );
-    }
-    return workdir;
+  async getSessionWorkdir(sessionName: string): Promise<string | null> {
+    await this.readDb();
+    return getSessionWorkdirFn(this.state, sessionName);
   }
+}
 
-  /**
-   * Gets the new repository path with sessions subdirectory for a session
-   * @param repoName Repository name
-   * @param sessionId Session ID
-   * @returns New repository path
-   */
-  getNewSessionRepoPath(repoName: string, sessionId: string): string {
-    const state = initializeSessionDbState({ baseDir: this.baseDir });
-    return getNewSessionRepoPathFn(state, repoName, sessionId);
-  }
-
-  /**
-   * Migrates sessions to use the sessions subdirectory structure
-   */
-  async migrateSessionsToSubdirectory(): Promise<void> {
-    const sessions = await readSessionDbFile(this.dbPath);
-    await ensureBaseDir(this.baseDir);
-
-    const result = await migrateSessionsToSubdirectoryFn(this.baseDir, sessions);
-
-    if (result.modified) {
-      await writeSessionDbFile(this.dbPath, result.sessions);
-    }
-  }
-
-  /**
-   * For backward compatibility with tests
-   * @deprecated Use listSessions instead
-   */
-  async getSessions(): Promise<SessionRecord[]> {
-    return this.listSessions();
-  }
-
-  /**
-   * For backward compatibility with tests
-   * @deprecated Use writeSessionDbFile instead
-   */
-  async saveSessions(sessions: SessionRecord[]): Promise<void> {
-    await writeSessionDbFile(this.dbPath, sessions);
-  }
+/**
+ * Factory function to create a session provider instance
+ * This allows for easier testing and dependency injection
+ */
+export function createSessionProvider(dbPath?: string): SessionProviderInterface {
+  return new SessionAdapter(dbPath);
 }

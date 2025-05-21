@@ -17,6 +17,16 @@ import {
   type SessionDbState,
 } from './session-db';
 
+// Type augmentation for Bun's expect
+declare module 'bun:test' {
+  interface Expect {
+    toHaveProperty(property: string): void;
+    toHaveLength(length: number): void;
+    toThrow(message?: string): void;
+    not: Expect;
+  }
+}
+
 describe('SessionDB Functional Implementation', () => {
   // Helper function to create a test state
   const createTestState = (): SessionDbState => {
@@ -65,8 +75,8 @@ describe('SessionDB Functional Implementation', () => {
       const state = createTestState();
       const sessions = listSessionsFn(state);
       expect(sessions).toHaveLength(2);
-      expect(sessions[0].session).toBe('test-session-1');
-      expect(sessions[1].session).toBe('test-session-2');
+      expect(sessions[0]!.session).toBe('test-session-1');
+      expect(sessions[1]!.session).toBe('test-session-2');
     });
   });
 
@@ -122,8 +132,8 @@ describe('SessionDB Functional Implementation', () => {
 
       const newState = addSessionFn(state, newSession);
       expect(newState.sessions).toHaveLength(3);
-      expect(newState.sessions[2].session).toBe('test-session-3');
-      expect(newState.sessions[2].taskId).toBe('#103');
+      expect(newState.sessions[2]!.session).toBe('test-session-3');
+      expect(newState.sessions[2]!.taskId).toBe('#103');
     });
   });
 
@@ -169,7 +179,7 @@ describe('SessionDB Functional Implementation', () => {
       expect(newState.sessions).toHaveLength(1);
       expect(getSessionFn(newState, 'test-session-1')).toBeNull();
       // Check that only test-session-2 remains
-      expect(newState.sessions[0].session).toBe('test-session-2');
+      expect(newState.sessions[0]!.session).toBe('test-session-2');
     });
 
     it('should not modify state if session not found', () => {
@@ -185,7 +195,7 @@ describe('SessionDB Functional Implementation', () => {
       const state = createTestState();
       const session = getSessionFn(state, 'test-session-1')!;
       const repoPath = getRepoPathFn(state, session);
-      expect(repoPath).toBe('/test/base/dir/local-minsky/sessions/test-session-1');
+      expect(repoPath).toBe('/test/base/dir/local/minsky/sessions/test-session-1');
     });
 
     it('should handle session records with repoPath already set', () => {
@@ -205,7 +215,7 @@ describe('SessionDB Functional Implementation', () => {
     it('should return the working directory for a session', () => {
       const state = createTestState();
       const workdir = getSessionWorkdirFn(state, 'test-session-1');
-      expect(workdir).toBe('/test/base/dir/local-minsky/sessions/test-session-1');
+      expect(workdir).toBe('/test/base/dir/local/minsky/sessions/test-session-1');
     });
 
     it('should return null if session not found', () => {

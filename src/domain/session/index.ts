@@ -43,3 +43,29 @@ export { SessionDbAdapter } from "./session-adapter.js";
 export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
   return new SessionDbAdapter(options?.dbPath);
 }
+
+/**
+ * Session module exports
+ */
+
+// Export the adapter as the default session provider
+export { 
+  SessionAdapter,
+  createSessionProvider,
+  type SessionProviderInterface 
+} from "./session-adapter";
+
+// Export session record type
+export type { SessionRecord, SessionDbState } from "./session-db";
+
+// Export I/O functions
+export {
+  readSessionDbFile,
+  writeSessionDbFile,
+  ensureDbDir,
+  type SessionDbFileOptions
+} from "./session-db-io";
+
+// Create and export default session provider instance
+import { createSessionProvider } from "./session-adapter";
+export const SessionDB = createSessionProvider();
