@@ -191,7 +191,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [-] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
-- [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
+- [-] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
 
 - [x] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
 
