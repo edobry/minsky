@@ -5,6 +5,18 @@ import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 import { promises as fs, existsSync } from "fs";
 
+// Import centralized descriptions
+import {
+  DEBUG_DESCRIPTION,
+  RULE_CONTENT_DESCRIPTION,
+  RULE_DESCRIPTION_DESCRIPTION,
+  RULE_NAME_DESCRIPTION,
+  RULE_GLOBS_DESCRIPTION,
+  RULE_TAGS_DESCRIPTION,
+  RULE_FORMAT_DESCRIPTION,
+  OVERWRITE_DESCRIPTION
+} from "../../utils/option-descriptions.js";
+
 // Import domain functions
 import { resolveWorkspacePath } from "../../domain/workspace.js";
 import { RuleService } from "../../domain/rules.js";
@@ -71,9 +83,9 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     name: "rules.list",
     description: "List all rules in the workspace",
     parameters: z.object({
-      format: z.string().optional().describe("Filter by rule format (cursor or generic)"),
+      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
       tag: z.string().optional().describe("Filter by tag"),
-      debug: z.boolean().optional().describe("Show debug information"),
+      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -101,8 +113,8 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     description: "Get a specific rule by ID",
     parameters: z.object({
       id: z.string().describe("Rule ID"),
-      format: z.string().optional().describe("Preferred rule format (cursor or generic)"),
-      debug: z.boolean().optional().describe("Show debug information"),
+      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
+      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -129,13 +141,13 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     description: "Create a new rule",
     parameters: z.object({
       id: z.string().describe("ID of the rule to create"),
-      content: z.string().optional().describe("Content of the rule (or path to file containing content)"),
-      description: z.string().optional().describe("Description of the rule"),
-      name: z.string().optional().describe("Display name of the rule (defaults to ID)"),
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe("Glob patterns to match files"),
-      tags: z.string().optional().describe("Comma-separated list of tags for the rule"),
-      format: z.string().optional().describe("Format of the rule file (defaults to 'cursor')"),
-      overwrite: z.boolean().optional().describe("Overwrite existing rule if it exists"),
+      content: z.string().optional().describe(RULE_CONTENT_DESCRIPTION),
+      description: z.string().optional().describe(RULE_DESCRIPTION_DESCRIPTION),
+      name: z.string().optional().describe(RULE_NAME_DESCRIPTION),
+      globs: z.union([z.string(), z.array(z.string())]).optional().describe(RULE_GLOBS_DESCRIPTION),
+      tags: z.string().optional().describe(RULE_TAGS_DESCRIPTION),
+      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
+      overwrite: z.boolean().optional().describe(OVERWRITE_DESCRIPTION),
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -184,12 +196,12 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     description: "Update an existing rule",
     parameters: z.object({
       id: z.string().describe("ID of the rule to update"),
-      content: z.string().optional().describe("New content of the rule (or path to file containing content)"),
-      description: z.string().optional().describe("New description of the rule"),
-      name: z.string().optional().describe("New display name of the rule"),
-      globs: z.union([z.string(), z.array(z.string())]).optional().describe("New glob patterns to match files"),
-      tags: z.string().optional().describe("New comma-separated list of tags for the rule"),
-      format: z.string().optional().describe("New format of the rule file"),
+      content: z.string().optional().describe(RULE_CONTENT_DESCRIPTION),
+      description: z.string().optional().describe(RULE_DESCRIPTION_DESCRIPTION),
+      name: z.string().optional().describe(RULE_NAME_DESCRIPTION),
+      globs: z.union([z.string(), z.array(z.string())]).optional().describe(RULE_GLOBS_DESCRIPTION),
+      tags: z.string().optional().describe(RULE_TAGS_DESCRIPTION),
+      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
     }),
     execute: async (args) => {
       // Resolve workspace path
@@ -237,9 +249,9 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
     description: "Search for rules by content",
     parameters: z.object({
       query: z.string().describe("Search query"),
-      format: z.string().optional().describe("Filter by rule format (cursor or generic)"),
+      format: z.string().optional().describe(RULE_FORMAT_DESCRIPTION),
       tag: z.string().optional().describe("Filter by tag"),
-      debug: z.boolean().optional().describe("Show debug information"),
+      debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
     }),
     execute: async (args) => {
       // Resolve workspace path
