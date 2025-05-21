@@ -247,43 +247,59 @@ export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
 export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] {
   if (!tasks) return [];
   if (!filter) return tasks;
-  
-  return tasks.filter(task => {
+
+  return tasks.filter((task) => {
     // Filter by status
     if (filter.status && task.status !== filter.status) {
       return false;
     }
-    
+
     // Filter by ID
     if (filter.id) {
+      // For numeric ID filters (like "2"), compare by numeric value
+      if (/^\d+$/.test(filter.id)) {
+        const numId = parseInt(filter.id, 10);
+        const taskNumId = parseInt(task.id.replace(/\D/g, ""), 10);
+        if (numId === taskNumId) {
+          return true;
+        }
+      }
+      
+      // For prefixed ID filters (like "#002"), compare normalized forms
       const normalizedFilterId = normalizeTaskId(filter.id);
       const normalizedTaskId = normalizeTaskId(task.id);
-      if (normalizedFilterId !== normalizedTaskId) {
-        return false;
-      }
-    }
-    
-    // Filter by title
-    if (filter.title) {
-      if (filter.title instanceof RegExp) {
-        if (!filter.title.test(task.title)) {
-          return false;
+      
+      if (normalizedFilterId && normalizedTaskId) {
+        // Compare numeric values (to handle different zero padding)
+        const filterIdNumber = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
+        const taskIdNumber = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
+        
+        if (!isNaN(filterIdNumber) && !isNaN(taskIdNumber) && filterIdNumber === taskIdNumber) {
+          return true;
         }
-      } else if (!task.title.includes(filter.title)) {
-        return false;
+        
+        // Also check exact string match
+        return normalizedFilterId === normalizedTaskId;
       }
+      
+      return false;
     }
-    
+
+    // Filter by title (string match)
+    if (filter.title && typeof filter.title === "string") {
+      return task.title.toLowerCase().includes(filter.title.toLowerCase());
+    }
+
+    // Filter by title (regex match)
+    if (filter.title && filter.title instanceof RegExp) {
+      return filter.title.test(task.title);
+    }
+
     // Filter by spec path existence
     if (filter.hasSpecPath !== undefined) {
-      if (filter.hasSpecPath && !task.specPath) {
-        return false;
-      }
-      if (!filter.hasSpecPath && task.specPath) {
-        return false;
-      }
+      return filter.hasSpecPath ? !!task.specPath : !task.specPath;
     }
-    
+
     return true;
   });
 }

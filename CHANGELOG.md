@@ -465,3 +465,10 @@ _See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:
   - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
 
 _See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
+
+- Task #109: Fixed compatibility issues after merging Task #098 and #108
+  - Fixed task ID filtering in `filterTasks` function to properly handle numeric equivalence (e.g., "2" vs "#002")
+  - Improved test type safety by adding optional chaining for array access
+  - Updated comparison logic to properly handle different ID formats
+
+_See: SpecStory history [2025-06-25_fix-compatibility-issues](mdc:.specstory/history/2025-06-25_fix-compatibility-issues.md) for implementation details._

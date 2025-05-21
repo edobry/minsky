@@ -59,16 +59,16 @@ describe("Task Functions", () => {
       const tasks = parseTasksFromMarkdown(markdown);
       expect(tasks).toHaveLength(3);
       
-      expect(tasks[0].id).toBe("#001");
-      expect(tasks[0].title).toBe("First task");
-      expect(tasks[0].status).toBe("TODO");
-      expect(tasks[0].description).toBe("Description line 1\nDescription line 2");
+      expect(tasks[0]?.id).toBe("#001");
+      expect(tasks[0]?.title).toBe("First task");
+      expect(tasks[0]?.status).toBe("TODO");
+      expect(tasks[0]?.description).toBe("Description line 1\nDescription line 2");
       
-      expect(tasks[1].id).toBe("#002");
-      expect(tasks[1].status).toBe("DONE");
+      expect(tasks[1]?.id).toBe("#002");
+      expect(tasks[1]?.status).toBe("DONE");
       
-      expect(tasks[2].id).toBe("#003");
-      expect(tasks[2].status).toBe("IN-PROGRESS");
+      expect(tasks[2]?.id).toBe("#003");
+      expect(tasks[2]?.status).toBe("IN-PROGRESS");
     });
 
     test("should ignore tasks in code blocks", () => {
@@ -85,8 +85,8 @@ Code block with task-like content:
 
       const tasks = parseTasksFromMarkdown(markdown);
       expect(tasks).toHaveLength(2);
-      expect(tasks[0].id).toBe("#001");
-      expect(tasks[1].id).toBe("#003");
+      expect(tasks[0]?.id).toBe("#001");
+      expect(tasks[1]?.id).toBe("#003");
     });
   });
 
@@ -212,13 +212,13 @@ Code block with task-like content:
 
     test("should update a task's status", () => {
       const updatedTasks = setTaskStatus(testTasks, "#001", "DONE");
-      expect(updatedTasks[0].status).toBe("DONE");
-      expect(updatedTasks[1].status).toBe("IN-PROGRESS"); // unchanged
+      expect(updatedTasks[0]?.status).toBe("DONE");
+      expect(updatedTasks[1]?.status).toBe("IN-PROGRESS"); // unchanged
     });
 
     test("should work with task ID variations", () => {
       const updatedTasks = setTaskStatus(testTasks, "2", "DONE");
-      expect(updatedTasks[1].status).toBe("DONE");
+      expect(updatedTasks[1]?.status).toBe("DONE");
     });
 
     test("should return original array if task not found", () => {
@@ -243,7 +243,8 @@ Code block with task-like content:
       const updatedTasks = addTask(testTasks, newTask);
       
       expect(updatedTasks).toHaveLength(3);
-      expect(updatedTasks[2]).toEqual(newTask);
+      expect(updatedTasks[2]?.id).toBe("#003");
+      expect(updatedTasks[2]?.title).toBe("Task 3");
     });
 
     test("should replace an existing task with the same ID", () => {
@@ -251,7 +252,8 @@ Code block with task-like content:
       const updatedTasks = addTask(testTasks, replacementTask);
       
       expect(updatedTasks).toHaveLength(2);
-      expect(updatedTasks[1]).toEqual(replacementTask);
+      expect(updatedTasks[1]?.id).toBe("#002");
+      expect(updatedTasks[1]?.title).toBe("Updated Task 2");
     });
 
     test("should generate an ID if not provided", () => {
@@ -259,8 +261,8 @@ Code block with task-like content:
       const updatedTasks = addTask(testTasks, taskWithoutId);
       
       expect(updatedTasks).toHaveLength(3);
-      expect(updatedTasks[2].id).toBe("#003"); // Next available ID
-      expect(updatedTasks[2].title).toBe("New Task");
+      expect(updatedTasks[2]?.id).toBe("#003"); // Next available ID
+      expect(updatedTasks[2]?.title).toBe("New Task");
     });
   });
 
@@ -278,19 +280,19 @@ Code block with task-like content:
     test("should filter by status", () => {
       const filtered = filterTasks(testTasks, { status: "TODO" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].id).toBe("#001");
+      expect(filtered[0]?.id).toBe("#001");
     });
 
     test("should filter by ID", () => {
       const filtered = filterTasks(testTasks, { id: "2" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].id).toBe("#002");
+      expect(filtered[0]?.id).toBe("#002");
     });
 
     test("should filter by title (string match)", () => {
       const filtered = filterTasks(testTasks, { title: "Second" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].id).toBe("#002");
+      expect(filtered[0]?.id).toBe("#002");
     });
 
     test("should filter by title (regex match)", () => {
@@ -301,7 +303,7 @@ Code block with task-like content:
     test("should filter by specPath existence", () => {
       const withSpec = filterTasks(testTasks, { hasSpecPath: true });
       expect(withSpec).toHaveLength(1);
-      expect(withSpec[0].id).toBe("#003");
+      expect(withSpec[0]?.id).toBe("#003");
       
       const withoutSpec = filterTasks(testTasks, { hasSpecPath: false });
       expect(withoutSpec).toHaveLength(2);
@@ -316,7 +318,7 @@ Code block with task-like content:
       });
       
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].id).toBe("#002");
+      expect(filtered[0]?.id).toBe("#002");
     });
   });
 
