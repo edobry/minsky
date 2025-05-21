@@ -26,11 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Core domain task tests (tasks.test.ts)
     - Git service tests (git.test.ts)
     - Git PR service tests (git.pr.test.ts)
+    - Session database tests (session-db.test.ts)
   - Established new testing patterns to improve maintainability:
     - Direct Method Mocking pattern for complex dependencies
     - Centralized test utility usage for consistent patterns
     - Enhanced error handling with proper TypeScript types
     - Explicit cleanup of all mocks between tests
+  - Added new custom assertion helpers:
+    - Created expectToNotBeNull for not.toBeNull assertions
+    - Enhanced property existence checking with expectToHaveProperty
+    - Improved array length verification with expectToHaveLength
 
 _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
 

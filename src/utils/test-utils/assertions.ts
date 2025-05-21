@@ -36,6 +36,14 @@ export function expectToBeInstanceOf(value: any, constructor: Function): void {
 }
 
 /**
+ * Custom matcher to replicate Jest's not.toBeNull functionality
+ * @param value The value to test
+ */
+export function expectToNotBeNull(value: any): void {
+  expect(value !== null).toBeTruthy();
+}
+
+/**
  * Custom matcher to replicate Jest's toHaveProperty functionality
  * @param object The object to test
  * @param propertyPath The path to the property (can be nested using dot notation)

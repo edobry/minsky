@@ -22,9 +22,11 @@ This file tracks the progress and patterns identified during the migration of hi
 - Migrated src/domain/__tests__/tasks.test.ts with centralized mocking utilities
 - Migrated src/domain/git.test.ts with spyOn for method mocking and improved error handling
 - Migrated src/domain/git.pr.test.ts using direct method mocking for complex dependencies
+- Migrated src/domain/session/session-db.test.ts with custom expectToNotBeNull helper
+- Added expectToNotBeNull helper for testing non-null values
 
 ### Next Steps
-- Continue with migration of src/domain/session/session-db.test.ts
+- Continue with migration of src/adapters/__tests__/shared/commands/rules.test.ts
 - Document patterns and challenges encountered
 - Create reusable utilities for common patterns
 
@@ -48,6 +50,7 @@ Below are common patterns encountered during migrations:
 | `mockFn.mockImplementationOnce()` | `mockFn.mockImplementation()` | Bun only has mockImplementation |
 | `jest.restoreAllMocks()` | `mock.restore()` | Restoring mocked methods |
 | `expect(x).toInclude(y)` | `expect(x.includes(y)).toBe(true)` | String inclusion checking |
+| `expect(x).not.toBeNull()` | `expectToNotBeNull(x)` | For testing non-null values |
 
 ## Custom Assertion Helpers
 
@@ -61,6 +64,7 @@ We've created a set of custom assertion helpers in `src/utils/test-utils/asserti
 | `expect(x).toHaveProperty(prop, value)` | `expectToHaveProperty(x, prop, value)` | For property existence checks |
 | `expect(x).toBeCloseTo(n, precision)` | `expectToBeCloseTo(x, n, precision)` | For floating point comparisons |
 | `expect(arr).toContainEqual(obj)` | `expectToContainEqual(arr, obj)` | For deep equality array item checks |
+| `expect(x).not.toBeNull()` | `expectToNotBeNull(x)` | For testing non-null values |
 
 See the [assertion methods documentation](../../src/test-migration/examples/assertion-methods.md) for detailed usage examples.
 
@@ -75,9 +79,9 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
 | `src/domain/__tests__/tasks.test.ts` | Completed | Medium | Used centralized mocking utilities, fixed type issues, used setupTestMocks() for cleanup |
 | `src/domain/git.test.ts` | Completed | Medium | Used spyOn for method mocking, added proper error handling in tests |
 | `src/domain/git.pr.test.ts` | Completed | Medium | Used direct method mocking for complex dependencies, simplified test structure |
-| `src/domain/session/session-db.test.ts` | Not Started | Easy | Priority 1 |
-| `src/adapters/__tests__/shared/commands/rules.test.ts` | Not Started | Easy | Priority 2 |
-| `src/adapters/__tests__/shared/commands/tasks.test.ts` | Not Started | Easy | Priority 2 |
+| `src/domain/session/session-db.test.ts` | Completed | Easy | Added expectToNotBeNull helper, fixed import paths with .js extensions |
+| `src/adapters/__tests__/shared/commands/rules.test.ts` | Not Started | Easy | Priority 1 |
+| `src/adapters/__tests__/shared/commands/tasks.test.ts` | Not Started | Easy | Priority 1 |
 | `src/adapters/__tests__/shared/commands/git.test.ts` | Not Started | Easy | Priority 2 |
 | `src/adapters/__tests__/shared/commands/session.test.ts` | Not Started | Easy | Priority 2 |
 | `src/adapters/cli/__tests__/git-merge-pr.test.ts` | Not Started | Easy | Priority 3 |
@@ -147,3 +151,10 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
     - This approach focuses on testing the public API and output contracts
     - Less brittle and more maintainable in the long run
     - Good for complex functionality like PR generation where mocking all dependencies is impractical
+
+11. **Functional Test Patterns**
+    - Tests for functional code can be simpler and require less mocking
+    - Pure functions are easier to test with straightforward input/output verification
+    - Function composition patterns in tests improve readability
+    - For functional code, focus on state transformations over mocking
+    - Tests for pure functions don't typically require complex setup and teardown

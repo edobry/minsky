@@ -137,19 +137,20 @@ Create helper utilities for:
 10. [x] Migrated `src/domain/git.test.ts`
 11. [x] Updated CHANGELOG.md with progress details
 12. [x] Migrated `src/domain/git.pr.test.ts`
+13. [x] Migrated `src/domain/session/session-db.test.ts`
+14. [x] Added `expectToNotBeNull` helper for inverse null assertions
 
 ## Next Steps
 
-1. [ ] Migrate `src/domain/session/session-db.test.ts`
-2. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
-3. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
-4. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
-5. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
-6. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
-7. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
-8. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
-9. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
-10. [ ] Update high-priority integration tests as needed
+1. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
+2. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
+3. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
+4. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
+5. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
+6. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
+7. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
+8. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
+9. [ ] Update high-priority integration tests as needed
 
 ## Migration Patterns Established
 
@@ -168,6 +169,7 @@ Create helper utilities for:
 
 5. **Use custom assertion helpers**
    - Apply helpers like `expectToBeInstanceOf()` for missing Jest matchers
+   - Use `expectToNotBeNull()` for `expect().not.toBeNull()` assertions
 
 6. **Direct method spying**
    - Use `spyOn(Class.prototype, "methodName")` for clean method mocks
@@ -185,14 +187,14 @@ Create helper utilities for:
 ## Progress Metrics
 
 - **Total high-priority tests to migrate**: ~20
-- **Tests migrated so far**: 7 (35%)
+- **Tests migrated so far**: 8 (40%)
 - **Patterns documented**: 14
-- **Custom helpers created**: 6
+- **Custom helpers created**: 7
 
 ## Next Priority Files
 
 The next priority for migration is:
-1. `src/domain/session/session-db.test.ts`
-2. `src/adapters/__tests__/shared/commands/rules.test.ts`
+1. `src/adapters/__tests__/shared/commands/rules.test.ts`
+2. `src/adapters/__tests__/shared/commands/tasks.test.ts`
 
 These files test critical business logic and will help us refine our migration patterns. 
