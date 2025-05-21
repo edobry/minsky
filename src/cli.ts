@@ -120,6 +120,33 @@ customizeCommand("session.update", {
   }
 });
 
+// Add customization for the session start command
+customizeCommand("session.start", {
+  // Add command-specific parameter customizations
+  parameters: {
+    name: {
+      description: "Name of the session to create",
+      alias: "n"
+    },
+    title: {
+      description: "Title for the session",
+      alias: "t"
+    },
+    branch: {
+      description: "Branch name for the session (defaults to session name)",
+      alias: "b"
+    },
+    task: {
+      description: "ID of the task to associate with this session",
+      alias: "i"
+    },
+    noCheckout: {
+      description: "Do not check out the new branch after creation",
+      alias: "c"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -135,10 +162,12 @@ const bridgeGeneratedDirCommand = createCommand("session.dir");
 const bridgeGeneratedDeleteCommand = createCommand("session.delete");
 // Generate the "session update" command via the bridge
 const bridgeGeneratedUpdateCommand = createCommand("session.update");
+// Generate the "session start" command via the bridge
+const bridgeGeneratedStartCommand = createCommand("session.start");
 
 if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && 
     bridgeGeneratedDirCommand && bridgeGeneratedDeleteCommand &&
-    bridgeGeneratedUpdateCommand) {
+    bridgeGeneratedUpdateCommand && bridgeGeneratedStartCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
@@ -152,7 +181,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   sessionCommand.commands.forEach(cmd => {
     if (cmd.name() !== "list" && cmd.name() !== "get" && 
         cmd.name() !== "dir" && cmd.name() !== "delete" &&
-        cmd.name() !== "update") {
+        cmd.name() !== "update" && cmd.name() !== "start") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -163,6 +192,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand &&
   modifiedSessionCommand.addCommand(bridgeGeneratedDirCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedDeleteCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedUpdateCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedStartCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
