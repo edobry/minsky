@@ -62,6 +62,20 @@ customizeCommand("session.get", {
   }
 });
 
+// Add customization for the session dir command
+customizeCommand("session.dir", {
+  // Use first required parameter as positional argument
+  useFirstRequiredParamAsArgument: true,
+  // Add command-specific parameter customizations
+  parameters: {
+    session: {
+      // This maps the session parameter to the first positional argument
+      asArgument: true,
+      description: "Session name (auto-detected if in a session workspace)"
+    }
+  }
+});
+
 // Create the standard session command
 const sessionCommand = createSessionCommand({
   getCurrentSession,
@@ -71,20 +85,22 @@ const sessionCommand = createSessionCommand({
 const bridgeGeneratedListCommand = createCommand("session.list");
 // Generate the "session get" command via the bridge
 const bridgeGeneratedGetCommand = createCommand("session.get");
+// Generate the "session dir" command via the bridge
+const bridgeGeneratedDirCommand = createCommand("session.dir");
 
-if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand) {
+if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand && bridgeGeneratedDirCommand) {
   // Instead of replacing the session command, we'll create a temporary program
   // and use that instead, adding all commands except session, then our modified session
   const tempProgram = new Command();
   
   // Add our modified session command first
-  // Create a fresh session command with all the non-list and non-get commands from the original
+  // Create a fresh session command with all the non-bridged commands from the original
   const modifiedSessionCommand = new Command(sessionCommand.name())
     .description(sessionCommand.description());
   
-  // Copy all commands except the list and get commands
+  // Copy all commands except the ones we're replacing with bridge-generated commands
   sessionCommand.commands.forEach(cmd => {
-    if (cmd.name() !== "list" && cmd.name() !== "get") {
+    if (cmd.name() !== "list" && cmd.name() !== "get" && cmd.name() !== "dir") {
       modifiedSessionCommand.addCommand(cmd);
     }
   });
@@ -92,6 +108,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand) {
   // Add the bridge-generated commands
   modifiedSessionCommand.addCommand(bridgeGeneratedListCommand);
   modifiedSessionCommand.addCommand(bridgeGeneratedGetCommand);
+  modifiedSessionCommand.addCommand(bridgeGeneratedDirCommand);
   
   // Add the modified session command first
   tempProgram.addCommand(modifiedSessionCommand);
@@ -104,7 +121,7 @@ if (bridgeGeneratedListCommand && bridgeGeneratedGetCommand) {
   tempProgram.addCommand(createRulesCommand());
   
   // Log that we're using the bridge-generated commands
-  log.cli("Using bridge-generated commands for 'session list' and 'session get'");
+  log.cli("Using bridge-generated commands for 'session list', 'session get', and 'session dir'");
   
   // Use the temp program for parsing
   tempProgram.parse();
