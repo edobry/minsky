@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #112: Implement Comprehensive Test Utility Documentation
+  - Created a comprehensive test utilities documentation suite:
+    - Main documentation file with overview and getting started guides (`TEST_UTILITIES.md`)
+    - Detailed documentation for the Jest/Vitest compatibility layer (`COMPATIBILITY_LAYER.md`)
+    - Migration guides for converting tests from Jest/Vitest to Bun (`MIGRATION_GUIDES.md`)
+    - Mocking utilities documentation (`MOCKING_UTILITIES.md`)
+    - Testing best practices guide (`TESTING_BEST_PRACTICES.md`)
+    - Example-based practical guide with real-world testing scenarios (`EXAMPLE_GUIDE.md`)
+  - Documented the complete testing infrastructure architecture
+  - Provided clear guidance for migrating tests between frameworks
+  - Added detailed API documentation for all testing utilities
+  - Included code examples for common testing patterns
+
+_See: SpecStory history [2023-06-30_test-utility-documentation](mdc:.specstory/history/2023-06-30_test-utility-documentation.md) for implementation details._
+
 - Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
@@ -301,6 +316,16 @@ _See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/histor
   - Complete documentation in test-utils README
 
 _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
+
+- Comprehensive test utility documentation:
+  - Main documentation file with overview and getting started guides
+  - Detailed documentation for the compatibility layer
+  - Migration guides for converting tests from Jest/Vitest to Bun
+  - Mocking utilities documentation
+  - Testing best practices guide
+  - Example-based practical guide with real-world testing scenarios
+
+_See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specstory/history/2023-07-18_20-15-test-utility-documentation.md) for test utilities documentation._
 
 ### Changed
 
