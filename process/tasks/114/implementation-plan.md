@@ -120,3 +120,74 @@ Create helper utilities for:
 3. Day 3: Implement session resolution function
 4. Day 4: Write tests and update existing code
 5. Day 5: Final testing, documentation, and PR preparation 
+
+# Implementation Plan for Task #114: Migrate High-Priority Tests to Native Bun Patterns
+
+## Completed Steps
+
+1. [x] Created `process/tasks/114/migration-notes.md` with ongoing documentation
+2. [x] Created detailed migration pattern library documenting common patterns between Jest and Bun
+3. [x] Added custom assertion helpers in `src/utils/test-utils/assertions.ts`
+4. [x] Migrated `src/utils/test-utils/__tests__/enhanced-utils.test.ts`
+5. [x] Migrated `src/utils/test-utils/__tests__/assertions.test.ts`
+6. [x] Migrated `src/utils/test-utils/__tests__/mocking.test.ts`
+7. [x] Migrated `src/utils/filter-messages.test.ts`
+8. [x] Migrated `src/domain/__tests__/tasks.test.ts`
+9. [x] Created TestGitService utility for simplified git testing
+10. [x] Migrated `src/domain/git.test.ts`
+11. [x] Updated CHANGELOG.md with progress details
+
+## Next Steps
+
+1. [ ] Migrate `src/domain/git.pr.test.ts`
+2. [ ] Migrate `src/domain/session/session-db.test.ts`
+3. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
+4. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
+5. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
+6. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
+7. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
+8. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
+9. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
+10. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
+11. [ ] Update high-priority integration tests as needed
+
+## Migration Patterns Established
+
+1. **Use centralized mocking utilities**
+   - Prefer `createMock()` from our utilities over direct `mock()`
+   - Use `mockModule()` for module-level mocking
+
+2. **Add explicit lifecycle hook imports**
+   - Always import `{ beforeEach, afterEach } from "bun:test"`
+
+3. **Use proper ESM imports**
+   - Add `.js` extensions to all relative imports
+
+4. **Apply proper mock cleanup**
+   - Use `setupTestMocks()` or `mock.restore()` in `afterEach`
+
+5. **Use custom assertion helpers**
+   - Apply helpers like `expectToBeInstanceOf()` for missing Jest matchers
+
+6. **Direct method spying**
+   - Use `spyOn(Class.prototype, "methodName")` for clean method mocks
+   - Prefer direct method mocking over dependency injection when possible
+
+7. **Proper error handling**
+   - Add explicit type annotations in catch blocks: `catch (error: unknown)`
+   - Use proper type narrowing with instanceof checks
+
+## Progress Metrics
+
+- **Total high-priority tests to migrate**: ~20
+- **Tests migrated so far**: 6 (30%)
+- **Patterns documented**: 14
+- **Custom helpers created**: 6
+
+## Next Priority Files
+
+The next priority for migration is:
+1. `src/domain/git.pr.test.ts`
+2. `src/domain/session/session-db.test.ts`
+
+These files test critical business logic and will help us refine our migration patterns. 
