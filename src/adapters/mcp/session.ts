@@ -4,6 +4,17 @@
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 
+// Import centralized descriptions
+import {
+  SESSION_DESCRIPTION,
+  REPO_DESCRIPTION,
+  TASK_ID_DESCRIPTION,
+  GIT_BRANCH_DESCRIPTION,
+  SESSION_QUIET_DESCRIPTION,
+  FORCE_DESCRIPTION,
+  GIT_REMOTE_DESCRIPTION
+} from "../../utils/option-descriptions.js";
+
 // Import domain functions from domain/index.js as required by linter
 // eslint-disable-next-line no-restricted-imports
 import {
@@ -42,7 +53,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Get a specific session by name or task ID",
     z.object({
       name: z.string().optional().describe("Name of the session to retrieve"),
-      task: z.string().optional().describe("Task ID associated with the session"),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       const params = {
@@ -67,10 +78,10 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Start a new session",
     z.object({
       name: z.string().optional().describe("Name for the new session"),
-      task: z.string().optional().describe("Task ID to associate with the session"),
-      repo: z.string().optional().describe("Repository to start the session in"),
-      branch: z.string().optional().describe("Branch name to create"),
-      quiet: z.boolean().optional().describe("Suppress output").default(true),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
+      repo: z.string().optional().describe(REPO_DESCRIPTION),
+      branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
+      quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
     async (args): Promise<Record<string, unknown>> => {
       // Always set quiet to true as required by project rules
@@ -99,8 +110,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Delete a session",
     z.object({
       name: z.string().optional().describe("Name of the session to delete"),
-      task: z.string().optional().describe("Task ID to delete session for"),
-      force: z.boolean().optional().describe("Skip confirmation prompt"),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
+      force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
@@ -160,7 +171,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Get the directory path for a session",
     z.object({
       name: z.string().optional().describe("Name of the session"),
-      task: z.string().optional().describe("Task ID associated with the session"),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
       const params = {
@@ -184,8 +195,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "Update a session with the latest changes from the main branch",
     z.object({
       name: z.string().describe("Name of the session to update"),
-      branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
-      remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
+      branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
+      remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       noStash: z.boolean().optional().describe("Skip stashing local changes"),
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
     }),
