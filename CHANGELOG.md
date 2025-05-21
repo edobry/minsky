@@ -16,9 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented flexible parameter mapping between Zod schemas and CLI options/arguments
   - Added support for command customization with aliases, help text, and parameter configuration
   - Developed category-based command organization with hierarchical structuring
-  - Created prototype integrations with "session list", "session get", "session dir", "session delete", "session update", "session start", "session approve", "session pr", and "session inspect" commands
+  - Created prototype integrations with "session list", "session get", "session dir", "session delete", "session update", "session start", "session approve", and "session pr" commands
+  - Migrated the "tasks spec" command to use the CLI bridge for accessing task specification content
+  - Fixed imports and types for the `getTaskSpecContentFromParams` function
+  - Updated CLI command factory with proper customization options for the tasks spec command
+  - Streamlined cli.ts implementation with a cleaner code structure
   - Added comprehensive type definitions for bridge components
   - Implemented robust error handling and output formatting
+
+_See: SpecStory history [2023-05-29_cli-bridge-implementation](mdc:.specstory/history/2023-05-29_cli-bridge-implementation.md) for implementation details._
 
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
