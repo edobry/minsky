@@ -9,6 +9,7 @@
 import { CommandSchema } from "@minsky/core";
 import { registerGitCommands } from "../shared/commands/git.js";
 import { registerTasksCommands } from "../shared/commands/tasks.js";
+import { registerSessionCommands } from "../shared/commands/session.js";
 import { CommandCategory } from "../shared/command-registry.js";
 import { log } from "../../utils/logger.js";
 
@@ -53,7 +54,7 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params) => {
+  handler: async (params: any) => {
     log.debug("MCP git.commit called with params:", params);
     return {
       success: true,
@@ -87,12 +88,48 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params) => {
+  handler: async (params: any) => {
     log.debug("MCP tasks.status.get called with params:", params);
     return {
       success: true,
       taskId: params.taskId,
       status: "TODO", // Example status
+    };
+  },
+};
+
+/**
+ * Sample MCP command schema for session list
+ */
+const sessionListCommandSchema: CommandSchema<any, any> = {
+  name: "session.list",
+  description: "List all sessions",
+  parameters: {
+    repo: {
+      type: "string",
+      description: "Repository path",
+      required: false,
+    },
+  },
+  // In real implementation, this would call the shared command registry
+  handler: async (params: any) => {
+    log.debug("MCP session.list called with params:", params);
+    return {
+      success: true,
+      sessions: [
+        {
+          session: "example-session-1",
+          repoName: "example-repo",
+          taskId: "123",
+          branch: "feature-123"
+        },
+        {
+          session: "example-session-2",
+          repoName: "example-repo",
+          taskId: "456",
+          branch: "feature-456"
+        }
+      ]
     };
   },
 };
@@ -109,9 +146,14 @@ export function setupMcpWithSharedCommands(): void {
   // Register shared commands in the registry
   registerGitCommands();
   registerTasksCommands();
+  registerSessionCommands();
   
   // Bridge the commands to MCP
-  mcpBridge.registerSharedCommands([CommandCategory.GIT, CommandCategory.TASKS]);
+  mcpBridge.registerSharedCommands([
+    CommandCategory.GIT, 
+    CommandCategory.TASKS,
+    CommandCategory.SESSION
+  ]);
   
   log.debug("MCP setup complete with shared commands");
 }
@@ -119,5 +161,6 @@ export function setupMcpWithSharedCommands(): void {
 // Export for use in tests
 export { 
   gitCommitCommandSchema,
-  tasksStatusGetCommandSchema
+  tasksStatusGetCommandSchema,
+  sessionListCommandSchema
 }; 

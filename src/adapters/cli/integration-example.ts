@@ -9,6 +9,7 @@
 import { Command } from "commander";
 import { registerGitCommands } from "../shared/commands/git.js";
 import { registerTasksCommands } from "../shared/commands/tasks.js";
+import { registerSessionCommands } from "../shared/commands/session.js";
 import { registerCategorizedCliCommands } from "../shared/bridges/cli-bridge.js";
 import { CommandCategory } from "../shared/command-registry.js";
 import { log } from "../../utils/logger.js";
@@ -33,11 +34,12 @@ export function createIntegratedCliProgram(): Command {
   // Register shared commands in the registry
   registerGitCommands();
   registerTasksCommands();
+  registerSessionCommands();
   
   // Bridge the commands to CLI
   registerCategorizedCliCommands(
     program,
-    [CommandCategory.GIT, CommandCategory.TASKS],
+    [CommandCategory.GIT, CommandCategory.TASKS, CommandCategory.SESSION],
     true // Create subcommands for categories
   );
   
