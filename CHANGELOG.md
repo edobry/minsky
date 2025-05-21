@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for task creation._
 
-- Task #121: Enhance `tasks get` Command to Support Multiple Task IDs
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
 
   - Will update the `tasks get` command to fetch information for multiple tasks at once
   - Will support comma-separated format and multiple arguments syntax
