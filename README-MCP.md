@@ -19,6 +19,12 @@ minsky mcp start --sse --port 8080
 
 # Start with HTTP streaming
 minsky mcp start --http-stream --port 9000
+
+# Start with the MCP inspector for debugging
+minsky mcp start --with-inspector
+
+# Start with the MCP inspector on a custom port
+minsky mcp start --with-inspector --inspector-port 7000
 ```
 
 ## Transport Options
@@ -28,6 +34,42 @@ The Minsky MCP server supports multiple transport mechanisms:
 - **stdio** (default): Standard input/output transport, suitable for direct process communication
 - **SSE** (Server-Sent Events): For web-based communication over HTTP
 - **HTTP Streaming**: For more efficient web-based communication with larger payloads
+
+## Debugging with the MCP Inspector
+
+The Minsky MCP server includes integration with the MCP Inspector, a tool that helps debug and visualize MCP interactions. This is particularly useful during development and testing.
+
+### Using the Inspector
+
+To start the MCP server with the inspector:
+
+```bash
+minsky mcp start --with-inspector
+```
+
+This will:
+1. Start the MCP server normally
+2. Launch the MCP Inspector on port 6274 (by default)
+3. Open a browser window to the inspector interface
+
+The inspector allows you to:
+- View all tools available through the MCP server
+- See request/response payloads for each tool invocation
+- Test tool invocations directly through the UI
+- Debug issues with tool parameters and responses
+
+### Inspector Options
+
+- `--with-inspector`: Enable the MCP Inspector
+- `--inspector-port <port>`: Specify a custom port for the inspector (default: 6274)
+
+### Requirements
+
+The MCP Inspector requires the `@modelcontextprotocol/inspector` package. If it's not already installed, you can add it with:
+
+```bash
+bun add -d @modelcontextprotocol/inspector
+```
 
 ## Available Tools
 
