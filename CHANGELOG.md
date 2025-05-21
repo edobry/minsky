@@ -68,6 +68,17 @@ _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specst
 
 _See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
 
+- Task #111: Built Core Mock Compatibility Layer for Bun Tests
+  - Created a Jest/Vitest compatibility layer to simplify migration of tests to Bun's test runner
+  - Implemented mock function extensions with full Jest-like API (mockReset, mockClear, mockReturnValue, etc.)
+  - Added asymmetric matchers (anything(), any(), objectContaining(), etc.) for flexible assertions
+  - Created module mocking utilities to simulate Jest's module mocking capabilities
+  - Added comprehensive documentation on using and migrating to the compatibility layer
+  - Included unit tests to verify compatibility with existing test patterns
+  - Designed the system with progressive adoption in mind, allowing tests to be migrated incrementally
+
+_See: SpecStory history [2025-06-30_build-core-mock-compatibility-layer](mdc:.specstory/history/2025-06-30_build-core-mock-compatibility-layer.md) for implementation details._
+
 - Task #110: Created a Complete Test Inventory and Classification System
 
   - Implemented test-analyzer.ts script to scan and classify test patterns
@@ -252,6 +263,44 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
   - Implemented basic tests for GitHub functionality validation
   - Fixed issues with test environment setup and mock handling
   - Ensured all tests pass reliably on Bun test framework
+
+- Task #106: Refactor SessionDB to Functional Patterns (Subtask of #102)
+  - Implemented functional programming patterns for SessionDB
+  - Created pure functions module (session-db.ts) that contains no side effects
+  - Created I/O operations module (session-db-io.ts) to isolate file system interactions
+  - Implemented adapter class (session-adapter.ts) for backward compatibility
+  - Added factory function for creating session providers
+  - Added comprehensive tests for all pure functions and adapter class
+  - Improved type safety with proper interfaces and type definitions
+  - Enhanced error handling with more descriptive error messages
+  - Fixed repoPath generation to properly handle repository names with slashes
+
+_See: SpecStory history [2025-05-20_refactor-sessiondb-functional-patterns](mdc:.specstory/history/2025-05-20_refactor-sessiondb-functional-patterns.md) for implementation details._
+
+- Task #106: Fixed TypeScript Linter Errors in SessionDB Tests
+  - Fixed type checking errors in session module test files
+  - Used centralized type definitions in src/types/bun-test.d.ts to properly handle Bun test matchers
+  - Added missing expect matchers (toHaveProperty, toHaveLength, toThrow, etc.) to central type definitions
+  - Ensured all tests continue to pass at runtime while improving TypeScript compatibility
+
+_See: SpecStory history [2025-05-21_fix-sessiondb-test-linter-errors](mdc:.specstory/history/2025-05-21_fix-sessiondb-test-linter-errors.md) for implementation details._
+
+- Fixed test failures after merging PRs #098 and #108:
+  - Fixed `filterTasks` function to correctly handle task IDs with numeric equivalence (e.g., "2" vs "#002")
+  - Updated shared command tests to use Bun-compatible test assertions instead of Jest-style matchers
+  - Removed dependency on custom `arrayContaining` and `objectContaining` matchers
+  - Ensured consistent testing patterns across the codebase
+
+_See: SpecStory history [2025-06-26_fix-tests-after-merge](mdc:.specstory/history/2025-06-26_fix-tests-after-merge.md) for debugging session._
+
+- Enhanced test utilities for better domain testing
+  - Type-safe mock creation functions: `mockFunction`, `createPartialMock`, `mockReadonlyProperty`
+  - Test suite management utilities: `createTestSuite`, `withCleanup`
+  - Dependency generation utilities: `createTestDeps`, `createTaskTestDeps`, `createSessionTestDeps`, `createGitTestDeps`
+  - Test data factory functions: `createTaskData`, `createSessionData`, `createRepositoryData`, plus array generators and randomization utilities
+  - Complete documentation in test-utils README
+
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._
 
 ### Changed
 
