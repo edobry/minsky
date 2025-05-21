@@ -1,7 +1,7 @@
 import { globSync } from "glob";
 import { TestFileAnalyzer } from "../core/analyzer";
-import { TestFileTransformer } from "../core/transformer";
-import { PatternRegistry } from "../patterns/registry";
+import { TestFileTransformer, AppliedTransformation } from "../core/transformer";
+import { PatternRegistry, MatchedPattern } from "../patterns/registry";
 import { TransformationPipeline } from "../transformers/pipeline";
 import * as fs from "fs";
 import * as path from "path";
@@ -15,6 +15,16 @@ interface MigrateOptions {
   safetyLevel?: 'low' | 'medium' | 'high';
   output?: string;
   verbose?: boolean;
+}
+
+/**
+ * Interface for migration result entry
+ */
+interface MigrationResultEntry {
+  file: string;
+  patterns: MatchedPattern[];
+  appliedTransformations: AppliedTransformation[];
+  diff: string;
 }
 
 /**
@@ -50,7 +60,7 @@ export async function migrateCommand(files: string, options: MigrateOptions): Pr
     const transformer = new TestFileTransformer(pipeline);
     
     // Results to store all migration data
-    const results = [];
+    const results: MigrationResultEntry[] = [];
     
     // Process each file
     for (const file of testFiles) {

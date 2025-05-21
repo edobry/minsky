@@ -13,6 +13,16 @@ interface AnalyzeOptions {
 }
 
 /**
+ * Interface for analysis result entry
+ */
+interface AnalysisResultEntry {
+  file: string;
+  patterns: any[];
+  complexity: 'simple' | 'moderate' | 'complex';
+  migrationTargets: any;
+}
+
+/**
  * Command to analyze test files and identify migration targets
  */
 export async function analyzeCommand(files: string, options: AnalyzeOptions): Promise<void> {
@@ -37,7 +47,7 @@ export async function analyzeCommand(files: string, options: AnalyzeOptions): Pr
     const analyzer = new TestFileAnalyzer(registry);
     
     // Results to store all analysis data
-    const results = [];
+    const results: AnalysisResultEntry[] = [];
     
     // Analyze each file
     for (const file of testFiles) {

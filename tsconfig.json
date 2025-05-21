@@ -3,13 +3,13 @@
     // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "NodeNext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
 
     // Bundler mode
-    "moduleResolution": "Node",
+    "moduleResolution": "NodeNext",
     "verbatimModuleSyntax": true,
     "noEmit": true,
 
@@ -25,8 +25,15 @@
     "noPropertyAccessFromIndexSignature": false,
 
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "declaration": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "noImplicitAny": false
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["**/*.ts", "types.d.ts"],
+  "exclude": ["node_modules", "dist", "tests"]
 }

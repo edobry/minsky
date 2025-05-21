@@ -2,7 +2,7 @@ import { globSync } from "glob";
 import * as fs from "fs";
 import * as path from "path";
 import { TestFileAnalyzer } from "../core/analyzer";
-import { TestFileTransformer } from "../core/transformer";
+import { TestFileTransformer, AppliedTransformation } from "../core/transformer";
 import { PatternRegistry } from "../patterns/registry";
 import { TransformationPipeline } from "../transformers/pipeline";
 import { TestRunner } from "../core/test-runner";
@@ -27,6 +27,41 @@ interface BatchConfig {
   verifyTimeout: number;
   maxConcurrent: number;
   skipPatterns: string[];
+}
+
+/**
+ * Interface for successful migration result
+ */
+interface SuccessfulMigration {
+  file: string;
+  appliedTransformations: AppliedTransformation[];
+}
+
+/**
+ * Interface for failed migration result
+ */
+interface FailedMigration {
+  file: string;
+  reason: string;
+  error?: string;
+  appliedTransformations?: AppliedTransformation[];
+}
+
+/**
+ * Interface for skipped migration result
+ */
+interface SkippedMigration {
+  file: string;
+  reason: string;
+}
+
+/**
+ * Interface for batch processing results
+ */
+interface BatchResults {
+  successful: SuccessfulMigration[];
+  failed: FailedMigration[];
+  skipped: SkippedMigration[];
 }
 
 /**
@@ -94,7 +129,7 @@ export async function batchCommand(files: string, options: BatchOptions): Promis
     const testRunner = options.verify ? new TestRunner() : null;
     
     // Results to store all batch processing data
-    const results = {
+    const results: BatchResults = {
       successful: [],
       failed: [],
       skipped: []
@@ -110,10 +145,10 @@ export async function batchCommand(files: string, options: BatchOptions): Promis
       console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(testFiles.length / batchSize)}`);
       
       // Process files in parallel
-      await Promise.all(batch.map(async (file) => {
+      await Promise.all(batch.map(async (file: string) => {
         try {
           // Skip files matching skip patterns
-          if (config.skipPatterns.some(pattern => file.includes(pattern))) {
+          if (config.skipPatterns.some((pattern: string) => file.includes(pattern))) {
             console.log(`Skipping ${file} (matches skip pattern)`);
             results.skipped.push({ file, reason: 'skip pattern' });
             return;

@@ -1,6 +1,6 @@
 import { Node, SourceFile } from "ts-morph";
 import { JestImportTransformer } from "./import-transformers";
-import { JestMockFunctionTransformer, ViMockFunctionTransformer } from "./mock-function-transformers";
+import { JestMockFunctionTransformer, ViMockFunctionTransformer, MockConfigurationTransformer } from "./mock-function-transformers";
 import { JestModuleMockTransformer, ViModuleMockTransformer } from "./module-mock-transformers";
 import { AssertionTransformer } from "./assertion-transformers";
 
@@ -103,6 +103,7 @@ export class TransformationPipeline {
     // Mock function transformers
     this.registerTransformer(new JestMockFunctionTransformer());
     this.registerTransformer(new ViMockFunctionTransformer());
+    this.registerTransformer(new MockConfigurationTransformer());
     
     // Module mock transformers
     if (safetyLevel !== 'high') {

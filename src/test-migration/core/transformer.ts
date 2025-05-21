@@ -153,11 +153,11 @@ export class TestFileTransformer {
       const diagnostics = sourceFile.getPreEmitDiagnostics();
       
       if (diagnostics.length > 0) {
-        return diagnostics.map(d => d.getMessageText().toString());
+        return diagnostics.map((d: any) => d.getMessageText().toString());
       }
       
       return undefined;
-    } catch (error) {
+    } catch (error: any) {
       return [`Validation error: ${error.message}`];
     }
   }

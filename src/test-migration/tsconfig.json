@@ -11,8 +11,10 @@
     "declaration": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "noImplicitAny": false
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "types.d.ts"],
   "exclude": ["node_modules", "dist", "tests"]
 } 
