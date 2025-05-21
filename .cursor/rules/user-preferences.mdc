@@ -11,10 +11,36 @@ alwaysApply: true
 
 - **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
 
-- **Verify Command Availability and Syntax:** Before attempting to use a command, especially Minsky-specific commands, check command availability with `--help` first rather than assuming command structure.
+- **Strict Command Verification Protocol:** For all commands, but especially CLI tools like Minsky or Git:
+  - **Check Command Existence and Syntax:** Use `--help` or similar documentation to verify command existence and correct syntax BEFORE first use.
+  - **Use Progressive Verification:** For complex multi-step commands:
+    1. First verify the command exists and check its options
+    2. Test with safe flags (e.g., `--dry-run`) when available
+    3. Document the current state before execution
+    4. Verify results match expected outcomes after execution
+  - **For Destructive Commands:** (those that delete, overwrite, or permanently modify data):
+    1. Document the current state with appropriate commands
+    2. Explicitly state the expected outcome
+    3. Consider safer alternatives and mention them
+    4. Create backups when appropriate (e.g., temp files, branches)
+    5. Execute with appropriate safeguards
+    6. Verify post-command state matches expectations
+  - **When Command Fails:** Do not immediately retry with variations or assume the issue. Instead:
+    1. Check exact syntax using documentation (`--help`)
+    2. Verify the current state hasn't changed unexpectedly
+    3. Make a clear assessment of what's wrong before proceeding
 
 - **Address All Linter Errors:** Acknowledge all linter errors in files. Attempt to fix straightforward errors, and explicitly state limitations with more complex errors rather than ignoring them.
 
 - **Complete All Requirements Before Finishing:** Never consider a task partially complete. Always implement all requirements listed in the task specification before claiming completion or moving to the PR preparation phase. Systematically verify each requirement against implementation using a comprehensive checklist approach.
 
 - **Assume Actionable Intent for Ambiguous Queries:** When a query about "available" items (e.g., tasks, files) is made, default to interpreting "available" as "currently active, open, or requiring attention." Provide the most probable, actionable subset of information first, rather than an exhaustive list that includes completed or historical items, unless explicitly requested. This promotes direct action and aligns with typical user intent in a work context.
+
+- **Error Recognition and Correction:** When an error occurs (command failure, unexpected result, etc.):
+  1. **Immediately pause the workflow** - Do not continue with subsequent steps
+  2. **Document the current state** using appropriate commands or tools
+  3. **Analyze the root cause** before attempting any fix
+  4. **Consider multiple recovery options** with their respective risks
+  5. **Create backups** before attempting recovery when data is at risk
+  6. **Implement recovery in isolated steps** with verification between each step
+  7. **Document the error and recovery process** for future reference

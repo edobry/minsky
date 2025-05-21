@@ -4,8 +4,105 @@ description: REQUIRED when executing Git commands
 ---
 # Git Usage Policy
 # Git Usage Policy
+# Git Usage Policy
 
 This rule outlines the mandatory policies and best practices for using Git within the Minsky project. Adherence to these guidelines is critical for maintaining repository integrity, collaboration, and preventing data loss.
+
+## ⚠️ Git Command Safety Protocol
+
+The following verification protocol is **MANDATORY** for all Git operations to prevent data loss and ensure repository integrity.
+
+### Required Pre-Command Verification Steps
+
+Before executing ANY Git command that:
+- Modifies commit history (`reset`, `rebase`, etc.)
+- Modifies branch structure (`branch -D`, `push origin :branch`, etc.)
+- Overwrites remote state (`push --force`, `push -f`, etc.)
+- Alters working directory state (`checkout -- .`, `clean -fd`, etc.)
+
+You **MUST**:
+
+1. **Document Current State**:
+   - Run `git status` and observe the current working tree status
+   - Run `git log --oneline -n 5` to see the recent commit history
+   - If on a branch, note the branch name with `git branch --show-current`
+
+2. **Predict Expected Outcome**:
+   - Explicitly state what changes will occur to:
+     - Working directory files
+     - Staging area
+     - Local commit history
+     - Remote repository state (if applicable)
+
+3. **Consider Safer Alternatives**:
+   - For `reset`: Consider `git stash` or creating a temporary branch
+   - For `rebase`: Consider working on a new temporary branch first
+   - For destructive commands: Consider if a non-destructive approach exists
+
+4. **Execute with Verification Flags or in Steps**:
+   - Use the `--dry-run` flag when available to preview changes
+   - Break complex operations into smaller, verifiable steps
+   - For critical operations, create a temporary backup branch: `git branch temp-backup`
+
+5. **Post-Command Verification**:
+   - Run `git status` again to verify the new state
+   - Compare the actual outcome to your predicted outcome
+   - If unexpected results occur, DO NOT proceed with additional commands
+   - Use `git reflog` to identify recovery options if needed
+
+### Specific Command Safety Guidelines
+
+#### `git reset` Safety
+
+- **NEVER** use `git reset --hard` on a branch that:
+  - Has been pushed to remote
+  - Has been shared with others
+  - Might contain unique work not backed up elsewhere
+- Always create a backup branch before a hard reset: `git branch backup-before-reset`
+- Consider alternatives:
+  - `git checkout -b new-branch` (create and work on a new branch instead)
+  - `git revert` (create a new commit that undoes previous changes)
+
+#### `git rebase` Safety
+
+- **NEVER** rebase branches that have been pushed and might be used by others
+- Create a backup before rebasing: `git branch backup-before-rebase`
+- Use interactive rebase with caution: `git rebase -i`
+- Verify the history after rebase with `git log --graph --oneline`
+
+#### `git checkout` Safety
+
+- When switching branches with uncommitted changes:
+  - Stash changes first: `git stash save "meaningful description"`
+  - Verify stash creation: `git stash list`
+  - Switch branch: `git checkout branch-name`
+  - Apply stashed changes if needed: `git stash apply`
+- For `git checkout -- .` or other working directory resets:
+  - First run `git diff` to confirm what will be lost
+  - Consider `git stash` instead to preserve the changes
+
+#### Branch Deletion Safety
+
+- Before deleting local branches:
+  - Verify you're not on the branch to be deleted
+  - Check if the branch is fully merged: `git branch --merged`
+  - For unmerged branches, verify what commits would be lost
+- Before deleting remote branches:
+  - Confirm the branch name precisely
+  - Ensure the branch is no longer needed by any team member
+
+### Error Recovery Protocol
+
+If you realize a Git error has occurred:
+
+1. **STOP immediately** - Do not run any additional Git commands
+2. **Document current state**: `git status`, `git log --oneline`, `git reflog`
+3. **Consult `git reflog`** to identify lost commits
+4. **Create a temporary branch** pointing to the desired recovery commit:
+   - `git branch recovery-branch <commit-hash>`
+5. **Verify recovery branch** contains the expected content
+6. **Develop a recovery plan** before executing additional commands
+7. **Document the error and recovery process** for team knowledge
 
 ## ⚠️ CRITICAL: Prohibition and Strict Control of `git push --force`
 

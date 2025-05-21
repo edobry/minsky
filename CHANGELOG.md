@@ -138,6 +138,8 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added tests for Git domain methods: createPullRequestFromParams, commitChangesFromParams
 - Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
 
+- Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
+
 ### Changed
 
 - Refactored CLI command implementations to use shared option utilities
@@ -408,6 +410,6 @@ _See: SpecStory history [2024-07-17_16-20-fix-test-failures](mdc:.specstory/hist
 
 - Updated the `user-preferences` rule to include a heuristic for interpreting ambiguous queries about "available" items, defaulting to active/actionable items. Also updated the rule's description in the Minsky system.
 
-- Enhanced the `workspace-verification` rule with a new "Resource Management Verification Protocol" section to ensure project-specific tools are used for resource management instead of direct file editing.
+- Enhanced the `workspace-verification` rule to reference the new resource-management-protocol rule for guidance on managing project resources.
 
 _See: SpecStory history [YYYY-MM-DD_HH-MM-user-preferences-update](mdc:.specstory/history/YYYY-MM-DD_HH-MM-user-preferences-update.md) for details on these rule updates._
