@@ -3,7 +3,13 @@
  * These functions don't have side effects and work with the task data types
  */
 
-import type { TaskData, TaskState, TaskFilter, TaskSpecData, TaskStatusType } from "../../types/tasks/taskData.js";
+import type {
+  TaskData,
+  TaskState,
+  TaskFilter,
+  TaskSpecData,
+  TaskStatusType,
+} from "../../types/tasks/taskData.js";
 import { log } from "../../utils/index.js";
 
 // Constants used by task functions
@@ -11,15 +17,15 @@ export const CHECKBOX_TO_STATUS: Record<string, string> = {
   " ": "TODO",
   "+": "IN-PROGRESS",
   "-": "IN-REVIEW",
-  "x": "DONE",
-  "X": "DONE",
+  x: "DONE",
+  X: "DONE",
 };
 
 export const STATUS_TO_CHECKBOX: Record<string, string> = {
-  "TODO": " ",
+  TODO: " ",
   "IN-PROGRESS": "+",
   "IN-REVIEW": "-",
-  "DONE": "x",
+  DONE: "x",
 };
 
 /**
@@ -93,15 +99,15 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
       const checkbox = STATUS_TO_CHECKBOX[task.status] || " ";
       const specPath = task.specPath || "#";
       const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
-      
+
       if (!task.description) return taskLine;
 
       // Format description as indented list items
       const description = task.description
         .split("\n")
-        .map(line => `  - ${line}`)
+        .map((line) => `  - ${line}`)
         .join("\n");
-      
+
       return `${taskLine}\n${description}`;
     })
     .join("\n\n");
@@ -126,15 +132,15 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   // This handles case where ID is provided without leading zeros
   const normalizedId = normalizeTaskId(id);
   if (!normalizedId) return null;
-  
+
   const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
   if (isNaN(numericId)) return null;
-  
+
   const numericMatch = tasks.find((task) => {
     const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(taskNumericId) && taskNumericId === numericId;
   });
-  
+
   return numericMatch || null;
 }
 
@@ -190,7 +196,7 @@ export function getNextTaskId(tasks: TaskData[]): string {
  */
 export function setTaskStatus(tasks: TaskData[], id: string, status: string): TaskData[] {
   if (!tasks || !id || !status) return tasks;
-  
+
   const normalizedId = normalizeTaskId(id);
   if (!normalizedId) return tasks;
 
@@ -198,9 +204,10 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: string): Ta
   if (!Object.values(CHECKBOX_TO_STATUS).includes(status)) {
     return tasks;
   }
-  
-  return tasks.map(task => 
-    task.id === normalizedId || parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
+
+  return tasks.map((task) =>
+    task.id === normalizedId ||
+    parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
       ? { ...task, status }
       : task
   );
@@ -214,7 +221,7 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: string): Ta
  */
 export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
-  
+
   // Ensure the task has a valid ID
   if (!newTask.id || !normalizeTaskId(newTask.id)) {
     newTask = {
@@ -222,18 +229,14 @@ export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
       id: getNextTaskId(tasks),
     };
   }
-  
+
   // Check if task with the same ID already exists
   const existingTask = getTaskById(tasks, newTask.id);
   if (existingTask) {
     // Replace the existing task
-    return tasks.map(task => 
-      task.id === existingTask.id
-        ? newTask
-        : task
-    );
+    return tasks.map((task) => (task.id === existingTask.id ? newTask : task));
   }
-  
+
   // Add the new task
   return [...tasks, newTask];
 }
@@ -256,32 +259,34 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
 
     // Filter by ID
     if (filter.id) {
-      // For numeric ID filters (like "2"), compare by numeric value
+      // Handle special case: if filter.id is a simple number (like "2") and task.id is "#002"
       if (/^\d+$/.test(filter.id)) {
-        const numId = parseInt(filter.id, 10);
-        const taskNumId = parseInt(task.id.replace(/\D/g, ""), 10);
-        if (numId === taskNumId) {
+        // If filter is just digits, compare numeric values directly
+        const filterNum = parseInt(filter.id, 10);
+        const taskNum = parseInt(task.id.replace(/\D/g, ""), 10);
+
+        if (!isNaN(filterNum) && !isNaN(taskNum) && filterNum === taskNum) {
           return true;
         }
       }
-      
-      // For prefixed ID filters (like "#002"), compare normalized forms
+
+      // Try normalized string comparison
       const normalizedFilterId = normalizeTaskId(filter.id);
       const normalizedTaskId = normalizeTaskId(task.id);
-      
+
       if (normalizedFilterId && normalizedTaskId) {
-        // Compare numeric values (to handle different zero padding)
-        const filterIdNumber = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
-        const taskIdNumber = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
-        
-        if (!isNaN(filterIdNumber) && !isNaN(taskIdNumber) && filterIdNumber === taskIdNumber) {
+        // Strip the "#" prefix for more flexible comparison
+        const filterIdNum = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
+        const taskIdNum = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
+
+        if (!isNaN(filterIdNum) && !isNaN(taskIdNum) && filterIdNum === taskIdNum) {
           return true;
         }
-        
-        // Also check exact string match
+
+        // Fallback to exact string comparison
         return normalizedFilterId === normalizedTaskId;
       }
-      
+
       return false;
     }
 
@@ -313,22 +318,22 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   if (!content) {
     return { title: "", description: "" };
   }
-  
+
   const lines = content.split("\n");
-  
+
   // Extract title from the first heading
   const titleLine = lines.find((line) => line.startsWith("# "));
   if (!titleLine) {
     return { title: "", description: "" };
   }
-  
+
   // Support both "# Task: Title" and "# Task #XXX: Title" formats
   const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
   const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-  
+
   let title = "";
   let id: string | undefined;
-  
+
   if (titleWithIdMatch && titleWithIdMatch[2]) {
     title = titleWithIdMatch[2];
     id = `#${titleWithIdMatch[1]}`;
@@ -341,11 +346,11 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
       title = generalTitleMatch[1];
     }
   }
-  
+
   // Extract description from the Context section
   const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
   let description = "";
-  
+
   if (contextIndex !== -1) {
     for (let i = contextIndex + 1; i < lines.length; i++) {
       const line = lines[i] || "";
@@ -353,7 +358,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
       if (line.trim()) description += `${line.trim()}\n`;
     }
   }
-  
+
   return {
     title,
     description: description.trim(),
@@ -368,11 +373,9 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
  */
 export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   if (!spec) return "";
-  
-  const titleLine = spec.id 
-    ? `# Task ${spec.id}: ${spec.title}`
-    : `# Task: ${spec.title}`;
-    
+
+  const titleLine = spec.id ? `# Task ${spec.id}: ${spec.title}` : `# Task: ${spec.title}`;
+
   const contextSection = `
 ## Context
 
@@ -390,7 +393,7 @@ ${spec.description}
 
 - [ ] TBD
 `;
-  
+
   return `${titleLine}${contextSection}`;
 }
 
@@ -422,4 +425,4 @@ export function parseMarkdownToTaskState(content: string): TaskState {
     tasks: parseTasksFromMarkdown(content),
     lastUpdated: new Date().toISOString(),
   };
-} 
+}
