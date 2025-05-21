@@ -1,0 +1,128 @@
+/**
+ * Shared Git Commands Tests
+ */
+import { describe, test, expect, beforeEach, afterEach, spyOn, type SpyInstance } from "bun:test";
+import { registerGitCommands } from "../../../../adapters/shared/commands/git.js";
+import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
+import * as gitDomain from "../../../../domain/git.js";
+
+describe("Shared Git Commands", () => {
+  // Set up spies for domain functions
+  let commitSpy: SpyInstance;
+  let pushSpy: SpyInstance;
+  
+  beforeEach(() => {
+    // Set up spies
+    commitSpy = spyOn(gitDomain, "commitChangesFromParams").mockImplementation(() => 
+      Promise.resolve({
+        commitHash: "mocked-commit-hash",
+        message: "mocked-commit-message",
+      })
+    );
+    
+    pushSpy = spyOn(gitDomain, "pushFromParams").mockImplementation(() => 
+      Promise.resolve({
+        pushed: true,
+        workdir: "/mocked/workdir",
+      })
+    );
+    
+    // Clear the registry (this is a hacky way to do it since there's no clear method,
+    // but it works for testing)
+    (sharedCommandRegistry as any).commands = new Map();
+  });
+
+  afterEach(() => {
+    // Restore original functions
+    commitSpy.mockRestore();
+    pushSpy.mockRestore();
+  });
+
+  test("registerGitCommands should register git commands in registry", () => {
+    // Register commands
+    registerGitCommands();
+    
+    // Verify commands were registered
+    const gitCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.GIT);
+    expect(gitCommands.length).toBe(2);
+    
+    // Verify commit command
+    const commitCommand = sharedCommandRegistry.getCommand("git.commit");
+    expect(commitCommand).toBeDefined();
+    expect(commitCommand?.name).toBe("commit");
+    expect(commitCommand?.category).toBe(CommandCategory.GIT);
+    
+    // Verify push command
+    const pushCommand = sharedCommandRegistry.getCommand("git.push");
+    expect(pushCommand).toBeDefined();
+    expect(pushCommand?.name).toBe("push");
+    expect(pushCommand?.category).toBe(CommandCategory.GIT);
+  });
+
+  test("git.commit command should call domain function with correct params", async () => {
+    // Register commands
+    registerGitCommands();
+    
+    // Get command
+    const commitCommand = sharedCommandRegistry.getCommand("git.commit");
+    expect(commitCommand).toBeDefined();
+    
+    // Execute command
+    const params = {
+      message: "test commit message",
+      all: true,
+      repo: "/test/repo",
+    };
+    const context = { interface: "test" };
+    const result = await commitCommand!.execute(params, context);
+    
+    // Verify domain function was called with correct params
+    expect(commitSpy).toHaveBeenCalledWith({
+      message: "test commit message",
+      all: true,
+      repo: "/test/repo",
+      amend: undefined,
+      noStage: undefined,
+      session: undefined,
+    });
+    
+    // Verify result
+    expect(result).toEqual({
+      success: true,
+      commitHash: "mocked-commit-hash",
+      message: "mocked-commit-message",
+    });
+  });
+
+  test("git.push command should call domain function with correct params", async () => {
+    // Register commands
+    registerGitCommands();
+    
+    // Get command
+    const pushCommand = sharedCommandRegistry.getCommand("git.push");
+    expect(pushCommand).toBeDefined();
+    
+    // Execute command
+    const params = {
+      repo: "/test/repo",
+      force: true,
+    };
+    const context = { interface: "test" };
+    const result = await pushCommand!.execute(params, context);
+    
+    // Verify domain function was called with correct params
+    expect(pushSpy).toHaveBeenCalledWith({
+      repo: "/test/repo",
+      force: true,
+      remote: undefined,
+      session: undefined,
+      debug: undefined,
+    });
+    
+    // Verify result
+    expect(result).toEqual({
+      success: true,
+      workdir: "/mocked/workdir",
+    });
+  });
+}); 

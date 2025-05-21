@@ -1,0 +1,58 @@
+/**
+ * Shared Command Integration Example
+ * 
+ * This file demonstrates how to integrate the shared command system
+ * with the CLI adapter. It can be used as a reference for future
+ * migration of other commands.
+ */
+
+import { Command } from "commander";
+import { registerGitCommands } from "../shared/commands/git.js";
+import { registerCategorizedCliCommands } from "../shared/bridges/cli-bridge.js";
+import { CommandCategory } from "../shared/command-registry.js";
+import { log } from "../../utils/logger.js";
+
+/**
+ * Demonstrates the integration of shared commands with Commander.js
+ * 
+ * This is an example of how the Minsky CLI could be updated
+ * to use the shared command registry.
+ * 
+ * @returns A configured Commander.js program
+ */
+export function createIntegratedCliProgram(): Command {
+  log.debug("Creating integrated CLI program");
+  
+  // Create the root program
+  const program = new Command()
+    .name("minsky")
+    .description("Minsky CLI - Task-based workspace management")
+    .version("1.0.0");
+  
+  // Register git commands in the shared registry
+  registerGitCommands();
+  
+  // Bridge the commands to CLI
+  registerCategorizedCliCommands(
+    program,
+    [CommandCategory.GIT],
+    true // Create subcommands for categories
+  );
+  
+  return program;
+}
+
+/**
+ * Example of how you might run the integrated CLI
+ * This is not meant to be run directly, but shows how
+ * the integration would work in the main CLI entry point.
+ */
+function runIntegratedCli(): void {
+  const program = createIntegratedCliProgram();
+  
+  // Parse command line arguments
+  program.parse(process.argv);
+}
+
+// Export the CLI program creation function for use in tests
+export default createIntegratedCliProgram; 
