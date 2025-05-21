@@ -110,8 +110,11 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
         debug,
       });
 
+      // Transform the rules to exclude content
+      const transformedRules = rules.map(({ content, ...rest }) => rest);
+
       // Return formatted result as a record
-      return { rules };
+      return { rules: transformedRules };
     },
   });
 
