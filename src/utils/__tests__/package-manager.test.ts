@@ -1,7 +1,17 @@
-import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
 import * as fs from "fs";
 import * as childProcess from "child_process";
 import * as path from "path";
+
+// Mock the logger module
+mock.module("../logger.js", () => ({
+  log: {
+    debug: () => {},
+    error: () => {},
+    cliWarn: () => {}
+  }
+}));
+
 import { 
   detectPackageManager, 
   getInstallCommand, 
