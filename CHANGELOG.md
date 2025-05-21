@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #117: Fix Session Update Command Implementation
+
+  - Created a task to fix issues with the `session update` command
+  - Will address parameter naming inconsistency across different interfaces
+  - Will update domain function to return session information after updates
+  - Will improve handling of `--force` option
+  - Will enhance error handling and output formatting
+
 - Task #118: Fix Rule Format Errors in rules.ts
   - Diagnose and fix issues with rule file lookup in the rules system
   - Ensure all existing rule files in .cursor/rules can be properly found and loaded
