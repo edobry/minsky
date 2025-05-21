@@ -189,7 +189,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
-- [ ] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
+- [-] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
 - [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
 
@@ -203,6 +203,6 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
-- [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
+- [-] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
-- [ ] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+- [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
