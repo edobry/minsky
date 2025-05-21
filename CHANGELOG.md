@@ -11,13 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #121: Enhance `tasks get` Command to Support Multiple Task IDs
+
+  - Will update the `tasks get` command to fetch information for multiple tasks at once
+  - Will support comma-separated format and multiple arguments syntax
+  - Will extend task schemas to handle arrays of task IDs
+  - Will improve CLI and MCP adapters to support this enhanced functionality
+  - Will update output formatting to clearly display multiple task information
+
 - Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
   - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
   - Implemented consistent descriptions for common parameters across interfaces
   - Updated CLI shared options to use centralized descriptions
   - Updated MCP adapters (tasks, session, git, rules) to use the same descriptions
   - Added tests to verify description consistency and naming conventions
-  - Created parameter schemas utility in `src/utils/param-schemas.ts` for reducing Zod schema duplication 
+  - Created parameter schemas utility in `src/utils/param-schemas.ts` for reducing Zod schema duplication
   - Implemented reusable parameter schema functions for common parameter types
   - Updated MCP adapters to use shared parameter schemas
   - Reduced string duplication and improved maintainability of option documentation
@@ -42,6 +50,7 @@ _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specst
 _See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
 
 - Task #110: Created a Complete Test Inventory and Classification System
+
   - Implemented test-analyzer.ts script to scan and classify test patterns
   - Created a classification system for test mocking complexity and migration difficulty
   - Added test dependency analysis to identify framework-specific patterns
@@ -216,6 +225,14 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Added tests for Workspace domain methods: isSessionRepository, getSessionFromRepo, getCurrentSession, resolveWorkspacePath
 
 - Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
+
+- Task #104: Re-implemented Disabled Integration Tests
+  - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
+  - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
+  - Implemented proper tests for the GitHub backend with dependency injection
+  - Implemented basic tests for GitHub functionality validation
+  - Fixed issues with test environment setup and mock handling
+  - Ensured all tests pass reliably on Bun test framework
 
 ### Changed
 
