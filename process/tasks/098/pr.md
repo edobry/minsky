@@ -1,3 +1,39 @@
+# feat(#098): Create Shared Adapter Layer for CLI and MCP Interfaces
+
+## Summary
+This PR implements a shared adapter layer that allows commands to be registered once and exposed through both CLI and MCP interfaces. This architecture improves code reuse, ensures consistency between interfaces, and simplifies adding new commands.
+
+## Motivation & Context
+Prior to this change, each command had to be implemented separately for both CLI and MCP interfaces, leading to code duplication and potential inconsistencies. This task centralizes command definitions and establishes a bridge pattern to adapt them to different interfaces.
+
+## Design/Approach
+The implementation follows an adapter pattern with these key components:
+- A central `CommandRegistry` for registering commands with their schemas and handlers
+- Interface-specific bridges that adapt the shared commands to CLI (Commander.js) and MCP requirements
+- Unified error handling and response formatting utilities
+- Zod schema validation for all command parameters
+
+This approach was chosen over interface-specific implementations to maximize code reuse and ensure feature parity.
+
+## Key Changes
+- Created shared command registry with categorized commands and Zod schema validation
+- Implemented CLI bridge to adapt shared commands to Commander.js
+- Implemented MCP bridge to adapt shared commands to MCP protocol
+- Migrated four command groups to the shared architecture:
+  - Git commands (commit, push)
+  - Tasks commands (status get/set)
+  - Session commands (list, get, start, dir, delete, update, approve, pr)
+  - Rules commands (list, get, create, update, search)
+- Added integration examples for both CLI and MCP interfaces
+- Created comprehensive test suite for all components
+
+## Testing
+- Added unit tests for all shared command implementations
+- Created integration tests demonstrating CLI and MCP bridge usage
+- Ensured backward compatibility with existing command behavior
+
+---
+
 # Pull Request for branch `task#98`
 
 ## Commits
