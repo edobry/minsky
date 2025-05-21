@@ -42,7 +42,10 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
  * Schema for task get parameters
  */
 export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
-  taskId: taskIdSchema.describe("ID of the task to retrieve"),
+  taskId: z.union([
+    taskIdSchema.describe("ID of the task to retrieve"),
+    z.array(taskIdSchema).describe("Array of task IDs to retrieve")
+  ]).describe("Task ID or array of task IDs to retrieve"),
   backend: z.string().optional().describe("Specify task backend (markdown, github)"),
 });
 

@@ -51,7 +51,10 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "get",
     "Get a task by ID",
     z.object({
-      taskId: z.string().describe("Task ID to retrieve"),
+      taskId: z.union([
+        z.string().describe("Task ID to retrieve"),
+        z.array(z.string()).describe("Array of task IDs to retrieve")
+      ]).describe("Task ID or array of task IDs to retrieve"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
