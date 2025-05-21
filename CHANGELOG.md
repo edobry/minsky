@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #074: Implemented Auto-Dependency Installation for Session Workspaces
+  - Added package manager detection utility for automatic detection of bun, npm, yarn, and pnpm
+  - Added dependency installation after session creation to eliminate manual installation step
+  - Added `--skip-install` flag to bypass dependency installation when desired
+  - Added `--package-manager` option to override the detected package manager
+  - Implemented error handling that doesn't fail session creation when installation fails
+
+_See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
+
 - Updated task-management-related rules to include the new `task spec` command
   - Added information about the `minsky tasks spec` command to minsky-cli-usage rule
   - Updated task-implementation-workflow rule to recommend using `task spec` for viewing task details

@@ -346,7 +346,7 @@ export class SessionDB implements SessionProviderInterface {
       return legacyPath;
     }
 
-    // Default to new path structure even if it doesn"t exist yet
+    // Default to new path structure even if it"s not exist yet
     try {
       // If the directory doesn't exist, try to create it
       // This ensures session directories are created even if git clone encounters issues
@@ -505,7 +505,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json } = params;
+  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } = params;
 
   // Create dependencies with defaults
   const deps = {
@@ -529,6 +529,8 @@ export async function startSessionFromParams(
       noStatusUpdate,
       quiet,
       json,
+      skipInstall,
+      packageManager,
     });
 
     const currentDir = process.env.PWD || process.cwd();
@@ -652,6 +654,32 @@ export async function startSessionFromParams(
       session: sessionName,
       branch: branchName,
     });
+
+    // Install dependencies if not skipped
+    if (!skipInstall) {
+      try {
+        // Dynamically import the package manager module to avoid circular dependencies
+        const { installDependencies } = await import("../utils/package-manager.js");
+        
+        const { success, error } = await installDependencies(sessionDir, {
+          packageManager: packageManager,
+          quiet: quiet
+        });
+        
+        if (!success && !quiet) {
+          log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`);
+        }
+      } catch (installError) {
+        // Log but don't fail session creation
+        if (!quiet) {
+          log.cliWarn(
+            `Warning: Dependency installation failed. You may need to run install manually.
+Error: ${installError instanceof Error ? installError.message : String(installError)}`
+          );
+        }
+      }
+    }
 
     // Update task status to IN-PROGRESS if requested and if we have a task ID
     if (taskId && !noStatusUpdate) {
