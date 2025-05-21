@@ -21,12 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for task creation._
 
 - Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+  - Updated the `tasks get` command to fetch information for multiple tasks at once
+  - Added support for comma-separated format and multiple arguments syntax
+  - Extended task schemas to handle arrays of task IDs
+  - Improved CLI and MCP adapters to support this enhanced functionality
+  - Updated output formatting to clearly display multiple task information
 
-  - Will update the `tasks get` command to fetch information for multiple tasks at once
-  - Will support comma-separated format and multiple arguments syntax
-  - Will extend task schemas to handle arrays of task IDs
-  - Will improve CLI and MCP adapters to support this enhanced functionality
-  - Will update output formatting to clearly display multiple task information
+_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
 
 - Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
   - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
