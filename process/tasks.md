@@ -163,7 +163,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Enhance Test Utilities for Better Domain Testing [#103](process/tasks/103-enhance-test-utilities-for-better-domain-testing.md)
 
-- [ ] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
+- [-] Re-implement Disabled Integration Tests [#104](process/tasks/104-re-implement-disabled-integration-tests.md)
 
 - [x] Add Session Inspect Subcommand for Current Session Detection [#105](process/tasks/105-add-session-inspect-subcommand-for-current-session-detection.md)
 
@@ -175,7 +175,7 @@ This file tracks work items for the project. Each task follows this format:
 
 - [x] Fix inconsistent repository name normalization between SessionDB and GitService [#109](process/tasks/109-fix-inconsistent-repository-name-normalization-between-sessiondb-and-gitservice.md)
 
-- [ ] Create a Complete Test Inventory and Classification System [#110](process/tasks/110-create-a-complete-test-inventory-and-classification-system.md)
+- [-] Create a Complete Test Inventory and Classification System [#110](process/tasks/110-create-a-complete-test-inventory-and-classification-system.md)
 
 - [ ] Build Core Mock Compatibility Layer [#111](process/tasks/111-build-core-mock-compatibility-layer.md)
 
@@ -188,3 +188,9 @@ This file tracks work items for the project. Each task follows this format:
 - [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
+
+- [ ] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
+
+- [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
+
+- [ ] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
