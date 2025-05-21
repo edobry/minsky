@@ -82,6 +82,7 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
    - [x] Successfully migrated `src/utils/test-utils/__tests__/enhanced-utils.test.ts`
    - [x] Successfully migrated `src/utils/test-utils/__tests__/mocking.test.ts`
    - [x] Successfully migrated `src/utils/filter-messages.test.ts`
+   - [x] Skipped `src/utils/logger.test.ts` as per user request
    - [ ] Continue with remaining high-priority tests
 
 5. [x] Verify each migrated test:
@@ -111,7 +112,7 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - [x] Test readability and maintainability are improved
 - [x] Migration patterns are well-documented for future use
 - [✓] The migration report provides valuable insights for the automated migration tool (ongoing)
-- [ ] At least 20 high-priority tests are successfully migrated (3 of 20 completed)
+- [ ] At least 20 high-priority tests are successfully migrated (3 of 19 remaining)
 
 ## Dependencies
 
@@ -139,6 +140,7 @@ So far, we have:
    - Migrated enhanced-utils.test.ts - Fixed ESM imports and lifecycle hooks
    - Migrated mocking.test.ts - Improved type safety and error verification
    - Migrated filter-messages.test.ts - Used custom assertion helpers
+   - Skipped logger.test.ts - As per user request
 
 4. **Documented Migration Patterns and Lessons Learned**
    - ESM Import Requirements (file extensions)

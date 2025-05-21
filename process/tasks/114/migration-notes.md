@@ -21,7 +21,7 @@ This file tracks the progress and patterns identified during the migration of hi
 - Migrated filter-messages.test.ts with custom assertion helpers
 
 ### Next Steps
-- Continue with migration of fourth priority test (logger.test.ts)
+- Continue with migration of next priority test (src/domain/__tests__/tasks.test.ts)
 - Document patterns and challenges encountered
 - Create reusable utilities for common patterns
 
@@ -64,7 +64,6 @@ See the [assertion methods documentation](../../src/test-migration/examples/asse
 | `src/utils/test-utils/__tests__/assertions.test.ts` | Completed | New file | Created custom assertion helpers to bridge Jest/Bun differences |
 | `src/utils/test-utils/__tests__/mocking.test.ts` | Completed | Easy | Fixed type errors with type assertions, improved error message verification |
 | `src/utils/filter-messages.test.ts` | Completed | Easy | Added .js extensions, used custom expectToHaveLength helper |
-| `src/utils/logger.test.ts` | Not Started | Easy | Priority 1 |
 | `src/domain/__tests__/tasks.test.ts` | Not Started | Medium | Priority 2 |
 | `src/domain/git.test.ts` | Not Started | Medium | Priority 2 |
 | `src/domain/git.pr.test.ts` | Not Started | Medium | Priority 2 |

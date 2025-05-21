@@ -19,10 +19,6 @@ These tests are foundational and support other tests, making them critical to mi
    - **Rationale**: Tests frequently used utility with simple patterns
    - **Difficulty**: Easy, Low mocking complexity
 
-4. `src/utils/logger.test.ts`
-   - **Rationale**: Tests critical logging functionality
-   - **Difficulty**: Easy, Low mocking complexity
-
 ## Priority 2: Core Domain Tests (Critical Functionality)
 
 These tests cover critical business logic and domain functionality:
