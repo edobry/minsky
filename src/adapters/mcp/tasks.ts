@@ -3,6 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
+import { log } from "../../utils/logger.js";
 
 // Import centralized descriptions
 import {
@@ -36,10 +37,18 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.list", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         all: args.all ?? false, // Provide default for 'all'
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       // Return task array and cast to Record<string, unknown> to satisfy TypeScript
@@ -60,9 +69,17 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.get", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       // Return task as part of an object to satisfy TypeScript
@@ -80,9 +97,17 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.status.get", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       const status = await getTaskStatusFromParams(params);
@@ -105,9 +130,17 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.status.set", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         status: args.status as "TODO" | "IN-PROGRESS" | "IN-REVIEW" | "DONE", // Cast to expected type
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       await setTaskStatusFromParams(params);
@@ -131,10 +164,18 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
+      // Log the repository path being used
+      if (args.repositoryPath) {
+        log.debug("Using explicit repository path for tasks.create", {
+          repositoryPath: args.repositoryPath
+        });
+      }
+
       const params = {
         ...args,
         force: args.force ?? false, // Provide default for 'force'
         json: true, // Always use JSON format for MCP
+        repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
       const task = await createTaskFromParams(params);

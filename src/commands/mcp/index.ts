@@ -5,6 +5,9 @@ import { log } from "../../utils/logger.js";
 import { isNetworkError, createNetworkError, formatNetworkErrorMessage } from "../../errors/network-errors.js";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher.js";
+import { createProjectContext } from "../../types/project.js";
+import fs from "fs";
+import path from "path";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session.js";
@@ -30,6 +33,7 @@ export function createMCPCommand(): Command {
     .option("--http-stream", "Use HTTP Stream transport")
     .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
     .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
+    .option("--repo <path>", "Repository path for operations that require repository context (default: current directory)")
     .option("--with-inspector", "Launch MCP inspector alongside the server")
     .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
     .action(async (options) => {
@@ -45,10 +49,39 @@ export function createMCPCommand(): Command {
         // Set port (used for both SSE and HTTP Stream)
         const port = parseInt(options.port, 10);
 
+        // Validate and prepare repository path if provided
+        let projectContext;
+        if (options.repo) {
+          const repositoryPath = path.resolve(options.repo);
+          // Validate that the path exists and is a directory
+          if (!fs.existsSync(repositoryPath)) {
+            log.cliError(`Repository path does not exist: ${repositoryPath}`);
+            process.exit(1);
+          }
+          if (!fs.statSync(repositoryPath).isDirectory()) {
+            log.cliError(`Repository path is not a directory: ${repositoryPath}`);
+            process.exit(1);
+          }
+          
+          try {
+            projectContext = createProjectContext(repositoryPath);
+            log.debug("Using repository path from command line", {
+              repositoryPath
+            });
+          } catch (error) {
+            log.cliError(`Invalid repository path: ${repositoryPath}`);
+            if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
+              log.cliError(error.message);
+            }
+            process.exit(1);
+          }
+        }
+
         log.debug("Starting MCP server", {
           transportType,
           port,
           host: options.host,
+          repositoryPath: projectContext?.repositoryPath || process.cwd()
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort
         });
@@ -58,6 +91,7 @@ export function createMCPCommand(): Command {
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
           transportType,
+          projectContext,
           sse: {
             endpoint: "/sse",
             port,
@@ -69,7 +103,7 @@ export function createMCPCommand(): Command {
         });
 
         // Register tools via adapter-based approach
-        const commandMapper = new CommandMapper(server.getFastMCPServer());
+        const commandMapper = new CommandMapper(server.getFastMCPServer(), server.getProjectContext());
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
         registerGitTools(commandMapper);
@@ -80,6 +114,9 @@ export function createMCPCommand(): Command {
         await server.start();
 
         log.cli(`Minsky MCP Server started with ${transportType} transport`);
+        if (projectContext) {
+          log.cli(`Repository path: ${projectContext.repositoryPath}`);
+        }
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
         }
