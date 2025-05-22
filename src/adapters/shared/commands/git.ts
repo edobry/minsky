@@ -15,6 +15,13 @@ import {
 } from "../command-registry.js";
 import { commitChangesFromParams, pushFromParams } from "../../../domain/git.js";
 import { log } from "../../../utils/logger.js";
+import {
+  REPO_DESCRIPTION,
+  SESSION_DESCRIPTION,
+  GIT_REMOTE_DESCRIPTION,
+  GIT_FORCE_DESCRIPTION,
+  DEBUG_DESCRIPTION
+} from "../../../utils/option-descriptions.js";
 
 /**
  * Parameters for the commit command
@@ -45,12 +52,12 @@ const commitCommandParams: CommandParameterMap = {
   },
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: SESSION_DESCRIPTION,
     required: false,
   },
 };
@@ -61,29 +68,29 @@ const commitCommandParams: CommandParameterMap = {
 const pushCommandParams: CommandParameterMap = {
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: SESSION_DESCRIPTION,
     required: false,
   },
   remote: {
     schema: z.string(),
-    description: "Remote name",
+    description: GIT_REMOTE_DESCRIPTION,
     required: false,
     defaultValue: "origin",
   },
   force: {
     schema: z.boolean(),
-    description: "Force push changes",
+    description: GIT_FORCE_DESCRIPTION,
     required: false,
     defaultValue: false,
   },
   debug: {
     schema: z.boolean(),
-    description: "Enable debug output",
+    description: DEBUG_DESCRIPTION,
     required: false,
     defaultValue: false,
   },
