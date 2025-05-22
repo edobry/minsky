@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Tasks command tests (tasks.test.ts)
     - Git command tests (git.test.ts)
     - Session command tests (session.test.ts)
+    - Git merge PR tests (git-merge-pr.test.ts)
   - Established new testing patterns to improve maintainability:
     - Direct Method Mocking pattern for complex dependencies
     - Centralized test utility usage for consistent patterns
