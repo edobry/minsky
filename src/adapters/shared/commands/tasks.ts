@@ -152,11 +152,11 @@ const tasksSpecParams: CommandParameterMap = {
 /**
  * Retrieves a task's status
  */
-  sharedCommandRegistry.registerCommand({
-    id: "tasks.status.get",
-    category: CommandCategory.TASKS,
-    name: "status get",
-    description: "Get the status of a task",
+sharedCommandRegistry.registerCommand({
+  id: "tasks.status.get",
+  category: CommandCategory.TASKS,
+  name: "status get",
+  description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, ctx: CommandExecutionContext) => {
     try {
@@ -166,50 +166,52 @@ const tasksSpecParams: CommandParameterMap = {
           `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
-
-        const status = await getTaskStatusFromParams({
+      const status = await getTaskStatusFromParams({
         ...params,
         taskId: normalizedTaskId,
-        });
-        
+      });
       return status;
-      } catch (error) {
+    } catch (error) {
       log.error("Error getting task status", { error });
-        throw error;
-      }
-    },
-  });
+      throw error;
+    }
+  },
+});
 
 /**
  * Sets a task's status
  */
-  sharedCommandRegistry.registerCommand({
-    id: "tasks.status.set",
-    category: CommandCategory.TASKS,
-    name: "status set",
-    description: "Set the status of a task",
-    parameters: tasksStatusSetParams,
-    execute: async (params, ctx: CommandExecutionContext) => {
-      try {
-        if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
-        if (!params.status) throw new ValidationError("Missing required parameter: status");
-        const normalizedTaskId = normalizeTaskId(params.taskId);
-        if (!normalizedTaskId) {
-          throw new ValidationError(
-            `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-          );
-        }
-        await setTaskStatusFromParams({
-          ...params,
-          taskId: normalizedTaskId,
-        });
-        return `Task #${normalizedTaskId} status set to ${params.status}`;
-      } catch (error) {
-        log.error("Error setting task status", { error });
-        throw error;
+sharedCommandRegistry.registerCommand({
+  id: "tasks.status.set",
+  category: CommandCategory.TASKS,
+  name: "status set",
+  description: "Set the status of a task",
+  parameters: tasksStatusSetParams,
+  execute: async (params, ctx: CommandExecutionContext) => {
+    try {
+      if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+      if (!params.status) throw new ValidationError("Missing required parameter: status");
+      const normalizedTaskId = normalizeTaskId(params.taskId);
+      if (!normalizedTaskId) {
+        throw new ValidationError(
+          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        );
       }
-    },
-  });
+      await setTaskStatusFromParams({
+        taskId: normalizedTaskId,
+        status: params.status,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+        backend: params.backend,
+      });
+      return `Task #${normalizedTaskId} status set to ${params.status}`;
+    } catch (error) {
+      log.error("Error setting task status", { error });
+      throw error;
+    }
+  },
+});
 
 /**
  * Gets a task's specification content
@@ -228,12 +230,10 @@ sharedCommandRegistry.registerCommand({
           `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
-      
       const result = await getTaskSpecContentFromParams({
         ...params,
         taskId: normalizedTaskId,
       });
-      
       return result;
     } catch (error) {
       log.error("Error getting task specification", { error });
@@ -378,7 +378,13 @@ sharedCommandRegistry.registerCommand({
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
-    return await getTaskFromParams(params);
+    return await getTaskFromParams({
+      taskId: params.taskId,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
   },
 });
 
@@ -393,7 +399,13 @@ sharedCommandRegistry.registerCommand({
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
-    const { force = false, ...rest } = params;
-    return await createTaskFromParams({ force, ...rest });
+    return await createTaskFromParams({
+      specPath: params.specPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
   },
 }); 
