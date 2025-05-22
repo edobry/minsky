@@ -43,7 +43,7 @@ Below are common patterns encountered during migrations:
 | `src/domain/session/session-db.test.ts` | Migrated | Easy | Priority 2 |
 | `src/adapters/__tests__/shared/commands/rules.test.ts` | Migrated | Easy | Priority 3 |
 | `src/adapters/__tests__/shared/commands/tasks.test.ts` | Migrated | Easy | Priority 3, Used expectToHaveLength and mock helpers |
-| `src/adapters/__tests__/shared/commands/git.test.ts` | Not Started | Easy | Priority 3 |
+| `src/adapters/__tests__/shared/commands/git.test.ts` | Migrated | Easy | Priority 3, Found already migrated |
 | `src/adapters/__tests__/shared/commands/session.test.ts` | Not Started | Easy | Priority 3 |
 | `src/adapters/cli/__tests__/git-merge-pr.test.ts` | Not Started | Easy | Priority 3 |
 | `src/utils/__tests__/param-schemas.test.ts` | Not Started | Easy | Priority 4 |
