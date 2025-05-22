@@ -69,13 +69,18 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
       - [x] `src/adapters/__tests__/integration/rules.test.ts` (found already migrated)
       - [x] `src/adapters/__tests__/integration/workspace.test.ts` (found already migrated)
 7. [ ] Create a report on the migration effort
-8. [ ] Prepare PR for task completion
-9. [ ] Enforce extensionless imports for all local files via ESLint and tsconfig (Bun-native style)
-10. [ ] Migrate any remaining domain/session/integration tests as needed
-11. [ ] Finalize migration report and documentation
+8. [x] Prepare PR for task completion (Phase 1)
+9. [x] Create migration analysis for additional work
+10. [ ] Phase 2A: Refactor already-migrated tests to use project utilities
+11. [ ] Phase 2B: Migrate quick wins (3 easy files)
+12. [ ] Phase 2C: Migrate high business value tests (3 core workflow files)
+13. [ ] Phase 2D: Complete infrastructure tests (3 additional files) - optional
+14. [ ] Enforce extensionless imports for all local files via ESLint and tsconfig (Bun-native style)
+15. [ ] Final migration report and documentation update
 
 ## Verification
 
+### Phase 1 (Completed)
 - [x] All migrated tests pass when run with Bun's test runner
 - [x] Migrated tests maintain the same coverage as the original tests
 - [x] Test readability and maintainability are improved
@@ -83,6 +88,13 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - [x] The migration report provides valuable insights for the automated migration tool
 - [x] At least 20 high-priority tests are successfully migrated
 - [x] Extensionless import style is enforced project-wide
+
+### Phase 2 (In Progress)
+- [ ] All refactored tests use project utilities consistently
+- [ ] Additional 9 test files migrated to native Bun patterns
+- [ ] All migrated tests pass and maintain coverage
+- [ ] Migration documentation updated with Phase 2 learnings
+- [ ] Total migrated files: 29+ tests across all layers
 
 ## Dependencies
 
@@ -97,7 +109,39 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - **Custom assertion helpers created:** See `src/utils/test-utils/assertions.ts` for helpers like `expectToMatch`, `expectToHaveLength`, `expectToBeInstanceOf`, `expectToNotBeNull`, `expectToHaveBeenCalled`, `getMockCallArg`, etc.
 - **Migration patterns documented:** See `process/tasks/114/migration-notes.md` and implementation plan for a full pattern library and lessons learned.
 - **Pattern library and migration templates established.**
-- **Next up:** Create a final migration report and prepare PR for task completion.
+- **Migration analysis completed:** See `process/tasks/114/migration-analysis.md` for detailed analysis of remaining 16 test files.
+- **Next up:** Continue with additional migrations based on ROI analysis.
+
+## Extended Scope (Phase 2)
+
+Based on the migration analysis, the task scope is extended to include strategic additional migrations:
+
+### Phase 2A: Refactoring (Highest ROI)
+- [ ] Refactor 6 already-migrated files to use project utilities:
+  - [ ] `src/adapters/__tests__/shared/commands/tasks.test.ts`
+  - [ ] `src/adapters/__tests__/shared/commands/git.test.ts`
+  - [ ] `src/adapters/__tests__/shared/commands/session.test.ts`
+  - [ ] `src/utils/__tests__/param-schemas.test.ts`
+  - [ ] `src/utils/__tests__/option-descriptions.test.ts`
+  - [ ] `src/utils/test-utils/__tests__/compatibility.test.ts`
+
+### Phase 2B: Quick Wins (High ROI)
+- [ ] Migrate 3 easy files for momentum:
+  - [ ] `src/domain/__tests__/git-default-branch.test.ts`
+  - [ ] `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts`
+  - [ ] `src/domain/session/session-adapter.test.ts`
+
+### Phase 2C: High Business Value (Strategic)
+- [ ] Migrate 3 core workflow tests:
+  - [ ] `src/domain/__tests__/session-update.test.ts`
+  - [ ] `src/domain/__tests__/git-pr-workflow.test.ts`
+  - [ ] `src/domain/__tests__/repository-uri.test.ts`
+
+### Phase 2D: Infrastructure Completion (Optional)
+- [ ] Complete remaining infrastructure tests if time permits:
+  - [ ] `src/domain/__tests__/github-backend.test.ts`
+  - [ ] `src/adapters/__tests__/integration/tasks-mcp.test.ts`
+  - [ ] `src/adapters/__tests__/integration/mcp-rules.test.ts`
 
 ## Remaining Work (for handoff)
 
