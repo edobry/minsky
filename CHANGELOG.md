@@ -776,3 +776,8 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Created a senior engineer analysis document with recommendations for implementation
 
 _See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
+
+- Migrated all CLI and MCP shared command adapters (git, tasks, rules, session) to use centralized option descriptions from `src/utils/option-descriptions.ts`.
+- Removed duplicated and inline option/parameter descriptions for consistency and maintainability.
+
+_See: SpecStory history [2024-05-21_standardize-option-descriptions-task-97](mdc:.specstory/history/2024-05-21_standardize-option-descriptions-task-97.md) for implementation details._
