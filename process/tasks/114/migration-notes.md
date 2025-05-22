@@ -49,7 +49,7 @@ Below are common patterns encountered during migrations:
 | `src/utils/__tests__/param-schemas.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
 | `src/utils/__tests__/option-descriptions.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
 | `src/utils/test-utils/__tests__/compatibility.test.ts` | Migrated | Medium | Priority 4, Found already migrated, Tests compatibility layer itself |
-| `src/adapters/__tests__/integration/tasks.test.ts` | Not Started | Easy | Priority 5 |
-| `src/adapters/__tests__/integration/git.test.ts` | Not Started | Easy | Priority 5 |
-| `src/adapters/__tests__/integration/rules.test.ts` | Not Started | Easy | Priority 5 |
-| `src/adapters/__tests__/integration/workspace.test.ts` | Not Started | Easy | Priority 5 |
+| `src/adapters/__tests__/integration/tasks.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
+| `src/adapters/__tests__/integration/git.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
+| `src/adapters/__tests__/integration/rules.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
+| `src/adapters/__tests__/integration/workspace.test.ts` | Migrated | Easy | Priority 5, Found already migrated |

@@ -52,12 +52,27 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 
 1. [x] Analyze the test inventory and create a prioritized list
 2. [x] Create a migration plan for each high-priority test
-3. [x] Perform the migration for all high-priority adapter and utility tests
+3. [x] Perform the migration for all 20 high-priority tests
 4. [x] Verify each migrated test
 5. [x] Document migration patterns and helpers
-6. [x] Enforce extensionless imports for all local files via ESLint and tsconfig (Bun-native style)
-7. [ ] Migrate any remaining domain/session/integration tests as needed
-8. [ ] Finalize migration report and documentation
+6. [x] Continue migration for next priority files:
+   - [x] `src/adapters/__tests__/shared/commands/tasks.test.ts`
+   - [x] `src/adapters/__tests__/shared/commands/git.test.ts` (found already migrated)
+   - [x] `src/adapters/__tests__/shared/commands/session.test.ts` (found already migrated)
+   - [x] `src/adapters/cli/__tests__/git-merge-pr.test.ts` (found already migrated)
+   - [x] `src/utils/__tests__/param-schemas.test.ts` (found already migrated)
+   - [x] `src/utils/__tests__/option-descriptions.test.ts` (found already migrated)
+   - [x] `src/utils/test-utils/__tests__/compatibility.test.ts` (found already migrated)
+   - [x] Update high-priority integration tests as needed:
+      - [x] `src/adapters/__tests__/integration/tasks.test.ts` (found already migrated)
+      - [x] `src/adapters/__tests__/integration/git.test.ts` (found already migrated)
+      - [x] `src/adapters/__tests__/integration/rules.test.ts` (found already migrated)
+      - [x] `src/adapters/__tests__/integration/workspace.test.ts` (found already migrated)
+7. [ ] Create a report on the migration effort
+8. [ ] Prepare PR for task completion
+9. [ ] Enforce extensionless imports for all local files via ESLint and tsconfig (Bun-native style)
+10. [ ] Migrate any remaining domain/session/integration tests as needed
+11. [ ] Finalize migration report and documentation
 
 ## Verification
 
@@ -76,16 +91,13 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - This task depends on the "Test Utility Documentation" task for guidance on best practices
 - Insights from this task should inform the "Automated Test Migration Script" task
 
-## Progress Summary
+## Progress Summary (as of latest migration)
 
-- **All high-priority adapter and utility tests have been migrated to Bun-native patterns with extensionless imports.**
-- **A project-wide style/linter rule now enforces extensionless imports for all local files (Bun-native style).**
-- **tsconfig and ESLint are configured for Bun-native TypeScript development.**
-- **Custom assertion helpers and migration patterns are documented and in use.**
-- **Next steps:**
-  - [ ] Migrate any remaining domain/session/integration tests as needed
-  - [ ] Finalize migration report and documentation
-  - [ ] Verify all tests pass in CI and update status
+- **Tests migrated:** 20/20 high-priority tests (see `migration-notes.md` for details)
+- **Custom assertion helpers created:** See `src/utils/test-utils/assertions.ts` for helpers like `expectToMatch`, `expectToHaveLength`, `expectToBeInstanceOf`, `expectToNotBeNull`, `expectToHaveBeenCalled`, `getMockCallArg`, etc.
+- **Migration patterns documented:** See `process/tasks/114/migration-notes.md` and implementation plan for a full pattern library and lessons learned.
+- **Pattern library and migration templates established.**
+- **Next up:** Create a final migration report and prepare PR for task completion.
 
 ## Remaining Work (for handoff)
 

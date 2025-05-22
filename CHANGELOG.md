@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Parameter schemas tests (param-schemas.test.ts)
     - Option descriptions tests (option-descriptions.test.ts)
     - Compatibility layer tests (compatibility.test.ts)
+    - Integration tasks tests (integration/tasks.test.ts)
+    - Integration git tests (integration/git.test.ts)
+    - Integration rules tests (integration/rules.test.ts)
+    - Integration workspace tests (integration/workspace.test.ts)
   - Established new testing patterns to improve maintainability:
     - Direct Method Mocking pattern for complex dependencies
     - Centralized test utility usage for consistent patterns
@@ -44,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Created expectToNotBeNull for not.toBeNull assertions
     - Enhanced property existence checking with expectToHaveProperty
     - Improved array length verification with expectToHaveLength
+  - Completed migration of all 20 high-priority tests across all layers of the application
 
 _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
 

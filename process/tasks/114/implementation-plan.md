@@ -148,10 +148,16 @@ Create helper utilities for:
 21. [x] Migrated `src/utils/__tests__/param-schemas.test.ts` (found already migrated)
 22. [x] Migrated `src/utils/__tests__/option-descriptions.test.ts` (found already migrated)
 23. [x] Migrated `src/utils/test-utils/__tests__/compatibility.test.ts` (found already migrated)
+24. [x] Verified all integration tests are already migrated:
+    - [x] `src/adapters/__tests__/integration/tasks.test.ts` (found already migrated)
+    - [x] `src/adapters/__tests__/integration/git.test.ts` (found already migrated)
+    - [x] `src/adapters/__tests__/integration/rules.test.ts` (found already migrated)
+    - [x] `src/adapters/__tests__/integration/workspace.test.ts` (found already migrated)
 
 ## Next Steps
 
-1. [ ] Update high-priority integration tests as needed
+1. [ ] Create a final migration report
+2. [ ] Prepare PR for task completion
 
 ## Migration Patterns Established
 
