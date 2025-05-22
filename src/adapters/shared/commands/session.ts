@@ -25,6 +25,17 @@ import {
   sessionReviewFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
+import {
+  REPO_DESCRIPTION,
+  SESSION_DESCRIPTION,
+  TASK_ID_DESCRIPTION,
+  JSON_DESCRIPTION,
+  GIT_BRANCH_DESCRIPTION,
+  NO_STATUS_UPDATE_DESCRIPTION,
+  SESSION_QUIET_DESCRIPTION,
+  FORCE_DESCRIPTION,
+  DEBUG_DESCRIPTION
+} from "../../../utils/option-descriptions.js";
 
 /**
  * Parameters for the session list command
@@ -32,12 +43,12 @@ import { log } from "../../../utils/logger.js";
 const sessionListCommandParams: CommandParameterMap = {
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   json: {
     schema: z.boolean(),
-    description: "Output in JSON format",
+    description: JSON_DESCRIPTION,
     required: false,
     defaultValue: false,
   },
@@ -49,17 +60,17 @@ const sessionListCommandParams: CommandParameterMap = {
 const sessionGetCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
-    description: "Session name",
+    description: SESSION_DESCRIPTION,
     required: true,
   },
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   json: {
     schema: z.boolean(),
-    description: "Output in JSON format",
+    description: JSON_DESCRIPTION,
     required: false,
     defaultValue: false,
   },

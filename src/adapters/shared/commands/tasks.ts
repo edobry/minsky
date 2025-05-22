@@ -15,6 +15,11 @@ import {
 } from "../command-registry.js";
 import { getTaskStatusFromParams, setTaskStatusFromParams } from "../../../domain/tasks.js";
 import { log } from "../../../utils/logger.js";
+import {
+  TASK_ID_DESCRIPTION,
+  REPO_DESCRIPTION,
+  SESSION_DESCRIPTION
+} from "../../../utils/option-descriptions.js";
 
 // Exported from domain/tasks.ts
 export const TASK_STATUS = {
@@ -31,17 +36,17 @@ export const TASK_STATUS = {
 const taskStatusGetCommandParams: CommandParameterMap = {
   taskId: {
     schema: z.string().min(1),
-    description: "Task ID",
+    description: TASK_ID_DESCRIPTION,
     required: true,
   },
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: SESSION_DESCRIPTION,
     required: false,
   },
 };
@@ -52,7 +57,7 @@ const taskStatusGetCommandParams: CommandParameterMap = {
 const taskStatusSetCommandParams: CommandParameterMap = {
   taskId: {
     schema: z.string().min(1),
-    description: "Task ID",
+    description: TASK_ID_DESCRIPTION,
     required: true,
   },
   status: {
@@ -68,12 +73,12 @@ const taskStatusSetCommandParams: CommandParameterMap = {
   },
   repo: {
     schema: z.string(),
-    description: "Repository path",
+    description: REPO_DESCRIPTION,
     required: false,
   },
   session: {
     schema: z.string(),
-    description: "Session identifier",
+    description: SESSION_DESCRIPTION,
     required: false,
   },
 };
