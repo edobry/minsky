@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Git service tests (git.test.ts)
     - Git PR service tests (git.pr.test.ts)
     - Session database tests (session-db.test.ts)
+    - Rules command tests (rules.test.ts)
+    - Tasks command tests (tasks.test.ts)
   - Established new testing patterns to improve maintainability:
     - Direct Method Mocking pattern for complex dependencies
     - Centralized test utility usage for consistent patterns

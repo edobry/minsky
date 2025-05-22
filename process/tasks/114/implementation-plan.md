@@ -139,18 +139,19 @@ Create helper utilities for:
 12. [x] Migrated `src/domain/git.pr.test.ts`
 13. [x] Migrated `src/domain/session/session-db.test.ts`
 14. [x] Added `expectToNotBeNull` helper for inverse null assertions
+15. [x] Added mock helpers `expectToHaveBeenCalled` and `getMockCallArg`
+16. [x] Migrated `src/adapters/__tests__/shared/commands/rules.test.ts`
+17. [x] Migrated `src/adapters/__tests__/shared/commands/tasks.test.ts`
 
 ## Next Steps
 
-1. [ ] Migrate `src/adapters/__tests__/shared/commands/rules.test.ts`
-2. [ ] Migrate `src/adapters/__tests__/shared/commands/tasks.test.ts`
-3. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
-4. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
-5. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
-6. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
-7. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
-8. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
-9. [ ] Update high-priority integration tests as needed
+1. [ ] Migrate `src/adapters/__tests__/shared/commands/git.test.ts`
+2. [ ] Migrate `src/adapters/__tests__/shared/commands/session.test.ts`
+3. [ ] Migrate `src/adapters/cli/__tests__/git-merge-pr.test.ts`
+4. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
+5. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
+6. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
+7. [ ] Update high-priority integration tests as needed
 
 ## Migration Patterns Established
 
@@ -170,6 +171,8 @@ Create helper utilities for:
 5. **Use custom assertion helpers**
    - Apply helpers like `expectToBeInstanceOf()` for missing Jest matchers
    - Use `expectToNotBeNull()` for `expect().not.toBeNull()` assertions
+   - Use `expectToHaveBeenCalled()` for checking if a mock was called
+   - Use `getMockCallArg()` to safely access mock call arguments
 
 6. **Direct method spying**
    - Use `spyOn(Class.prototype, "methodName")` for clean method mocks
@@ -184,17 +187,23 @@ Create helper utilities for:
    - This approach is cleaner for methods with many internal dependencies
    - Focus on testing the method's contract, not its implementation details
 
+9. **Module Mocking**
+   - Use `mock.module()` to mock entire module exports
+   - Combine with centralized mock setup in beforeEach
+   - Use mock.restore() in afterEach for proper cleanup
+   - Particularly useful for utility functions that are imported by tested code
+
 ## Progress Metrics
 
 - **Total high-priority tests to migrate**: ~20
-- **Tests migrated so far**: 8 (40%)
+- **Tests migrated so far**: 9 (45%)
 - **Patterns documented**: 14
-- **Custom helpers created**: 7
+- **Custom helpers created**: 9
 
 ## Next Priority Files
 
 The next priority for migration is:
-1. `src/adapters/__tests__/shared/commands/rules.test.ts`
-2. `src/adapters/__tests__/shared/commands/tasks.test.ts`
+1. `src/adapters/__tests__/shared/commands/tasks.test.ts`
+2. `src/adapters/__tests__/shared/commands/git.test.ts`
 
-These files test critical business logic and will help us refine our migration patterns. 
+These files test critical business logic in the adapter layer and will help us refine our patterns. 
