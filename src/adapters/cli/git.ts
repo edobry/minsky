@@ -152,14 +152,11 @@ export function createSummaryCommand(): Command {
         outputResult(result, {
           json: options.json,
           formatter: (result) => {
-            console.log(result.markdown);
-
+            log.cli(result.markdown);
             // Display status update information if available
             if (result.statusUpdateResult) {
               const { taskId, previousStatus, newStatus } = result.statusUpdateResult;
-              console.log(
-                `\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`
-              );
+              log.cli(`\nTask ${taskId} status updated: ${previousStatus || "none"} → ${newStatus}`);
             }
           },
         });
@@ -290,183 +287,6 @@ export function createMergePrCommand(): Command {
 }
 
 /**
- * Creates the commit command
- */
-export function createCommitCommand(): Command {
-  const command = new Command("commit")
-    .description("Commit changes to the repository")
-    .option("-m, --message <message>", "Commit message")
-    .option("--add", "Add all files before committing", false)
-    .option("--push", "Push the commit to the remote repository", false)
-    .option("--no-verify", "Skip the pre-commit hooks", false);
-  
-  // Add shared options
-  addRepoOptions(command);
-  addOutputOptions(command);
-  
-  command.action(
-    async (options: {
-      message?: string;
-      repo?: string;
-      session?: string;
-      "upstream-repo"?: string;
-      add?: boolean;
-      push?: boolean;
-      verify?: boolean;
-      debug?: boolean;
-      json?: boolean;
-    }) => {
-      try {
-        // Convert CLI options to domain parameters using normalization helpers
-        const repoOptions = normalizeRepoOptions(options);
-        const outputOptions = normalizeOutputOptions(options);
-        
-        // Ensure message is a string, using a default if not provided
-        const message = options.message || "Commit changes";
-        
-        // Prepare commit parameters
-        const commitParams: GitCommitParams = {
-          ...repoOptions,
-          ...outputOptions,
-          message, // Use the non-null message value
-          all: options.add || false, // Use 'all' instead of 'addAll' per schema
-        };
-
-        log.debug("Committing changes with params", { commitParams });
-
-        // Call the domain function to commit changes
-        const commitResult = await commitChangesFromParams(commitParams);
-        let pushResult;
-
-        // If push was requested, push the changes after committing
-        if (options.push) {
-          const pushParams = {
-            ...repoOptions,
-            ...outputOptions,
-          };
-          
-          log.debug("Pushing changes after commit", { pushParams });
-          pushResult = await pushFromParams(pushParams);
-        }
-
-        // Output result
-        outputResult(
-          { ...commitResult, pushed: options.push ? true : false },
-          {
-            json: options.json,
-            formatter: (result) => {
-              log.cli(`Committed changes with hash: ${result.commitHash}`);
-              // Check if push was requested and succeeded
-              if (options.push) {
-                log.cli(`Pushed changes to remote.`);
-              }
-            },
-          }
-        );
-      } catch (error) {
-        handleCliError(error);
-      }
-    }
-  );
-  
-  return command;
-}
-
-/**
- * Creates the push command
- */
-export function createPushCommand(): Command {
-  const command = new Command("push")
-    .description("Push changes to the remote repository")
-    .option("-b, --branch <branch>", "Branch to push (defaults to current branch)")
-    .option("-f, --force", "Force push changes", false)
-    .option("--set-upstream", "Set the upstream branch", false);
-  
-  // Add shared options
-  addRepoOptions(command);
-  addOutputOptions(command);
-  
-  command.action(
-    async (options: {
-      branch?: string;
-      repo?: string;
-      session?: string;
-      "upstream-repo"?: string;
-      force?: boolean;
-      setUpstream?: boolean;
-      debug?: boolean;
-      json?: boolean;
-    }) => {
-      try {
-        // Convert CLI options to domain parameters using normalization helpers
-        const repoOptions = normalizeRepoOptions(options);
-        const outputOptions = normalizeOutputOptions(options);
-        
-        // Create GitService instance
-        const git = new GitService();
-        
-        // Determine repository path
-        const repoPath = options.repo || process.cwd();
-        
-        // Get current branch if not specified
-        let branch = options.branch;
-        if (!branch) {
-          // Use execInRepository to get the current branch since getCurrentBranch isn't available
-          branch = (await git.execInRepository(repoPath, "git branch --show-current")).trim();
-        }
-        
-        // Build the push command
-        let pushCommand = "git push";
-        
-        // Add force option if specified
-        if (options.force) {
-          pushCommand += " --force";
-        }
-        
-        // Add set-upstream option if specified
-        if (options.setUpstream) {
-          pushCommand += " --set-upstream";
-        }
-        
-        // Add remote and branch
-        pushCommand += ` origin ${branch}`;
-        
-        log.debug(`Executing push command: ${pushCommand}`);
-        
-        // Execute the push command
-        const output = await git.execInRepository(repoPath, pushCommand);
-        
-        // Parse the output to determine success
-        const success = !output.includes("error:") && !output.includes("fatal:");
-        
-        // Output the result
-        const result = {
-          success,
-          branch,
-          output: output.trim(),
-        };
-        
-        outputResult(result, {
-          json: options.json,
-          formatter: (result) => {
-            if (result.success) {
-              log.cli(`Successfully pushed ${branch} to origin.`);
-            } else {
-              log.cli(`Error pushing ${branch} to origin:`);
-              log.cli(result.output);
-            }
-          },
-        });
-      } catch (error) {
-        handleCliError(error);
-      }
-    }
-  );
-  
-  return command;
-}
-
-/**
  * Creates the git command
  */
 export function createGitCommand(): Command {
@@ -476,8 +296,6 @@ export function createGitCommand(): Command {
   gitCommand.addCommand(createSummaryCommand());
   gitCommand.addCommand(createPreparePrCommand());
   gitCommand.addCommand(createMergePrCommand());
-  gitCommand.addCommand(createCommitCommand());
-  gitCommand.addCommand(createPushCommand());
 
   return gitCommand;
 }

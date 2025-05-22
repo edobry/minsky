@@ -8,12 +8,14 @@ import { createInitCommand } from "./adapters/cli/init.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
 import { createRulesCommand } from "./adapters/cli/rules.js";
 import { log } from "./utils/logger.js";
+import { registerGitCommands } from "./adapters/shared/commands/git.js";
+import { registerCategorizedCliCommands } from "./adapters/shared/bridges/cli-bridge.js";
+import { CommandCategory } from "./adapters/shared/command-registry.js";
 import {
   customizeCommand,
   createCommand,
   setupCommonCommandCustomizations
 } from "./adapters/cli/cli-command-factory.js";
-import { CommandCategory } from "./adapters/shared/command-registry.js";
 
 /**
  * Root CLI command
@@ -41,6 +43,12 @@ export async function createCli(): Promise<Command> {
   cli.configureOutput({
     outputError: (str, write) => write(str),
   });
+
+  // Register shared git commands
+  registerGitCommands();
+
+  // Register git commands via CLI bridge
+  registerCategorizedCliCommands(cli, [CommandCategory.GIT], true);
 
   // This allows this file to be imported without immediately running the CLI
   return cli;
