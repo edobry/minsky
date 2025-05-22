@@ -67,52 +67,102 @@ Rebuild the TaskService with the storage abstraction from Task #091, allowing mu
 
 ## Implementation Steps
 
-1. [ ] Analyze the database abstraction from Task #091
+1. [ ] Create the Database Abstraction Layer
+   - [ ] Design and implement the `DatabaseStorage<T, S>` interface with generic types
+     - [ ] Define CRUD operations: read, write, update, delete
+     - [ ] Include error handling patterns and result types
+     - [ ] Support state management and transaction concepts
+   - [ ] Implement a `JsonFileStorage<T>` class that implements the interface
+     - [ ] Create file system utility functions for read/write operations
+     - [ ] Implement proper error handling and recovery mechanisms
+     - [ ] Add support for data validation and schema enforcement
+   - [ ] Extract common utilities (path resolution, XDG directory handling, etc.)
 
-   - [ ] Review the `DatabaseStorage<T, S>` interface and reusable components
-   - [ ] Identify how to apply these patterns to task management
-   - [ ] Plan integration between TaskBackend interface and DatabaseStorage
+2. [ ] Implement the JsonFileTaskBackend
+   - [ ] Define the task state schema for JSON storage
+     - [ ] Include task data structure with all required fields
+     - [ ] Add metadata including last modified timestamps
+     - [ ] Design for backward compatibility with existing task data
+   - [ ] Create the `JsonFileTaskBackend` class implementing `TaskBackend`
+     - [ ] Implement adapter methods between TaskBackend and DatabaseStorage
+     - [ ] Ensure all TaskBackend interface methods are properly implemented
+     - [ ] Use functional core/imperative shell design pattern
+   - [ ] Implement pure functions for task data manipulation
+     - [ ] Separate data manipulation logic from I/O operations
+     - [ ] Create functions for task filtering, sorting, and transformation
+     - [ ] Ensure all operations are side-effect free
 
-2. [ ] Design the JsonFileTaskBackend class and storage schema
+3. [ ] Create Migration Utility
+   - [ ] Implement a parser for existing tasks.md format
+     - [ ] Support all current task data formats and variations
+     - [ ] Handle edge cases and incomplete task data
+   - [ ] Build migration functionality
+     - [ ] Create a dry-run option for validation without changes
+     - [ ] Implement backup creation before migration
+     - [ ] Add verification steps to ensure data integrity
+   - [ ] Add rollback capability
+     - [ ] Store backup of original data during migration
+     - [ ] Implement restore functionality for failed migrations
+     - [ ] Add detailed error reporting during migration
 
-   - [ ] Define the JSON storage schema for tasks
-   - [ ] Create adapter between TaskBackend interface and DatabaseStorage
-   - [ ] Design a migration path from markdown to JSON format
-
-3. [ ] Implement core functionality for reading/writing tasks
-
-   - [ ] Create pure functions for task data manipulation
-   - [ ] Reuse the I/O operations from the database abstraction
-   - [ ] Add proper error handling for file system operations
-
-4. [ ] Update TaskService to use the new backend
-
-   - [ ] Add JsonFileTaskBackend to the available backends list
-   - [ ] Implement factory methods to create the appropriate backend
+4. [ ] Update TaskService for Multiple Backends
+   - [ ] Modify TaskService to support the new backend
+     - [ ] Update backend registration and selection mechanism
+     - [ ] Ensure backward compatibility with existing code
+     - [ ] Add factory methods for creating appropriate backends
    - [ ] Add configuration options for backend selection
+     - [ ] Support environment variables for backend selection
+     - [ ] Add project configuration for default backend
+     - [ ] Implement automatic backend detection
 
-5. [ ] Add migration utility for transitioning from tasks.md
+5. [ ] Update CLI Integration
+   - [ ] Add CLI options for backend selection
+     - [ ] Add `--backend` option to all task commands
+     - [ ] Support environment variables for default backend
+   - [ ] Implement migration command
+     - [ ] Create `tasks migrate` command with options
+     - [ ] Add validation and safety checks
+     - [ ] Implement progress reporting
+   - [ ] Update documentation and help text
+     - [ ] Document new backend options in CLI help
+     - [ ] Add examples for backend selection and migration
 
-   - [ ] Create a migration command in the Minsky CLI
-   - [ ] Implement data validation during migration
-   - [ ] Add rollback capabilities for failed migrations
+6. [ ] Implement Synchronization Support
+   - [ ] Add timestamps to track modifications
+     - [ ] Store creation and modification timestamps
+     - [ ] Implement timestamp-based conflict detection
+   - [ ] Handle concurrent modifications
+     - [ ] Implement optimistic locking with version numbers
+     - [ ] Add conflict detection and resolution strategies
+     - [ ] Ensure atomic write operations when possible
 
-6. [ ] Update CLI commands to support the new backend
+7. [ ] Add Comprehensive Tests
+   - [ ] Write unit tests for the database abstraction
+     - [ ] Test all CRUD operations
+     - [ ] Test error handling and recovery
+     - [ ] Test data validation
+   - [ ] Create integration tests for the JsonFileTaskBackend
+     - [ ] Test all TaskBackend interface methods
+     - [ ] Test migration functionality
+     - [ ] Test concurrent access scenarios
+   - [ ] Add migration tests
+     - [ ] Test migration from different task.md formats
+     - [ ] Test rollback functionality
+     - [ ] Test data integrity after migration
 
-   - [ ] Add backend selection options to all task commands
-   - [ ] Update command documentation to describe the new options
-   - [ ] Add backend auto-detection based on project configuration
-
-7. [ ] Add comprehensive tests
-
-   - [ ] Write unit tests for the pure functions
-   - [ ] Create integration tests for the I/O operations
-   - [ ] Add migration tests to verify data integrity
-
-8. [ ] Update documentation
-   - [ ] Document the new backend in the project README
-   - [ ] Create a migration guide for existing projects
-   - [ ] Update CLI command documentation
+8. [ ] Update Documentation
+   - [ ] Document the database abstraction
+     - [ ] Describe the interface and its generic types
+     - [ ] Explain the design patterns used
+     - [ ] Provide examples of implementation
+   - [ ] Create documentation for the JsonFileTaskBackend
+     - [ ] Explain benefits over the Markdown backend
+     - [ ] Document configuration options
+     - [ ] Provide usage examples
+   - [ ] Write migration guide
+     - [ ] Step-by-step instructions for migration
+     - [ ] Troubleshooting common issues
+     - [ ] Explain rollback process if needed
 
 ## Verification
 
@@ -121,4 +171,19 @@ Rebuild the TaskService with the storage abstraction from Task #091, allowing mu
 - [ ] Migration tool successfully converts existing tasks.md data
 - [ ] All TaskBackend interface methods are properly implemented
 - [ ] Documentation clearly explains the new backend and migration process
-- [ ] All tests pass
+- [ ] All tests pass with adequate coverage
+
+## Task Analysis Notes
+
+After examining the codebase, I found that the `DatabaseStorage` interface referenced in Task #091 has not yet been implemented. Therefore, this task will involve:
+
+1. Designing and implementing the core `DatabaseStorage<T, S>` interface
+2. Creating a `JsonFileStorage<T>` implementation 
+3. Building the `JsonFileTaskBackend` on top of this storage layer
+
+The implementation will follow the functional core/imperative shell pattern seen in the SessionDB, with a clear separation between:
+- Pure functions for data manipulation
+- I/O operations for persistence
+- Adapter layer to connect the two
+
+We'll leverage the XDG directory standard for centralized storage, similar to how SessionDB works, ensuring task data is consistent across workspaces and sessions.
