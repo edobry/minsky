@@ -20,6 +20,12 @@ This PR implements a CLI bridge that auto-generates Commander.js commands from t
 - Simplified the CLI entrypoint by using the CLI bridge for command registration
 - Fixed duplicate command registration in shared session commands
 - Updated CHANGELOG.md with migration details
+- Removed manual CLI command implementations entirely, replacing them with the CLI bridge
+
+### Removed
+
+- Manual implementations of CLI commands in `src/adapters/cli/*.ts`
+- Duplicate command registrations in shared command files
 
 ## Testing
 
