@@ -72,6 +72,7 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
 - Refactored CLI adapters to delegate to shared command registry via CLI bridge
 - Simplified command registration in CLI entrypoint
 - Fixed duplicate session command registration in shared registry
+- Removed manual CLI command implementations entirely, using only CLI bridge
 
 _See: SpecStory history [2023-07-06_10-30-cli-bridge-migration](mdc:.specstory/history/2023-07-06_10-30-cli-bridge-migration.md) for command migration._
 
