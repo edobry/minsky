@@ -145,13 +145,13 @@ Create helper utilities for:
 18. [x] Migrated `src/adapters/__tests__/shared/commands/git.test.ts` (found already migrated)
 19. [x] Migrated `src/adapters/__tests__/shared/commands/session.test.ts` (found already migrated)
 20. [x] Migrated `src/adapters/cli/__tests__/git-merge-pr.test.ts` (found already migrated)
+21. [x] Migrated `src/utils/__tests__/param-schemas.test.ts` (found already migrated)
+22. [x] Migrated `src/utils/__tests__/option-descriptions.test.ts` (found already migrated)
+23. [x] Migrated `src/utils/test-utils/__tests__/compatibility.test.ts` (found already migrated)
 
 ## Next Steps
 
-1. [ ] Migrate `src/utils/__tests__/param-schemas.test.ts`
-2. [ ] Migrate `src/utils/__tests__/option-descriptions.test.ts`
-3. [ ] Migrate `src/utils/test-utils/__tests__/compatibility.test.ts`
-4. [ ] Update high-priority integration tests as needed
+1. [ ] Update high-priority integration tests as needed
 
 ## Migration Patterns Established
 

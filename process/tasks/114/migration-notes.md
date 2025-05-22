@@ -46,9 +46,9 @@ Below are common patterns encountered during migrations:
 | `src/adapters/__tests__/shared/commands/git.test.ts` | Migrated | Easy | Priority 3, Found already migrated |
 | `src/adapters/__tests__/shared/commands/session.test.ts` | Migrated | Easy | Priority 3, Found already migrated, Uses custom matchers |
 | `src/adapters/cli/__tests__/git-merge-pr.test.ts` | Migrated | Easy | Priority 3, Found already migrated |
-| `src/utils/__tests__/param-schemas.test.ts` | Not Started | Easy | Priority 4 |
-| `src/utils/__tests__/option-descriptions.test.ts` | Not Started | Easy | Priority 4 |
-| `src/utils/test-utils/__tests__/compatibility.test.ts` | Not Started | Medium | Priority 4 |
+| `src/utils/__tests__/param-schemas.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
+| `src/utils/__tests__/option-descriptions.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
+| `src/utils/test-utils/__tests__/compatibility.test.ts` | Migrated | Medium | Priority 4, Found already migrated, Tests compatibility layer itself |
 | `src/adapters/__tests__/integration/tasks.test.ts` | Not Started | Easy | Priority 5 |
 | `src/adapters/__tests__/integration/git.test.ts` | Not Started | Easy | Priority 5 |
 | `src/adapters/__tests__/integration/rules.test.ts` | Not Started | Easy | Priority 5 |
