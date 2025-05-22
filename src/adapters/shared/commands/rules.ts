@@ -17,6 +17,14 @@ import { RuleService, type RuleFormat } from "../../../domain/rules.js";
 import { resolveWorkspacePath } from "../../../domain/workspace.js";
 import { readContentFromFileIfExists, parseGlobs } from "../../cli/rules.js";
 import { log } from "../../../utils/logger.js";
+import {
+  RULE_FORMAT_DESCRIPTION,
+  RULE_TAGS_DESCRIPTION,
+  RULE_CONTENT_DESCRIPTION,
+  RULE_DESCRIPTION_DESCRIPTION,
+  RULE_NAME_DESCRIPTION,
+  OVERWRITE_DESCRIPTION
+} from "../../../utils/option-descriptions.js";
 
 /**
  * Parameters for the rules list command
@@ -24,12 +32,12 @@ import { log } from "../../../utils/logger.js";
 const rulesListCommandParams: CommandParameterMap = {
   format: {
     schema: z.enum(["cursor", "generic"]).optional(),
-    description: "Filter by rule format (cursor or generic)",
+    description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
   tag: {
     schema: z.string().optional(),
-    description: "Filter by tag",
+    description: RULE_TAGS_DESCRIPTION,
     required: false,
   },
   json: {
@@ -85,17 +93,17 @@ const rulesCreateCommandParams: CommandParameterMap = {
   },
   content: {
     schema: z.string(),
-    description: "Content of the rule (or path to file containing content)",
+    description: RULE_CONTENT_DESCRIPTION,
     required: true,
   },
   description: {
     schema: z.string().optional(),
-    description: "Description of the rule",
+    description: RULE_DESCRIPTION_DESCRIPTION,
     required: false,
   },
   name: {
     schema: z.string().optional(),
-    description: "Display name of the rule (defaults to ID)",
+    description: RULE_NAME_DESCRIPTION,
     required: false,
   },
   globs: {
@@ -105,17 +113,17 @@ const rulesCreateCommandParams: CommandParameterMap = {
   },
   tags: {
     schema: z.string().optional(),
-    description: "Comma-separated list of tags for the rule",
+    description: RULE_TAGS_DESCRIPTION,
     required: false,
   },
   format: {
     schema: z.enum(["cursor", "generic"]).optional(),
-    description: "Format of the rule file (defaults to 'cursor')",
+    description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
   overwrite: {
     schema: z.boolean(),
-    description: "Overwrite existing rule if it exists",
+    description: OVERWRITE_DESCRIPTION,
     required: false,
     defaultValue: false,
   },
@@ -138,17 +146,17 @@ const rulesUpdateCommandParams: CommandParameterMap = {
   },
   content: {
     schema: z.string().optional(),
-    description: "Content of the rule (or path to file containing content)",
+    description: RULE_CONTENT_DESCRIPTION,
     required: false,
   },
   description: {
     schema: z.string().optional(),
-    description: "Description of the rule",
+    description: RULE_DESCRIPTION_DESCRIPTION,
     required: false,
   },
   name: {
     schema: z.string().optional(),
-    description: "Display name of the rule",
+    description: RULE_NAME_DESCRIPTION,
     required: false,
   },
   globs: {
@@ -158,12 +166,12 @@ const rulesUpdateCommandParams: CommandParameterMap = {
   },
   tags: {
     schema: z.string().optional(),
-    description: "Comma-separated list of tags for the rule",
+    description: RULE_TAGS_DESCRIPTION,
     required: false,
   },
   format: {
     schema: z.enum(["cursor", "generic"]).optional(),
-    description: "Preferred rule format (cursor or generic)",
+    description: RULE_FORMAT_DESCRIPTION,
     required: false,
   },
   json: {
