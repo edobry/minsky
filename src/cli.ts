@@ -9,7 +9,7 @@ import { createMCPCommand } from "./commands/mcp/index.js";
 import { createRulesCommand } from "./adapters/cli/rules.js";
 import { log } from "./utils/logger.js";
 import { registerGitCommands } from "./adapters/shared/commands/git.js";
-import { registerCategorizedCliCommands } from "./adapters/shared/bridges/cli-bridge.js";
+import { cliBridge } from "./adapters/shared/bridges/cli-bridge.js";
 import { CommandCategory } from "./adapters/shared/command-registry.js";
 import {
   customizeCommand,
@@ -48,7 +48,8 @@ export async function createCli(): Promise<Command> {
   registerGitCommands();
 
   // Register git commands via CLI bridge
-  registerCategorizedCliCommands(cli, [CommandCategory.GIT], true);
+  const gitCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.GIT);
+  if (gitCategoryCommand) cli.addCommand(gitCategoryCommand);
 
   // This allows this file to be imported without immediately running the CLI
   return cli;
