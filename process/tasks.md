@@ -250,4 +250,4 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
-- [ ] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
+- [+] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
