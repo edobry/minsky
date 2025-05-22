@@ -6,6 +6,14 @@
  * migration of other commands.
  */
 
+import {
+  REPO_DESCRIPTION,
+  SESSION_DESCRIPTION,
+  TASK_ID_DESCRIPTION,
+  RULE_FORMAT_DESCRIPTION,
+  RULE_TAGS_DESCRIPTION,
+} from "../../../utils/option-descriptions.js";
+
 // Define local type for CommandSchema since @minsky/core isn't available in this context
 interface CommandSchema<Params, Result> {
   name: string;
@@ -56,12 +64,12 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     },
     repo: {
       type: "string",
-      description: "Repository path",
+      description: REPO_DESCRIPTION,
       required: false,
     },
     session: {
       type: "string",
-      description: "Session identifier",
+      description: SESSION_DESCRIPTION,
       required: false,
     },
   },
@@ -85,17 +93,17 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
   parameters: {
     taskId: {
       type: "string",
-      description: "Task ID",
+      description: TASK_ID_DESCRIPTION,
       required: true,
     },
     repo: {
       type: "string",
-      description: "Repository path",
+      description: REPO_DESCRIPTION,
       required: false,
     },
     session: {
       type: "string",
-      description: "Session identifier",
+      description: SESSION_DESCRIPTION,
       required: false,
     },
   },
@@ -119,7 +127,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
   parameters: {
     repo: {
       type: "string",
-      description: "Repository path",
+      description: REPO_DESCRIPTION,
       required: false,
     },
   },
@@ -155,12 +163,12 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
   parameters: {
     format: {
       type: "string",
-      description: "Filter by rule format (cursor or generic)",
+      description: RULE_FORMAT_DESCRIPTION,
       required: false,
     },
     tag: {
       type: "string",
-      description: "Filter by tag",
+      description: RULE_TAGS_DESCRIPTION,
       required: false,
     },
   },
