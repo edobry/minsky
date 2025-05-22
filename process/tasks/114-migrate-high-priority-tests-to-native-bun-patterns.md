@@ -8,101 +8,95 @@ This task focuses on identifying and migrating the highest-priority tests first,
 
 This task should be executed AFTER the "Test Inventory and Classification" task, the "Core Mock Compatibility Layer" task, and the "Test Utility Documentation" task, as it depends on their outputs. It can be performed in parallel with the "Automated Test Migration Script" task, with manually migrated tests serving as examples for the automated tool.
 
+---
+
+## Progress Summary (as of latest migration)
+
+- **Tests migrated:** 9/20 high-priority tests (see `migration-notes.md` for details)
+- **Custom assertion helpers created:** See `src/utils/test-utils/assertions.ts` for helpers like `expectToMatch`, `expectToHaveLength`, `expectToBeInstanceOf`, `expectToNotBeNull`, `expectToHaveBeenCalled`, `getMockCallArg`, etc.
+- **Migration patterns documented:** See `process/tasks/114/migration-notes.md` and implementation plan for a full pattern library and lessons learned.
+- **Pattern library and migration templates established.**
+- **Next up:** Continue migrating adapter and utility tests in priority order.
+
+---
+
 ## Requirements
 
 1. **High-Priority Test Identification**
 
-   - Identify the most critical tests to migrate based on:
+   - [x] Identify the most critical tests to migrate based on:
      - Business criticality of the functionality being tested
      - Frequency of test execution (e.g., in CI pipelines)
      - Probability of catching regressions
      - Complexity of test dependencies
-   - Create a prioritized list of tests for migration
+   - [x] Create a prioritized list of tests for migration (see migration backlog)
 
 2. **Manual Migration of Core Tests**
 
-   - Migrate identified high-priority tests to use:
+   - [x] Migrate identified high-priority tests to use:
      - Native Bun mocking patterns
      - Bun-specific assertion patterns
      - Updated module mocking approaches
      - Dependency injection where appropriate
-   - Ensure all tests pass after migration
+   - [x] Ensure all migrated tests pass after migration
+   - [ ] Continue migration for remaining high-priority tests
 
 3. **Test Structure Improvement**
 
-   - Improve the structure of migrated tests:
+   - [x] Improve the structure of migrated tests:
      - Remove unnecessary test dependencies
      - Simplify complex setup and teardown
      - Enhance readability and maintainability
      - Apply consistent patterns as documented
+   - [ ] Apply improvements to remaining tests as they are migrated
 
 4. **Pattern Library Creation**
 
-   - Create a library of common migration patterns:
-     - Document before/after examples of common patterns
-     - Create reusable utilities for common testing needs
-     - Establish templates for different test types
-     - Document lessons learned during migration
+   - [x] Create a library of common migration patterns (see migration-notes.md)
+   - [x] Document before/after examples of common patterns
+   - [x] Create reusable utilities for common testing needs
+   - [x] Establish templates for different test types
+   - [x] Document lessons learned during migration
 
 5. **Migration Documentation**
-   - Document the migration process for each test:
-     - Challenges encountered during migration
-     - Solutions applied to overcome challenges
-     - Improvements made during migration
-     - Time required for migration
+   - [x] Document the migration process for each test (see migration-notes.md)
+   - [x] Challenges encountered during migration
+   - [x] Solutions applied to overcome challenges
+   - [x] Improvements made during migration
+   - [x] Time required for migration (ongoing)
 
-## Implementation Steps
+---
 
-1. [ ] Analyze the test inventory and create a prioritized list:
+## Implementation Steps (Updated)
 
-   - [ ] Review the output from the "Test Inventory and Classification" task
-   - [ ] Define priority criteria based on criticality, frequency, and complexity
-   - [ ] Create a ranked list of at least 20 high-priority tests to migrate
-   - [ ] Document the rationale for each test's priority
+1. [x] Analyze the test inventory and create a prioritized list
+2. [x] Create a migration plan for each high-priority test
+3. [x] Perform the migration for the first 9 high-priority tests
+4. [x] Verify each migrated test
+5. [x] Document migration patterns and helpers
+6. [ ] Continue migration for next priority files:
+   - [ ] `src/adapters/__tests__/shared/commands/tasks.test.ts`
+   - [ ] `src/adapters/__tests__/shared/commands/git.test.ts`
+   - [ ] `src/adapters/__tests__/shared/commands/session.test.ts`
+   - [ ] `src/adapters/cli/__tests__/git-merge-pr.test.ts`
+   - [ ] `src/utils/__tests__/param-schemas.test.ts`
+   - [ ] `src/utils/__tests__/option-descriptions.test.ts`
+   - [ ] `src/utils/test-utils/__tests__/compatibility.test.ts`
+   - [ ] Update high-priority integration tests as needed
+7. [ ] Create a report on the migration effort
 
-2. [ ] Create a migration plan for each high-priority test:
-
-   - [ ] Analyze each test's structure and dependencies
-   - [ ] Identify specific Jest/Vitest patterns used
-   - [ ] Determine Bun-native equivalents for each pattern
-   - [ ] Plan any structural improvements to implement during migration
-
-3. [ ] Perform the migration for each test:
-
-   - [ ] Update import statements to use Bun test utilities
-   - [ ] Replace Jest/Vitest mock functions with Bun equivalents
-   - [ ] Update assertions to use Bun's syntax
-   - [ ] Rewrite module mocks to use Bun's approach
-   - [ ] Implement structural improvements as planned
-
-4. [ ] Verify each migrated test:
-
-   - [ ] Run the test to ensure it passes
-   - [ ] Compare behavior with the original test
-   - [ ] Verify that all functionality is properly tested
-   - [ ] Check for any performance improvements or regressions
-
-5. [ ] Document migration patterns:
-
-   - [ ] Create before/after examples for each common pattern
-   - [ ] Document any reusable utilities created
-   - [ ] Record challenging patterns and their solutions
-   - [ ] Update the test utility documentation with new patterns
-
-6. [ ] Create a report on the migration effort:
-   - [ ] Document time spent on each test migration
-   - [ ] Identify patterns that were particularly difficult to migrate
-   - [ ] Note any improvements in test quality or performance
-   - [ ] Make recommendations for future migrations
+---
 
 ## Verification
 
-- [ ] All migrated tests pass when run with Bun's test runner
-- [ ] Migrated tests maintain the same coverage as the original tests
-- [ ] Test readability and maintainability are improved
-- [ ] Migration patterns are well-documented for future use
+- [x] All migrated tests pass when run with Bun's test runner
+- [x] Migrated tests maintain the same coverage as the original tests
+- [x] Test readability and maintainability are improved
+- [x] Migration patterns are well-documented for future use
 - [ ] The migration report provides valuable insights for the automated migration tool
 - [ ] At least 20 high-priority tests are successfully migrated
+
+---
 
 ## Dependencies
 
@@ -110,3 +104,10 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 - This task depends on the "Core Mock Compatibility Layer" for understanding pattern equivalences
 - This task depends on the "Test Utility Documentation" task for guidance on best practices
 - Insights from this task should inform the "Automated Test Migration Script" task
+
+---
+
+## References
+
+- See `process/tasks/114/migration-notes.md` for detailed migration notes, patterns, and status.
+- See `process/tasks/114/implementation-plan.md` for the full implementation plan and progress metrics.

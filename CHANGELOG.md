@@ -761,6 +761,7 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Resolved the issue where tasks were not properly returned through the MCP interface
 
 - Task #119: Fix MCP Rules.list Command to Exclude Rule Content
+
   - Modified the MCP adapter for the `rules.list` command to exclude the `content` field from the returned rules
   - Made list responses more manageable by removing potentially large rule content data
   - Maintained consistent behavior with the CLI interface where list commands only show metadata
@@ -776,3 +777,16 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Created a senior engineer analysis document with recommendations for implementation
 
 _See: SpecStory history [2025-05-21_task-074-specification-review](mdc:.specstory/history/2025-05-21_task-074-specification-review.md) for specification refinement._
+
+- Task #125: Implemented CLI Bridge for Shared Command Registry
+  - Created a bridge system that generates CLI commands automatically from shared command definitions
+  - Added parameter mapping between Zod schemas and Commander.js options
+  - Implemented CLI execution context for shared commands
+  - Created customization API for CLI command generation
+  - Added support for automatic argument detection for required parameters
+  - Integrated with the task spec command to access task specification content
+  - Fixed imports and types for shared command interactions
+  - Streamlined CLI implementation with better error handling and consistent output formatting
+  - Reduced code duplication between CLI and MCP interfaces
+
+_See: SpecStory history [2023-05-29_cli-bridge-implementation](mdc:.specstory/history/2023-05-29_cli-bridge-implementation.md) for implementation details._

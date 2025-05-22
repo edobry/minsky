@@ -188,7 +188,7 @@
 
 - [x] Improve CLI Adapter Structure for Shared Options [#096](process/tasks/096-improve-cli-adapter-structure-for-shared-options.md)
 
-- [x] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
+- [+] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
 
 - [x] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
 
@@ -244,7 +244,7 @@
 
 - [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
-- [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+- [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
 - [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
 

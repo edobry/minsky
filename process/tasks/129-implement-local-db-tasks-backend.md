@@ -12,29 +12,31 @@ We need a more robust backend similar to the SessionDB, which already uses a loc
 
 ## Requirements
 
-1. **Local DB Backend Implementation**
+1. **Local JSON DB Backend Implementation**
 
-   - Implement a `LocalDbTaskBackend` class that implements the `TaskBackend` interface
+   - Implement a `JsonFileTaskBackend` class that implements the `TaskBackend` interface
+   - Leverage the `DatabaseStorage` abstraction created in Task #091
    - Store tasks in a centralized JSON file using the XDG directory standard (similar to SessionDB)
    - Support all operations defined in the `TaskBackend` interface
 
-2. **Code Reuse and Architecture**
+2. **Reuse of Database Abstraction Components**
 
-   - Extract common database functionality from SessionDB into a reusable component if possible
-   - Alternatively, follow similar patterns to SessionDB's implementation for consistency
-   - Consider a functional core/imperative shell design like the current SessionDB
+   - Use the `DatabaseStorage<T, S>` interface from Task #091
+   - Leverage the generic database utilities extracted in Task #091
+   - Apply the same state management patterns used by SessionDB's implementation
+   - Follow the functional core/imperative shell design like the SessionDB
 
 3. **Migration Utility**
 
-   - Implement a migration tool to convert existing `tasks.md` data to the new local DB format
+   - Implement a migration tool to convert existing `tasks.md` data to the new JSON file format
    - Support seamless transition between backends with no data loss
    - Provide verification and rollback capabilities during migration
 
 4. **CLI Integration**
 
-   - Update TaskService to include the new LocalDB backend
+   - Update TaskService to include the new JsonFileTaskBackend
    - Add the backend option to all task-related CLI commands
-   - Make local DB the default backend for new Minsky projects
+   - Make JsonFileTaskBackend the default backend for new Minsky projects
 
 5. **Synchronization Support**
 
@@ -51,41 +53,41 @@ We need a more robust backend similar to the SessionDB, which already uses a loc
 
 Several approaches could be considered for implementation:
 
-### Option 1: Minimal Adapter Pattern
+### Option 1: Direct Database Abstraction Reuse
 
-Create a LocalDbTaskBackend adapter that uses the same design pattern as the MarkdownTaskBackend but stores data in a centralized JSON file.
+Directly reuse the `DatabaseStorage` interface and related utilities from Task #091, creating a JsonFileTaskBackend that implements the TaskBackend interface.
 
 ### Option 2: Domain-Driven Refactoring
 
-Extract a more general "storage" concept from both SessionDB and TaskBackend, creating a foundational storage layer that can be reused across different domain objects.
+Use the database abstraction from Task #091 while refining the domain models specific to tasks, ensuring proper separation between storage and domain logic.
 
 ### Option 3: Task Service Refactoring
 
-Rebuild the TaskService with a focus on persistence abstraction, allowing multiple persistence mechanisms without tight coupling.
+Rebuild the TaskService with the storage abstraction from Task #091, allowing multiple persistence mechanisms without tight coupling.
 
 ## Implementation Steps
 
-1. [ ] Analyze SessionDB implementation to identify reusable patterns
+1. [ ] Analyze the database abstraction from Task #091
 
-   - [ ] Review the SessionDB code structure, particularly the functional patterns
-   - [ ] Identify pure functions vs. I/O operations in the current implementation
-   - [ ] Determine components that could be extracted for reuse
+   - [ ] Review the `DatabaseStorage<T, S>` interface and reusable components
+   - [ ] Identify how to apply these patterns to task management
+   - [ ] Plan integration between TaskBackend interface and DatabaseStorage
 
-2. [ ] Design the LocalDbTaskBackend class and storage schema
+2. [ ] Design the JsonFileTaskBackend class and storage schema
 
    - [ ] Define the JSON storage schema for tasks
-   - [ ] Create interfaces for the database operations
+   - [ ] Create adapter between TaskBackend interface and DatabaseStorage
    - [ ] Design a migration path from markdown to JSON format
 
 3. [ ] Implement core functionality for reading/writing tasks
 
    - [ ] Create pure functions for task data manipulation
-   - [ ] Implement I/O operations for reading/writing the JSON database
+   - [ ] Reuse the I/O operations from the database abstraction
    - [ ] Add proper error handling for file system operations
 
 4. [ ] Update TaskService to use the new backend
 
-   - [ ] Add LocalDbTaskBackend to the available backends list
+   - [ ] Add JsonFileTaskBackend to the available backends list
    - [ ] Implement factory methods to create the appropriate backend
    - [ ] Add configuration options for backend selection
 
