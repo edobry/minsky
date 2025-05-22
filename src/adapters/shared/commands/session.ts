@@ -591,4 +591,4 @@ export function registerSessionCommands(): void {
       }
     },
   });
-} 
+}
