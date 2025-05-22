@@ -11,17 +11,17 @@ import {
   createPullRequestFromParams,
   commitChangesFromParams,
   preparePrFromParams,
-  pushFromParams
+  pushFromParams,
 } from "../../domain/index.js";
 // Import GitService directly for push functionality
 import { GitService } from "../../domain/git.js";
-import { 
-  handleCliError, 
+import {
+  handleCliError,
   outputResult,
   addRepoOptions,
   addOutputOptions,
   normalizeRepoOptions,
-  normalizeOutputOptions
+  normalizeOutputOptions,
 } from "./utils/index.js";
 
 /**
@@ -42,9 +42,9 @@ async function mergePrFromParams(params: {
   try {
     const git = new GitService();
     const workdir = params.repo || process.cwd();
-    
+
     // If baseBranch is not provided, use the fetchDefaultBranch method to determine it
-    const baseBranch = params.baseBranch || await git.fetchDefaultBranch(workdir);
+    const baseBranch = params.baseBranch || (await git.fetchDefaultBranch(workdir));
 
     // 1. Make sure we're on the base branch
     await git.execInRepository(workdir, `git checkout ${baseBranch}`);
@@ -95,11 +95,11 @@ export function createSummaryCommand(): Command {
   const command = new Command("summary")
     .description("Generate PR description summary")
     .option("--branch <branch>", "Branch to compare against (defaults to upstream branch)");
-  
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
+
   command.action(
     async (options: {
       repo?: string;
@@ -136,7 +136,7 @@ export function createSummaryCommand(): Command {
         // Convert CLI options to domain parameters using normalization helpers
         const repoOptions = normalizeRepoOptions(options);
         const outputOptions = normalizeOutputOptions(options);
-        
+
         // Convert CLI options to domain parameters
         const params: GitPullRequestParams = {
           ...repoOptions,
@@ -168,7 +168,7 @@ export function createSummaryCommand(): Command {
       }
     }
   );
-  
+
   return command;
 }
 
@@ -181,11 +181,11 @@ export function createPreparePrCommand(): Command {
     .option("--base <branch>", "Base branch for PR (defaults to upstream branch)")
     .option("--title <title>", "PR title (if not provided, will be generated)")
     .option("--body <body>", "PR body (if not provided, will be generated)");
-  
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
+
   command.action(
     async (options: {
       repo?: string;
@@ -201,7 +201,7 @@ export function createPreparePrCommand(): Command {
         // Convert CLI options to domain parameters using normalization helpers
         const repoOptions = normalizeRepoOptions(options);
         const outputOptions = normalizeOutputOptions(options);
-        
+
         const params = {
           ...repoOptions,
           baseBranch: options.base,
@@ -228,7 +228,7 @@ export function createPreparePrCommand(): Command {
       }
     }
   );
-  
+
   return command;
 }
 
@@ -240,11 +240,11 @@ export function createMergePrCommand(): Command {
     .description("Merge a PR branch into the base branch")
     .argument("<pr-branch>", "PR branch to merge")
     .option("--base <branch>", "Base branch to merge into (defaults to upstream branch)");
-  
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
+
   command.action(
     async (
       prBranch: string,
@@ -259,7 +259,7 @@ export function createMergePrCommand(): Command {
       try {
         // Convert CLI options to domain parameters using normalization helpers
         const repoOptions = normalizeRepoOptions(options);
-        
+
         const params = {
           prBranch,
           ...repoOptions,
@@ -285,7 +285,7 @@ export function createMergePrCommand(): Command {
       }
     }
   );
-  
+
   return command;
 }
 
@@ -299,11 +299,11 @@ export function createCommitCommand(): Command {
     .option("--add", "Add all files before committing", false)
     .option("--push", "Push the commit to the remote repository", false)
     .option("--no-verify", "Skip the pre-commit hooks", false);
-  
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
+
   command.action(
     async (options: {
       message?: string;
@@ -320,10 +320,10 @@ export function createCommitCommand(): Command {
         // Convert CLI options to domain parameters using normalization helpers
         const repoOptions = normalizeRepoOptions(options);
         const outputOptions = normalizeOutputOptions(options);
-        
+
         // Ensure message is a string, using a default if not provided
         const message = options.message || "Commit changes";
-        
+
         // Prepare commit parameters
         const commitParams: GitCommitParams = {
           ...repoOptions,
@@ -344,7 +344,7 @@ export function createCommitCommand(): Command {
             ...repoOptions,
             ...outputOptions,
           };
-          
+
           log.debug("Pushing changes after commit", { pushParams });
           pushResult = await pushFromParams(pushParams);
         }
@@ -368,7 +368,7 @@ export function createCommitCommand(): Command {
       }
     }
   );
-  
+
   return command;
 }
 
@@ -381,11 +381,11 @@ export function createPushCommand(): Command {
     .option("-b, --branch <branch>", "Branch to push (defaults to current branch)")
     .option("-f, --force", "Force push changes", false)
     .option("--set-upstream", "Set the upstream branch", false);
-  
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
-  
+
   command.action(
     async (options: {
       branch?: string;
@@ -401,51 +401,51 @@ export function createPushCommand(): Command {
         // Convert CLI options to domain parameters using normalization helpers
         const repoOptions = normalizeRepoOptions(options);
         const outputOptions = normalizeOutputOptions(options);
-        
+
         // Create GitService instance
         const git = new GitService();
-        
+
         // Determine repository path
         const repoPath = options.repo || process.cwd();
-        
+
         // Get current branch if not specified
         let branch = options.branch;
         if (!branch) {
           // Use execInRepository to get the current branch since getCurrentBranch isn't available
           branch = (await git.execInRepository(repoPath, "git branch --show-current")).trim();
         }
-        
+
         // Build the push command
         let pushCommand = "git push";
-        
+
         // Add force option if specified
         if (options.force) {
           pushCommand += " --force";
         }
-        
+
         // Add set-upstream option if specified
         if (options.setUpstream) {
           pushCommand += " --set-upstream";
         }
-        
+
         // Add remote and branch
         pushCommand += ` origin ${branch}`;
-        
+
         log.debug(`Executing push command: ${pushCommand}`);
-        
+
         // Execute the push command
         const output = await git.execInRepository(repoPath, pushCommand);
-        
+
         // Parse the output to determine success
         const success = !output.includes("error:") && !output.includes("fatal:");
-        
+
         // Output the result
         const result = {
           success,
           branch,
           output: output.trim(),
         };
-        
+
         outputResult(result, {
           json: options.json,
           formatter: (result) => {
@@ -462,7 +462,7 @@ export function createPushCommand(): Command {
       }
     }
   );
-  
+
   return command;
 }
 

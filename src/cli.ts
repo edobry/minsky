@@ -7,7 +7,10 @@ import { createGitCommand } from "./adapters/cli/git.js";
 import { createInitCommand } from "./adapters/cli/init.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
 import { createRulesCommand } from "./adapters/cli/rules.js";
-import { log } from "./utils/logger";
+import { log } from "./utils/logger.js";
+import { registerGitCommands } from "./adapters/shared/commands/git.js";
+import { registerCategorizedCliCommands } from "./adapters/shared/bridges/cli-bridge.js";
+import { CommandCategory } from "./adapters/shared/command-registry.js";
 
 // Override getCurrentSession for testing
 import { getCurrentSession as originalGetCurrentSession } from "./domain/workspace.js";
@@ -33,5 +36,8 @@ program.addCommand(createGitCommand());
 program.addCommand(createInitCommand());
 program.addCommand(createMCPCommand());
 program.addCommand(createRulesCommand());
+
+// Register shared git commands
+registerGitCommands();
 
 program.parse();
