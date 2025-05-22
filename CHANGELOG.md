@@ -50,6 +50,15 @@ _See: SpecStory history [2023-06-30_test-utility-documentation](mdc:.specstory/h
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
+- CLI bridge that auto-generates Commander.js commands from the shared command registry
+- Migrated tasks spec command to use shared command registry and CLI bridge
+- Migrated git commit and push commands to use shared command registry and CLI bridge
+- Migrated init command to use shared command registry and CLI bridge
+- Migrated remaining tasks commands (list, get, create) to use shared command registry and CLI bridge
+- Updated CLI entrypoint to use shared command registry and CLI bridge for all commands
+
+_See: SpecStory history [2023-07-05_15-45-cli-bridge-implementation](mdc:.specstory/history/2023-07-05_15-45-cli-bridge-implementation.md) for CLI bridge implementation._
+
 ### Changed
 
 - Improved error handling for common network errors in the MCP server
@@ -59,6 +68,12 @@ _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/h
   - Improved error detection for network-related issues like port conflicts (EADDRINUSE)
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
+
+- Refactored CLI adapters to delegate to shared command registry via CLI bridge
+- Simplified command registration in CLI entrypoint
+- Fixed duplicate session command registration in shared registry
+
+_See: SpecStory history [2023-07-06_10-30-cli-bridge-migration](mdc:.specstory/history/2023-07-06_10-30-cli-bridge-migration.md) for command migration._
 
 - Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
 
