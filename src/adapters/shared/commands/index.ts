@@ -9,6 +9,7 @@ import { registerGitCommands } from "./git.js";
 import { registerTasksCommands } from "./tasks.js";
 import { registerSessionCommands } from "./session.js";
 import { registerRulesCommands } from "./rules.js";
+import { registerInitCommands } from "./init.js";
 
 /**
  * Register all shared commands in the shared command registry
@@ -26,6 +27,9 @@ export function registerAllSharedCommands(): void {
   // Register rules commands
   registerRulesCommands();
   
+  // Register init commands
+  registerInitCommands();
+  
   // Additional command categories can be registered here as they're implemented
   // For example:
   // registerInitCommands();
@@ -37,5 +41,6 @@ export {
   registerGitCommands, 
   registerTasksCommands, 
   registerSessionCommands,
-  registerRulesCommands 
+  registerRulesCommands,
+  registerInitCommands,
 }; 

@@ -408,4 +408,9 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-}); 
+});
+
+export function registerTasksCommands() {
+  // All commands are registered on import, so this is a no-op for now.
+  // This function exists for consistency with other command modules.
+} 
