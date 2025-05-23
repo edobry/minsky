@@ -5,18 +5,29 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
+import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
 
+// Global test isolation to prevent race conditions
+let testSequenceNumber = 0;
+
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
-  const dbPath = join(testDir, `test-tasks-${Date.now()}-${randomUUID()}.json`);
-  const workspacePath = join(testDir, "workspace");
+  let dbPath: string;
+  let workspacePath: string;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
+    // Create highly unique paths to avoid conflicts
+    const timestamp = Date.now();
+    const uuid = randomUUID();
+    const sequence = ++testSequenceNumber;
+    dbPath = join(testDir, `test-tasks-${timestamp}-${uuid}-${sequence}.json`);
+    workspacePath = join(testDir, `workspace-${sequence}`);
+
     // Create test directories
     await mkdir(testDir, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
@@ -31,12 +42,21 @@ describe("JsonFileTaskBackend", () => {
   });
 
   afterEach(async () => {
-    // Clean up test directories - simplified approach
+    // Enhanced cleanup to prevent race conditions
     try {
-      // Let the OS clean up test files, or implement manual cleanup if needed
-      // This avoids the fs.rm compatibility issue
-    } catch {
-      // Ignore cleanup errors
+      // Wait a bit to ensure any pending operations complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Clean up test directories
+      if (existsSync(workspacePath)) {
+        rmSync(workspacePath, { recursive: true, force: true });
+      }
+      if (existsSync(dbPath)) {
+        rmSync(dbPath, { force: true });
+      }
+    } catch (error) {
+      // Log but don't fail tests on cleanup errors
+      console.warn("Cleanup warning:", error);
     }
   });
 

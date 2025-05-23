@@ -24,6 +24,9 @@ interface TestState {
   metadata: Record<string, unknown>;
 }
 
+// Global test isolation to prevent race conditions
+let testSequenceNumber = 0;
+
 describe("JsonFileStorage Core Tests", () => {
   let storage: DatabaseStorage<TestEntity, TestState>;
   let testDbPath: string;
@@ -33,7 +36,8 @@ describe("JsonFileStorage Core Tests", () => {
     // Create highly unique test database path to avoid conflicts
     const timestamp = Date.now();
     const uuid = randomUUID();
-    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}`);
+    const sequence = ++testSequenceNumber;
+    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}-${sequence}`);
     testDbPath = join(testDirPath, "test.json");
 
     // Ensure test directory exists
@@ -56,10 +60,19 @@ describe("JsonFileStorage Core Tests", () => {
     await storage.initialize();
   });
 
-  afterEach(() => {
-    // Clean up test files
-    if (existsSync(testDirPath)) {
-      rmSync(testDirPath, { recursive: true, force: true });
+  afterEach(async () => {
+    // Enhanced cleanup to prevent race conditions
+    try {
+      // Wait a bit to ensure any pending operations complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Clean up test files
+      if (existsSync(testDirPath)) {
+        rmSync(testDirPath, { recursive: true, force: true });
+      }
+    } catch (error) {
+      // Log but don't fail tests on cleanup errors
+      console.warn(`Cleanup warning for ${testDirPath}:`, error);
     }
   });
 

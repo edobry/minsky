@@ -5,20 +5,28 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
+import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { TaskService } from "../taskService";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
 
+// Global test isolation to prevent race conditions
+let testSequenceNumber = 0;
+
 describe("TaskService JsonFile Integration", () => {
   const testDir = join(process.cwd(), "test-tmp", "taskservice-jsonfile-test");
-  const workspacePath = join(testDir, "workspace");
+  let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
 
   beforeEach(async () => {
-    // Create unique database path for each test using UUID
-    dbPath = join(testDir, `test-tasks-${Date.now()}-${randomUUID()}.json`);
+    // Create highly unique paths to avoid conflicts
+    const timestamp = Date.now();
+    const uuid = randomUUID();
+    const sequence = ++testSequenceNumber;
+    dbPath = join(testDir, `test-tasks-${timestamp}-${uuid}-${sequence}.json`);
+    workspacePath = join(testDir, `workspace-${sequence}`);
 
     // Create test directories
     await mkdir(testDir, { recursive: true });
@@ -39,7 +47,34 @@ describe("TaskService JsonFile Integration", () => {
   });
 
   afterEach(async () => {
-    // Simplified cleanup
+    // Enhanced cleanup to prevent race conditions
+    try {
+      // Wait a bit to ensure any pending operations complete
+      await new Promise(resolve => setTimeout(resolve, 20));
+      
+      // Clean up test directories with better error handling
+      if (existsSync(workspacePath)) {
+        try {
+          rmSync(workspacePath, { recursive: true, force: true });
+        } catch (cleanupError) {
+          // Try alternative cleanup approach
+          try {
+            rmSync(workspacePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 10 });
+          } catch (retryError) {
+            // Ignore cleanup errors to prevent test failures
+          }
+        }
+      }
+      if (existsSync(dbPath)) {
+        try {
+          rmSync(dbPath, { force: true });
+        } catch (dbCleanupError) {
+          // Ignore DB cleanup errors
+        }
+      }
+    } catch (error) {
+      // Ignore all cleanup errors to prevent test failures
+    }
   });
 
   describe("Basic Operations", () => {
@@ -74,8 +109,8 @@ describe("TaskService JsonFile Integration", () => {
         "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
       await writeFile(specPath, specContent, "utf8");
 
-      // Create task via TaskService
-      const task = await taskService.createTask("process/tasks/test-task.md");
+      // Create task via TaskService using absolute path
+      const task = await taskService.createTask(specPath);
 
       expect(task.id).toBe("#123");
       expect(task.title).toBe("Test Integration Task");
@@ -99,7 +134,7 @@ describe("TaskService JsonFile Integration", () => {
       await writeFile(specPath, specContent, "utf8");
 
       // Create task
-      const task = await taskService.createTask("process/tasks/status-test.md");
+      const task = await taskService.createTask(specPath);
       expect(task.status).toBe("TODO");
 
       // Update status
@@ -127,8 +162,8 @@ describe("TaskService JsonFile Integration", () => {
       await writeFile(task2Spec, task2Content, "utf8");
 
       // Create tasks
-      await taskService.createTask("process/tasks/filter-test-1.md");
-      await taskService.createTask("process/tasks/filter-test-2.md");
+      await taskService.createTask(task1Spec);
+      await taskService.createTask(task2Spec);
 
       // Update one task status
       await taskService.setTaskStatus("#126", "DONE");
@@ -177,7 +212,7 @@ describe("TaskService JsonFile Integration", () => {
       const specPath = join(workspacePath, "process", "tasks", "validation-test.md");
       const specContent = "# Task #127: Validation Test\n\n## Context\n\nTest validation.";
       await writeFile(specPath, specContent, "utf8");
-      await taskService.createTask("process/tasks/validation-test.md");
+      await taskService.createTask(specPath);
 
       // Should reject invalid status
       await expect(taskService.setTaskStatus("#127", "INVALID")).rejects.toThrow(
@@ -193,7 +228,7 @@ describe("TaskService JsonFile Integration", () => {
       const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
       await writeFile(specPath, specContent, "utf8");
 
-      await taskService.createTask("process/tasks/persistence-test.md");
+      await taskService.createTask(specPath);
       await taskService.setTaskStatus("#128", "IN-PROGRESS");
 
       // Create new service instance pointing to same database

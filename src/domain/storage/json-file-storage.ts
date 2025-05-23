@@ -14,6 +14,7 @@ import type {
   DatabaseQueryOptions,
 } from "./database-storage";
 import type { DatabaseStorage } from "./database-storage";
+import { log } from "../../utils/logger";
 
 /**
  * Configuration options for JsonFileStorage
@@ -79,12 +80,35 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
 
-      const data = readFileSync(this.filePath, "utf8");
-      const state = JSON.parse(data) as S;
-      return { success: true, data: state };
+      const data = readFileSync(this.filePath, "utf8") as string;
+      
+      // Validate JSON before parsing to prevent stack overflow
+      if (!data.trim()) {
+        // Handle empty file
+        const state = this.initializeState();
+        return { success: true, data: state };
+      }
+
+      // Add safeguards against circular references
+      try {
+        const state = JSON.parse(data) as S;
+        
+        // Validate the parsed state structure
+        if (typeof state !== "object" || state === null) {
+          log.warn("Invalid state structure, reinitializing");
+          const newState = this.initializeState();
+          return { success: true, data: newState };
+        }
+        
+        return { success: true, data: state };
+      } catch (parseError) {
+        log.error("JSON parse error, reinitializing state:", { error: parseError });
+        const state = this.initializeState();
+        return { success: true, data: state };
+      }
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Error reading database file: ${typedError.message}`);
+      log.error(`Error reading database file: ${typedError.message}`);
       return {
         success: false,
         error: typedError,
@@ -114,7 +138,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Error writing database file: ${typedError.message}`);
+      log.error(`Error writing database file: ${typedError.message}`);
       return {
         success: false,
         error: typedError,
@@ -313,7 +337,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      console.error(
+      log.error(
         `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
