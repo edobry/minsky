@@ -84,7 +84,7 @@ export class TaskMigrationUtils {
       const tasks = this.parseMarkdownTasks(content);
 
       if (tasks.length === 0) {
-        log.info("No tasks found in tasks.md to migrate");
+        log.debug("No tasks found in tasks.md to migrate");
         return {
           success: true,
           tasksMigrated: 0,
@@ -97,7 +97,7 @@ export class TaskMigrationUtils {
       if (this.createBackup) {
         backupFile = `${tasksFilePath}.backup.${Date.now()}`;
         await writeFile(backupFile, content, "utf8");
-        log.info(`Created backup at ${backupFile}`);
+        log.debug(`Created backup at ${backupFile}`);
       }
 
       // Create JSON storage and initialize
@@ -144,7 +144,7 @@ export class TaskMigrationUtils {
         throw writeResult.error || new Error("Failed to write migrated data to JSON storage");
       }
 
-      log.info(`Successfully migrated ${tasks.length} tasks to JSON database at ${this.targetDbPath}`);
+      log.debug(`Successfully migrated ${tasks.length} tasks to JSON database at ${this.targetDbPath}`);
 
       return {
         success: true,
@@ -212,7 +212,7 @@ export class TaskMigrationUtils {
           const existingContent = await readFile(tasksFilePath, "utf8");
           backupFile = `${tasksFilePath}.backup.${Date.now()}`;
           await writeFile(backupFile, existingContent, "utf8");
-          log.info(`Created backup at ${backupFile}`);
+          log.debug(`Created backup at ${backupFile}`);
         } catch {
           // tasks.md doesn't exist, no backup needed
         }
@@ -224,7 +224,7 @@ export class TaskMigrationUtils {
       // Write to tasks.md
       await writeFile(tasksFilePath, markdownContent, "utf8");
 
-      log.info(`Successfully migrated ${tasks.length} tasks from JSON database to ${tasksFilePath}`);
+      log.debug(`Successfully migrated ${tasks.length} tasks from JSON database to ${tasksFilePath}`);
 
       return {
         success: true,
@@ -346,21 +346,21 @@ export class TaskMigrationUtils {
 
         // Try format: Title [#123](path/to/spec.md)
         const linkMatch = taskLine.match(/^(.+?)\s+\[#(\d+)\]\(([^)]+)\)/);
-        if (linkMatch) {
+        if (linkMatch && linkMatch[1] && linkMatch[2] && linkMatch[3]) {
           title = linkMatch[1].trim();
           id = `#${linkMatch[2]}`;
           specPath = linkMatch[3];
         } else {
           // Try format: [Title](path/to/spec.md) [#123]
           const altMatch = taskLine.match(/^\[([^\]]+)\]\(([^)]+)\)\s+\[#(\d+)\]/);
-          if (altMatch) {
+          if (altMatch && altMatch[1] && altMatch[2] && altMatch[3]) {
             title = altMatch[1];
             specPath = altMatch[2];
             id = `#${altMatch[3]}`;
           } else {
             // Try simple format: Title #123
             const simpleMatch = taskLine.match(/^(.+?)\s+#(\d+)$/);
-            if (simpleMatch) {
+            if (simpleMatch && simpleMatch[1] && simpleMatch[2]) {
               title = simpleMatch[1].trim();
               id = `#${simpleMatch[2]}`;
             } else {
