@@ -1,1 +1,0 @@
-{"version": "1.0", "lastUpdated": "2025-05-23", "categories": {"bun_compatible": ["src/utils/**/*.test.ts", "src/domain/**/*.test.ts", "src/adapters/**/*.test.ts"], "needs_migration": ["src/test-migration/**/*.test.ts"]}}
