@@ -3,7 +3,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
+import { join, dirname } from "path";
 import { mkdir, writeFile } from "fs/promises";
 import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
@@ -35,10 +35,13 @@ describe("TaskService JsonFile Integration", () => {
     dbPath = join(testDir, `test-tasks-${uniqueId}.json`);
     workspacePath = join(testDir, `workspace-${uniqueId}`);
 
-    // Create test directories
+    // Create test directories with enhanced error handling
     await mkdir(testDir, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
     await mkdir(join(workspacePath, "process", "tasks"), { recursive: true });
+
+    // Add a small delay to ensure directory creation is complete
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // Create task service with JsonFileTaskBackend
     const backend = createJsonFileTaskBackend({
@@ -51,6 +54,9 @@ describe("TaskService JsonFile Integration", () => {
       customBackends: [backend],
       backend: "json-file",
     });
+
+    // Ensure the backend storage is ready by doing a simple operation
+    await taskService.listTasks();
   });
 
   afterEach(async () => {
@@ -133,10 +139,32 @@ describe("TaskService JsonFile Integration", () => {
       const specPath = join(workspacePath, "process", "tasks", "test-task.md");
       const specContent =
         "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
+      
+      // Ensure directory structure exists first
+      const specDir = dirname(specPath);
+      await mkdir(specDir, { recursive: true });
+      
+      // Ensure file is written and persisted
       await writeFile(specPath, specContent, "utf8");
+      
+      // Add delay to ensure file system has persisted the file
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Add verification that the file was actually written
+      const verifyFileExists = existsSync(specPath);
+      if (!verifyFileExists) {
+        throw new Error(`Test file not found at expected path: ${specPath}`);
+      }
 
-      // Use relative path from workspace for task creation
+      // Use relative path from workspace for task creation  
       const relativeSpecPath = "process/tasks/test-task.md";
+      
+      // Verify the workspace path is correct
+      const expectedFullPath = join(workspacePath, relativeSpecPath);
+      if (!existsSync(expectedFullPath)) {
+        throw new Error(`File missing at resolved path: ${expectedFullPath}, workspace: ${workspacePath}`);
+      }
+      
       const task = await taskService.createTask(relativeSpecPath);
 
       expect(task.id).toBe("#123");
