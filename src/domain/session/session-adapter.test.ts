@@ -2,38 +2,69 @@
  * Test suite for SessionAdapter class
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { SessionAdapter } from "./session-adapter";
-import * as fs from "fs";
-import * as path from "path";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { SessionAdapter } from "./session-adapter.js";
+import { createMockFileSystem, setupTestMocks } from "../../utils/test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("SessionAdapter", () => {
-  // Create a temp test directory with unique name to prevent test collisions
-  const testDir = `/tmp/minsky-session-test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
-  const dbPath = path.join(testDir, "test-session-db.json");
+  let mockFS: ReturnType<typeof createMockFileSystem>;
+  const dbPath = "/test/session-db.json";
 
   // Helper to create a test adapter
   const createTestAdapter = () => {
     return new SessionAdapter(dbPath);
   };
 
-  // Set up and tear down test environment
   beforeEach(() => {
-    // Create test directory
-    fs.mkdirSync(testDir, { recursive: true });
-  });
+    // Create fresh mock filesystem for each test
+    mockFS = createMockFileSystem({
+      "/test": "", // Directory marker
+    });
 
-  afterEach(() => {
-    // Clean up test files
-    if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
-    }
-    
-    try {
-      fs.rmdirSync(testDir, { recursive: true });
-    } catch (error) {
-      console.error("Error cleaning up test directory:", error);
-    }
+    // Mock fs module
+    mock.module("fs", () => ({
+      existsSync: mockFS.existsSync,
+      mkdirSync: mockFS.mkdirSync,
+      readFileSync: (path: string) => {
+        const content = mockFS.readFileSync(path);
+        return content;
+      },
+      writeFileSync: mockFS.writeFileSync,
+      unlinkSync: mockFS.unlink,
+      rmdirSync: () => {}, // Mock directory removal as no-op
+    }));
+
+    // Mock session-db-io module to use our mock filesystem
+    mock.module("./session-db-io.js", () => {
+      return {
+        readSessionDbFile: (options: any) => {
+          try {
+            const content = mockFS.readFileSync(options.dbPath || dbPath);
+            const data = JSON.parse(content);
+            return {
+              sessions: data.sessions || [],
+              baseDir: options.baseDir || "/test/base",
+            };
+          } catch (error) {
+            // Return initial state if file doesn't exist
+            return {
+              sessions: [],
+              baseDir: options.baseDir || "/test/base", 
+            };
+          }
+        },
+        writeSessionDbFile: (state: any, options: any) => {
+          const filePath = options.dbPath || dbPath;
+          mockFS.writeFileSync(filePath, JSON.stringify({
+            sessions: state.sessions,
+            baseDir: state.baseDir,
+          }));
+        },
+      };
+    });
   });
 
   it("should initialize with empty sessions", async () => {
@@ -56,7 +87,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSession("test-session");
     
-    expect(retrievedSession).not.toBeNull();
+    expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#123");
   });
@@ -75,7 +106,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSessionByTaskId("123");
     
-    expect(retrievedSession).not.toBeNull();
+    expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?.session).toBe("test-session");
   });
 
@@ -154,7 +185,7 @@ describe("SessionAdapter", () => {
     await adapter.addSession(testSession);
     const workdir = await adapter.getSessionWorkdir("test-session");
     
-    expect(workdir).not.toBeNull();
+    expect(workdir !== null).toBe(true);
     expect(workdir).toContain("test-repo/sessions/test-session");
   });
 }); 
