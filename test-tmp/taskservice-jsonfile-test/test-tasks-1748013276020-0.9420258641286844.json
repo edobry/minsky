@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "id": "#127",
+      "title": "Validation Test",
+      "description": "Test validation.",
+      "status": "TODO",
+      "specPath": "process/tasks/127-validation-test.md"
+    }
+  ],
+  "lastUpdated": "2025-05-23T15:14:36.020Z",
+  "metadata": {}
+}

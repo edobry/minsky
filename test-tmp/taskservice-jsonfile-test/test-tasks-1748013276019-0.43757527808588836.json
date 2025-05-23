@@ -1,0 +1,20 @@
+{
+  "tasks": [
+    {
+      "id": "#125",
+      "title": "Filter Test 1",
+      "description": "First test task.",
+      "status": "TODO",
+      "specPath": "process/tasks/125-filter-test-1.md"
+    },
+    {
+      "id": "#126",
+      "title": "Filter Test 2",
+      "description": "Second test task.",
+      "status": "DONE",
+      "specPath": "process/tasks/126-filter-test-2.md"
+    }
+  ],
+  "lastUpdated": "2025-05-23T15:14:36.020Z",
+  "metadata": {}
+}
