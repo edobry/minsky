@@ -14,7 +14,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
   type CommandParameterDefinition,
-} from "../command-registry.js";
+} from "../command-registry";
 import {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
@@ -23,14 +23,14 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
-} from "../../../domain/tasks.js";
-import { log } from "../../../utils/logger.js";
-import { ValidationError } from "../../../errors/index.js";
+} from "../../../domain/tasks";
+import { log } from "../../../utils/logger";
+import { ValidationError } from "../../../errors/index";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
   taskCreateParamsSchema,
-} from "../../../schemas/tasks.js";
+} from "../../../schemas/tasks";
 
 // Exported from domain/tasks.ts
 export const TASK_STATUS = {
@@ -253,7 +253,7 @@ sharedCommandRegistry.registerCommand({
         session: params.session,
         backend: params.backend,
       });
-      return `Task #${normalizedTaskId} status set to ${status}`;
+      return `Task ${normalizedTaskId} status set to ${status}`;
     } catch (error) {
       log.error("Error setting task status", { error });
       throw error;
@@ -297,6 +297,17 @@ const tasksListParams: CommandParameterMap = {
   filter: {
     schema: z.string(),
     description: "Filter tasks by status or other criteria",
+    required: false,
+  },
+  status: {
+    schema: z.enum([
+      TASK_STATUS.TODO,
+      TASK_STATUS.IN_PROGRESS,
+      TASK_STATUS.IN_REVIEW,
+      TASK_STATUS.DONE,
+      TASK_STATUS.BLOCKED,
+    ]),
+    description: "Filter tasks by status",
     required: false,
   },
   limit: {
@@ -417,22 +428,30 @@ const tasksCreateParams: CommandParameterMap = {
 /**
  * Register tasks.list command
  */
-sharedCommandRegistry.registerCommand({
+const tasksListRegistration = {
   id: "tasks.list",
   category: CommandCategory.TASKS,
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
   execute: async (params, ctx) => {
-    const { all = false, ...rest } = params;
-    return await listTasksFromParams({ all, ...rest });
+    const { all = false, status, filter, ...rest } = params;
+
+    // Use status parameter if provided, otherwise fall back to filter
+    const filterParam = status || filter;
+
+    return await listTasksFromParams({
+      all,
+      filter: filterParam,
+      ...rest,
+    });
   },
-});
+};
 
 /**
  * Register tasks.get command
  */
-sharedCommandRegistry.registerCommand({
+const tasksGetRegistration = {
   id: "tasks.get",
   category: CommandCategory.TASKS,
   name: "get",
@@ -448,12 +467,12 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
 /**
  * Register tasks.create command
  */
-sharedCommandRegistry.registerCommand({
+const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
@@ -470,9 +489,17 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
 export function registerTasksCommands() {
-  // All commands are registered on import, so this is a no-op for now.
-  // This function exists for consistency with other command modules.
+  // Register the tasks.status.get and tasks.status.set commands (already properly registered inline above)
+
+  // Register tasks.list command
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
+
+  // Register tasks.get command
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
+
+  // Register tasks.create command
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 }
