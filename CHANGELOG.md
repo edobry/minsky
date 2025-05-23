@@ -147,6 +147,16 @@ _See: SpecStory history [2023-07-05_15-45-cli-bridge-implementation](mdc:.specst
 
 ### Changed
 
+- **Task #133: Fix CLI Flag Naming Inconsistency for Task Identification**
+  - Standardized CLI flag naming for task identification across all Minsky commands
+  - Changed git PR command parameter from `taskId` to `task` for consistency with session commands
+  - Updated both CLI and MCP adapters to use `--task` flag consistently
+  - Maintained domain layer compatibility with taskId parameter mapping
+  - All task-related commands now use consistent `--task` flag naming
+  - No breaking changes to functionality, only improved user experience through consistent interface
+
+_See: SpecStory history [2025-05-23_fix-cli-flag-naming-inconsistency](mdc:.specstory/history/2025-05-23_fix-cli-flag-naming-inconsistency.md) for implementation details._
+
 - Improved error handling for common network errors in the MCP server
   - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
   - Implemented user-friendly error messages with suggested actions for port conflicts
@@ -774,3 +784,32 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
   - Resolved the issue where tasks were not properly returned through the MCP interface
+
+- Task #131: Fix TypeScript Issues in DI Helpers
+  - Replaced explicit 'any' types with 'unknown' for better type safety in test dependency interfaces
+  - Fixed interface method names to match actual domain interfaces (GitServiceInterface, WorkspaceUtilsInterface)
+  - Updated mock implementations to use direct functions instead of createMock wrappers for better type inference
+  - Fixed unused parameter warnings by prefixing with underscore
+  - Updated integration test to use withMockedDeps instead of mockImplementation for better compatibility
+  - Removed unused createMock import to clean up dependencies
+  - Resolved all TypeScript linter warnings in dependencies.ts while maintaining full test functionality
+
+_See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/history/2025-01-XX_fix-typescript-di-helpers.md) for implementation details._
+
+- Task #132: Fix Session Get Command Output Format
+  - Fixed issue where `minsky session get --task <id>` only displayed `success: true` instead of comprehensive session details
+  - Enhanced CLI bridge default formatter to properly handle session objects and nested data structures
+  - Added `formatSessionDetails()` method for human-readable session information display
+  - Added `formatSessionSummary()` method for session list views
+  - Improved generic object handling in CLI output formatter
+  - Session get command now displays comprehensive details by default:
+    - Session name and ID
+    - Task ID if associated
+    - Repository name and path
+    - Branch name
+    - Creation date
+    - Backend type
+  - Maintained backward compatibility with `--json` flag for machine-readable output
+  - All session-related tests continue to pass (74 tests)
+
+_See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._

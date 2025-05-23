@@ -4,8 +4,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
+import { existsSync, mkdirSync, rmSync } from "fs";
+import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "../json-file-storage";
 import type { DatabaseStorage } from "../database-storage";
 import { expectToHaveLength } from "../../../utils/test-utils/assertions";
@@ -29,10 +30,10 @@ describe("JsonFileStorage Core Tests", () => {
   let testDirPath: string;
 
   beforeEach(async () => {
-    // Create unique test database path
+    // Create highly unique test database path to avoid conflicts
     const timestamp = Date.now();
-    const random = Math.random();
-    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${random}`);
+    const uuid = randomUUID();
+    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}`);
     testDbPath = join(testDirPath, "test.json");
 
     // Ensure test directory exists
@@ -46,19 +47,34 @@ describe("JsonFileStorage Core Tests", () => {
       initializeState: () => ({
         entities: [],
         lastUpdated: new Date().toISOString(),
-        metadata: {}
+        metadata: {},
       }),
       prettyPrint: true,
     });
 
-    // Initialize storage
-    await storage.initialize();
+    // Initialize storage with timeout protection
+    const initPromise = storage.initialize();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Storage initialization timeout")), 5000)
+    );
+
+    await Promise.race([initPromise, timeoutPromise]);
   });
 
-  afterEach(() => {
-    // Clean up test files
-    if (existsSync(testDirPath)) {
-      rmSync(testDirPath, { recursive: true, force: true });
+  afterEach(async () => {
+    // Clean up test files with timeout protection
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (existsSync(testDirPath)) {
+            rmSync(testDirPath, { recursive: true, force: true });
+          }
+          resolve();
+        }, 10); // Small delay to ensure file handles are released
+      });
+    } catch (error) {
+      // Ignore cleanup errors - OS will clean up temp files
+      console.warn(`Cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
@@ -141,10 +157,10 @@ describe("JsonFileStorage Core Tests", () => {
       // Retrieve all
       const allEntities = await storage.getEntities();
       expectToHaveLength(allEntities, 3);
-      
+
       // Check all entities are present
       for (const entity of entities) {
-        expect(allEntities.find(e => e.id === entity.id)).toEqual(entity);
+        expect(allEntities.find((e) => e.id === entity.id)).toEqual(entity);
       }
     });
   });
@@ -160,7 +176,7 @@ describe("JsonFileStorage Core Tests", () => {
       const customState: TestState = {
         entities: [{ id: "state1", name: "State Entity", value: 100 }],
         lastUpdated: "2023-01-01T00:00:00.000Z",
-        metadata: { customField: "test" }
+        metadata: { customField: "test" },
       };
 
       const writeResult = await storage.writeState(customState);
@@ -211,7 +227,7 @@ describe("JsonFileStorage Core Tests", () => {
         initializeState: () => ({
           entities: [],
           lastUpdated: new Date().toISOString(),
-          metadata: {}
+          metadata: {},
         }),
       });
 

@@ -16,7 +16,7 @@
 
 - [x] Add `git commit` command to stage and commit changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [+] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
 
 - [x] Fix `git pr` command and add proper tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
@@ -142,7 +142,7 @@
 
 - [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
-- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+- [x] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
@@ -253,11 +253,13 @@
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
-  - Fix all failing tests and system stability issues after CLI bridge implementation merge.
 
-- [ ] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
-  - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
-  - **Current issues:**
-  - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
-  - - Some type inference issues with the new scenario helpers
-  - - Minor type safety improvements needed
+- [x] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+
+- [x] Fix Session Get Command Output Format [#132](process/tasks/132-fix-session-get-command-output-format.md)
+
+- [x] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
+
+- [x] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
+
+- [ ] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)

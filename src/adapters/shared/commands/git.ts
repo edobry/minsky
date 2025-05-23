@@ -166,7 +166,7 @@ const prCommandParams: CommandParameterMap = {
     description: GIT_BRANCH_DESCRIPTION,
     required: false,
   },
-  taskId: {
+  task: {
     schema: z.string(),
     description: TASK_ID_DESCRIPTION,
     required: false,
@@ -301,7 +301,7 @@ export function registerGitCommands(): void {
         session: params.session,
         repo: params.repo,
         branch: params.branch,
-        taskId: params.taskId,
+        taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,
       });

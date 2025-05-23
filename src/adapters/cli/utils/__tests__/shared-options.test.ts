@@ -12,22 +12,17 @@ import {
   normalizeTaskParams,
   normalizeSessionParams,
 } from "../shared-options";
-import type {
-  RepoOptions,
-  OutputOptions,
-  TaskOptions,
-  BackendOptions,
-} from "../shared-options";
+import type { RepoOptions, OutputOptions, TaskOptions, BackendOptions } from "../shared-options";
 
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
   normalizeTaskId: mock((taskId: string) => {
     if (!taskId) return null;
-    // Simple mock implementation that handles format conversion
+    // Mock implementation that adds # prefix if not present (like the real function)
     if (taskId.startsWith("#")) {
-      return taskId.substring(1);
+      return taskId;
     }
-    return taskId;
+    return `#${taskId}`;
   }),
 }));
 
@@ -56,11 +51,11 @@ describe("Shared CLI Options", () => {
       expect(spy.mock.calls[0]).toEqual(["--session <session>", "Name of the session to use"]);
       expect(spy.mock.calls[1]).toEqual([
         "--repo <repositoryUri>",
-        "Repository URI (local path, URL, or shorthand)"
+        "Repository URI (local path, URL, or shorthand)",
       ]);
       expect(spy.mock.calls[2]).toEqual([
         "--upstream-repo <upstreamRepoUri>",
-        "Upstream repository URI"
+        "Upstream repository URI",
       ]);
     });
 
@@ -86,7 +81,7 @@ describe("Shared CLI Options", () => {
       expect(spy.mock.calls.length).toBe(1);
       expect(spy.mock.calls[0]).toEqual([
         "--task <taskId>",
-        "ID of the task (with or without # prefix)"
+        "ID of the task (with or without # prefix)",
       ]);
     });
 

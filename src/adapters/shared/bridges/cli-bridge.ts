@@ -392,17 +392,79 @@ export class CliCommandBridge {
           });
         }
       } else if (typeof result === "object" && result !== null) {
-        // If the result has a simple shape, format it nicely
-        Object.entries(result).forEach(([key, value]) => {
-          if (typeof value !== "object" || value === null) {
-            log.cli(`${key}: ${value}`);
+        // Special handling for session get command results
+        if (commandDef.id === "session.get" && result.session) {
+          this.formatSessionDetails(result.session);
+        } else if (commandDef.id === "session.dir" && result.directory) {
+          log.cli(`${result.directory}`);
+        } else if (commandDef.id === "session.list" && result.sessions) {
+          // Handle session list results
+          if (Array.isArray(result.sessions) && result.sessions.length > 0) {
+            result.sessions.forEach((session: Record<string, unknown>) => {
+              this.formatSessionSummary(session);
+            });
+          } else {
+            log.cli("No sessions found.");
           }
-        });
+        } else {
+          // Generic object handling - show all simple properties and handle complex ones
+          Object.entries(result).forEach(([key, value]) => {
+            // Skip internal metadata properties that are not useful for users
+            if (key === "success") {
+              return;
+            }
+
+            if (typeof value !== "object" || value === null) {
+              log.cli(`${key}: ${value}`);
+            } else if (Array.isArray(value)) {
+              log.cli(`${key}: [${value.length} items]`);
+            } else {
+              // For complex objects, try to show a meaningful summary
+              if (key === "session" && value && typeof value === "object") {
+                this.formatSessionDetails(value as Record<string, unknown>);
+              } else {
+                log.cli(`${key}: ${JSON.stringify(value)}`);
+              }
+            }
+          });
+        }
       } else if (result !== undefined) {
         // Just print the result as is
         log.cli(String(result));
       }
     };
+  }
+
+  /**
+   * Format session details for human-readable output
+   */
+  private formatSessionDetails(session: Record<string, unknown>): void {
+    if (!session) return;
+
+    // Display session information in a user-friendly format
+    if (session.session) log.cli(`Session: ${session.session}`);
+    if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
+    if (session.repoName) log.cli(`Repository: ${session.repoName}`);
+    if (session.repoPath) log.cli(`Session Path: ${session.repoPath}`);
+    if (session.branch) log.cli(`Branch: ${session.branch}`);
+    if (session.createdAt) log.cli(`Created: ${session.createdAt}`);
+    if (session.backendType) log.cli(`Backend: ${session.backendType}`);
+    if (session.repoUrl && session.repoUrl !== session.repoName) {
+      log.cli(`Repository URL: ${session.repoUrl}`);
+    }
+  }
+
+  /**
+   * Format session summary for list views
+   */
+  private formatSessionSummary(session: Record<string, unknown>): void {
+    if (!session) return;
+
+    const sessionName = session.session || "unknown";
+    const taskId = session.taskId ? ` (${session.taskId})` : "";
+    const repoName = session.repoName ? ` - ${session.repoName}` : "";
+
+    log.cli(`${sessionName}${taskId}${repoName}`);
   }
 }
 
@@ -414,7 +476,7 @@ export const cliBridge = new CliCommandBridge();
 
 /**
  * Register categorized CLI commands to a Commander.js program
- * 
+ *
  * @param program The Commander.js program to add commands to
  * @param categories Array of command categories to register
  * @param createSubcommands Whether to create category subcommands

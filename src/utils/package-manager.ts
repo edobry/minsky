@@ -17,7 +17,7 @@ export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
  * @returns Detected package manager or undefined if not detected
  */
 export function detectPackageManager(repoPath: string): PackageManager {
-  if (existsSync(join(repoPath, "bun.lockb"))) {
+  if (existsSync(join(repoPath, "bun.lock"))) {
     return "bun";
   }
   if (existsSync(join(repoPath, "yarn.lock"))) {

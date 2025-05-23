@@ -5,16 +5,25 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
-import { JsonFileTaskBackend, createJsonFileTaskBackend } from "../jsonFileTaskBackend.js";
-import type { TaskData } from "../../../types/tasks/taskData.js";
+import { randomUUID } from "crypto";
+import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
+import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
+import type { TaskData } from "../../../types/tasks/taskData";
 
 describe("JsonFileTaskBackend", () => {
-  const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
-  const dbPath = join(testDir, `test-tasks-${Date.now()}-${Math.random()}.json`);
-  const workspacePath = join(testDir, "workspace");
+  let testDir: string;
+  let dbPath: string;
+  let workspacePath: string;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
+    // Create unique test directory path to avoid conflicts
+    const timestamp = Date.now();
+    const uuid = randomUUID();
+    testDir = join(process.cwd(), "test-tmp", `json-backend-test-${timestamp}-${uuid}`);
+    dbPath = join(testDir, `test-tasks-${timestamp}-${uuid}.json`);
+    workspacePath = join(testDir, "workspace");
+
     // Create test directories
     await mkdir(testDir, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
@@ -24,17 +33,19 @@ describe("JsonFileTaskBackend", () => {
     backend = createJsonFileTaskBackend({
       name: "json-file",
       workspacePath,
-      dbFilePath: dbPath
+      dbFilePath: dbPath,
     }) as JsonFileTaskBackend;
   });
 
   afterEach(async () => {
-    // Clean up test directories - simplified approach
+    // Clean up test directories
     try {
-      // Let the OS clean up test files, or implement manual cleanup if needed
-      // This avoids the fs.rm compatibility issue
+      const { rmSync } = await import("fs");
+      if (testDir) {
+        rmSync(testDir, { recursive: true, force: true });
+      }
     } catch {
-      // Ignore cleanup errors
+      // Ignore cleanup errors - OS will clean up temp files
     }
   });
 
@@ -49,7 +60,7 @@ describe("JsonFileTaskBackend", () => {
         id: "#001",
         title: "Test Task",
         status: "TODO",
-        description: "A test task"
+        description: "A test task",
       };
 
       // Create task
@@ -70,7 +81,7 @@ describe("JsonFileTaskBackend", () => {
       const testTask: TaskData = {
         id: "#002",
         title: "Test Task 2",
-        status: "TODO"
+        status: "TODO",
       };
 
       // Create task
@@ -89,7 +100,7 @@ describe("JsonFileTaskBackend", () => {
       const testTask: TaskData = {
         id: "#003",
         title: "Test Task 3",
-        status: "TODO"
+        status: "TODO",
       };
 
       // Create task
@@ -117,13 +128,15 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement saveTasksData", async () => {
-      const taskData = JSON.stringify({
-        tasks: [
-          { id: "#004", title: "Test Task 4", status: "TODO" }
-        ],
-        lastUpdated: new Date().toISOString(),
-        metadata: {}
-      }, null, 2);
+      const taskData = JSON.stringify(
+        {
+          tasks: [{ id: "#004", title: "Test Task 4", status: "TODO" }],
+          lastUpdated: new Date().toISOString(),
+          metadata: {},
+        },
+        null,
+        2
+      );
 
       const result = await backend.saveTasksData(taskData);
       expect(result.success).toBe(true);
@@ -135,9 +148,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
-        tasks: [
-          { id: "#005", title: "Test Task 5", status: "TODO" }
-        ]
+        tasks: [{ id: "#005", title: "Test Task 5", status: "TODO" }],
       });
 
       const tasks = backend.parseTasks(jsonContent);
@@ -148,9 +159,7 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const tasks: TaskData[] = [
-        { id: "#006", title: "Test Task 6", status: "TODO" }
-      ];
+      const tasks: TaskData[] = [{ id: "#006", title: "Test Task 6", status: "TODO" }];
 
       const formatted = backend.formatTasks(tasks);
       const parsed = JSON.parse(formatted);
@@ -208,5 +217,4 @@ describe("JsonFileTaskBackend", () => {
       expect(path).toBe(workspacePath);
     });
   });
-}); 
- 
+});
