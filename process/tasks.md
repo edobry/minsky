@@ -253,9 +253,11 @@
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
 
 - [x] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+
   - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
   - **Current issues:**
   - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
@@ -266,16 +268,4 @@
 
 - [ ] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
 
-- [ ] Resolve Remaining Test Race Conditions and Stability Issues [#134](/Users/edobry/Projects/minsky/process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
-  - Following the successful merge of task #130 (System Stability Post-CLI Bridge) and significant progress made on post-merge test failures, there are still remaining stability issues in the test suite that need to be resolved.
-  - **Current Status:**
-  - - ✅ Fixed critical syntax error in `src/domain/git.ts` regex pattern (line 1364)
-  - - ✅ Fixed import styles to use extensionless imports for Bun compatibility
-  - - ✅ Fixed `normalizeTaskId` mock to behave like real function
-  - - ✅ Improved test isolation with UUID-based file paths
-  - - ✅ Fixed command registration tests to expect correct counts
-  - - ✅ Updated tasks command tests to register commands in beforeEach
-  - **Remaining Issues:**
-  - - ❌ JSON Storage Stack Overflow issues when tests run together (race conditions)
-  - - ❌ Test interference between JsonFileStorage, JsonFileTaskBackend, and TaskService integration tests
-  - - ❌ Potential Bun segmentation faults under high concurrent file operations
+- [ ] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
