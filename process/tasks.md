@@ -265,3 +265,17 @@
 - [+] Fix Session Get Command Output Format [#132](process/tasks/132-fix-session-get-command-output-format.md)
 
 - [ ] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
+
+- [ ] Resolve Remaining Test Race Conditions and Stability Issues [#134](/Users/edobry/Projects/minsky/process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
+  - Following the successful merge of task #130 (System Stability Post-CLI Bridge) and significant progress made on post-merge test failures, there are still remaining stability issues in the test suite that need to be resolved.
+  - **Current Status:**
+  - - ✅ Fixed critical syntax error in `src/domain/git.ts` regex pattern (line 1364)
+  - - ✅ Fixed import styles to use extensionless imports for Bun compatibility
+  - - ✅ Fixed `normalizeTaskId` mock to behave like real function
+  - - ✅ Improved test isolation with UUID-based file paths
+  - - ✅ Fixed command registration tests to expect correct counts
+  - - ✅ Updated tasks command tests to register commands in beforeEach
+  - **Remaining Issues:**
+  - - ❌ JSON Storage Stack Overflow issues when tests run together (race conditions)
+  - - ❌ Test interference between JsonFileStorage, JsonFileTaskBackend, and TaskService integration tests
+  - - ❌ Potential Bun segmentation faults under high concurrent file operations
