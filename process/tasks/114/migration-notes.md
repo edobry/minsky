@@ -53,3 +53,8 @@ Below are common patterns encountered during migrations:
 | `src/adapters/__tests__/integration/git.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
 | `src/adapters/__tests__/integration/rules.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
 | `src/adapters/__tests__/integration/workspace.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
+
+## Phase 2B: Quick Wins (Additional Migrations)
+| `src/domain/__tests__/git-default-branch.test.ts` | Migrated | Easy | Phase 2B-1, Found already migrated |
+| `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` | Migrated | Easy | Phase 2B-2, Migrated Jest patterns to Bun |
+| `src/domain/session/session-adapter.test.ts` | Migrated | Easy | Phase 2B-3, Found already migrated |

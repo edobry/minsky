@@ -153,11 +153,16 @@ Create helper utilities for:
     - [x] `src/adapters/__tests__/integration/git.test.ts` (found already migrated)
     - [x] `src/adapters/__tests__/integration/rules.test.ts` (found already migrated)
     - [x] `src/adapters/__tests__/integration/workspace.test.ts` (found already migrated)
+25. [x] Completed Phase 2B: Quick Wins
+    - [x] `src/domain/__tests__/git-default-branch.test.ts` (found already migrated)
+    - [x] `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` (migrated Jest patterns)
+    - [x] `src/domain/session/session-adapter.test.ts` (found already migrated)
 
 ## Next Steps
 
-1. [ ] Create a final migration report
-2. [ ] Prepare PR for task completion
+1. [ ] Phase 2C: Migrate high business value tests (3 core workflow files)
+2. [ ] Phase 2A: Refactor already-migrated tests to use project utilities
+3. [ ] Phase 2D: Complete infrastructure tests (optional)
 
 ## Migration Patterns Established
 

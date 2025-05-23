@@ -126,10 +126,10 @@ Based on the migration analysis, the task scope is extended to include strategic
   - [ ] `src/utils/test-utils/__tests__/compatibility.test.ts`
 
 ### Phase 2B: Quick Wins (High ROI)
-- [ ] Migrate 3 easy files for momentum:
-  - [ ] `src/domain/__tests__/git-default-branch.test.ts`
-  - [ ] `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts`
-  - [ ] `src/domain/session/session-adapter.test.ts`
+- [x] Migrate 3 easy files for momentum:
+  - [x] `src/domain/__tests__/git-default-branch.test.ts` (found already migrated)
+  - [x] `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` (migrated)
+  - [x] `src/domain/session/session-adapter.test.ts` (found already migrated)
 
 ### Phase 2C: High Business Value (Strategic)
 - [ ] Migrate 3 core workflow tests:
