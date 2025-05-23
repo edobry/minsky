@@ -774,3 +774,21 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
   - Resolved the issue where tasks were not properly returned through the MCP interface
+
+- Task #132: Fix Session Get Command Output Format
+  - Fixed issue where `minsky session get --task <id>` only displayed `success: true` instead of comprehensive session details
+  - Enhanced CLI bridge default formatter to properly handle session objects and nested data structures
+  - Added `formatSessionDetails()` method for human-readable session information display
+  - Added `formatSessionSummary()` method for session list views
+  - Improved generic object handling in CLI output formatter
+  - Session get command now displays comprehensive details by default:
+    - Session name and ID
+    - Task ID if associated
+    - Repository name and path
+    - Branch name
+    - Creation date
+    - Backend type
+  - Maintained backward compatibility with `--json` flag for machine-readable output
+  - All session-related tests continue to pass (74 tests)
+
+_See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._
