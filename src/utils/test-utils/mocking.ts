@@ -1,14 +1,14 @@
 /**
  * Centralized test mocking utilities for consistent test patterns across the codebase.
  * These utilities encapsulate Bun's testing mocking patterns for easier and consistent mocking.
- * 
+ *
  * This module provides utilities to:
  * - Create mock functions with proper type safety
  * - Mock entire modules with custom implementations
  * - Set up automatic mock cleanup for tests
  * - Create mock objects with multiple mock methods
  * - Create specialized mocks for common Node.js modules
- * 
+ *
  * @module mocking
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
@@ -69,7 +69,7 @@ export function mockFunction<T extends (...args: any[]) => any>(implementation?:
  * const mockGreet = createMock((name: string) => `Hello, ${name}!`);
  * expect(mockGreet("World")).toBe("Hello, World!");
  * expect(mockGreet.mock.calls.length).toBe(1);
- * 
+ *
  * @example
  * // Change implementation later
  * mockFn.mockImplementation(() => "new result");
@@ -106,7 +106,7 @@ export function createMock<T extends (...args: any[]) => any>(implementation?: T
  *   }),
  *   existsSync: createMock((path) => path === "/test.txt")
  * }));
- * 
+ *
  * @example
  * // Later imports will use the mock implementation
  * const { someFunction } = await import("path/to/module");
@@ -119,17 +119,17 @@ export function mockModule(modulePath: string, factory: () => any): void {
 /**
  * Sets up test mocks with automatic cleanup in afterEach hook.
  * Ensures mocks are properly restored after each test to prevent test pollution.
- * 
+ *
  * This function should be called at the top level of your test file,
  * outside of any describe/it blocks, to ensure proper cleanup.
  *
  * @example
  * // In your test file, add this at the top level
  * import { setupTestMocks, mockModule, createMock } from "../utils/test-utils";
- * 
+ *
  * // Set up automatic cleanup
  * setupTestMocks();
- * 
+ *
  * describe("My Test Suite", () => {
  *   it("should use mocks", async () => {
  *     mockModule("fs", () => ({ ... }));
@@ -161,10 +161,10 @@ export function setupTestMocks(): void {
  *   "updateUser",
  *   "deleteUser"
  * ]);
- * 
+ *
  * // Configure specific behavior
  * userService.getUser.mockImplementation((id) => ({ id, name: "Test User" }));
- * 
+ *
  * // Use in tests
  * const user = userService.getUser("123");
  * expect(user).toEqual({ id: "123", name: "Test User" });
@@ -202,7 +202,7 @@ export function createMockObject<T extends string>(
  * @example
  * // In your test setup
  * import { mockModule, createMockExecSync } from "../utils/test-utils";
- * 
+ *
  * mockModule("child_process", () => ({
  *   execSync: createMockExecSync({
  *     "ls": "file1.txt\nfile2.txt",
@@ -211,7 +211,7 @@ export function createMockObject<T extends string>(
  *   }),
  *   // other exports if needed...
  * }));
- * 
+ *
  * @example
  * // Now in your test, any child_process.execSync calls will return the matching response
  * const { execSync } = require("child_process");
@@ -243,12 +243,12 @@ export function createMockExecSync(
  * @example
  * // Create a mock filesystem with initial files
  * import { mockModule, createMockFileSystem } from "../utils/test-utils";
- * 
+ *
  * const mockFS = createMockFileSystem({
  *   "/path/to/file.txt": "Initial content",
  *   "/path/to/config.json": JSON.stringify({ setting: true })
  * });
- * 
+ *
  * mockModule("fs", () => ({
  *   existsSync: mockFS.existsSync,
  *   readFileSync: mockFS.readFileSync,
@@ -257,28 +257,28 @@ export function createMockExecSync(
  *   unlink: mockFS.unlink
  *   // other fs functions as needed...
  * }));
- * 
+ *
  * @example
  * // Now in your tests
  * const fs = require("fs");
- * 
+ *
  * // Reading files
  * expect(fs.existsSync("/path/to/file.txt")).toBe(true);
  * expect(fs.readFileSync("/path/to/file.txt", "utf8")).toBe("Initial content");
- * 
+ *
  * // Writing files
  * fs.writeFileSync("/path/to/new-file.txt", "New content");
  * expect(fs.existsSync("/path/to/new-file.txt")).toBe(true);
  * expect(fs.readFileSync("/path/to/new-file.txt")).toBe("New content");
- * 
+ *
  * // Creating directories
  * fs.mkdirSync("/path/to/dir");
  * expect(fs.existsSync("/path/to/dir")).toBe(true);
- * 
+ *
  * // Deleting files
  * fs.unlink("/path/to/file.txt");
  * expect(fs.existsSync("/path/to/file.txt")).toBe(false);
- * 
+ *
  * // Access internal files map for verification
  * expect(mockFS._files.has("/path/to/new-file.txt")).toBe(true);
  */
@@ -309,7 +309,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
       files.set(path, "");
     }),
     // Access the internal files map for validation in tests
-    _files: files
+    _files: files,
   };
 }
 
@@ -329,12 +329,12 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
  *   updateUser(id: string, data: any): Promise<boolean>;
  *   deleteUser(id: string): Promise<boolean>;
  * }
- * 
+ *
  * // Create a partial mock with only some methods implemented
  * const mockUserService = createPartialMock<UserService>({
  *   getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
  * });
- * 
+ *
  * // Other methods are automatically mocked and can be used in tests
  * await mockUserService.updateUser("123", { name: "Updated" });
  * expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated" });
@@ -359,7 +359,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
       }
 
       return undefined;
-    }
+    },
   }) as T;
 }
 
@@ -376,10 +376,10 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
  * const config = {
  *   get environment() { return "production"; }
  * };
- * 
+ *
  * // Mock the property
  * mockReadonlyProperty(config, "environment", "test");
- * 
+ *
  * // Now accessing the property returns the mock value
  * expect(config.environment).toBe("test");
  */
@@ -391,7 +391,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   // Use Object.defineProperty to override the property
   Object.defineProperty(obj, propName, {
     configurable: true,
-    get: () => mockValue
+    get: () => mockValue,
   });
 }
 
@@ -421,16 +421,16 @@ export function createSpyOn<T extends object, M extends keyof T>(
   if (typeof original !== "function") {
     throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
   }
-  
+
   // Create a mock function that calls the original
   const mockFn = mock((...args: any[]) => {
     return (original as Function).apply(obj, args);
   });
-  
+
   // Replace the original method with our mock
   // @ts-ignore - We've already verified this is a function
   obj[method] = mockFn;
-  
+
   // Return the mock function for assertions
   return mockFn;
 }
@@ -477,15 +477,15 @@ let currentTestContext: TestContext | null = null;
  * @example
  * // In your test file
  * const { beforeEachTest, afterEachTest } = createTestSuite();
- * 
+ *
  * describe("My Test Suite", () => {
  *   beforeEach(beforeEachTest);
  *   afterEach(afterEachTest);
- *   
+ *
  *   test("my test", () => {
  *     const resource = acquireResource();
  *     withCleanup(() => releaseResource(resource));
- *     
+ *
  *     // Test code...
  *   });
  * });
@@ -509,7 +509,7 @@ export function createTestSuite() {
         await currentTestContext.runCleanup();
         currentTestContext = null;
       }
-    }
+    },
   };
 }
 
@@ -522,15 +522,15 @@ export function createTestSuite() {
  * @example
  * test("resource management", () => {
  *   const resource = acquireResource();
- *   
+ *
  *   // Register cleanup to happen automatically
  *   withCleanup(() => {
  *     releaseResource(resource);
  *   });
- *   
+ *
  *   // Test code that might throw
  *   expect(resource.getData()).toBeDefined();
- * }); 
+ * });
  * // Cleanup happens automatically after the test
  */
 export function withCleanup(cleanupFn: () => void | Promise<void>): void {
@@ -541,3 +541,9 @@ export function withCleanup(cleanupFn: () => void | Promise<void>): void {
   }
   currentTestContext.registerCleanup(cleanupFn);
 }
+
+/**
+ * Creates a spy on an object method.
+ * This is a wrapper around createSpyOn for Jest-like compatibility.
+ */
+export const spyOn = createSpyOn;
