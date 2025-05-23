@@ -13,11 +13,11 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
   type SharedCommand,
-} from "../command-registry.js";
-import { getErrorHandler } from "../error-handling.js";
-import { ensureError } from "../../../errors/index.js";
-import { handleCliError, outputResult } from "../../cli/utils/index.js";
-import { log } from "../../../utils/logger.js";
+} from "../command-registry";
+import { getErrorHandler } from "../error-handling";
+import { ensureError } from "../../../errors/index";
+import { handleCliError, outputResult } from "../../cli/utils/index";
+import { log } from "../../../utils/logger";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,
@@ -25,7 +25,7 @@ import {
   createOptionsFromMappings,
   addArgumentsFromMappings,
   normalizeCliParameters,
-} from "./parameter-mapper.js";
+} from "./parameter-mapper";
 
 /**
  * CLI-specific execution context
