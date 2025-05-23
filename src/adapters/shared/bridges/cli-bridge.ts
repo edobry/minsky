@@ -414,7 +414,7 @@ export const cliBridge = new CliCommandBridge();
 
 /**
  * Register categorized CLI commands to a Commander.js program
- * 
+ *
  * @param program The Commander.js program to add commands to
  * @param categories Array of command categories to register
  * @param createSubcommands Whether to create category subcommands

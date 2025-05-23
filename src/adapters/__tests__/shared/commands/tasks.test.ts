@@ -33,6 +33,9 @@ describe("Shared Tasks Commands", () => {
     // Clear the registry (this is a hacky way to do it since there's no clear method,
     // but it works for testing)
     (sharedCommandRegistry as any).commands = new Map();
+
+    // Register commands for each test
+    registerTasksCommands();
   });
 
   afterEach(() => {
@@ -57,13 +60,13 @@ describe("Shared Tasks Commands", () => {
   });
 
   test("registerTasksCommands should register tasks commands in registry", () => {
-    // Register commands
-    registerTasksCommands();
+    // Commands are already registered in beforeEach
+    // registerTasksCommands(); // Removed - now done in beforeEach
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
     expectToHaveLength(tasksCommands, 6); // All 6 tasks commands: list, get, create, status.get, status.set, spec
-    
+
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
     expect(getCommand).toBeDefined();
@@ -90,8 +93,8 @@ describe("Shared Tasks Commands", () => {
   });
 
   test("tasks.status.get command should call domain function with correct params", async () => {
-    // The status commands are registered inline when the module loads, not by registerTasksCommands
-    // So we don't need to call registerTasksCommands() for these
+    // Commands are already registered in beforeEach
+    // registerTasksCommands(); // Removed - now done in beforeEach
 
     // Get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
@@ -121,8 +124,8 @@ describe("Shared Tasks Commands", () => {
   });
 
   test("tasks.status.set command should call domain function with correct params", async () => {
-    // The status commands are registered inline when the module loads, not by registerTasksCommands
-    // So we don't need to call registerTasksCommands() for these
+    // Commands are already registered in beforeEach
+    // registerTasksCommands(); // Removed - now done in beforeEach
 
     // Get command
     const setCommand = sharedCommandRegistry.getCommand("tasks.status.set");
@@ -136,7 +139,7 @@ describe("Shared Tasks Commands", () => {
     };
     const context = { interface: "test" };
     const result = await setCommand!.execute(params, context);
-    
+
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
@@ -146,7 +149,7 @@ describe("Shared Tasks Commands", () => {
       session: "test-session",
       backend: undefined,
     });
-    
+
     // Verify domain function was called to set status
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
@@ -157,7 +160,7 @@ describe("Shared Tasks Commands", () => {
       session: "test-session",
       backend: undefined,
     });
-    
+
     // Verify result
     expect(result).toEqual({
       success: true,

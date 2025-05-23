@@ -5,9 +5,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
-import { TaskService } from "../taskService.js";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend.js";
-import type { TaskData } from "../../../types/tasks/taskData.js";
+import { randomUUID } from "crypto";
+import { TaskService } from "../taskService";
+import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
+import type { TaskData } from "../../../types/tasks/taskData";
 
 describe("TaskService JsonFile Integration", () => {
   const testDir = join(process.cwd(), "test-tmp", "taskservice-jsonfile-test");
@@ -16,9 +17,9 @@ describe("TaskService JsonFile Integration", () => {
   let dbPath: string;
 
   beforeEach(async () => {
-    // Create unique database path for each test
-    dbPath = join(testDir, `test-tasks-${Date.now()}-${Math.random()}.json`);
-    
+    // Create unique database path for each test using UUID
+    dbPath = join(testDir, `test-tasks-${Date.now()}-${randomUUID()}.json`);
+
     // Create test directories
     await mkdir(testDir, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
@@ -28,12 +29,12 @@ describe("TaskService JsonFile Integration", () => {
     const backend = createJsonFileTaskBackend({
       name: "json-file",
       workspacePath,
-      dbFilePath: dbPath
+      dbFilePath: dbPath,
     });
 
     taskService = new TaskService({
       customBackends: [backend],
-      backend: "json-file"
+      backend: "json-file",
     });
   });
 
@@ -51,11 +52,11 @@ describe("TaskService JsonFile Integration", () => {
           createJsonFileTaskBackend({
             name: "json-file",
             workspacePath,
-            dbFilePath: dbPath
-          })
-        ]
+            dbFilePath: dbPath,
+          }),
+        ],
       });
-      
+
       // Should use json-file backend when specified
       expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
@@ -69,12 +70,13 @@ describe("TaskService JsonFile Integration", () => {
     test("should create and retrieve tasks", async () => {
       // Create a test spec file
       const specPath = join(workspacePath, "process", "tasks", "test-task.md");
-      const specContent = "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
+      const specContent =
+        "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
       await writeFile(specPath, specContent, "utf8");
 
       // Create task via TaskService
       const task = await taskService.createTask("process/tasks/test-task.md");
-      
+
       expect(task.id).toBe("#123");
       expect(task.title).toBe("Test Integration Task");
       expect(task.status).toBe("TODO");
@@ -92,7 +94,8 @@ describe("TaskService JsonFile Integration", () => {
     test("should update task status", async () => {
       // Create a test spec file
       const specPath = join(workspacePath, "process", "tasks", "status-test.md");
-      const specContent = "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
+      const specContent =
+        "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
       await writeFile(specPath, specContent, "utf8");
 
       // Create task
@@ -177,7 +180,9 @@ describe("TaskService JsonFile Integration", () => {
       await taskService.createTask("process/tasks/validation-test.md");
 
       // Should reject invalid status
-      await expect(taskService.setTaskStatus("#127", "INVALID")).rejects.toThrow("Status must be one of");
+      await expect(taskService.setTaskStatus("#127", "INVALID")).rejects.toThrow(
+        "Status must be one of"
+      );
     });
   });
 
@@ -187,7 +192,7 @@ describe("TaskService JsonFile Integration", () => {
       const specPath = join(workspacePath, "process", "tasks", "persistence-test.md");
       const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
       await writeFile(specPath, specContent, "utf8");
-      
+
       await taskService.createTask("process/tasks/persistence-test.md");
       await taskService.setTaskStatus("#128", "IN-PROGRESS");
 
@@ -195,12 +200,12 @@ describe("TaskService JsonFile Integration", () => {
       const newBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath,
-        dbFilePath: dbPath
+        dbFilePath: dbPath,
       });
 
       const newService = new TaskService({
         customBackends: [newBackend],
-        backend: "json-file"
+        backend: "json-file",
       });
 
       // Should see the task and its updated status
@@ -212,5 +217,4 @@ describe("TaskService JsonFile Integration", () => {
       expect(tasks.length).toBe(1);
     });
   });
-}); 
- 
+});

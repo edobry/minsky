@@ -16,7 +16,7 @@
 
 - [x] Add `git commit` command to stage and commit changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [ ] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [+] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
 
 - [x] Fix `git pr` command and add proper tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
@@ -142,7 +142,7 @@
 
 - [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
-- [x] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+- [+] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
@@ -261,3 +261,5 @@
   - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
   - - Some type inference issues with the new scenario helpers
   - - Minor type safety improvements needed
+
+- [+] Fix Session Get Command Output Format [#132](process/tasks/132-fix-session-get-command-output-format.md)

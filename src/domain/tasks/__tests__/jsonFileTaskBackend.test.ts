@@ -5,12 +5,14 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, writeFile } from "fs/promises";
-import { JsonFileTaskBackend, createJsonFileTaskBackend } from "../jsonFileTaskBackend.js";
-import type { TaskData } from "../../../types/tasks/taskData.js";
+import { randomUUID } from "crypto";
+import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
+import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
+import type { TaskData } from "../../../types/tasks/taskData";
 
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
-  const dbPath = join(testDir, `test-tasks-${Date.now()}-${Math.random()}.json`);
+  const dbPath = join(testDir, `test-tasks-${Date.now()}-${randomUUID()}.json`);
   const workspacePath = join(testDir, "workspace");
   let backend: JsonFileTaskBackend;
 
@@ -24,7 +26,7 @@ describe("JsonFileTaskBackend", () => {
     backend = createJsonFileTaskBackend({
       name: "json-file",
       workspacePath,
-      dbFilePath: dbPath
+      dbFilePath: dbPath,
     }) as JsonFileTaskBackend;
   });
 
@@ -49,7 +51,7 @@ describe("JsonFileTaskBackend", () => {
         id: "#001",
         title: "Test Task",
         status: "TODO",
-        description: "A test task"
+        description: "A test task",
       };
 
       // Create task
@@ -70,7 +72,7 @@ describe("JsonFileTaskBackend", () => {
       const testTask: TaskData = {
         id: "#002",
         title: "Test Task 2",
-        status: "TODO"
+        status: "TODO",
       };
 
       // Create task
@@ -89,7 +91,7 @@ describe("JsonFileTaskBackend", () => {
       const testTask: TaskData = {
         id: "#003",
         title: "Test Task 3",
-        status: "TODO"
+        status: "TODO",
       };
 
       // Create task
@@ -117,13 +119,15 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement saveTasksData", async () => {
-      const taskData = JSON.stringify({
-        tasks: [
-          { id: "#004", title: "Test Task 4", status: "TODO" }
-        ],
-        lastUpdated: new Date().toISOString(),
-        metadata: {}
-      }, null, 2);
+      const taskData = JSON.stringify(
+        {
+          tasks: [{ id: "#004", title: "Test Task 4", status: "TODO" }],
+          lastUpdated: new Date().toISOString(),
+          metadata: {},
+        },
+        null,
+        2
+      );
 
       const result = await backend.saveTasksData(taskData);
       expect(result.success).toBe(true);
@@ -135,9 +139,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
-        tasks: [
-          { id: "#005", title: "Test Task 5", status: "TODO" }
-        ]
+        tasks: [{ id: "#005", title: "Test Task 5", status: "TODO" }],
       });
 
       const tasks = backend.parseTasks(jsonContent);
@@ -148,9 +150,7 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const tasks: TaskData[] = [
-        { id: "#006", title: "Test Task 6", status: "TODO" }
-      ];
+      const tasks: TaskData[] = [{ id: "#006", title: "Test Task 6", status: "TODO" }];
 
       const formatted = backend.formatTasks(tasks);
       const parsed = JSON.parse(formatted);
@@ -208,5 +208,4 @@ describe("JsonFileTaskBackend", () => {
       expect(path).toBe(workspacePath);
     });
   });
-}); 
- 
+});
