@@ -79,19 +79,19 @@ expect(mockFn.mock.calls[0][1]).toBe(123);
 
 Mock functions provide the following Jest/Vitest-compatible methods:
 
-| Method | Description | Example |
-|--------|-------------|---------|
-| `mockClear()` | Clears the mock's call history | `mockFn.mockClear()` |
-| `mockReset()` | Clears call history and implementation | `mockFn.mockReset()` |
-| `mockRestore()` | Restores original implementation (for spies) | `mockFn.mockRestore()` |
-| `mockImplementation()` | Sets a new implementation | `mockFn.mockImplementation(() => 42)` |
-| `mockImplementationOnce()` | Sets a one-time implementation | `mockFn.mockImplementationOnce(() => 42)` |
-| `mockReturnValue()` | Sets a return value | `mockFn.mockReturnValue(42)` |
-| `mockReturnValueOnce()` | Sets a one-time return value | `mockFn.mockReturnValueOnce(42)` |
-| `mockResolvedValue()` | Sets a promise resolved value | `mockFn.mockResolvedValue(user)` |
-| `mockResolvedValueOnce()` | Sets a one-time promise resolved value | `mockFn.mockResolvedValueOnce(user)` |
-| `mockRejectedValue()` | Sets a promise rejected value | `mockFn.mockRejectedValue(error)` |
-| `mockRejectedValueOnce()` | Sets a one-time promise rejected value | `mockFn.mockRejectedValueOnce(error)` |
+| Method                     | Description                                  | Example                                   |
+| -------------------------- | -------------------------------------------- | ----------------------------------------- |
+| `mockClear()`              | Clears the mock's call history               | `mockFn.mockClear()`                      |
+| `mockReset()`              | Clears call history and implementation       | `mockFn.mockReset()`                      |
+| `mockRestore()`            | Restores original implementation (for spies) | `mockFn.mockRestore()`                    |
+| `mockImplementation()`     | Sets a new implementation                    | `mockFn.mockImplementation(() => 42)`     |
+| `mockImplementationOnce()` | Sets a one-time implementation               | `mockFn.mockImplementationOnce(() => 42)` |
+| `mockReturnValue()`        | Sets a return value                          | `mockFn.mockReturnValue(42)`              |
+| `mockReturnValueOnce()`    | Sets a one-time return value                 | `mockFn.mockReturnValueOnce(42)`          |
+| `mockResolvedValue()`      | Sets a promise resolved value                | `mockFn.mockResolvedValue(user)`          |
+| `mockResolvedValueOnce()`  | Sets a one-time promise resolved value       | `mockFn.mockResolvedValueOnce(user)`      |
+| `mockRejectedValue()`      | Sets a promise rejected value                | `mockFn.mockRejectedValue(error)`         |
+| `mockRejectedValueOnce()`  | Sets a one-time promise rejected value       | `mockFn.mockRejectedValueOnce(error)`     |
 
 ## Asymmetric Matchers
 
@@ -116,14 +116,14 @@ expect({ id: 1, name: "test" }).toEqual(hasProperties);
 
 The following asymmetric matchers are available:
 
-| Matcher | Description | Example |
-|---------|-------------|---------|
-| `anything()` | Matches anything except null/undefined | `expect(value).toEqual(anything())` |
-| `any(constructor)` | Matches instances of a type | `expect("test").toEqual(any(String))` |
-| `stringContaining(str)` | Matches strings containing a substring | `expect("hello world").toEqual(stringContaining("world"))` |
-| `stringMatching(regex)` | Matches strings against a pattern | `expect("test123").toEqual(stringMatching(/\d+$/))` |
+| Matcher                 | Description                                            | Example                                                      |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
+| `anything()`            | Matches anything except null/undefined                 | `expect(value).toEqual(anything())`                          |
+| `any(constructor)`      | Matches instances of a type                            | `expect("test").toEqual(any(String))`                        |
+| `stringContaining(str)` | Matches strings containing a substring                 | `expect("hello world").toEqual(stringContaining("world"))`   |
+| `stringMatching(regex)` | Matches strings against a pattern                      | `expect("test123").toEqual(stringMatching(/\d+$/))`          |
 | `objectContaining(obj)` | Matches objects with at least the specified properties | `expect({ a: 1, b: 2 }).toEqual(objectContaining({ a: 1 }))` |
-| `arrayContaining(arr)` | Matches arrays containing at least the specified items | `expect([1, 2, 3]).toEqual(arrayContaining([1, 2]))` |
+| `arrayContaining(arr)`  | Matches arrays containing at least the specified items | `expect([1, 2, 3]).toEqual(arrayContaining([1, 2]))`         |
 
 ### Custom Matchers
 
@@ -134,15 +134,15 @@ import { AsymmetricMatcher } from "../utils/test-utils/compatibility";
 
 class EvenNumberMatcher implements AsymmetricMatcher {
   asymmetricMatch(value: unknown): boolean {
-    return typeof value === 'number' && value % 2 === 0;
+    return typeof value === "number" && value % 2 === 0;
   }
-  
+
   toString(): string {
-    return 'EvenNumber';
+    return "EvenNumber";
   }
-  
+
   toJSON(): string {
-    return 'EvenNumber';
+    return "EvenNumber";
   }
 }
 
@@ -160,7 +160,7 @@ import { jest } from "../utils/test-utils/compatibility";
 
 jest.mock("../path/to/module", () => ({
   someFunction: jest.fn().mockReturnValue("mocked value"),
-  someProperty: "mocked property"
+  someProperty: "mocked property",
 }));
 ```
 
@@ -173,7 +173,7 @@ jest.mock("../path/to/module", () => {
   const actualModule = jest.requireActual("../path/to/module");
   return {
     ...actualModule,
-    someFunction: jest.fn().mockReturnValue("mocked value")
+    someFunction: jest.fn().mockReturnValue("mocked value"),
   };
 });
 ```
@@ -185,11 +185,7 @@ You can also mock specific functions from a module:
 ```typescript
 import { mockModuleFunction } from "../utils/test-utils/compatibility";
 
-mockModuleFunction(
-  "../path/to/module",
-  "specificFunction",
-  () => "mocked result"
-);
+mockModuleFunction("../path/to/module", "specificFunction", () => "mocked result");
 ```
 
 ## Migration Strategies
@@ -226,14 +222,14 @@ describe("UserService", () => {
       fetchUser: createCompatMock().mockResolvedValue({
         id: 1,
         firstName: "John",
-        lastName: "Doe"
-      })
+        lastName: "Doe",
+      }),
     };
-    
+
     const userService = createUserService(mockApi);
-    
+
     // Test the service
-    return userService.getUserName(1).then(name => {
+    return userService.getUserName(1).then((name) => {
       expect(name).toBe("John Doe");
       expect(mockApi.fetchUser).toHaveBeenCalledWith(1);
     });
@@ -253,12 +249,12 @@ describe("DataFormatter", () => {
   test("should format data correctly", () => {
     const formatter = new DataFormatter();
     const result = formatter.format({ id: 123, name: "test", createdAt: new Date() });
-    
+
     expect(result).toEqual({
       id: asymmetricMatchers.any(Number),
       name: asymmetricMatchers.stringContaining("test"),
       createdAt: asymmetricMatchers.any(String),
-      formattedBy: asymmetricMatchers.stringContaining("DataFormatter")
+      formattedBy: asymmetricMatchers.stringContaining("DataFormatter"),
     });
   });
 });
@@ -276,7 +272,7 @@ setupTestCompat();
 jest.mock("../services/logger", () => ({
   logError: jest.fn(),
   logInfo: jest.fn(),
-  logWarning: jest.fn()
+  logWarning: jest.fn(),
 }));
 
 // Import the module after mocking
@@ -286,11 +282,11 @@ describe("ErrorHandler", () => {
   test("should log errors correctly", () => {
     const handler = new ErrorHandler();
     const error = new Error("Test error");
-    
+
     handler.handleError(error);
-    
+
     expect(logError).toHaveBeenCalledWith("Error occurred: Test error");
     expect(logInfo).not.toHaveBeenCalled();
   });
 });
-``` 
+```

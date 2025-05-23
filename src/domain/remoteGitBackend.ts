@@ -74,10 +74,10 @@ export class RemoteGitBackend implements RepositoryBackend {
     try {
       const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
       if (stderr) {
-        log.debug("Git command produced stderr", { 
-          command: cmd, 
+        log.debug("Git command produced stderr", {
+          command: cmd,
           stderr,
-          cwd: cwd || this.localPath
+          cwd: cwd || this.localPath,
         });
       }
       return stdout.trim();

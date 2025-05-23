@@ -1,6 +1,6 @@
 /**
  * Shared Error Handling Utilities
- * 
+ *
  * This module provides a unified error handling approach for both CLI and MCP
  * adapters. It ensures errors are consistently formatted and reported across
  * interfaces.
@@ -25,7 +25,7 @@ import { log, isHumanMode, isStructuredMode } from "../../utils/logger.js";
 export interface ErrorHandler {
   /**
    * Handle a specific error with appropriate formatting for the adapter
-   * 
+   *
    * @param error Error to handle
    * @param options Error handling options
    */
@@ -48,15 +48,12 @@ export interface ErrorHandlingOptions {
 export class SharedErrorHandler {
   /**
    * Format an error into a structured object based on its type
-   * 
+   *
    * @param error The error to format
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(
-    error: unknown, 
-    debug: boolean = false
-  ): Record<string, unknown> {
+  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
     const result: Record<string, unknown> = {
@@ -113,9 +110,8 @@ export class SharedErrorHandler {
       // Add cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
         const cause = normalizedError.cause;
-        result.cause = cause instanceof Error 
-          ? { message: cause.message, stack: cause.stack }
-          : String(cause);
+        result.cause =
+          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(cause);
       }
     }
 
@@ -124,7 +120,7 @@ export class SharedErrorHandler {
 
   /**
    * Get a human-readable error prefix based on error type
-   * 
+   *
    * @param error The error to get a prefix for
    * @returns A human-readable error prefix
    */
@@ -149,38 +145,36 @@ export class SharedErrorHandler {
 
   /**
    * Determine if debug mode is enabled based on environment variables
-   * 
+   *
    * @returns Whether debug mode is enabled
    */
   static isDebugMode(): boolean {
-    return process.env.DEBUG === "true" ||
+    return (
+      process.env.DEBUG === "true" ||
       process.env.DEBUG === "1" ||
-      (typeof process.env.NODE_DEBUG === "string" && 
-       process.env.NODE_DEBUG.includes("minsky"));
+      (typeof process.env.NODE_DEBUG === "string" && process.env.NODE_DEBUG.includes("minsky"))
+    );
   }
 
   /**
    * Common base error handler logic that adapters can build upon
-   * 
+   *
    * @param error Error to handle
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(
-    error: unknown, 
-    options: ErrorHandlingOptions = {}
-  ): never {
+  static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
-    
+
     // Format error for structured logging
     const formattedError = SharedErrorHandler.formatError(error, debug);
-    
+
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
       log.error("Operation failed", formattedError);
     }
-    
+
     // Exit with the specified code
     process.exit(exitCode);
   }
@@ -192,20 +186,20 @@ export class SharedErrorHandler {
 export class CliErrorHandler implements ErrorHandler {
   /**
    * Handle an error in the CLI context
-   * 
+   *
    * @param error Error to handle
    * @param options Error handling options
    */
   handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
-    
+
     // Get type-specific error prefix
     const prefix = SharedErrorHandler.getErrorPrefix(error);
-    
+
     // Output human-readable error message
     log.cliError(`${prefix}: ${normalizedError.message}`);
-    
+
     // Add type-specific details
     if (error instanceof ValidationError && error.errors && debug) {
       log.cliError("\nValidation details:", error.errors);
@@ -222,14 +216,14 @@ export class CliErrorHandler implements ErrorHandler {
     } else if (error instanceof GitOperationError && error.command) {
       log.cliError(`Command: ${error.command}`);
     }
-    
+
     // Add debug information if in debug mode
     if (debug) {
       log.cliError("\nDebug information:");
       if (normalizedError.stack) {
         log.cliError(normalizedError.stack);
       }
-      
+
       // Log cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
         log.cliError("\nCaused by:");
@@ -241,14 +235,14 @@ export class CliErrorHandler implements ErrorHandler {
         }
       }
     }
-    
+
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
       const formattedError = SharedErrorHandler.formatError(error, debug);
       log.error("CLI operation failed", formattedError);
     }
-    
+
     // Exit with the specified code
     process.exit(exitCode);
   }
@@ -260,19 +254,19 @@ export class CliErrorHandler implements ErrorHandler {
 export class McpErrorHandler implements ErrorHandler {
   /**
    * Handle an error in the MCP context
-   * 
+   *
    * @param error Error to handle
    * @param options Error handling options
    */
   handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    
+
     // Format error for MCP response
     const formattedError = SharedErrorHandler.formatError(error, debug);
-    
+
     // Log error in structured format
     log.error("MCP operation failed", formattedError);
-    
+
     // In MCP context, we want to return a structured error
     // But since this function is marked as 'never', we have to exit
     process.exit(exitCode);
@@ -287,18 +281,18 @@ export const mcpErrorHandler = new McpErrorHandler();
 
 /**
  * Get the appropriate error handler for the given interface
- * 
+ *
  * @param interfaceName The interface name (cli, mcp)
  * @returns The appropriate error handler
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-  case "cli":
-    return cliErrorHandler;
-  case "mcp":
-    return mcpErrorHandler;
-  default:
-    // Default to CLI error handler
-    return cliErrorHandler;
+    case "cli":
+      return cliErrorHandler;
+    case "mcp":
+      return mcpErrorHandler;
+    default:
+      // Default to CLI error handler
+      return cliErrorHandler;
   }
-} 
+}

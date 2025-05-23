@@ -12,6 +12,7 @@ This task addresses the issues found in the previous fix attempt for the Minsky 
 ### 1. File Content Loading Fix
 
 Added a helper function `readContentFromFileIfExists` that:
+
 - Checks if the provided content path exists as a file
 - If it exists, reads and returns the file contents
 - If not, returns the original string (treating it as inline content)
@@ -22,6 +23,7 @@ This function is used in both the create and update commands to process the `--c
 ### 2. Glob Format Parsing Fix
 
 Added a helper function `parseGlobs` that:
+
 - Detects if the globs string is in JSON array format (starts with `[` and ends with `]`)
 - If in JSON format, attempts to parse it as JSON
 - Falls back to comma-separated handling if JSON parsing fails
@@ -35,10 +37,11 @@ Added a helper function `parseGlobs` that:
 ## Testing
 
 The fix can be verified by:
+
 1. Creating a rule with `--content` pointing to a file
 2. Creating a rule with `--globs` in JSON array format
 3. Retrieving the rules to confirm the content and globs were properly processed
 
 ## Notes
 
-This implementation properly handles both file content loading and glob format parsing, making the CLI more user-friendly and less error-prone. 
+This implementation properly handles both file content loading and glob format parsing, making the CLI more user-friendly and less error-prone.

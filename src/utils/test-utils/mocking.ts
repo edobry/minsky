@@ -143,7 +143,7 @@ export function setupTestMocks(): void {
   // Cleanup all mocks after each test
   afterEach(() => {
     mock.restore(); // Use mock.restore() as it's documented to handle mock.module
-    
+
     // Clean up shared state that persists between tests
     resetSharedState();
   });
@@ -558,7 +558,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
   method: M
 ): ReturnType<typeof mock> {
   const original = obj[method];
-  
+
   if (typeof original !== "function") {
     throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
   }

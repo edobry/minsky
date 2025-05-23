@@ -70,7 +70,10 @@ export const sessionStartParamsSchema = z
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
     skipInstall: flagSchema("Skip automatic dependency installation"),
-    packageManager: z.enum(["bun", "npm", "yarn", "pnpm"]).optional().describe("Override the detected package manager"),
+    packageManager: z
+      .enum(["bun", "npm", "yarn", "pnpm"])
+      .optional()
+      .describe("Override the detected package manager"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -141,9 +144,12 @@ export const sessionApproveParamsSchema = z
     repo: repoPathSchema.optional().describe("Repository path"),
   })
   .merge(commonCommandOptionsSchema)
-  .refine((data) => data.session !== undefined || data.task !== undefined || data.repo !== undefined, {
-    message: "Either session name, task ID, or repo path must be provided",
-  });
+  .refine(
+    (data) => data.session !== undefined || data.task !== undefined || data.repo !== undefined,
+    {
+      message: "Either session name, task ID, or repo path must be provided",
+    }
+  );
 
 /**
  * Type for session approve parameters
@@ -191,9 +197,7 @@ export type SessionReviewParams = z.infer<typeof sessionReviewParamsSchema>;
 /**
  * Schema for session inspect parameters
  */
-export const sessionInspectParamsSchema = z
-  .object({})
-  .merge(commonCommandOptionsSchema);
+export const sessionInspectParamsSchema = z.object({}).merge(commonCommandOptionsSchema);
 
 /**
  * Type for session inspect parameters

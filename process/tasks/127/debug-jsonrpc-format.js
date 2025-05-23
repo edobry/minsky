@@ -14,13 +14,7 @@ if (!fs.existsSync(testDir)) {
 
 // Start the MCP server
 console.log("Starting MCP server...");
-const mcp = spawn("bun", [
-  "src/cli.ts",
-  "mcp",
-  "start",
-  "--repo",
-  process.cwd(),
-]);
+const mcp = spawn("bun", ["src/cli.ts", "mcp", "start", "--repo", process.cwd()]);
 
 // Buffer to collect the output
 let output = "";
@@ -34,8 +28,8 @@ const testRequests = [
       jsonrpc: "2.0",
       id: "1",
       method: "debug.listMethods",
-      params: {}
-    }
+      params: {},
+    },
   },
   // 2. Test using method field for tasks.list
   {
@@ -45,9 +39,9 @@ const testRequests = [
       id: "2",
       method: "tasks.list",
       params: {
-        filter: "TODO"
-      }
-    }
+        filter: "TODO",
+      },
+    },
   },
   // 3. Test legacy MCP format with separate name and params
   {
@@ -59,10 +53,10 @@ const testRequests = [
       params: {
         name: "tasks.list",
         params: {
-          filter: "TODO"
-        }
-      }
-    }
+          filter: "TODO",
+        },
+      },
+    },
   },
   // 4. Test with method namespaced by underscores instead of dots
   {
@@ -72,9 +66,9 @@ const testRequests = [
       id: "4",
       method: "tasks_list",
       params: {
-        filter: "TODO"
-      }
-    }
+        filter: "TODO",
+      },
+    },
   },
   // 5. Test without namespace
   {
@@ -84,9 +78,9 @@ const testRequests = [
       id: "5",
       method: "list",
       params: {
-        filter: "TODO"
-      }
-    }
+        filter: "TODO",
+      },
+    },
   },
   // 6. Test with namespace but separated by slashes
   {
@@ -96,10 +90,10 @@ const testRequests = [
       id: "6",
       method: "tasks/list",
       params: {
-        filter: "TODO"
-      }
-    }
-  }
+        filter: "TODO",
+      },
+    },
+  },
 ];
 
 // Current test index
@@ -111,28 +105,30 @@ function runNextTest() {
     const test = testRequests[currentTest];
     console.log(`\n==== TEST ${currentTest + 1}: ${test.name} ====`);
     console.log(`REQUEST: ${JSON.stringify(test.request, null, 2)}`);
-    
+
     mcp.stdin.write(JSON.stringify(test.request) + "\n");
     currentTest++;
-    
+
     // Schedule next test with delay
     setTimeout(runNextTest, 2000);
   } else {
     console.log("\n==== ALL TESTS COMPLETED ====");
-    
+
     // Add some debug data about installed FastMCP version
     try {
-      const packageJson = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8"));
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")
+      );
       console.log(`\nPackage Information:`);
       console.log(`- FastMCP Version: ${packageJson.dependencies?.fastmcp || "Not found"}`);
     } catch (e) {
       console.log(`\nCould not read package.json: ${e.message}`);
     }
-    
+
     setTimeout(() => {
       console.log("Test complete, shutting down...");
       mcp.kill("SIGINT");
-      
+
       // Write the full output to a log file for analysis
       const logFile = path.join(testDir, "jsonrpc-format-test.log");
       fs.writeFileSync(logFile, output);
@@ -170,4 +166,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Safety timeout reached, shutting down...");
   mcp.kill("SIGINT");
-}, 30000); 
+}, 30000);

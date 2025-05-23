@@ -1,6 +1,7 @@
 # Pull Request for branch `task#014-repo-backend`
 
 ## Commits
+
 c0d7336 feat(task#014): Implement GitHub push/pull operations and enhance session CLI with backend options
 1854c09 docs: Update task remaining work with pragmatic approach to configuration
 b832063 fix: Fix import extension and clarify repository configuration requirements
@@ -34,8 +35,8 @@ f4a40a1 Task #014: Add detailed implementation plan for Remote Git backend suppo
 1aeedca task#014: Add PR description
 d63f612 task#014: Add repository backend support
 
-
 ## Modified Files (Showing changes from merge-base with main)
+
 CHANGELOG.md
 bun.lock
 package.json
@@ -45,7 +46,7 @@ process/tasks/014/pr.md
 src/adapters/cli/session.ts
 src/commands/session/start.ts
 src/commands/session/startSession.ts
-src/domain/__tests__/repository.test.ts
+src/domain/**tests**/repository.test.ts
 src/domain/git.ts
 src/domain/localGitBackend.ts
 src/domain/remoteGitBackend.ts
@@ -61,39 +62,39 @@ src/domain/session.test.ts
 src/domain/session.ts
 src/utils/repository-utils.ts
 
-
 ## Stats
-CHANGELOG.md                                       |  117 ++-
- bun.lock                                           |  269 +-----
- package.json                                       |    1 +
- process/tasks.md                                   |    2 +-
- .../tasks/014-add-repository-backend-support.md    |  108 ++-
- process/tasks/014/pr.md                            |   60 ++
- src/adapters/cli/session.ts                        |  125 +++
- src/commands/session/start.ts                      |   83 +-
- src/commands/session/startSession.ts               |  116 ++-
- src/domain/__tests__/repository.test.ts            |   26 +
- src/domain/git.ts                                  | 1009 ++++++++------------
- src/domain/localGitBackend.ts                      |  316 ++++++
- src/domain/remoteGitBackend.ts                     |  334 +++++++
- src/domain/repository.ts                           |  169 ++++
- src/domain/repository/.RepositoryBackend.ts.swp    |  Bin 0 -> 12288 bytes
- src/domain/repository/RepositoryBackend.ts         |   23 +
- src/domain/repository/github.ts                    |  330 +++++++
- src/domain/repository/index.ts                     |  332 +++++++
- src/domain/repository/local.ts                     |  216 +++++
- src/domain/repository/local.ts.bak                 |  216 +++++
- src/domain/repository/remote.ts                    |  420 ++++++++
- src/domain/session.test.ts                         |  114 ++-
- src/domain/session.ts                              |  246 ++++-
- src/utils/repository-utils.ts                      |  139 +++
- 24 files changed, 3723 insertions(+), 1048 deletions(-)
+
+CHANGELOG.md | 117 ++-
+bun.lock | 269 +-----
+package.json | 1 +
+process/tasks.md | 2 +-
+.../tasks/014-add-repository-backend-support.md | 108 ++-
+process/tasks/014/pr.md | 60 ++
+src/adapters/cli/session.ts | 125 +++
+src/commands/session/start.ts | 83 +-
+src/commands/session/startSession.ts | 116 ++-
+src/domain/**tests**/repository.test.ts | 26 +
+src/domain/git.ts | 1009 ++++++++------------
+src/domain/localGitBackend.ts | 316 ++++++
+src/domain/remoteGitBackend.ts | 334 +++++++
+src/domain/repository.ts | 169 ++++
+src/domain/repository/.RepositoryBackend.ts.swp | Bin 0 -> 12288 bytes
+src/domain/repository/RepositoryBackend.ts | 23 +
+src/domain/repository/github.ts | 330 +++++++
+src/domain/repository/index.ts | 332 +++++++
+src/domain/repository/local.ts | 216 +++++
+src/domain/repository/local.ts.bak | 216 +++++
+src/domain/repository/remote.ts | 420 ++++++++
+src/domain/session.test.ts | 114 ++-
+src/domain/session.ts | 246 ++++-
+src/utils/repository-utils.ts | 139 +++
+24 files changed, 3723 insertions(+), 1048 deletions(-)
+
 ## Uncommitted changes in working directory
-M	process/tasks/014/pr.md
+
+M process/tasks/014/pr.md
 
 fix-types.js
-
-
 
 Task 014 status updated: IN-REVIEW → IN-REVIEW
 
@@ -123,6 +124,7 @@ This PR refactors the GitHub repository backend implementation to improve usabil
 ## Testing
 
 The implementation was tested by verifying that all the repository operations work correctly, including:
+
 - Cloning repositories
 - Creating branches
 - Pushing changes

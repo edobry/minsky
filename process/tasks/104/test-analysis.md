@@ -18,11 +18,13 @@ This document analyzes the disabled integration tests that need to be re-impleme
 ### Common Issues in Disabled Tests
 
 1. **Dependency Management Issues**
+
    - Direct module imports making mocking difficult
    - Use of readonly properties causing TypeScript errors when attempting to mock
    - Lack of consistent dependency injection pattern
 
 2. **Side Effects and State Management**
+
    - Tests affecting global state
    - Lack of proper test isolation
    - Dependencies on filesystem and environment
@@ -34,6 +36,7 @@ This document analyzes the disabled integration tests that need to be re-impleme
 ### Specific Issues by Test File
 
 #### `workspace.test.ts` Issues
+
 - Needs mocking for:
   - `isSessionRepository`
   - `getSessionFromRepo`
@@ -42,11 +45,13 @@ This document analyzes the disabled integration tests that need to be re-impleme
 - Filesystem operation mocking was problematic
 
 #### `git.test.ts` Issues
+
 - Git command execution mocking challenges
 - File system operation mocking needed
 - Test isolation problems
 
 #### GitHub Backend Test Issues
+
 - Complex mocking requirements for:
   - `fs/promises`
   - `child_process.exec`
@@ -54,6 +59,7 @@ This document analyzes the disabled integration tests that need to be re-impleme
   - `GitService`
 
 #### CLI Adapter Test Issues
+
 - Command execution simulation challenges
 - User input mocking difficulties
 - Output verification approach
@@ -61,16 +67,19 @@ This document analyzes the disabled integration tests that need to be re-impleme
 ## Improvements from Tasks #101-#103
 
 ### Task #101: Improved Dependency Injection
+
 - Created interfaces for all domain services
 - Refactored domain functions to accept dependencies as parameters
 - Created `createTestDeps` utility for test dependencies
 
 ### Task #102 (and subtasks #106-#108): Functional Patterns
+
 - Refactored stateful classes to functional approach
 - Extracted side effects to the edges
 - Improved error handling with pure functions
 
 ### Task #103: Enhanced Test Utilities
+
 - Added mock creation utilities with better type safety
 - Created test context management utilities
 - Implemented test data generation utilities
@@ -80,4 +89,4 @@ This document analyzes the disabled integration tests that need to be re-impleme
 1. Review git history to find original test implementations
 2. Compare with new testing patterns from tasks #101-#103
 3. Create test implementation plan for each disabled test file
-4. Begin re-implementation with workspace integration tests first 
+4. Begin re-implementation with workspace integration tests first

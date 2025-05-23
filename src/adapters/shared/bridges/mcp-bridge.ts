@@ -24,7 +24,7 @@ export interface McpCommandRequest {
   commandId: string;
   parameters: Record<string, unknown>;
   // MCP-specific context, like user auth, request ID, etc.
-  mcpContext?: Record<string, unknown>; 
+  mcpContext?: Record<string, unknown>;
   // Global options like debug or format might also be part of the MCP request payload
   debug?: boolean;
   format?: string;
@@ -58,9 +58,7 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @param request The MCP command request.
  * @returns A promise that resolves to an MCP command response.
  */
-export async function executeMcpCommand(
-  request: McpCommandRequest
-): Promise<McpCommandResponse> {
+export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
   const commandDef = sharedCommandRegistry.getCommand(request.commandId);
 
   if (!commandDef) {
@@ -99,9 +97,9 @@ export async function executeMcpCommand(
         validationErrors[paramName].push("Parameter is required.");
         continue;
       }
-      
+
       const valueToParse = rawValue === undefined ? paramDef.defaultValue : rawValue;
-      
+
       if (valueToParse === undefined) {
         continue;
       }
@@ -147,15 +145,17 @@ export async function executeMcpCommand(
       success: true,
       result: result,
     };
-
   } catch (error: unknown) {
     const ensuredError = ensureError(error);
 
     const formattedMcpErrorResponse = {
       message: ensuredError.message || "An unexpected error occurred during MCP command execution.",
-      type: (ensuredError.constructor && ensuredError.constructor.name !== "Error" && ensuredError.constructor.name !== "Object") 
-        ? ensuredError.constructor.name 
-        : "MCP_EXECUTION_ERROR",
+      type:
+        ensuredError.constructor &&
+        ensuredError.constructor.name !== "Error" &&
+        ensuredError.constructor.name !== "Object"
+          ? ensuredError.constructor.name
+          : "MCP_EXECUTION_ERROR",
       stack: request.debug ? ensuredError.stack : undefined,
       details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
     };
@@ -189,4 +189,4 @@ export function registerMcpCommands(mcpServer: FastMcpServer) {
     });
   });
 }
-*/ 
+*/

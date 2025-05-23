@@ -1,6 +1,6 @@
 /**
  * Custom assertion helpers to bridge Jest/Vitest and Bun test assertion differences
- * 
+ *
  * This module provides helper functions that implement Jest/Vitest assertion
  * methods that are not directly available in Bun's test framework.
  */
@@ -56,10 +56,13 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): v
  * @param mockFn The mock function to check
  * @param expectedArgs The expected arguments
  */
-export function expectToHaveBeenCalledWith(mockFn: { mock?: { calls: any[][] } }, ...expectedArgs: any[]): void {
+export function expectToHaveBeenCalledWith(
+  mockFn: { mock?: { calls: any[][] } },
+  ...expectedArgs: any[]
+): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
-  
-  const found = mockFn.mock?.calls.some(call => {
+
+  const found = mockFn.mock?.calls.some((call) => {
     if (call.length !== expectedArgs.length) return false;
     return call.every((arg, index) => {
       try {
@@ -70,7 +73,7 @@ export function expectToHaveBeenCalledWith(mockFn: { mock?: { calls: any[][] } }
       }
     });
   });
-  
+
   expect(found).toBeTruthy();
 }
 
@@ -81,7 +84,11 @@ export function expectToHaveBeenCalledWith(mockFn: { mock?: { calls: any[][] } }
  * @param argIndex The argument index (defaults to 0)
  * @returns The argument at the specified position
  */
-export function getMockCallArg(mockFn: { mock?: { calls: any[][] } }, callIndex = 0, argIndex = 0): any {
+export function getMockCallArg(
+  mockFn: { mock?: { calls: any[][] } },
+  callIndex = 0,
+  argIndex = 0
+): any {
   return mockFn.mock?.calls[callIndex]?.[argIndex];
 }
 
@@ -94,14 +101,14 @@ export function getMockCallArg(mockFn: { mock?: { calls: any[][] } }, callIndex 
 export function expectToHaveProperty(object: any, propertyPath: string, value?: any): void {
   const parts = propertyPath.split(".");
   let current = object;
-  
+
   for (const part of parts) {
     expect(current).toBeDefined();
     expect(typeof current === "object" || Array.isArray(current)).toBeTruthy();
     expect(part in current).toBeTruthy();
     current = current[part];
   }
-  
+
   if (value !== undefined) {
     expect(current).toEqual(value);
   }
@@ -117,7 +124,7 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);
-  
+
   expect(receivedRounded).toBe(expectedRounded);
 }
 
@@ -127,7 +134,7 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
  * @param expected The item that should be found in the array
  */
 export function expectToContainEqual(received: any[], expected: any): void {
-  const found = received.some(item => {
+  const found = received.some((item) => {
     try {
       expect(item).toEqual(expected);
       return true;
@@ -135,7 +142,7 @@ export function expectToContainEqual(received: any[], expected: any): void {
       return false;
     }
   });
-  
+
   expect(found).toBeTruthy();
 }
 
@@ -145,9 +152,8 @@ export function expectToContainEqual(received: any[], expected: any): void {
  * @returns A wrapped test function with enhanced assertions
  */
 export function withEnhancedAssertions<T extends (...args: any[]) => any>(testFn: T): T {
-  return function(this: any, ...args: any[]) {
+  return function (this: any, ...args: any[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);
   } as any;
-} 
- 
+}

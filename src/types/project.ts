@@ -17,7 +17,7 @@ export interface ProjectContext {
    * This is used as the default context for operations that require repository information.
    */
   repositoryPath: string;
-  
+
   /**
    * Additional project-specific context information can be added here in the future.
    * For example, project name, configuration paths, etc.
@@ -47,14 +47,14 @@ export function validateRepositoryPath(repositoryPath: string): boolean {
 export function createProjectContext(repositoryPath: string): ProjectContext {
   // Normalize the path to handle any relative paths or trailing slashes
   const normalizedPath = path.resolve(repositoryPath);
-  
+
   // Validate the repository path
   if (!validateRepositoryPath(normalizedPath)) {
     const errorMessage = `Invalid repository path: ${normalizedPath}`;
     log.error(errorMessage);
     throw new Error(errorMessage);
   }
-  
+
   return {
     repositoryPath: normalizedPath,
   };
@@ -67,4 +67,4 @@ export function createProjectContext(repositoryPath: string): ProjectContext {
  */
 export function createProjectContextFromCwd(): ProjectContext {
   return createProjectContext(process.cwd());
-} 
+}

@@ -42,10 +42,12 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
  * Schema for task get parameters
  */
 export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
-  taskId: z.union([
-    taskIdSchema.describe("ID of the task to retrieve"),
-    z.array(taskIdSchema).describe("Array of task IDs to retrieve")
-  ]).describe("Task ID or array of task IDs to retrieve"),
+  taskId: z
+    .union([
+      taskIdSchema.describe("ID of the task to retrieve"),
+      z.array(taskIdSchema).describe("Array of task IDs to retrieve"),
+    ])
+    .describe("Task ID or array of task IDs to retrieve"),
   backend: z.string().optional().describe("Specify task backend (markdown, github)"),
 });
 
@@ -107,7 +109,10 @@ export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
 export const taskSpecContentParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task to retrieve specification content for"),
-    section: z.string().optional().describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
+    section: z
+      .string()
+      .optional()
+      .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
     backend: z.string().optional().describe("Specify task backend (markdown, github)"),
   })
   .merge(commonCommandOptionsSchema);

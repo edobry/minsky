@@ -1,6 +1,6 @@
 /**
  * Response Formatting Utilities
- * 
+ *
  * This module provides utilities for formatting command responses
  * consistently across different interfaces (CLI, MCP).
  */
@@ -24,7 +24,7 @@ export enum OutputFormat {
 export interface ResponseFormatter<T = unknown> {
   /**
    * Format a response for output
-   * 
+   *
    * @param data Response data to format
    * @param context Command execution context
    * @returns Formatted response
@@ -34,7 +34,7 @@ export interface ResponseFormatter<T = unknown> {
 
 /**
  * Format a command response as JSON
- * 
+ *
  * @param data Response data
  * @returns JSON formatted string
  */
@@ -48,7 +48,7 @@ export function formatAsJson(data: unknown): string {
 export abstract class BaseResponseFormatter<T = unknown> implements ResponseFormatter<T> {
   /**
    * Format a response based on the requested format
-   * 
+   *
    * @param data Response data
    * @param context Command execution context
    * @returns Formatted response
@@ -56,28 +56,28 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
     const format = context.format?.toLowerCase() as OutputFormat;
-    
+
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
       return this.formatJson(data, context);
     }
-    
+
     // Default to text format
     return this.formatText(data, context);
   }
-  
+
   /**
    * Format the response as text
-   * 
+   *
    * @param data Response data
    * @param context Command execution context
    * @returns Text formatted string
    */
   abstract formatText(data: T, context: CommandExecutionContext): string;
-  
+
   /**
    * Format the response as JSON
-   * 
+   *
    * @param data Response data
    * @param context Command execution context
    * @returns JSON-serializable object
@@ -93,17 +93,17 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
 export class SuccessFormatter extends BaseResponseFormatter<string> {
   /**
    * Format a success message as text
-   * 
+   *
    * @param message Success message
    * @returns Formatted success message
    */
   formatText(message: string): string {
     return `${chalk.green("✓")} ${message}`;
   }
-  
+
   /**
    * Format a success message as JSON
-   * 
+   *
    * @param message Success message
    * @returns JSON object with success flag and message
    */
@@ -121,25 +121,25 @@ export class SuccessFormatter extends BaseResponseFormatter<string> {
 export class ErrorFormatter extends BaseResponseFormatter<Error> {
   /**
    * Format an error as text
-   * 
+   *
    * @param error Error object
    * @param context Command execution context
    * @returns Formatted error message
    */
   formatText(error: Error, context: CommandExecutionContext): string {
     let output = `${chalk.red("✗")} Error: ${error.message}`;
-    
+
     // Add stack trace in debug mode
     if (context.debug && error.stack) {
       output += `\n\n${error.stack}`;
     }
-    
+
     return output;
   }
-  
+
   /**
    * Format an error as JSON
-   * 
+   *
    * @param error Error object
    * @param context Command execution context
    * @returns JSON object with error details
@@ -149,12 +149,12 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
       success: false,
       error: error.message,
     };
-    
+
     // Add stack trace in debug mode
     if (context.debug && error.stack) {
       result.stack = error.stack;
     }
-    
+
     return result;
   }
 }
@@ -169,10 +169,10 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
   ) {
     super();
   }
-  
+
   /**
    * Format a list as text
-   * 
+   *
    * @param items List of items
    * @returns Formatted list
    */
@@ -180,14 +180,14 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
     if (items.length === 0) {
       return "No items found.";
     }
-    
+
     let output = "";
-    
+
     // Add title if provided
     if (this.title) {
       output += `${chalk.bold(this.title)}\n\n`;
     }
-    
+
     // Format each item
     if (this.itemFormatter) {
       items.forEach((item, index) => {
@@ -198,13 +198,13 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
         output += `${index + 1}. ${String(item)}\n`;
       });
     }
-    
+
     return output;
   }
-  
+
   /**
    * Format a list as JSON
-   * 
+   *
    * @param items List of items
    * @returns JSON object with items array
    */
@@ -227,10 +227,10 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
   ) {
     super();
   }
-  
+
   /**
    * Format a table as text
-   * 
+   *
    * @param rows Table data rows
    * @returns Formatted table
    */
@@ -238,61 +238,67 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
     if (rows.length === 0) {
       return "No data found.";
     }
-    
+
     let output = "";
-    
+
     // Add title if provided
     if (this.title) {
       output += `${chalk.bold(this.title)}\n\n`;
     }
-    
+
     // Calculate column widths
     const columnWidths: Record<keyof T, number> = {} as Record<keyof T, number>;
-    
+
     // Initialize with header lengths
-    this.columns.forEach(col => {
+    this.columns.forEach((col) => {
       columnWidths[col] = String(this.headers[col] || col).length;
     });
-    
+
     // Update with maximum data lengths
-    rows.forEach(row => {
-      this.columns.forEach(col => {
+    rows.forEach((row) => {
+      this.columns.forEach((col) => {
         const value = String(row[col] || "");
         columnWidths[col] = Math.max(columnWidths[col], value.length);
       });
     });
-    
+
     // Create header row
-    const headerRow = this.columns.map(col => {
-      const header = String(this.headers[col] || col);
-      return header.padEnd(columnWidths[col]);
-    }).join(" | ");
-    
-    output += `${chalk.bold(headerRow)  }\n`;
-    
+    const headerRow = this.columns
+      .map((col) => {
+        const header = String(this.headers[col] || col);
+        return header.padEnd(columnWidths[col]);
+      })
+      .join(" | ");
+
+    output += `${chalk.bold(headerRow)}\n`;
+
     // Create separator row
-    const separatorRow = this.columns.map(col => {
-      return "-".repeat(columnWidths[col]);
-    }).join("-|-");
-    
-    output += `${separatorRow  }\n`;
-    
+    const separatorRow = this.columns
+      .map((col) => {
+        return "-".repeat(columnWidths[col]);
+      })
+      .join("-|-");
+
+    output += `${separatorRow}\n`;
+
     // Create data rows
-    rows.forEach(row => {
-      const dataRow = this.columns.map(col => {
-        const value = String(row[col] || "");
-        return value.padEnd(columnWidths[col]);
-      }).join(" | ");
-      
-      output += `${dataRow  }\n`;
+    rows.forEach((row) => {
+      const dataRow = this.columns
+        .map((col) => {
+          const value = String(row[col] || "");
+          return value.padEnd(columnWidths[col]);
+        })
+        .join(" | ");
+
+      output += `${dataRow}\n`;
     });
-    
+
     return output;
   }
-  
+
   /**
    * Format a table as JSON
-   * 
+   *
    * @param rows Table data rows
    * @returns JSON object with rows array
    */
@@ -306,7 +312,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
 
 /**
  * Create a success formatter
- * 
+ *
  * @returns A new success formatter
  */
 export function createSuccessFormatter(): SuccessFormatter {
@@ -315,7 +321,7 @@ export function createSuccessFormatter(): SuccessFormatter {
 
 /**
  * Create an error formatter
- * 
+ *
  * @returns A new error formatter
  */
 export function createErrorFormatter(): ErrorFormatter {
@@ -324,7 +330,7 @@ export function createErrorFormatter(): ErrorFormatter {
 
 /**
  * Create a list formatter
- * 
+ *
  * @param itemFormatter Optional function to format individual items
  * @param title Optional title for the list
  * @returns A new list formatter
@@ -338,7 +344,7 @@ export function createListFormatter<T>(
 
 /**
  * Create a table formatter
- * 
+ *
  * @param columns Columns to include in the table
  * @param headers Column headers
  * @param title Optional title for the table
@@ -350,4 +356,4 @@ export function createTableFormatter<T extends Record<string, unknown>>(
   title?: string
 ): TableFormatter<T> {
   return new TableFormatter<T>(columns, headers, title);
-} 
+}

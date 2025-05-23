@@ -12,19 +12,19 @@ import type { TaskData, TaskStatusType } from "../../types/tasks/taskData";
  */
 export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
   const defaultId = `#${String(Math.floor(Math.random() * 900) + 100)}`; // Random 3-digit ID
-  
+
   return {
     id: defaultId,
     title: "Test Task",
     status: "TODO",
     description: "This is a test task",
     worklog: [
-      { 
+      {
         timestamp: new Date().toISOString(),
-        message: "Initial creation"
-      }
+        message: "Initial creation",
+      },
     ],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -45,7 +45,7 @@ export function createTaskDataArray(
       const id = `#${String(100 + index).padStart(3, "0")}`;
       return createTaskData({
         id,
-        ...commonOverrides
+        ...commonOverrides,
       });
     });
 }
@@ -67,7 +67,7 @@ export function createSessionData(
 ): any {
   const taskId = overrides.taskId || "123";
   const session = overrides.session || `task#${taskId}`;
-  
+
   return {
     session,
     taskId,
@@ -94,7 +94,7 @@ export function createSessionDataArray(
       const taskId = `${100 + index}`;
       return createSessionData({
         taskId,
-        ...commonOverrides
+        ...commonOverrides,
       });
     });
 }
@@ -171,29 +171,29 @@ export function createRandomFilePath(extension: string = "txt"): string {
 export function createFieldData(fieldName: string): any {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
-  case "id":
-    return createRandomId();
-  case "name":
-    return `Test ${createRandomString(5)}`;
-  case "email":
-    return `test.${createRandomString(5)}@example.com`;
-  case "date":
-  case "createdat":
-  case "updatedat":
-  case "timestamp":
-    return new Date().toISOString();
-  case "active":
-  case "enabled":
-  case "visible":
-    return Math.random() > 0.5;
-  case "count":
-  case "age":
-  case "quantity":
-    return Math.floor(Math.random() * 100);
-  case "price":
-  case "amount":
-    return parseFloat((Math.random() * 100).toFixed(2));
-  default:
-    return `Test ${fieldName} ${createRandomString(5)}`;
+    case "id":
+      return createRandomId();
+    case "name":
+      return `Test ${createRandomString(5)}`;
+    case "email":
+      return `test.${createRandomString(5)}@example.com`;
+    case "date":
+    case "createdat":
+    case "updatedat":
+    case "timestamp":
+      return new Date().toISOString();
+    case "active":
+    case "enabled":
+    case "visible":
+      return Math.random() > 0.5;
+    case "count":
+    case "age":
+    case "quantity":
+      return Math.floor(Math.random() * 100);
+    case "price":
+    case "amount":
+      return parseFloat((Math.random() * 100).toFixed(2));
+    default:
+      return `Test ${fieldName} ${createRandomString(5)}`;
   }
-} 
+}

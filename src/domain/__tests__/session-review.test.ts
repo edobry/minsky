@@ -63,7 +63,9 @@ describe("sessionReviewFromParams", () => {
   };
 
   // Mock the TaskServiceInterface with getTaskSpecData
-  const mockTaskService: TaskServiceInterface & { getTaskSpecData: (taskId: string) => Promise<string> } = {
+  const mockTaskService: TaskServiceInterface & {
+    getTaskSpecData: (taskId: string) => Promise<string>;
+  } = {
     getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
     getTask: mock(() => Promise.resolve(null)),
     getTaskStatus: mock(() => Promise.resolve("")),
@@ -89,23 +91,23 @@ describe("sessionReviewFromParams", () => {
   beforeEach(() => {
     // Reset mocks before each test
     for (const mockFn of Object.values(mockSessionDB)) {
-      if (typeof mockFn === 'function' && 'mockReset' in mockFn) {
+      if (typeof mockFn === "function" && "mockReset" in mockFn) {
         (mockFn as any).mockReset();
       }
     }
-    
+
     for (const mockFn of Object.values(mockGitService)) {
-      if (typeof mockFn === 'function' && 'mockReset' in mockFn) {
+      if (typeof mockFn === "function" && "mockReset" in mockFn) {
         (mockFn as any).mockReset();
       }
     }
-    
+
     for (const mockFn of Object.values(mockTaskService)) {
-      if (typeof mockFn === 'function' && 'mockReset' in mockFn) {
+      if (typeof mockFn === "function" && "mockReset" in mockFn) {
         (mockFn as any).mockReset();
       }
     }
-    
+
     (mockGetCurrentSession as any).mockReset();
 
     // Restore mock implementations after reset
@@ -150,16 +152,15 @@ describe("sessionReviewFromParams", () => {
       return "";
     });
 
-    (mockTaskService.getTaskSpecData as any).mockImplementation(() => Promise.resolve("# Task Specification\n\nThis is a test task"));
+    (mockTaskService.getTaskSpecData as any).mockImplementation(() =>
+      Promise.resolve("# Task Specification\n\nThis is a test task")
+    );
     (mockWorkspaceUtils.isSessionWorkspace as any).mockImplementation(() => Promise.resolve(false));
     (mockGetCurrentSession as any).mockImplementation(() => Promise.resolve("testSession"));
   });
 
   test("gets review info by session name", async () => {
-    const result = await sessionReviewFromParams(
-      { session: "testSession" },
-      deps
-    );
+    const result = await sessionReviewFromParams({ session: "testSession" }, deps);
 
     expect(result.session).toBe("testSession");
     expect(result.taskId).toBe("#123");
@@ -181,10 +182,7 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by task ID", async () => {
-    const result = await sessionReviewFromParams(
-      { task: "123" },
-      deps
-    );
+    const result = await sessionReviewFromParams({ task: "123" }, deps);
 
     expect(result.session).toBe("task#123");
     expect(result.taskId).toBe("#123");
@@ -193,10 +191,7 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("auto-detects current session when no parameters provided", async () => {
-    const result = await sessionReviewFromParams(
-      { repo: "/fake/repo/path" },
-      deps
-    );
+    const result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
 
     expect(result.session).toBe("testSession");
     expect(mockGetCurrentSession).toHaveBeenCalledWith("/fake/repo/path");
@@ -205,16 +200,14 @@ describe("sessionReviewFromParams", () => {
   test("throws error when no session can be determined", async () => {
     (mockGetCurrentSession as any).mockImplementationOnce(() => Promise.resolve(null));
 
-    await expect(
-      sessionReviewFromParams({}, deps)
-    ).rejects.toThrow(ValidationError);
+    await expect(sessionReviewFromParams({}, deps)).rejects.toThrow(ValidationError);
   });
 
   test("throws error when session not found", async () => {
     (mockSessionDB.getSession as any).mockImplementationOnce(() => null);
 
-    await expect(
-      sessionReviewFromParams({ session: "nonexistent" }, deps)
-    ).rejects.toThrow(ResourceNotFoundError);
+    await expect(sessionReviewFromParams({ session: "nonexistent" }, deps)).rejects.toThrow(
+      ResourceNotFoundError
+    );
   });
-}); 
+});

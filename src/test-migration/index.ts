@@ -2,7 +2,7 @@
 
 /**
  * Test Migration Tool
- * 
+ *
  * A tool for migrating Jest/Vitest tests to Bun test patterns
  */
 
@@ -51,4 +51,4 @@ program
   .action(batchCommand);
 
 // Parse command line arguments
-program.parse(process.argv); 
+program.parse(process.argv);

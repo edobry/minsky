@@ -36,7 +36,7 @@ import {
   createTaskFromParams,
   getTaskSpecContentFromParams,
   taskSpecContentParamsSchema,
-  type TaskSpecContentParams
+  type TaskSpecContentParams,
 } from "./tasks/taskCommands.js";
 
 export {
@@ -47,7 +47,7 @@ export {
   createTaskFromParams,
   getTaskSpecContentFromParams,
   taskSpecContentParamsSchema,
-  type TaskSpecContentParams
+  type TaskSpecContentParams,
 };
 
 const execAsync = promisify(exec);
@@ -356,7 +356,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       title = titleWithoutIdMatch[1];
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 

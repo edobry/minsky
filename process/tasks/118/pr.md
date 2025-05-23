@@ -28,4 +28,4 @@ Fixed issues with the rule format parsing in rules.ts that were causing "Rule no
 - [x] All tests pass
 - [x] Code quality is acceptable
 - [x] Documentation is updated
-- [x] Changelog is updated 
+- [x] Changelog is updated

@@ -108,7 +108,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       const data = readFileSync(this.filePath, "utf8");
       const dataStr = typeof data === "string" ? data : data.toString();
-      
+
       // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.trim()) {
         // Handle empty file
@@ -119,14 +119,14 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Add safeguards against circular references
       try {
         const state = JSON.parse(dataStr) as S;
-        
+
         // Validate the parsed state structure
         if (typeof state !== "object" || state === null) {
           log.warn("Invalid state structure, reinitializing");
           const newState = this.initializeState();
           return { success: true, data: newState };
         }
-        
+
         return { success: true, data: state };
       } catch (parseError) {
         log.error("JSON parse error, reinitializing state:", { error: parseError });
@@ -163,7 +163,10 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       try {
         json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
       } catch (serializationError) {
-        if (serializationError instanceof Error && serializationError.message.includes("circular")) {
+        if (
+          serializationError instanceof Error &&
+          serializationError.message.includes("circular")
+        ) {
           throw new Error("Cannot serialize state: circular reference detected");
         }
         throw serializationError;
@@ -243,7 +246,9 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
-        throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
+        throw new Error(
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+        );
       }
 
       const state = result.data || this.initializeState();
@@ -281,7 +286,9 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
-        throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
+        throw new Error(
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+        );
       }
 
       const state = result.data || this.initializeState();
@@ -319,7 +326,9 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
-        throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
+        throw new Error(
+          `Failed to read database state: ${result.error?.message || "Unknown error"}`
+        );
       }
 
       const state = result.data || this.initializeState();

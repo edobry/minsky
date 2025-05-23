@@ -7,11 +7,11 @@ export {
   listTasksFromParams,
   createTaskFromParams,
   getTaskSpecContentFromParams,
-  
+
   // Re-export from taskFunctions.js
   normalizeTaskId,
-  
+
   // Re-export from taskService.js
   TaskService,
   createTaskService,
-} from "./tasks/index.js"; 
+} from "./tasks/index.js";

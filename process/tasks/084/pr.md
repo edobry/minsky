@@ -27,6 +27,7 @@ This PR extends the auto-detection functionality implemented in Task #070 to add
 ## Testing
 
 Changes were tested with unit tests that verify:
+
 - Auto-detection works when a task ID is not provided
 - Explicit task IDs are used when provided (overriding auto-detection)
 - Appropriate error handling when auto-detection fails
@@ -40,23 +41,24 @@ Changes were tested with unit tests that verify:
 - [x] Changelog is updated
 
 ## Commits
+
 ce38fcdb Task #084: Implement auto-detection for tasks status set command and add tests
 
-
 ## Modified Files (Showing changes from merge-base with main)
-process/tasks/084-extend-auto-detection-to-additional-commands.md
-src/adapters/__tests__/cli/tasks.test.ts
 
+process/tasks/084-extend-auto-detection-to-additional-commands.md
+src/adapters/**tests**/cli/tasks.test.ts
 
 ## Stats
-...extend-auto-detection-to-additional-commands.md |  56 ++++----
- src/adapters/__tests__/cli/tasks.test.ts           | 151 +++++++++++++++++++++
- 2 files changed, 179 insertions(+), 28 deletions(-)
+
+...extend-auto-detection-to-additional-commands.md | 56 ++++----
+src/adapters/**tests**/cli/tasks.test.ts | 151 +++++++++++++++++++++
+2 files changed, 179 insertions(+), 28 deletions(-)
+
 ## Uncommitted changes in working directory
-M	process/tasks.md
+
+M process/tasks.md
 
 process/tasks/084/pr.md
-
-
 
 Task #84 status updated: IN-REVIEW → IN-REVIEW

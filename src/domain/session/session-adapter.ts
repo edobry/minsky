@@ -162,12 +162,12 @@ export class SessionAdapter implements LocalSessionProviderInterface {
     await this.readDb();
     const originalLength = this.state.sessions.length;
     const newState = deleteSessionFn(this.state, session);
-    
+
     // If no change occurred (session not found)
     if (newState.sessions.length === originalLength) {
       return false;
     }
-    
+
     await this.writeDb(newState.sessions);
     return true;
   }

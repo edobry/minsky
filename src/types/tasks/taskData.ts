@@ -47,7 +47,7 @@ export interface TaskFilter {
  */
 export interface TaskSpecData {
   title: string;
-  description: string; 
+  description: string;
   id?: string;
   metadata?: Record<string, unknown>;
 }
@@ -59,7 +59,7 @@ export enum TaskStatusType {
   TODO = "TODO",
   IN_PROGRESS = "IN-PROGRESS",
   IN_REVIEW = "IN-REVIEW",
-  DONE = "DONE"
+  DONE = "DONE",
 }
 
 /**
@@ -129,4 +129,4 @@ export function fromTaskData(taskData: TaskData): any {
     worklog: taskData.worklog,
     mergeInfo: taskData.mergeInfo,
   };
-} 
+}

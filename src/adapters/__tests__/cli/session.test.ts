@@ -1,8 +1,8 @@
 /**
  * NOTE: These tests are temporarily disabled due to issues with Jest mocking in Bun environment.
- * 
+ *
  * The CLI tests require proper jest.mock functionality which is not fully compatible with Bun.
- * 
+ *
  * This test suite will be reimplemented after resolving the testing framework compatibility issues.
  */
 import { describe, test, expect } from "bun:test";
@@ -19,4 +19,4 @@ describe("Session CLI Commands", () => {
       expect(true).toBe(true);
     });
   });
-}); 
+});

@@ -169,7 +169,7 @@ export class LocalGitBackend implements RepositoryBackend {
       workdir,
       modifiedFiles,
       clean: modifiedFiles.length === 0,
-      changes: modifiedFiles.map(file => `M ${file.file}`),
+      changes: modifiedFiles.map((file) => `M ${file.file}`),
     };
   }
 

@@ -9,27 +9,35 @@ The JSON Task Backend is a new storage implementation for Minsky that provides c
 ### Core Components
 
 #### 1. DatabaseStorage Abstraction (`src/domain/storage/database-storage.ts`)
+
 Generic interface for database operations supporting any storage backend:
+
 - **Type-safe**: Generic types for entity (T) and state (S)
 - **CRUD operations**: Create, Read, Update, Delete with proper error handling
 - **Query capabilities**: Filtering and batch operations
 - **Future-proof**: Easy to extend for SQLite, PostgreSQL, etc.
 
 #### 2. JsonFileStorage Implementation (`src/domain/storage/json-file-storage.ts`)
+
 Concrete implementation for JSON file storage:
+
 - **Thread-safe operations**: Atomic writes and proper file locking
 - **Configurable paths**: Flexible file location configuration
 - **Error recovery**: Comprehensive error handling and recovery mechanisms
 - **Performance optimized**: Efficient JSON serialization and parsing
 
 #### 3. JsonFileTaskBackend (`src/domain/tasks/jsonFileTaskBackend.ts`)
+
 TaskBackend implementation using the storage abstraction:
+
 - **Interface compliance**: Implements existing TaskBackend interface
 - **Backward compatibility**: Supports markdown parsing for migration
 - **Enhanced operations**: Additional database-specific methods
 
 #### 4. Migration Utilities (`src/domain/tasks/migration-utils.ts`)
+
 Tools for transitioning between storage formats:
+
 - **Bidirectional conversion**: Markdown ↔ JSON
 - **Backup creation**: Safety mechanisms during migration
 - **Conflict resolution**: Handles duplicate tasks and sync issues
@@ -37,21 +45,25 @@ Tools for transitioning between storage formats:
 ## Benefits
 
 ### 🔄 **Synchronized Access**
+
 - Tasks are stored in a centralized JSON database
 - Changes in any workspace/session are immediately visible everywhere
 - Eliminates the synchronization issues of `tasks.md` files
 
 ### 🏗️ **Future-Proof Architecture**
+
 - Clean separation between business logic and storage
 - Easy to upgrade from JSON files to SQLite or other databases
 - No business logic changes required for storage upgrades
 
 ### 🛡️ **Type Safety**
+
 - Full TypeScript support with generic interfaces
 - Compile-time type checking for all operations
 - Reduced runtime errors and improved developer experience
 
 ### ⚡ **Performance**
+
 - Efficient JSON operations with atomic writes
 - Minimal file I/O operations
 - Optimized for concurrent access patterns
@@ -59,16 +71,18 @@ Tools for transitioning between storage formats:
 ## Storage Location
 
 By default, tasks are stored at:
+
 ```
 ~/.local/state/minsky/tasks.json
 ```
 
 This can be customized when creating the backend:
+
 ```typescript
 const backend = createJsonFileTaskBackend({
   name: "json-file",
   workspacePath: "/path/to/workspace",
-  dbFilePath: "/custom/path/to/tasks.json"
+  dbFilePath: "/custom/path/to/tasks.json",
 });
 ```
 
@@ -118,7 +132,7 @@ import { createJsonFileTaskBackend } from "./domain/tasks/jsonFileTaskBackend.js
 const backend = createJsonFileTaskBackend({
   name: "json-file",
   workspacePath: process.cwd(),
-  dbFilePath: "/custom/path/tasks.json" // Optional
+  dbFilePath: "/custom/path/tasks.json", // Optional
 });
 ```
 
@@ -130,15 +144,15 @@ const task = await backend.createTaskData({
   id: "#123",
   title: "New Task",
   status: "TODO",
-  description: "Task description"
+  description: "Task description",
 });
 
 // Retrieve a task
 const retrieved = await backend.getTaskById("#123");
 
 // Update a task
-const updated = await backend.updateTaskData("#123", { 
-  status: "IN-PROGRESS" 
+const updated = await backend.updateTaskData("#123", {
+  status: "IN-PROGRESS",
 });
 
 // Delete a task
@@ -156,12 +170,12 @@ import { createJsonFileTaskBackend } from "./domain/tasks/jsonFileTaskBackend.js
 
 const jsonBackend = createJsonFileTaskBackend({
   name: "json-file",
-  workspacePath: process.cwd()
+  workspacePath: process.cwd(),
 });
 
 const taskService = new TaskService({
   backend: "json-file",
-  customBackends: [jsonBackend]
+  customBackends: [jsonBackend],
 });
 ```
 
@@ -175,7 +189,7 @@ import { migrateWorkspaceToJson } from "./domain/tasks/migration-utils.js";
 const result = await migrateWorkspaceToJson("/path/to/workspace", {
   targetDbPath: "/custom/path/tasks.json", // Optional
   createBackup: true, // Default: true
-  preserveOriginal: true // Default: true
+  preserveOriginal: true, // Default: true
 });
 
 if (result.success) {
@@ -194,7 +208,7 @@ import { migrateWorkspaceFromJson } from "./domain/tasks/migration-utils.js";
 
 const result = await migrateWorkspaceFromJson("/path/to/workspace", {
   targetDbPath: "/path/to/tasks.json",
-  createBackup: true
+  createBackup: true,
 });
 ```
 
@@ -205,7 +219,7 @@ import { createMigrationUtils } from "./domain/tasks/migration-utils.js";
 
 const utils = createMigrationUtils({
   workspacePath: "/path/to/workspace",
-  targetDbPath: "/path/to/tasks.json"
+  targetDbPath: "/path/to/tasks.json",
 });
 
 // Compare formats to detect sync issues
@@ -220,18 +234,21 @@ console.log("Different tasks:", comparison.differences.different);
 The migration utilities support multiple markdown task formats:
 
 ### Format 1: Title with ID and link
+
 ```markdown
 - [ ] Implement feature X [#001](process/tasks/001-implement-feature-x.md)
 - [x] Fix bug Y [#002](process/tasks/002-fix-bug-y.md)
 ```
 
 ### Format 2: Link with ID
+
 ```markdown
 - [ ] [Implement feature X](process/tasks/001-implement-feature-x.md) [#001]
 - [x] [Fix bug Y](process/tasks/002-fix-bug-y.md) [#002]
 ```
 
 ### Format 3: Simple format with ID
+
 ```markdown
 - [ ] Implement feature X #001
 - [x] Fix bug Y #002
@@ -261,16 +278,19 @@ if (!migrationResult.success) {
 ## Performance Considerations
 
 ### File Operations
+
 - JSON files are read/written atomically
 - Directory structure is created automatically
 - File locks prevent concurrent write conflicts
 
 ### Memory Usage
+
 - Tasks are loaded into memory for operations
 - Efficient JSON parsing and serialization
 - Suitable for typical project task volumes (hundreds to thousands of tasks)
 
 ### Concurrent Access
+
 - Multiple processes can read simultaneously
 - Write operations are serialized through file system locks
 - Last-write-wins for concurrent modifications
@@ -280,12 +300,13 @@ if (!migrationResult.success) {
 The architecture supports seamless upgrades to more advanced storage:
 
 ### SQLite Backend
+
 ```typescript
 // Future implementation
 const sqliteBackend = createSqliteTaskBackend({
   name: "sqlite",
   workspacePath: process.cwd(),
-  dbPath: "~/.local/state/minsky/tasks.db"
+  dbPath: "~/.local/state/minsky/tasks.db",
 });
 
 // Same interface, different implementation
@@ -293,12 +314,13 @@ const task = await sqliteBackend.createTaskData(taskData);
 ```
 
 ### PostgreSQL Backend
+
 ```typescript
 // Future implementation
 const pgBackend = createPostgreSQLTaskBackend({
   name: "postgresql",
   workspacePath: process.cwd(),
-  connectionString: "postgresql://user:pass@localhost/minsky"
+  connectionString: "postgresql://user:pass@localhost/minsky",
 });
 ```
 
@@ -341,6 +363,7 @@ bun test src/domain/tasks/__tests__/jsonFileTaskBackend.test.ts
 ```
 
 The tests cover:
+
 - Storage operations (CRUD)
 - TaskBackend interface compliance
 - Markdown compatibility
@@ -350,6 +373,7 @@ The tests cover:
 ## Implementation Status
 
 ### ✅ Completed
+
 - DatabaseStorage abstraction interface
 - JsonFileStorage implementation
 - JsonFileTaskBackend with full TaskBackend compliance
@@ -358,11 +382,13 @@ The tests cover:
 - Documentation
 
 ### 🔄 In Progress
+
 - Integration with existing TaskService
 - CLI command updates
 - Comprehensive test coverage
 
 ### 📋 Future Work
+
 - SQLite backend implementation
 - Advanced query capabilities
 - Real-time synchronization
@@ -377,4 +403,4 @@ When extending the JSON Task Backend:
 2. **Add comprehensive tests**: Test both success and error scenarios
 3. **Update documentation**: Keep this README current with changes
 4. **Consider backward compatibility**: Existing migrations should continue to work
-5. **Follow type safety**: Use TypeScript generics and proper error handling 
+5. **Follow type safety**: Use TypeScript generics and proper error handling

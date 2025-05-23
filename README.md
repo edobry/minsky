@@ -34,6 +34,7 @@ A **Session** is a persistent workstream with metadata and an associated workspa
 A **Workspace** is the filesystem location where a session's working copy exists. It is the physical manifestation of a session on disk.
 
 These concepts form a clear relationship:
+
 - Each **Session** is associated with exactly one upstream **Repository**
 - Each **Session** has exactly one **Workspace**
 - A **Repository** can be referenced by multiple **Sessions**
@@ -236,6 +237,7 @@ Minsky now automatically ensures that task operations are performed in the main 
 Minsky features an environment-aware logging system that adjusts its output based on the execution context:
 
 - **HUMAN Mode** (default for terminal usage):
+
   - Outputs clean, human-readable logs only
   - Suppresses verbose JSON output for better terminal experience
   - Can be forced with `MINSKY_LOG_MODE=HUMAN`
@@ -317,14 +319,17 @@ minsky session start my-session --backend github --github-owner octocat --github
 ### Backend-specific Options
 
 #### Common Options
+
 - `--backend <type>` - Repository backend type (local, remote, github)
 - `--repo-url <url>` - Remote repository URL for remote/github backends
 
 #### Remote Git Options
+
 - `--auth-method <method>` - Authentication method (ssh, https, token)
 - `--clone-depth <depth>` - Clone depth for remote repositories
 
 #### GitHub Options
+
 - `--github-token <token>` - GitHub access token for authentication
 - `--github-owner <owner>` - GitHub repository owner/organization
 - `--github-repo <repo>` - GitHub repository name
@@ -440,6 +445,7 @@ Minsky follows an interface-agnostic architecture that separates domain logic fr
 - **Domain Layer (`src/domain/`)**: Contains all business logic independent of any interface. These functions are the source of truth for all operations.
 
 - **Adapter Layer (`src/adapters/`)**: Implements interface-specific adapters that convert interface inputs into domain function parameters and format domain function outputs for the interface.
+
   - `src/adapters/cli/`: CLI-specific adapters using Commander.js
   - `src/adapters/mcp/`: Model Context Protocol adapters (for AI integration)
 
@@ -458,6 +464,7 @@ Minsky follows an interface-agnostic architecture that separates domain logic fr
 5. Interface presents result to the user
 
 This architecture enables:
+
 - Reduced code duplication
 - Consistent behavior across interfaces
 - Better testability of domain logic

@@ -1,13 +1,13 @@
 /**
  * Parameter Schemas
- * 
+ *
  * This module provides reusable Zod schema definitions with standardized descriptions.
  * It builds upon option-descriptions.ts to further reduce duplication in schema definitions
  * across CLI and MCP interfaces.
  */
 
 import { z } from "zod";
-import * as descriptions from "./option-descriptions.js";
+import * as descriptions from "./option-descriptions";
 
 // ------------------------------------------------------------------
 // Schema Helpers
@@ -16,19 +16,17 @@ import * as descriptions from "./option-descriptions.js";
 /**
  * Create an optional string parameter with a description
  */
-export const optionalString = (description: string) => 
-  z.string().describe(description).optional();
+export const optionalString = (description: string) => z.string().describe(description).optional();
 
 /**
  * Create a required string parameter with a description
  */
-export const requiredString = (description: string) => 
-  z.string().describe(description);
+export const requiredString = (description: string) => z.string().describe(description);
 
 /**
  * Create an optional boolean parameter with a description
  */
-export const optionalBoolean = (description: string) => 
+export const optionalBoolean = (description: string) =>
   z.boolean().describe(description).optional();
 
 // ------------------------------------------------------------------
@@ -167,4 +165,4 @@ export const ruleFormatParam = optionalString(descriptions.RULE_FORMAT_DESCRIPTI
 /**
  * Parameter for rule tags
  */
-export const ruleTagsParam = optionalString(descriptions.RULE_TAGS_DESCRIPTION); 
+export const ruleTagsParam = optionalString(descriptions.RULE_TAGS_DESCRIPTION);

@@ -97,10 +97,10 @@ describe("Component Name", () => {
     // Create a Jest-like mock
     const mockFn = createCompatMock();
     mockFn.mockReturnValue("test");
-    
+
     // Use the mock
     const result = mockFn();
-    
+
     // Assert with regular Bun expectations
     expect(result).toBe("test");
     expect(mockFn).toHaveBeenCalled();
@@ -306,4 +306,4 @@ To contribute:
 2. Make your changes
 3. Add or update tests
 4. Update documentation
-5. Submit a pull request 
+5. Submit a pull request

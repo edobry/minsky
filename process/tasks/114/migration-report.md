@@ -29,12 +29,14 @@ The following patterns were consistently applied across all migrated tests:
 - Use .js extensions for all local module imports
 
 **Before:**
+
 ```ts
 import { describe, it, expect, jest, beforeEach, afterEach } from "vitest";
 import { someFunction } from "../module";
 ```
 
 **After:**
+
 ```ts
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { someFunction } from "../module.js";
@@ -46,6 +48,7 @@ import { someFunction } from "../module.js";
 - Keep `describe()` usage the same
 
 **Before:**
+
 ```ts
 describe("Test Suite", () => {
   it("should do something", () => {
@@ -55,6 +58,7 @@ describe("Test Suite", () => {
 ```
 
 **After:**
+
 ```ts
 describe("Test Suite", () => {
   test("should do something", () => {
@@ -71,15 +75,17 @@ describe("Test Suite", () => {
 - Always clean up mocks in afterEach with `setupTestMocks()` or manual cleanup
 
 **Before:**
+
 ```ts
 jest.mock("../module", () => ({
-  someFunction: jest.fn().mockReturnValue("mocked")
+  someFunction: jest.fn().mockReturnValue("mocked"),
 }));
 
 const mockFn = jest.fn();
 ```
 
 **After:**
+
 ```ts
 import { createMock, mockModule, setupTestMocks } from "../../utils/test-utils/mocking.js";
 
@@ -88,7 +94,7 @@ setupTestMocks();
 
 const mockFn = createMock();
 mockModule("../module.js", () => ({
-  someFunction: mockFn.mockReturnValue("mocked")
+  someFunction: mockFn.mockReturnValue("mocked"),
 }));
 ```
 
@@ -98,11 +104,13 @@ mockModule("../module.js", () => ({
 - Use clear class structure for method spying with prototype access
 
 **Before:**
+
 ```ts
 const spy = jest.spyOn(object, "method");
 ```
 
 **After:**
+
 ```ts
 import { spyOn } from "bun:test";
 
@@ -115,6 +123,7 @@ const spy = spyOn(Object.prototype, "method");
 - Use our custom assertion helpers for missing matchers
 
 **Before:**
+
 ```ts
 expect(array).toHaveLength(3);
 expect(obj).toBeInstanceOf(Class);
@@ -122,8 +131,13 @@ expect(value).not.toBeNull();
 ```
 
 **After:**
+
 ```ts
-import { expectToHaveLength, expectToBeInstanceOf, expectToNotBeNull } from "../../utils/test-utils/assertions.js";
+import {
+  expectToHaveLength,
+  expectToBeInstanceOf,
+  expectToNotBeNull,
+} from "../../utils/test-utils/assertions.js";
 
 expectToHaveLength(array, 3);
 expectToBeInstanceOf(obj, Class);
@@ -136,6 +150,7 @@ expectToNotBeNull(value);
 - Use proper type narrowing with instanceof checks
 
 **Before:**
+
 ```ts
 try {
   await functionThatThrows();
@@ -145,6 +160,7 @@ try {
 ```
 
 **After:**
+
 ```ts
 try {
   await functionThatThrows();
@@ -173,14 +189,17 @@ The following custom assertion helpers were created to bridge the gap between Je
 ## Lessons Learned
 
 1. **Type Safety Improvements**
+
    - The migration process helped identify and fix several type safety issues in the codebase
    - Bun's stricter type checking enforced better practices, especially with error handling
 
 2. **Mock Cleanup Importance**
+
    - Explicit mock cleanup in afterEach is crucial for test isolation
    - The setupTestMocks() helper significantly simplified this process
 
 3. **Custom Helpers Value**
+
    - Creating custom assertion helpers proved more maintainable than using inline workarounds
    - The helpers make future migrations much easier by providing a consistent pattern
 
@@ -191,10 +210,12 @@ The following custom assertion helpers were created to bridge the gap between Je
 ## Recommendations for Future Migrations
 
 1. **Automated Migration Tool**
+
    - Develop a script to automate common patterns like import changes and .js extension addition
    - Create pattern matching for common Jest matchers to convert to our custom helpers
 
 2. **Testing Standards Update**
+
    - Update testing standards documentation to require:
      - Explicit import of all lifecycle hooks
      - Use of setupTestMocks() in all test files
@@ -202,6 +223,7 @@ The following custom assertion helpers were created to bridge the gap between Je
      - Use of custom assertion helpers instead of inline workarounds
 
 3. **ESLint Rule Updates**
+
    - Add ESLint rules to enforce:
      - .js extensions on all local imports
      - No direct use of deprecated Jest patterns
@@ -220,4 +242,4 @@ The following custom assertion helpers were created to bridge the gap between Je
 
 ## Conclusion
 
-The migration of 20 high-priority tests to native Bun patterns was successful, with all tests maintaining their functionality while improving type safety and test isolation. The patterns and helpers established during this migration provide a solid foundation for migrating the remaining tests in the codebase. 
+The migration of 20 high-priority tests to native Bun patterns was successful, with all tests maintaining their functionality while improving type safety and test isolation. The patterns and helpers established during this migration provide a solid foundation for migrating the remaining tests in the codebase.

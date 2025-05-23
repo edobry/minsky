@@ -57,12 +57,14 @@ After analyzing the existing codebase, I've identified the following components 
 ### 1. CLI Bridge Core Components
 
 1. **CliCommandBridge**: The main class responsible for translating shared commands to Commander.js commands
+
    - Will connect to the shared command registry
    - Generate CLI commands from shared command definitions
    - Handle argument normalization and validation
    - Support hierarchical command structures
 
 2. **ParameterMapper**: Utility for mapping shared command parameters to CLI options
+
    - Convert Zod schemas to Commander.js options
    - Handle parameter validation
    - Support complex types like arrays and objects
@@ -76,11 +78,13 @@ After analyzing the existing codebase, I've identified the following components 
 ### 2. Architecture Integration
 
 1. **CLI Command Generator Factory**:
+
    - Create CLI commands from shared command definitions
    - Support customization hooks for special cases
    - Handle command hierarchies and nesting
 
 2. **CliCommandRegistry**: Extension of the shared command registry for CLI-specific customizations
+
    - Register CLI-specific command metadata
    - Store customization information
    - Maintain CLI command hierarchies
@@ -103,14 +107,14 @@ The bridge will support three modes of operation:
 1. [ ] Research and analyze current CLI adapter patterns
 
    - [ ] Identify common patterns across existing CLI adapters
-      - [ ] Examine parameter handling (required vs optional)
-      - [ ] Document how arguments vs options are used
-      - [ ] Analyze output formatting approaches
+     - [ ] Examine parameter handling (required vs optional)
+     - [ ] Document how arguments vs options are used
+     - [ ] Analyze output formatting approaches
    - [ ] Document output formatting, error handling, and parameter mapping patterns
    - [ ] Analyze Commander.js usage in existing adapters
-      - [ ] Study how command hierarchies are created
-      - [ ] Document help text generation
-      - [ ] Analyze error handling patterns
+     - [ ] Study how command hierarchies are created
+     - [ ] Document help text generation
+     - [ ] Analyze error handling patterns
 
 2. [ ] Design the CLI bridge architecture
 
@@ -207,12 +211,15 @@ interface CliCommandOptions {
     valueFromParam?: string; // Which parameter to use for value
   }[];
   // Custom option definitions
-  optionCustomizations?: Record<string, {
-    alias?: string;
-    description?: string;
-    hidden?: boolean;
-    defaultValue?: any;
-  }>;
+  optionCustomizations?: Record<
+    string,
+    {
+      alias?: string;
+      description?: string;
+      hidden?: boolean;
+      defaultValue?: any;
+    }
+  >;
   // Custom help text
   helpText?: string;
   // Custom examples to show in help
@@ -228,11 +235,14 @@ class CliCommandBridge {
   /**
    * Generate a Commander.js command for all commands in a category
    */
-  generateCategoryCommand(category: CommandCategory, options?: {
-    name?: string;
-    description?: string;
-    subcommandOptions?: Record<string, CliCommandOptions>;
-  }): Command;
+  generateCategoryCommand(
+    category: CommandCategory,
+    options?: {
+      name?: string;
+      description?: string;
+      subcommandOptions?: Record<string, CliCommandOptions>;
+    }
+  ): Command;
 
   /**
    * Register all commands from the shared registry as CLI commands
@@ -274,7 +284,9 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ## Worklog
 
 ### 2023-05-29
+
 - Implemented core CLI bridge components
+
   - Created CliCommandBridge class in src/adapters/shared/bridges/cli-bridge.ts
   - Implemented ParameterMapper for converting Zod schemas to CLI options
   - Created CLI execution context for CLI-specific operations
@@ -284,13 +296,14 @@ This task reduces code duplication, improves maintainability, and ensures consis
   - Created mappers for string, boolean, number parameters
   - Added support for optional vs required parameters
   - Implemented argument vs option handling
-  
 - Implemented command customization system
+
   - Created customization API for CLI commands
   - Implemented hooks for description, argument, and option customization
   - Added support for CLI-specific help text
 
 - Created a prototype integration with the "session list" command
+
   - Implemented bridge-generated version of the command
   - Created integration with CLI entry point
   - Tested and verified functionality matches existing implementation
@@ -300,7 +313,9 @@ This task reduces code duplication, improves maintainability, and ensures consis
   - Fixed console.log linting issues
 
 ### 2023-05-30
+
 - Migrated all session commands to use the CLI bridge:
+
   - session list
   - session get
   - session dir
@@ -321,6 +336,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ### Commands to be migrated
 
 1. **Tasks Commands**:
+
    - tasks list
    - tasks get
    - tasks status
@@ -328,6 +344,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
    - tasks spec
 
 2. **Git Commands**:
+
    - git summary
    - git prepare-pr
    - git merge-pr
@@ -335,6 +352,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
    - git push
 
 3. **Rules Commands**:
+
    - rules list
    - rules get
    - rules create
@@ -347,11 +365,13 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ### Additional Work
 
 1. **Testing**:
+
    - Add unit tests for CliCommandBridge
    - Add unit tests for parameter mapping
    - Create integration tests for bridge-generated commands
 
 2. **Documentation**:
+
    - Add developer documentation for the CLI bridge
    - Create migration guide for existing commands
    - Update command creation guidelines to prefer bridge-generated commands
@@ -364,7 +384,9 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ## Worklog
 
 ### 2023-05-29
+
 - Implemented core CLI bridge components
+
   - Created CliCommandBridge class in src/adapters/shared/bridges/cli-bridge.ts
   - Implemented ParameterMapper for converting Zod schemas to CLI options
   - Created CLI execution context for CLI-specific operations
@@ -374,13 +396,14 @@ This task reduces code duplication, improves maintainability, and ensures consis
   - Created mappers for string, boolean, number parameters
   - Added support for optional vs required parameters
   - Implemented argument vs option handling
-  
 - Implemented command customization system
+
   - Created customization API for CLI commands
   - Implemented hooks for description, argument, and option customization
   - Added support for CLI-specific help text
 
 - Created a prototype integration with the "session list" command
+
   - Implemented bridge-generated version of the command
   - Created integration with CLI entry point
   - Tested and verified functionality matches existing implementation
@@ -390,7 +413,9 @@ This task reduces code duplication, improves maintainability, and ensures consis
   - Fixed console.log linting issues
 
 ### 2023-05-30
+
 - Migrated all session commands to use the CLI bridge:
+
   - session list
   - session get
   - session dir
@@ -411,6 +436,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ### Commands to be migrated
 
 1. **Tasks Commands**:
+
    - tasks list
    - tasks get
    - tasks status
@@ -418,6 +444,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
    - tasks spec
 
 2. **Git Commands**:
+
    - git summary
    - git prepare-pr
    - git merge-pr
@@ -425,6 +452,7 @@ This task reduces code duplication, improves maintainability, and ensures consis
    - git push
 
 3. **Rules Commands**:
+
    - rules list
    - rules get
    - rules create
@@ -437,11 +465,13 @@ This task reduces code duplication, improves maintainability, and ensures consis
 ### Additional Work
 
 1. **Testing**:
+
    - Add unit tests for CliCommandBridge
    - Add unit tests for parameter mapping
    - Create integration tests for bridge-generated commands
 
 2. **Documentation**:
+
    - Add developer documentation for the CLI bridge
    - Create migration guide for existing commands
    - Update command creation guidelines to prefer bridge-generated commands

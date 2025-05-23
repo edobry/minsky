@@ -1,6 +1,6 @@
 /**
  * Shared Commands Index
- * 
+ *
  * Exports all command registration functions.
  * This file serves as the central point for registering all shared commands.
  */
@@ -17,19 +17,19 @@ import { registerInitCommands } from "./init.js";
 export function registerAllSharedCommands(): void {
   // Register git commands
   registerGitCommands();
-  
+
   // Register tasks commands
   registerTasksCommands();
-  
+
   // Register session commands
   registerSessionCommands();
-  
+
   // Register rules commands
   registerRulesCommands();
-  
+
   // Register init commands
   registerInitCommands();
-  
+
   // Additional command categories can be registered here as they're implemented
   // For example:
   // registerInitCommands();
@@ -37,10 +37,10 @@ export function registerAllSharedCommands(): void {
 
 // Export individual command registration functions to allow
 // per-category registration when needed
-export { 
-  registerGitCommands, 
-  registerTasksCommands, 
+export {
+  registerGitCommands,
+  registerTasksCommands,
   registerSessionCommands,
   registerRulesCommands,
   registerInitCommands,
-}; 
+};

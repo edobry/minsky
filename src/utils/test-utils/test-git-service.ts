@@ -51,4 +51,4 @@ export class TestGitService extends GitService {
     const result = await this.execAsync(`git -C ${workdir} ${command}`);
     return result.stdout.trim();
   }
-} 
+}

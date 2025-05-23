@@ -41,4 +41,4 @@ The script was tested by running it against the entire src directory, which succ
 - [x] All requirements implemented
 - [x] Code quality is acceptable
 - [x] Documentation is updated
-- [x] Changelog is updated 
+- [x] Changelog is updated

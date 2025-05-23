@@ -25,6 +25,7 @@ When you use `minsky rules get <rule-id>`, the command reads the rule file from 
 When making changes to rule files:
 
 1. **Decide where the authoritative version should live**:
+
    - For project-wide rules, usually the main workspace is authoritative
    - For task-specific rules, the session workspace may be authoritative
 
@@ -57,4 +58,4 @@ minsky rules update <rule-id> [--content file] [--description "New description"]
 minsky rules search "query"
 ```
 
-For more details, use `minsky rules --help` or see the [Minsky documentation](../../../docs/rules.md). 
+For more details, use `minsky rules --help` or see the [Minsky documentation](../../../docs/rules.md).

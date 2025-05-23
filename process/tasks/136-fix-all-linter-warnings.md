@@ -1,7 +1,6 @@
 # Task #136: Fix All Linter Warnings
+
 ## Context
-
-
 
 ## Requirements
 

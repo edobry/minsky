@@ -7,6 +7,7 @@ The domain layer relies heavily on concrete implementations rather than interfac
 ## Implementation
 
 1. Create a new file `src/domain/interfaces.ts` to define core interfaces for domain services:
+
    - Define `SessionProvider` interface for SessionDB operations
    - Define `GitServiceInterface` for GitService operations
    - Define `TaskServiceInterface` for TaskService operations
@@ -38,4 +39,4 @@ None - this is a foundational task.
 
 - Immediate improvement in testability
 - Enables future refactoring with proper interface-based dependency injection
-- Provides clear documentation of the domain services' responsibilities 
+- Provides clear documentation of the domain services' responsibilities

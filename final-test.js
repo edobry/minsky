@@ -11,7 +11,7 @@ const mcp = spawn("bun", [
   "mcp",
   "start",
   "--repo",
-  sessionDir
+  sessionDir,
 ]);
 
 // Buffer to collect the output
@@ -26,7 +26,7 @@ mcp.stdout.on("data", (data) => {
   // After server starts, send a test command using the correct method name
   if (output.includes("Minsky MCP Server started")) {
     console.log("Server started, sending tasks.list command with repository path...");
-    
+
     // Note: this is the method name that is registered by the CommandMapper.addTaskCommand method
     mcp.stdin.write(
       JSON.stringify({
@@ -34,8 +34,8 @@ mcp.stdout.on("data", (data) => {
         id: "1",
         method: "tasks.list",
         params: {
-          all: true
-        }
+          all: true,
+        },
       }) + "\n"
     );
   }
@@ -55,4 +55,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Test complete, shutting down...");
   mcp.kill("SIGINT");
-}, 5000); 
+}, 5000);

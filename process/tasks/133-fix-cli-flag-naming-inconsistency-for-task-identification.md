@@ -42,7 +42,7 @@ From current session testing:
 success: true
 directory: /Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#133
 
-# Git PR command uses --taskId (shows as --task-id in help):  
+# Git PR command uses --taskId (shows as --task-id in help):
 ❯ minsky git pr --help
 Usage: minsky git pr [options]
 Options:
@@ -57,12 +57,15 @@ error: unknown option '--task'
 ## Work Plan
 
 ### Phase 1: Code Analysis ✅ COMPLETED
+
 1. **Locate Git Command Definitions** ✅
-   - Found `src/adapters/shared/commands/git.ts` 
+
+   - Found `src/adapters/shared/commands/git.ts`
    - Analyzed current parameter naming and structure
    - Identified git PR command uses `taskId` parameter
 
 2. **Trace Parameter Flow** ✅
+
    - Examined how parameters flow from CLI -> adapter -> domain
    - Identified interfaces and types that need updating
    - Confirmed no backward compatibility concerns (domain layer uses `taskId` consistently)
@@ -73,12 +76,15 @@ error: unknown option '--task'
    - Only git commands had the `taskId` vs `task` inconsistency
 
 ### Phase 2: Implementation ✅ COMPLETED
+
 1. **Update Git Command Registry** ✅
+
    - Changed `taskId` to `task` in git command parameter definitions
    - Updated both CLI and MCP adapters
    - Ensured proper TypeScript typing
 
 2. **Update Domain Layer Mapping** ✅
+
    - Git domain functions still accept `taskId` parameter (no change needed)
    - Updated parameter mapping: `taskId: params.task` in both adapters
    - Ensured MCP adapter maps `args.task` to `taskId` for domain function
@@ -88,13 +94,16 @@ error: unknown option '--task'
    - Parameter validation continues to work correctly
 
 ### Phase 3: Testing & Verification ✅ COMPLETED
+
 1. **Manual Testing** ✅
+
    - ✅ `minsky git pr --task 133` works correctly
-   - ✅ `minsky session get --task 133` continues to work  
+   - ✅ `minsky session get --task 133` continues to work
    - ✅ Help output shows consistent `--task` flag naming
    - ✅ Task status updates work correctly
 
 2. **Automated Testing** ✅
+
    - ✅ Existing test suite runs without regressions
    - ✅ No breaking changes to functionality
 
@@ -106,6 +115,7 @@ error: unknown option '--task'
 ## Implementation Results
 
 ### Files Modified
+
 - `/src/adapters/shared/commands/git.ts`: Changed `taskId` parameter to `task` in PR command definition
 - `/src/adapters/mcp/git.ts`: Updated MCP adapter to use `task` parameter and map to `taskId` for domain functions
 
@@ -118,7 +128,7 @@ All verification commands now work consistently:
 ❯ minsky session get --task 133
 ✅ Session: task#133, Task ID: #133
 
-❯ minsky session dir --task 133  
+❯ minsky session dir --task 133
 ✅ success: true, directory: /Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#133
 
 ❯ minsky git pr --task 133 --session "task#133"

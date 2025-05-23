@@ -2,7 +2,7 @@
  * Option Descriptions Tests
  * @migrated Native Bun patterns
  * @refactored Uses project utilities instead of raw Bun APIs
- * 
+ *
  * This file tests that option descriptions are consistent across interfaces.
  */
 
@@ -30,13 +30,13 @@ describe("Option Descriptions", () => {
   it("all descriptions should follow consistent naming pattern (UPPERCASE_WITH_DESCRIPTION suffix)", () => {
     // Get all exported keys
     const allKeys = Object.keys(descriptions);
-    
+
     // Check each key follows the pattern
     for (const key of allKeys) {
       // Check pattern ends with _DESCRIPTION
       const endsWithDescription = key.endsWith("_DESCRIPTION");
       expect(endsWithDescription).toBe(true);
-      
+
       // Check the key is uppercase
       expect(key).toBe(key.toUpperCase());
     }
@@ -45,14 +45,14 @@ describe("Option Descriptions", () => {
   it("all descriptions should end with proper punctuation", () => {
     // Get all exported values
     const allDescriptions = Object.values(descriptions) as string[];
-    
+
     // Check each description ends with a period, question mark, or no punctuation
     // Some descriptions are phrases/fragments and don't need periods
     for (const desc of allDescriptions) {
-      const hasProperPunctuation = 
-        desc.endsWith(".") || 
-        desc.endsWith("?") || 
-        desc.endsWith(")") || 
+      const hasProperPunctuation =
+        desc.endsWith(".") ||
+        desc.endsWith("?") ||
+        desc.endsWith(")") ||
         desc.endsWith("}") ||
         /[a-zA-Z0-9)]$/.test(desc); // Ends with alphanumeric or closing parenthesis
 
@@ -102,4 +102,4 @@ describe("Option Descriptions", () => {
     expect(descriptions.RULE_FORMAT_DESCRIPTION).toBeTruthy();
     expect(descriptions.RULE_TAGS_DESCRIPTION).toBeTruthy();
   });
-}); 
+});

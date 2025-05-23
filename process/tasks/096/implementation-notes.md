@@ -11,6 +11,7 @@ This document outlines the implementation approach taken for Task #096: Improve 
 Created a new utility module at `src/adapters/cli/utils/shared-options.ts` that provides:
 
 - TypeScript interfaces for common option groups:
+
   - `RepoOptions`: Repository resolution options (`--session`, `--repo`, `--upstream-repo`)
   - `OutputOptions`: Output format options (`--json`, `--debug`)
   - `TaskOptions`: Task identification options (`--task`)
@@ -18,6 +19,7 @@ Created a new utility module at `src/adapters/cli/utils/shared-options.ts` that 
   - `ForceOptions`: Force operation options (`--force`)
 
 - Helper functions to add options to Commander commands:
+
   - `addRepoOptions(command)`: Adds repository resolution options
   - `addOutputOptions(command)`: Adds output format options
   - `addTaskOptions(command)`: Adds task ID options
@@ -36,6 +38,7 @@ Created a new utility module at `src/adapters/cli/utils/shared-options.ts` that 
 The CLI adapter code has been updated to use the shared options:
 
 - **Command Creation Pattern**: Changed from directly chaining options to:
+
   1. Create the command with its core options
   2. Add shared options using the helper functions
   3. Add the action handler
@@ -46,6 +49,7 @@ The CLI adapter code has been updated to use the shared options:
 ### 3. Testing
 
 Added unit tests for the shared option utilities:
+
 - Tests for option application functions
 - Tests for normalization functions
 - Tests for parameter composition
@@ -68,9 +72,10 @@ Added unit tests for the shared option utilities:
 ## Testing Strategy
 
 The implementation includes unit tests that verify:
+
 1. Options are correctly added to commands
 2. Option descriptions match the standardized text
 3. Normalization functions correctly transform CLI options to domain parameters
 4. The composed interfaces work correctly together
 
-Manual testing has been performed to ensure that commands continue to work as expected after the changes. 
+Manual testing has been performed to ensure that commands continue to work as expected after the changes.

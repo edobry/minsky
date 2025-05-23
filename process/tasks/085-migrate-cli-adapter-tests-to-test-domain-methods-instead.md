@@ -23,6 +23,7 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 ## Progress
 
 ### Completed
+
 - ✅ Replaced placeholder test in `src/adapters/__tests__/integration/session.test.ts`
 - ✅ Created proper tests for session operations (getSessionFromParams, listSessionsFromParams, deleteSessionFromParams, startSessionFromParams, updateSessionFromParams, getSessionDirFromParams)
 - ✅ Created new test file for rules domain methods
@@ -35,6 +36,7 @@ There's also a specific TODO comment in `src/adapters/__tests__/integration/sess
 - ✅ All implemented tests are passing
 
 ### Completion Status
+
 ✅ Task completed and ready for review
 
 ## Requirements

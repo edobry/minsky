@@ -1,6 +1,6 @@
 /**
  * Utility functions for generating task filter messages
- * 
+ *
  * @module filter-messages
  * @migrated Uses native Bun test patterns
  */

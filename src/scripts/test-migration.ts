@@ -224,9 +224,9 @@ function applyTransformations(
 
     if (beforeCount > 0) {
       // Apply the transformation
-      if (typeof t.replacement === 'string') {
+      if (typeof t.replacement === "string") {
         transformed = transformed.replace(t.pattern, t.replacement);
-      } else if (typeof t.replacement === 'function') {
+      } else if (typeof t.replacement === "function") {
         transformed = transformed.replace(t.pattern, t.replacement);
       }
 
@@ -248,7 +248,7 @@ function applyTransformations(
  * Migrate a single test file
  */
 async function migrateTestFile(
-  testFile: TestFileAnalysis, 
+  testFile: TestFileAnalysis,
   dryRun: boolean,
   createBackup: boolean,
   verifyTests: boolean
@@ -261,51 +261,51 @@ async function migrateTestFile(
   try {
     // Read the file content
     const content = await readFile(testFile.path, "utf-8");
-    
+
     // Apply transformations
     const { transformed, changes, addedImports } = applyTransformations(content, testFile);
-    
+
     // Check if there were any changes
     if (content === transformed) {
       console.log(`  No changes needed for: ${testFile.relativePath}`);
       return { success: true, changes: [], addedImports: [] };
     }
-    
+
     // Verify tests before migration if requested
     let verificationResult;
     if (verifyTests) {
       console.log(`  Verifying test before migration: ${testFile.relativePath}`);
       const beforeResult = await runTest(testFile.path);
-      
+
       if (!dryRun) {
         // Create backup if requested
         if (createBackup) {
           await writeFile(`${testFile.path}.bak`, content);
           console.log(`  Created backup: ${testFile.path}.bak`);
         }
-        
+
         // Write the transformed content
         await writeFile(testFile.path, transformed);
         console.log(`  Migrated: ${testFile.relativePath}`);
-        
+
         // Verify tests after migration
         console.log(`  Verifying test after migration: ${testFile.relativePath}`);
         const afterResult = await runTest(testFile.path);
-        
-        verificationResult = { 
-          before: beforeResult, 
-          after: afterResult
+
+        verificationResult = {
+          before: beforeResult,
+          after: afterResult,
         };
-        
+
         // If verification failed, restore from backup
         if (!afterResult.success && createBackup) {
           console.error(`  ⚠️ Test failed after migration, restoring from backup`);
           await writeFile(testFile.path, content);
-          return { 
-            success: false, 
-            changes, 
+          return {
+            success: false,
+            changes,
             addedImports,
-            verificationResult
+            verificationResult,
           };
         }
       } else {
@@ -319,7 +319,7 @@ async function migrateTestFile(
           await writeFile(`${testFile.path}.bak`, content);
           console.log(`  Created backup: ${testFile.path}.bak`);
         }
-        
+
         // Write the transformed content
         await writeFile(testFile.path, transformed);
         console.log(`  Migrated: ${testFile.relativePath}`);
@@ -327,12 +327,12 @@ async function migrateTestFile(
         console.log(`  [DRY RUN] Would migrate: ${testFile.relativePath}`);
       }
     }
-    
-    return { 
-      success: true, 
-      changes, 
+
+    return {
+      success: true,
+      changes,
       addedImports,
-      verificationResult
+      verificationResult,
     };
   } catch (error: unknown) {
     const err = error as Error;
@@ -348,66 +348,70 @@ async function migrateTests() {
   try {
     console.log("Test Migration Script");
     console.log("--------------------");
-    
+
     // Load the analysis report
     const analysisPath = resolve(baseDir, config.analysisFile);
     console.log(`Loading analysis from: ${analysisPath}`);
-    
+
     if (!existsSync(analysisPath)) {
       console.error(`Analysis file not found: ${analysisPath}`);
       console.error(`Run the test analyzer first: bun src/scripts/test-analyzer.ts`);
       process.exit(1);
     }
-    
+
     const analysisContent = await readFile(analysisPath, "utf-8");
     const analysis: AnalysisReport = JSON.parse(analysisContent);
-    
+
     // Filter test files based on configuration
     let testFilesToMigrate = analysis.testFiles;
-    
+
     if (config.targetPath) {
       const targetPath = resolve(baseDir, config.targetPath);
-      testFilesToMigrate = testFilesToMigrate.filter(file => 
-        file.path === targetPath || file.path.startsWith(targetPath + "/")
+      testFilesToMigrate = testFilesToMigrate.filter(
+        (file) => file.path === targetPath || file.path.startsWith(targetPath + "/")
       );
-      
+
       if (testFilesToMigrate.length === 0) {
         console.error(`No test files found matching target: ${config.targetPath}`);
         process.exit(1);
       }
-      
-      console.log(`Filtered to ${testFilesToMigrate.length} test files matching target: ${config.targetPath}`);
-    }
-    
-    if (config.difficultyFilter) {
-      testFilesToMigrate = testFilesToMigrate.filter(file => 
-        file.classification.migrationDifficulty === config.difficultyFilter
+
+      console.log(
+        `Filtered to ${testFilesToMigrate.length} test files matching target: ${config.targetPath}`
       );
-      
+    }
+
+    if (config.difficultyFilter) {
+      testFilesToMigrate = testFilesToMigrate.filter(
+        (file) => file.classification.migrationDifficulty === config.difficultyFilter
+      );
+
       if (testFilesToMigrate.length === 0) {
         console.error(`No test files found with difficulty: ${config.difficultyFilter}`);
         process.exit(1);
       }
-      
-      console.log(`Filtered to ${testFilesToMigrate.length} test files with difficulty: ${config.difficultyFilter}`);
+
+      console.log(
+        `Filtered to ${testFilesToMigrate.length} test files with difficulty: ${config.difficultyFilter}`
+      );
     }
-    
+
     // Output configuration
     console.log("\nMigration Configuration:");
     console.log(`- Dry Run: ${config.dryRun ? "Yes" : "No"}`);
     console.log(`- Create Backups: ${config.backup ? "Yes" : "No"}`);
     console.log(`- Verify Tests: ${config.verify ? "Yes" : "No"}`);
     console.log(`- Target Files: ${testFilesToMigrate.length}`);
-    
+
     // Create results directory
     const resultsDir = resolve(baseDir, "test-migration-results");
     if (!existsSync(resultsDir)) {
       await mkdir(resultsDir, { recursive: true });
     }
-    
+
     // Migrate each test file
     console.log("\nStarting migration...");
-    
+
     const migrationResults: Array<{
       file: string;
       success: boolean;
@@ -417,27 +421,29 @@ async function migrateTests() {
     }> = [];
     let successCount = 0;
     let failCount = 0;
-    
+
     for (const [index, testFile] of testFilesToMigrate.entries()) {
-      console.log(`\n[${index + 1}/${testFilesToMigrate.length}] Migrating: ${testFile.relativePath}`);
-      
+      console.log(
+        `\n[${index + 1}/${testFilesToMigrate.length}] Migrating: ${testFile.relativePath}`
+      );
+
       const result = await migrateTestFile(testFile, config.dryRun, config.backup, config.verify);
-      
+
       if (result.success) {
         successCount++;
       } else {
         failCount++;
       }
-      
+
       migrationResults.push({
         file: testFile.relativePath,
         success: result.success,
         changes: result.changes,
         addedImports: result.addedImports,
-        verificationResult: result.verificationResult
+        verificationResult: result.verificationResult,
       });
     }
-    
+
     // Generate migration report
     const migrationReport = {
       timestamp: new Date().toISOString(),
@@ -446,24 +452,24 @@ async function migrateTests() {
         createBackups: config.backup,
         verifyTests: config.verify,
         targetPath: config.targetPath,
-        difficultyFilter: config.difficultyFilter
+        difficultyFilter: config.difficultyFilter,
       },
       summary: {
         totalFiles: testFilesToMigrate.length,
         successCount,
-        failCount
+        failCount,
       },
-      results: migrationResults
+      results: migrationResults,
     };
-    
+
     // Write migration report
     const reportPath = resolve(resultsDir, "migration-report.json");
     await writeFile(reportPath, JSON.stringify(migrationReport, null, 2));
     console.log(`\nMigration report written to: ${reportPath}`);
-    
+
     // Generate markdown summary
     const mdReportPath = resolve(resultsDir, "migration-report.md");
-    
+
     const md = [
       "# Test Migration Report",
       "",
@@ -484,15 +490,15 @@ async function migrateTests() {
       `- Difficulty Filter: ${migrationReport.configuration.difficultyFilter || "All"}`,
       "",
       "## Migration Results",
-      ""
+      "",
     ];
-    
+
     for (const result of migrationResults) {
       md.push(`### ${result.file}`);
       md.push("");
       md.push(`Status: ${result.success ? "✅ Success" : "❌ Failed"}`);
       md.push("");
-      
+
       if (result.changes.length > 0) {
         md.push("Changes:");
         md.push("");
@@ -504,7 +510,7 @@ async function migrateTests() {
         md.push("No changes made");
         md.push("");
       }
-      
+
       if (result.addedImports.length > 0) {
         md.push("Added imports:");
         md.push("");
@@ -513,7 +519,7 @@ async function migrateTests() {
         }
         md.push("");
       }
-      
+
       if (result.verificationResult) {
         md.push("Verification:");
         md.push("");
@@ -521,25 +527,24 @@ async function migrateTests() {
         md.push(`- After: ${result.verificationResult.after.success ? "✅ Pass" : "❌ Fail"}`);
         md.push("");
       }
-      
+
       md.push("---");
       md.push("");
     }
-    
+
     await writeFile(mdReportPath, md.join("\n"));
     console.log(`Migration markdown report written to: ${mdReportPath}`);
-    
+
     // Final output
     console.log("\nMigration Complete!");
     console.log(`- Total Files: ${migrationReport.summary.totalFiles}`);
     console.log(`- Successfully Migrated: ${migrationReport.summary.successCount}`);
     console.log(`- Failed Migrations: ${migrationReport.summary.failCount}`);
-    
+
     if (config.dryRun) {
       console.log("\nThis was a dry run. No files were modified.");
       console.log("To apply changes, run without the --dry-run flag.");
     }
-    
   } catch (error: unknown) {
     const err = error as Error;
     console.error("Error in migration process:", err.message || err);
@@ -548,4 +553,4 @@ async function migrateTests() {
 }
 
 // Run the migration
-migrateTests(); 
+migrateTests();

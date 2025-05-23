@@ -9,46 +9,46 @@ Total test files analyzed: **53**
 ### By Mocking Complexity
 
 | Complexity | Count | Percentage |
-|-----------|-------|------------|
-| low | 41 | 77.4% |
-| medium | 9 | 17.0% |
-| high | 3 | 5.7% |
+| ---------- | ----- | ---------- |
+| low        | 41    | 77.4%      |
+| medium     | 9     | 17.0%      |
+| high       | 3     | 5.7%       |
 
 ### By Framework Dependency
 
 | Framework | Count | Percentage |
-|-----------|-------|------------|
-| jest | 0 | 0.0% |
-| vitest | 0 | 0.0% |
-| bun | 52 | 98.1% |
-| mixed | 0 | 0.0% |
-| none | 1 | 1.9% |
+| --------- | ----- | ---------- |
+| jest      | 0     | 0.0%       |
+| vitest    | 0     | 0.0%       |
+| bun       | 52    | 98.1%      |
+| mixed     | 0     | 0.0%       |
+| none      | 1     | 1.9%       |
 
 ### By Migration Difficulty
 
 | Difficulty | Count | Percentage |
-|-----------|-------|------------|
-| easy | 46 | 86.8% |
-| medium | 7 | 13.2% |
-| hard | 0 | 0.0% |
+| ---------- | ----- | ---------- |
+| easy       | 46    | 86.8%      |
+| medium     | 7     | 13.2%      |
+| hard       | 0     | 0.0%       |
 
 ### By Test Type
 
-| Type | Count | Percentage |
-|-----------|-------|------------|
-| unit | 42 | 79.2% |
-| integration | 11 | 20.8% |
-| e2e | 0 | 0.0% |
-| unknown | 0 | 0.0% |
+| Type        | Count | Percentage |
+| ----------- | ----- | ---------- |
+| unit        | 42    | 79.2%      |
+| integration | 11    | 20.8%      |
+| e2e         | 0     | 0.0%       |
+| unknown     | 0     | 0.0%       |
 
 ## Top Test Utilities Usage
 
-| Utility | Usage Count |
-|---------|-------------|
-| testUtils | 11 |
-| createTestDeps | 4 |
-| withMockedDeps | 1 |
-| createTestSuite | 1 |
+| Utility         | Usage Count |
+| --------------- | ----------- |
+| testUtils       | 11          |
+| createTestDeps  | 4           |
+| withMockedDeps  | 1           |
+| createTestSuite | 1           |
 
 ## Common Failing Patterns
 
@@ -56,11 +56,9 @@ Total test files analyzed: **53**
 
 - `src/utils/test-utils/__tests__/mocking.test.ts`
 
-
 ## Files by Migration Difficulty
 
 ### Hard (0 files)
-
 
 ### Medium (7 files)
 
@@ -90,7 +88,6 @@ Total test files analyzed: **53**
 - `src/adapters/__tests__/integration/session.test.ts` - high mocking, integration test
 - `src/adapters/__tests__/shared/commands/rules.test.ts` - low mocking, unit test
 - ... and 31 more files
-
 
 ## Migration Strategy Recommendations
 

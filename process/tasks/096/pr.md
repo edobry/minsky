@@ -24,6 +24,7 @@ This PR introduces a shared options system for CLI commands to reduce code dupli
 ## Testing
 
 The implementation includes comprehensive tests that verify:
+
 - Options are correctly added to commands with consistent descriptions
 - Normalization functions properly convert CLI options to domain parameters
 - The shared option utilities work correctly together with CLI adapters

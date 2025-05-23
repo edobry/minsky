@@ -18,7 +18,7 @@ This document provides practical examples of how to write tests in the Minsky pr
 ```typescript
 // src/utils/format.ts
 export function formatTitle(title: string): string {
-  return title.trim().replace(/\s+/g, ' ').toUpperCase();
+  return title.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 // src/utils/__tests__/format.test.ts
@@ -46,7 +46,7 @@ describe("formatTitle", () => {
 // src/components/counter.ts
 export function createCounter(initialValue = 0) {
   let count = initialValue;
-  
+
   return {
     increment() {
       count += 1;
@@ -62,7 +62,7 @@ export function createCounter(initialValue = 0) {
     },
     getValue() {
       return count;
-    }
+    },
   };
 }
 
@@ -75,30 +75,30 @@ describe("Counter", () => {
     const counter = createCounter();
     expect(counter.getValue()).toBe(0);
   });
-  
+
   test("should initialize with provided value", () => {
     const counter = createCounter(10);
     expect(counter.getValue()).toBe(10);
   });
-  
+
   test("should increment counter", () => {
     const counter = createCounter(5);
     expect(counter.increment()).toBe(6);
     expect(counter.getValue()).toBe(6);
   });
-  
+
   test("should decrement counter", () => {
     const counter = createCounter(5);
     expect(counter.decrement()).toBe(4);
     expect(counter.getValue()).toBe(4);
   });
-  
+
   test("should reset counter", () => {
     const counter = createCounter(5);
     counter.increment();
     counter.increment();
     expect(counter.getValue()).toBe(7);
-    
+
     expect(counter.reset()).toBe(5);
     expect(counter.getValue()).toBe(5);
   });
@@ -122,7 +122,7 @@ export function createDataService() {
           }
         }, 10);
       });
-    }
+    },
   };
 }
 
@@ -134,15 +134,15 @@ describe("DataService", () => {
   test("should fetch data successfully", async () => {
     const dataService = createDataService();
     const result = await dataService.fetchData("123");
-    
+
     expect(result.id).toBe("123");
     expect(result.name).toBe("Test Data");
     expect(result.value).toBe(42);
   });
-  
+
   test("should reject with error for invalid ID", async () => {
     const dataService = createDataService();
-    
+
     try {
       await dataService.fetchData("invalid");
       // If we reach here, the test should fail
@@ -185,11 +185,11 @@ setupTestMocks();
 // Mock dependencies before importing the module
 mockModule("../utils/logger", () => ({
   info: createMock(),
-  error: createMock()
+  error: createMock(),
 }));
 
 mockModule("../utils/api-client", () => ({
-  get: createMock((url) => Promise.resolve({ id: url.split("/")[2], name: "Test User" }))
+  get: createMock((url) => Promise.resolve({ id: url.split("/")[2], name: "Test User" })),
 }));
 
 // Import after mocking
@@ -201,16 +201,16 @@ describe("getUserProfile", () => {
   test("should fetch and return user profile", async () => {
     const userId = "123";
     const result = await getUserProfile(userId);
-    
+
     expect(logger.info).toHaveBeenCalledWith("Fetching user profile for 123");
     expect(apiClient.get).toHaveBeenCalledWith("/users/123");
     expect(result).toEqual({ id: "123", name: "Test User" });
   });
-  
+
   test("should handle errors properly", async () => {
     const error = new Error("Network error");
     (apiClient.get as any).mockImplementationOnce(() => Promise.reject(error));
-    
+
     try {
       await getUserProfile("456");
       expect(true).toBe(false); // Should not reach here
@@ -237,18 +237,18 @@ export function createTaskService(taskRepository: TaskRepository) {
     async getTask(id: string) {
       return await taskRepository.findById(id);
     },
-    
+
     async completeTask(id: string) {
       const task = await taskRepository.findById(id);
       if (!task) {
         throw new Error(`Task not found: ${id}`);
       }
-      
+
       task.completed = true;
       task.completedAt = new Date();
-      
+
       return await taskRepository.save(task);
-    }
+    },
   };
 }
 
@@ -265,66 +265,68 @@ describe("TaskService", () => {
   test("should get task by ID", async () => {
     // Create mock repository
     const mockRepo = createMockObject<TaskRepository>(["findById", "save", "delete"]);
-    
+
     // Configure mock behavior
-    mockRepo.findById.mockImplementation((id) => Promise.resolve({
-      id,
-      title: "Test Task",
-      completed: false
-    }));
-    
+    mockRepo.findById.mockImplementation((id) =>
+      Promise.resolve({
+        id,
+        title: "Test Task",
+        completed: false,
+      })
+    );
+
     // Create service with mocked repo
     const taskService = createTaskService(mockRepo);
-    
+
     // Execute test
     const task = await taskService.getTask("task-123");
-    
+
     // Verify results
     expect(mockRepo.findById).toHaveBeenCalledWith("task-123");
     expect(task).toEqual({
       id: "task-123",
       title: "Test Task",
-      completed: false
+      completed: false,
     });
   });
-  
+
   test("should complete a task", async () => {
     // Create mock repository
     const mockRepo = createMockObject<TaskRepository>(["findById", "save", "delete"]);
-    
+
     // Configure mock behavior
     const task = {
       id: "task-123",
       title: "Test Task",
-      completed: false
+      completed: false,
     };
-    
+
     mockRepo.findById.mockImplementation(() => Promise.resolve({ ...task }));
     mockRepo.save.mockImplementation((updatedTask) => Promise.resolve(updatedTask));
-    
+
     // Create service with mocked repo
     const taskService = createTaskService(mockRepo);
-    
+
     // Execute test
     const result = await taskService.completeTask("task-123");
-    
+
     // Verify results
     expect(mockRepo.findById).toHaveBeenCalledWith("task-123");
     expect(mockRepo.save).toHaveBeenCalled();
     expect(result.completed).toBe(true);
     expect(result.completedAt).toBeInstanceOf(Date);
   });
-  
+
   test("should throw error when completing non-existent task", async () => {
     // Create mock repository
     const mockRepo = createMockObject<TaskRepository>(["findById", "save", "delete"]);
-    
+
     // Configure mock behavior - task not found
     mockRepo.findById.mockImplementation(() => Promise.resolve(null));
-    
+
     // Create service with mocked repo
     const taskService = createTaskService(mockRepo);
-    
+
     // Execute test
     try {
       await taskService.completeTask("non-existent");
@@ -351,11 +353,11 @@ setupTestCompat();
 // Mock dependencies before importing
 jest.mock("../utils/logger", () => ({
   info: jest.fn(),
-  error: jest.fn()
+  error: jest.fn(),
 }));
 
 jest.mock("../utils/api-client", () => ({
-  get: jest.fn((url) => Promise.resolve({ id: url.split("/")[2], name: "Test User" }))
+  get: jest.fn((url) => Promise.resolve({ id: url.split("/")[2], name: "Test User" })),
 }));
 
 // Import after mocking
@@ -367,16 +369,16 @@ describe("getUserProfile with Compatibility Layer", () => {
   test("should fetch and return user profile", async () => {
     const userId = "123";
     const result = await getUserProfile(userId);
-    
+
     expect(logger.info).toHaveBeenCalledWith("Fetching user profile for 123");
     expect(apiClient.get).toHaveBeenCalledWith("/users/123");
     expect(result).toEqual({ id: "123", name: "Test User" });
   });
-  
+
   test("should handle errors properly", async () => {
     const error = new Error("Network error");
     (apiClient.get as any).mockImplementationOnce(() => Promise.reject(error));
-    
+
     try {
       await getUserProfile("456");
       expect(true).toBe(false); // Should not reach here
@@ -385,7 +387,7 @@ describe("getUserProfile with Compatibility Layer", () => {
       expect(logger.error).toHaveBeenCalledWith("Failed to fetch user profile: Network error");
     }
   });
-  
+
   // Reset mocks after tests
   afterEach(() => {
     jest.clearAllMocks();
@@ -414,24 +416,24 @@ describe("DataFormatter with Compatibility Layer", () => {
       timestamp: "2023-04-20T12:34:56Z",
       items: [
         { id: 1, name: "Item 1" },
-        { id: 2, name: "Item 2" }
-      ]
+        { id: 2, name: "Item 2" },
+      ],
     };
-    
+
     const result = formatData(rawData);
-    
+
     // Using asymmetric matchers for flexible assertions
     expect(result).toEqual({
       id: asymmetricMatchers.any(String),
       user: asymmetricMatchers.objectContaining({ id: "user-456" }),
       processedAt: asymmetricMatchers.any(Date),
       items: asymmetricMatchers.arrayContaining([
-        asymmetricMatchers.objectContaining({ name: "Item 1" })
+        asymmetricMatchers.objectContaining({ name: "Item 1" }),
       ]),
       meta: asymmetricMatchers.objectContaining({
         itemCount: 2,
-        source: asymmetricMatchers.stringContaining("API")
-      })
+        source: asymmetricMatchers.stringContaining("API"),
+      }),
     });
   });
 });
@@ -452,10 +454,7 @@ export interface EmailProvider {
   sendEmail(to: string, subject: string, body: string): Promise<boolean>;
 }
 
-export function createNotificationService(deps: {
-  logger: Logger;
-  emailProvider: EmailProvider;
-}) {
+export function createNotificationService(deps: { logger: Logger; emailProvider: EmailProvider }) {
   return {
     async sendNotification(userId: string, message: string): Promise<boolean> {
       try {
@@ -465,7 +464,7 @@ export function createNotificationService(deps: {
           "New Notification",
           message
         );
-        
+
         if (emailSent) {
           deps.logger.info(`Notification sent successfully to ${userId}`);
           return true;
@@ -477,7 +476,7 @@ export function createNotificationService(deps: {
         deps.logger.error(`Error sending notification: ${error.message}`);
         return false;
       }
-    }
+    },
   };
 }
 
@@ -495,22 +494,22 @@ describe("NotificationService", () => {
     // Create mock dependencies
     const mockLogger = {
       info: createMock(),
-      error: createMock()
+      error: createMock(),
     };
-    
+
     const mockEmailProvider = {
-      sendEmail: createMock(() => Promise.resolve(true))
+      sendEmail: createMock(() => Promise.resolve(true)),
     };
-    
+
     // Create service with mocked dependencies
     const notificationService = createNotificationService({
       logger: mockLogger,
-      emailProvider: mockEmailProvider
+      emailProvider: mockEmailProvider,
     });
-    
+
     // Execute test
     const result = await notificationService.sendNotification("123", "Test message");
-    
+
     // Verify results
     expect(result).toBe(true);
     expect(mockLogger.info).toHaveBeenCalledWith("Sending notification to 123: Test message");
@@ -522,59 +521,61 @@ describe("NotificationService", () => {
     expect(mockLogger.info).toHaveBeenCalledWith("Notification sent successfully to 123");
     expect(mockLogger.error).not.toHaveBeenCalled();
   });
-  
+
   test("should handle failed email sending", async () => {
     // Create mock dependencies
     const mockLogger = {
       info: createMock(),
-      error: createMock()
+      error: createMock(),
     };
-    
+
     const mockEmailProvider = {
-      sendEmail: createMock(() => Promise.resolve(false))
+      sendEmail: createMock(() => Promise.resolve(false)),
     };
-    
+
     // Create service with mocked dependencies
     const notificationService = createNotificationService({
       logger: mockLogger,
-      emailProvider: mockEmailProvider
+      emailProvider: mockEmailProvider,
     });
-    
+
     // Execute test
     const result = await notificationService.sendNotification("123", "Test message");
-    
+
     // Verify results
     expect(result).toBe(false);
     expect(mockLogger.info).toHaveBeenCalledWith("Sending notification to 123: Test message");
     expect(mockEmailProvider.sendEmail).toHaveBeenCalled();
     expect(mockLogger.error).toHaveBeenCalledWith("Failed to send notification to 123");
   });
-  
+
   test("should handle errors during email sending", async () => {
     // Create mock dependencies
     const mockLogger = {
       info: createMock(),
-      error: createMock()
+      error: createMock(),
     };
-    
+
     const error = new Error("Email service unavailable");
     const mockEmailProvider = {
-      sendEmail: createMock(() => Promise.reject(error))
+      sendEmail: createMock(() => Promise.reject(error)),
     };
-    
+
     // Create service with mocked dependencies
     const notificationService = createNotificationService({
       logger: mockLogger,
-      emailProvider: mockEmailProvider
+      emailProvider: mockEmailProvider,
     });
-    
+
     // Execute test
     const result = await notificationService.sendNotification("123", "Test message");
-    
+
     // Verify results
     expect(result).toBe(false);
     expect(mockEmailProvider.sendEmail).toHaveBeenCalled();
-    expect(mockLogger.error).toHaveBeenCalledWith("Error sending notification: Email service unavailable");
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Error sending notification: Email service unavailable"
+    );
   });
 });
 ```
@@ -591,13 +592,13 @@ export function createTaskHandler(deps: Dependencies) {
       const taskId = await deps.taskService.createTask({
         title,
         description,
-        status: "TODO"
+        status: "TODO",
       });
-      
+
       await deps.sessionService.attachTaskToSession(deps.session.id, taskId);
-      
+
       return taskId;
-    }
+    },
   };
 }
 
@@ -617,30 +618,27 @@ describe("TaskHandler", () => {
     const deps = createTestDeps({
       session: { id: "session-123" },
       taskService: {
-        createTask: createMock(() => Promise.resolve("task-456"))
+        createTask: createMock(() => Promise.resolve("task-456")),
       },
       sessionService: {
-        attachTaskToSession: createMock(() => Promise.resolve(true))
-      }
+        attachTaskToSession: createMock(() => Promise.resolve(true)),
+      },
     });
-    
+
     // Create handler with test dependencies
     const taskHandler = createTaskHandler(deps);
-    
+
     // Execute test
     const taskId = await taskHandler.createTask("Test Task", "Test description");
-    
+
     // Verify results
     expect(taskId).toBe("task-456");
     expect(deps.taskService.createTask).toHaveBeenCalledWith({
       title: "Test Task",
       description: "Test description",
-      status: "TODO"
+      status: "TODO",
     });
-    expect(deps.sessionService.attachTaskToSession).toHaveBeenCalledWith(
-      "session-123",
-      "task-456"
-    );
+    expect(deps.sessionService.attachTaskToSession).toHaveBeenCalledWith("session-123", "task-456");
   });
 });
 ```
@@ -666,54 +664,53 @@ describe("CLI Command Integration", () => {
     const deps = createTestDeps({
       taskService: {
         createTask: createMock(() => Promise.resolve("task-123")),
-        getTask: createMock(() => Promise.resolve({
-          id: "task-123",
-          title: "New Task",
-          status: "TODO"
-        }))
+        getTask: createMock(() =>
+          Promise.resolve({
+            id: "task-123",
+            title: "New Task",
+            status: "TODO",
+          })
+        ),
       },
       logger: {
         info: createMock(),
-        error: createMock()
-      }
+        error: createMock(),
+      },
     });
-    
+
     // Execute command
     const result = await runCommand(
       ["task", "create", "--title", "New Task", "--description", "Task description"],
       deps
     );
-    
+
     // Verify integration results
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ taskId: "task-123" });
     expect(deps.taskService.createTask).toHaveBeenCalledWith({
       title: "New Task",
       description: "Task description",
-      status: "TODO"
+      status: "TODO",
     });
     expect(deps.logger.info).toHaveBeenCalledWith("Task created: task-123");
   });
-  
+
   test("should handle errors in command execution", async () => {
     // Set up dependencies with mock implementations that fail
     const error = new Error("Task creation failed");
     const deps = createTestDeps({
       taskService: {
-        createTask: createMock(() => Promise.reject(error))
+        createTask: createMock(() => Promise.reject(error)),
       },
       logger: {
         info: createMock(),
-        error: createMock()
-      }
+        error: createMock(),
+      },
     });
-    
+
     // Execute command
-    const result = await runCommand(
-      ["task", "create", "--title", "New Task"],
-      deps
-    );
-    
+    const result = await runCommand(["task", "create", "--title", "New Task"], deps);
+
     // Verify error handling
     expect(result.success).toBe(false);
     expect(result.error).toBe(error);
@@ -735,7 +732,7 @@ export function createUserFixture(overrides = {}) {
     email: "test@example.com",
     roles: ["user"],
     createdAt: new Date("2023-01-01T00:00:00.000Z"),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -747,7 +744,7 @@ export function createTaskFixture(overrides = {}) {
     status: "TODO",
     createdAt: new Date("2023-01-01T00:00:00.000Z"),
     createdBy: "user-123",
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -758,7 +755,7 @@ export function createSessionFixture(overrides = {}) {
     startedAt: new Date("2023-01-01T00:00:00.000Z"),
     user: createUserFixture(),
     tasks: [createTaskFixture()],
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -777,28 +774,28 @@ describe("SessionManager", () => {
     // Create fixtures
     const session = createSessionFixture();
     const newTask = createTaskFixture({ id: "task-new", title: "New Task" });
-    
+
     // Create mocks
     const sessionRepo = {
       findById: createMock(() => Promise.resolve({ ...session })),
-      save: createMock((updatedSession) => Promise.resolve(updatedSession))
+      save: createMock((updatedSession) => Promise.resolve(updatedSession)),
     };
-    
+
     const taskRepo = {
-      findById: createMock(() => Promise.resolve({ ...newTask }))
+      findById: createMock(() => Promise.resolve({ ...newTask })),
     };
-    
+
     // Create service under test
     const sessionManager = createSessionManager({ sessionRepo, taskRepo });
-    
+
     // Execute test
     const result = await sessionManager.addTaskToSession(session.id, newTask.id);
-    
+
     // Verify results
     expect(result.success).toBe(true);
     expect(sessionRepo.findById).toHaveBeenCalledWith(session.id);
     expect(taskRepo.findById).toHaveBeenCalledWith(newTask.id);
-    
+
     // Verify the task was added to the session
     const savedSession = sessionRepo.save.mock.calls[0][0];
     expect(savedSession.tasks.length).toBe(2);
@@ -835,82 +832,83 @@ describe("TaskWorkflow", () => {
   const createContext = (): TaskTestContext => {
     const testTask = createTaskFixture();
     const testUser = createUserFixture();
-    
+
     const taskRepo = {
       findById: createMock(() => Promise.resolve({ ...testTask })),
-      save: createMock((task) => Promise.resolve(task))
+      save: createMock((task) => Promise.resolve(task)),
     };
-    
+
     const userRepo = {
-      findById: createMock(() => Promise.resolve({ ...testUser }))
+      findById: createMock(() => Promise.resolve({ ...testUser })),
     };
-    
+
     const notificationService = {
-      sendNotification: createMock(() => Promise.resolve(true))
+      sendNotification: createMock(() => Promise.resolve(true)),
     };
-    
+
     const workflow = createTaskWorkflow({
       taskRepo,
       userRepo,
-      notificationService
+      notificationService,
     });
-    
+
     return {
       taskRepo,
       userRepo,
       notificationService,
       workflow,
       testTask,
-      testUser
+      testUser,
     };
   };
-  
+
   test("should transition task from TODO to IN-PROGRESS", async () => {
     // Create test context
     const ctx = createContext();
-    
+
     // Execute test
     const result = await ctx.workflow.startTask(ctx.testTask.id, ctx.testUser.id);
-    
+
     // Verify results
     expect(result.success).toBe(true);
     expect(ctx.taskRepo.findById).toHaveBeenCalledWith(ctx.testTask.id);
     expect(ctx.userRepo.findById).toHaveBeenCalledWith(ctx.testUser.id);
-    
+
     // Verify task was updated
     const updatedTask = ctx.taskRepo.save.mock.calls[0][0];
     expect(updatedTask.status).toBe("IN-PROGRESS");
     expect(updatedTask.assignedTo).toBe(ctx.testUser.id);
     expect(updatedTask.startedAt).toBeInstanceOf(Date);
-    
+
     // Verify notification was sent
     expect(ctx.notificationService.sendNotification).toHaveBeenCalledWith(
       ctx.testUser.id,
       expect.stringContaining("started")
     );
   });
-  
+
   test("should complete a task", async () => {
     // Create test context with a task already in progress
     const ctx = createContext();
     ctx.testTask.status = "IN-PROGRESS";
     ctx.testTask.assignedTo = ctx.testUser.id;
-    
+
     // Execute test
     const result = await ctx.workflow.completeTask(ctx.testTask.id);
-    
+
     // Verify results
     expect(result.success).toBe(true);
-    
+
     // Verify task was updated
     const updatedTask = ctx.taskRepo.save.mock.calls[0][0];
     expect(updatedTask.status).toBe("DONE");
     expect(updatedTask.completedAt).toBeInstanceOf(Date);
-    
+
     // Verify notification was sent
     expect(ctx.notificationService.sendNotification).toHaveBeenCalledWith(
       ctx.testUser.id,
       expect.stringContaining("completed")
     );
   });
-}); 
+});
+```

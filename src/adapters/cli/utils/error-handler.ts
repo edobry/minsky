@@ -37,15 +37,15 @@ export const isDebugMode = (): boolean =>
  */
 export function handleCliError(error: unknown): never {
   const normalizedError = ensureError(error);
-  
+
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
-  
+
   // Format error message based on type
   if (error instanceof ValidationError) {
     // Use cliError for human-readable output (stderr)
     log.cliError(`Validation error: ${normalizedError.message}`);
-    
+
     // Show validation details in debug mode
     if (isDebugMode() && error.errors) {
       log.cliError("\nValidation details:", error.errors);

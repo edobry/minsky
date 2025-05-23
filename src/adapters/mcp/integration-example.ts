@@ -1,6 +1,6 @@
 /**
  * Shared Command MCP Integration Example
- * 
+ *
  * This file demonstrates how to integrate the shared command system
  * with the MCP adapter. It can be used as a reference for future
  * migration of other commands.
@@ -18,11 +18,14 @@ import {
 interface CommandSchema<Params, Result> {
   name: string;
   description: string;
-  parameters: Record<string, {
-    type: string;
-    description: string;
-    required: boolean;
-  }>;
+  parameters: Record<
+    string,
+    {
+      type: string;
+      description: string;
+      required: boolean;
+    }
+  >;
   handler: (params: Params) => Promise<Result>;
 }
 
@@ -42,7 +45,7 @@ const mcpBridge = {
     // 1. Get commands from shared registry for the specified categories
     // 2. Create MCP command schemas from them
     // 3. Register with MCP server
-  }
+  },
 };
 
 /**
@@ -141,15 +144,15 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
           session: "example-session-1",
           repoName: "example-repo",
           taskId: "123",
-          branch: "feature-123"
+          branch: "feature-123",
         },
         {
           session: "example-session-2",
           repoName: "example-repo",
           taskId: "456",
-          branch: "feature-456"
-        }
-      ]
+          branch: "feature-456",
+        },
+      ],
     };
   },
 };
@@ -184,7 +187,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
           description: "Description for example rule 1",
           format: "cursor",
           globs: ["*.ts"],
-          tags: ["typescript"]
+          tags: ["typescript"],
         },
         {
           id: "example-rule-2",
@@ -192,43 +195,43 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
           description: "Description for example rule 2",
           format: "generic",
           globs: ["*.md"],
-          tags: ["docs"]
-        }
-      ]
+          tags: ["docs"],
+        },
+      ],
     };
   },
 };
 
 /**
  * Demonstrates how to integrate shared commands with MCP
- * 
+ *
  * This is an example of how the Minsky MCP server could be updated
  * to use the shared command registry.
  */
 export function setupMcpWithSharedCommands(): void {
   log.debug("Setting up MCP with shared commands");
-  
+
   // Register shared commands in the registry
   registerGitCommands();
   registerTasksCommands();
   registerSessionCommands();
   registerRulesCommands();
-  
+
   // Bridge the commands to MCP
   mcpBridge.registerSharedCommands([
-    CommandCategory.GIT, 
+    CommandCategory.GIT,
     CommandCategory.TASKS,
     CommandCategory.SESSION,
-    CommandCategory.RULES
+    CommandCategory.RULES,
   ]);
-  
+
   log.debug("MCP setup complete with shared commands");
 }
 
 // Export for use in tests
-export { 
+export {
   gitCommitCommandSchema,
   tasksStatusGetCommandSchema,
   sessionListCommandSchema,
-  rulesListCommandSchema
-}; 
+  rulesListCommandSchema,
+};

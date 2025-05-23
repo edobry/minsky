@@ -9,6 +9,7 @@ This file tracks the progress and patterns identified during the migration of hi
 ## Setup Progress
 
 ### Environment Setup (Completed)
+
 - Created directory structure for migration documentation
 - Ran updated test analysis to reflect current state
 - Created migration criteria documentation
@@ -17,6 +18,7 @@ This file tracks the progress and patterns identified during the migration of hi
 - Established verification and success criteria
 
 ### Next Steps
+
 - Begin migration of the first priority test (enhanced-utils.test.ts)
 - Document patterns and challenges encountered
 - Create reusable utilities for common patterns
@@ -25,50 +27,53 @@ This file tracks the progress and patterns identified during the migration of hi
 
 Below are common patterns encountered during migrations:
 
-| Jest/Vitest Pattern | Bun Equivalent | Notes |
-|---------------------|----------------|-------|
-| `jest.fn()` | `mock()` | Basic function mocking |
-| `jest.fn().mockReturnValue(x)` | `mock(() => x)` | Mocking return values |
-| `jest.mock('module')` | `mock.module('module', () => {})` | Module mocking |
-| `jest.spyOn(object, 'method')` | Custom spy implementation | Needs special handling |
-| `beforeEach/afterEach` | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks |
+| Jest/Vitest Pattern            | Bun Equivalent                                     | Notes                  |
+| ------------------------------ | -------------------------------------------------- | ---------------------- |
+| `jest.fn()`                    | `mock()`                                           | Basic function mocking |
+| `jest.fn().mockReturnValue(x)` | `mock(() => x)`                                    | Mocking return values  |
+| `jest.mock('module')`          | `mock.module('module', () => {})`                  | Module mocking         |
+| `jest.spyOn(object, 'method')` | Custom spy implementation                          | Needs special handling |
+| `beforeEach/afterEach`         | `import { beforeEach, afterEach } from 'bun:test'` | Test lifecycle hooks   |
 
 ## Test Migration Status
 
-| Test File | Status | Migration Difficulty | Notes |
-|-----------|--------|----------------------|-------|
-| `src/utils/test-utils/__tests__/enhanced-utils.test.ts` | Migrated | Easy | Priority 1 |
-| `src/utils/test-utils/__tests__/mocking.test.ts` | Migrated | Easy | Priority 1, Contains jest.spyOn |
-| `src/utils/filter-messages.test.ts` | Migrated | Easy | Priority 1 |
-| `src/utils/logger.test.ts` | Migrated | Easy | Priority 1 |
-| `src/domain/__tests__/tasks.test.ts` | Migrated | Medium | Priority 2 |
-| `src/domain/git.test.ts` | Migrated | Medium | Priority 2 |
-| `src/domain/git.pr.test.ts` | Migrated | Medium | Priority 2 |
-| `src/domain/session/session-db.test.ts` | Migrated | Easy | Priority 2 |
-| `src/adapters/__tests__/shared/commands/rules.test.ts` | Migrated | Easy | Priority 3 |
-| `src/adapters/__tests__/shared/commands/tasks.test.ts` | Migrated | Easy | Priority 3, Used expectToHaveLength and mock helpers |
-| `src/adapters/__tests__/shared/commands/git.test.ts` | Migrated | Easy | Priority 3, Found already migrated |
-| `src/adapters/__tests__/shared/commands/session.test.ts` | Migrated | Easy | Priority 3, Found already migrated, Uses custom matchers |
-| `src/adapters/cli/__tests__/git-merge-pr.test.ts` | Migrated | Easy | Priority 3, Found already migrated |
-| `src/utils/__tests__/param-schemas.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
-| `src/utils/__tests__/option-descriptions.test.ts` | Migrated | Easy | Priority 4, Found already migrated |
-| `src/utils/test-utils/__tests__/compatibility.test.ts` | Migrated | Medium | Priority 4, Found already migrated, Tests compatibility layer itself |
-| `src/adapters/__tests__/integration/tasks.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
-| `src/adapters/__tests__/integration/git.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
-| `src/adapters/__tests__/integration/rules.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
-| `src/adapters/__tests__/integration/workspace.test.ts` | Migrated | Easy | Priority 5, Found already migrated |
+| Test File                                                | Status   | Migration Difficulty | Notes                                                                |
+| -------------------------------------------------------- | -------- | -------------------- | -------------------------------------------------------------------- |
+| `src/utils/test-utils/__tests__/enhanced-utils.test.ts`  | Migrated | Easy                 | Priority 1                                                           |
+| `src/utils/test-utils/__tests__/mocking.test.ts`         | Migrated | Easy                 | Priority 1, Contains jest.spyOn                                      |
+| `src/utils/filter-messages.test.ts`                      | Migrated | Easy                 | Priority 1                                                           |
+| `src/utils/logger.test.ts`                               | Migrated | Easy                 | Priority 1                                                           |
+| `src/domain/__tests__/tasks.test.ts`                     | Migrated | Medium               | Priority 2                                                           |
+| `src/domain/git.test.ts`                                 | Migrated | Medium               | Priority 2                                                           |
+| `src/domain/git.pr.test.ts`                              | Migrated | Medium               | Priority 2                                                           |
+| `src/domain/session/session-db.test.ts`                  | Migrated | Easy                 | Priority 2                                                           |
+| `src/adapters/__tests__/shared/commands/rules.test.ts`   | Migrated | Easy                 | Priority 3                                                           |
+| `src/adapters/__tests__/shared/commands/tasks.test.ts`   | Migrated | Easy                 | Priority 3, Used expectToHaveLength and mock helpers                 |
+| `src/adapters/__tests__/shared/commands/git.test.ts`     | Migrated | Easy                 | Priority 3, Found already migrated                                   |
+| `src/adapters/__tests__/shared/commands/session.test.ts` | Migrated | Easy                 | Priority 3, Found already migrated, Uses custom matchers             |
+| `src/adapters/cli/__tests__/git-merge-pr.test.ts`        | Migrated | Easy                 | Priority 3, Found already migrated                                   |
+| `src/utils/__tests__/param-schemas.test.ts`              | Migrated | Easy                 | Priority 4, Found already migrated                                   |
+| `src/utils/__tests__/option-descriptions.test.ts`        | Migrated | Easy                 | Priority 4, Found already migrated                                   |
+| `src/utils/test-utils/__tests__/compatibility.test.ts`   | Migrated | Medium               | Priority 4, Found already migrated, Tests compatibility layer itself |
+| `src/adapters/__tests__/integration/tasks.test.ts`       | Migrated | Easy                 | Priority 5, Found already migrated                                   |
+| `src/adapters/__tests__/integration/git.test.ts`         | Migrated | Easy                 | Priority 5, Found already migrated                                   |
+| `src/adapters/__tests__/integration/rules.test.ts`       | Migrated | Easy                 | Priority 5, Found already migrated                                   |
+| `src/adapters/__tests__/integration/workspace.test.ts`   | Migrated | Easy                 | Priority 5, Found already migrated                                   |
 
 ## Phase 2B: Quick Wins (Additional Migrations)
+
 | `src/domain/__tests__/git-default-branch.test.ts` | Migrated | Easy | Phase 2B-1, Found already migrated |
 | `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` | Migrated | Easy | Phase 2B-2, Migrated Jest patterns to Bun |
 | `src/domain/session/session-adapter.test.ts` | Migrated | Easy | Phase 2B-3, Found already migrated |
 
 ## Phase 2C: High Business Value (Core Workflow Tests)
+
 | `src/domain/__tests__/session-update.test.ts` | Migrated | Medium | Phase 2C-1, Migrated Jest patterns to Bun with proper error handling |
 | `src/domain/__tests__/git-pr-workflow.test.ts` | Migrated | Medium | Phase 2C-2, Found already migrated, refactored with project utilities |
 | `src/domain/__tests__/repository-uri.test.ts` | Migrated | Medium | Phase 2C-3, Found already migrated, refactored with proper TypeScript imports |
 
 ## Phase 2D: Infrastructure Tests
+
 | `src/domain/__tests__/github-backend.test.ts` | Migrated | Medium | Phase 2D-1, Found already migrated, refactored with project utilities |
 | `src/adapters/__tests__/integration/tasks-mcp.test.ts` | Migrated | Easy | Phase 2D-2, Found already migrated, refactored with proper TypeScript imports |
 | `src/adapters/__tests__/integration/mcp-rules.test.ts` | Migrated | Hard | Phase 2D-3, Found already migrated, requires advanced mocking for full functionality |
@@ -102,6 +107,7 @@ Below are common patterns encountered during migrations:
 - The `edit_file` tool resolves relative paths against main workspace root, not current directory
 
 **Resolution Actions:**
+
 1. Reverted all inappropriate changes from main workspace using `git restore` and `git clean`
 2. Ensured all edits used absolute session workspace paths: `/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/...`
 3. Added proper `spyOn` export to session workspace mocking utilities
@@ -109,8 +115,9 @@ Below are common patterns encountered during migrations:
 5. Documented advanced mocking requirements for future infrastructure improvements
 
 **Verification Results:**
+
 - ✅ Main workspace clean: `git status` shows no uncommitted changes
-- ✅ Session workspace complete: All 26+ files migrated with 100% pass rate  
+- ✅ Session workspace complete: All 26+ files migrated with 100% pass rate
 - ✅ All tests passing in session workspace
 - ✅ Proper migration annotations added to all files
 - ✅ Session-first workflow compliance verified

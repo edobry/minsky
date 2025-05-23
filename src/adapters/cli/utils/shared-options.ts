@@ -1,6 +1,6 @@
 /**
  * Shared CLI Options
- * 
+ *
  * This module provides shared option types and functions for CLI commands
  * to ensure consistent definitions, descriptions, and behavior across
  * the Minsky CLI interface.
@@ -8,8 +8,8 @@
 
 import { Command } from "commander";
 import { normalizeTaskId } from "../../../domain/tasks.js";
-import type { 
-  TaskListParams, 
+import type {
+  TaskListParams,
   TaskGetParams,
   TaskStatusGetParams,
   TaskStatusSetParams,
@@ -30,7 +30,7 @@ import {
   DEBUG_DESCRIPTION,
   TASK_ID_DESCRIPTION,
   BACKEND_DESCRIPTION,
-  FORCE_DESCRIPTION
+  FORCE_DESCRIPTION,
 } from "../../../utils/option-descriptions.js";
 
 // ------------------------------------------------------------------
@@ -44,10 +44,10 @@ import {
 export interface RepoOptions {
   /** Session name to use for repository resolution */
   session?: string;
-  
+
   /** Repository URI (overrides session) */
   repo?: string;
-  
+
   /** Upstream repository URI (overrides repo and session) */
   "upstream-repo"?: string;
 }
@@ -59,7 +59,7 @@ export interface RepoOptions {
 export interface OutputOptions {
   /** Output result as JSON */
   json?: boolean;
-  
+
   /** Enable debug output */
   debug?: boolean;
 }
@@ -104,10 +104,7 @@ export function addRepoOptions(command: Command): Command {
   return command
     .option("--session <session>", SESSION_DESCRIPTION)
     .option("--repo <repositoryUri>", REPO_DESCRIPTION)
-    .option(
-      "--upstream-repo <upstreamRepoUri>",
-      UPSTREAM_REPO_DESCRIPTION
-    );
+    .option("--upstream-repo <upstreamRepoUri>", UPSTREAM_REPO_DESCRIPTION);
 }
 
 /**
@@ -116,9 +113,7 @@ export function addRepoOptions(command: Command): Command {
  * @returns The command with options added
  */
 export function addOutputOptions(command: Command): Command {
-  return command
-    .option("--json", JSON_DESCRIPTION)
-    .option("--debug", DEBUG_DESCRIPTION);
+  return command.option("--json", JSON_DESCRIPTION).option("--debug", DEBUG_DESCRIPTION);
 }
 
 /**
@@ -127,8 +122,7 @@ export function addOutputOptions(command: Command): Command {
  * @returns The command with options added
  */
 export function addTaskOptions(command: Command): Command {
-  return command
-    .option("--task <taskId>", TASK_ID_DESCRIPTION);
+  return command.option("--task <taskId>", TASK_ID_DESCRIPTION);
 }
 
 /**
@@ -137,8 +131,7 @@ export function addTaskOptions(command: Command): Command {
  * @returns The command with options added
  */
 export function addBackendOptions(command: Command): Command {
-  return command
-    .option("-b, --backend <backend>", BACKEND_DESCRIPTION);
+  return command.option("-b, --backend <backend>", BACKEND_DESCRIPTION);
 }
 
 /**
@@ -147,8 +140,7 @@ export function addBackendOptions(command: Command): Command {
  * @returns The command with options added
  */
 export function addForceOptions(command: Command): Command {
-  return command
-    .option("-f, --force", FORCE_DESCRIPTION);
+  return command.option("-f, --force", FORCE_DESCRIPTION);
 }
 
 // ------------------------------------------------------------------
@@ -157,7 +149,7 @@ export function addForceOptions(command: Command): Command {
 
 /**
  * Normalize repository resolution options
- * 
+ *
  * @param options CLI repository options
  * @returns Normalized parameter object for domain functions
  */
@@ -175,7 +167,7 @@ export function normalizeRepoOptions(options: RepoOptions): {
 
 /**
  * Normalize output format options
- * 
+ *
  * @param options CLI output options
  * @returns Normalized parameter object for domain functions
  */
@@ -191,7 +183,7 @@ export function normalizeOutputOptions(options: OutputOptions): {
 
 /**
  * Normalize task identification options
- * 
+ *
  * @param options CLI task options
  * @returns Normalized parameter object for domain functions
  */
@@ -201,7 +193,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
   // If task ID is provided, normalize it
   // normalizeTaskId can return null, so handle that case
   const taskId = options.task ? normalizeTaskId(options.task) : undefined;
-  
+
   return {
     task: taskId || undefined,
   };
@@ -209,7 +201,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
 
 /**
  * Normalize parameter options for task commands
- * 
+ *
  * @param options Combined CLI options
  * @returns Normalized parameter object for task domain functions
  */
@@ -231,7 +223,7 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
 
 /**
  * Normalize parameter options for session commands
- * 
+ *
  * @param options Combined CLI options
  * @returns Normalized parameter object for session domain functions
  */
@@ -249,4 +241,4 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
     ...normalizeOutputOptions(options),
     ...normalizeTaskOptions(options),
   };
-} 
+}

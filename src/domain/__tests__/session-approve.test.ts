@@ -10,13 +10,13 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) => 
+      getSession: createMock((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#123",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         })
       ),
       getSessionByTaskId: createMock((taskId) => {
@@ -26,12 +26,14 @@ describe("Session Approve", () => {
             repoName: "test-repo",
             repoUrl: "/test/repo/path",
             taskId: "#123",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
           });
         }
         return Promise.resolve(null);
       }),
-      getSessionWorkdir: createMock((sessionName) => Promise.resolve("/test/workdir/test-repo/sessions/test-session"))
+      getSessionWorkdir: createMock((sessionName) =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      ),
     };
 
     const mockGitService = {
@@ -43,18 +45,20 @@ describe("Session Approve", () => {
           return Promise.resolve("Test User");
         }
         return Promise.resolve("");
-      })
+      }),
     };
 
     const mockTaskService = {
       setTaskStatus: createMock((id, status) => Promise.resolve()),
-      getBackendForTask: createMock((id) => Promise.resolve({
-        setTaskMetadata: createMock((id, metadata) => Promise.resolve())
-      }))
+      getBackendForTask: createMock((id) =>
+        Promise.resolve({
+          setTaskMetadata: createMock((id, metadata) => Promise.resolve()),
+        })
+      ),
     };
 
     const mockWorkspaceUtils = {
-      getCurrentSession: createMock(() => Promise.resolve(null))
+      getCurrentSession: createMock(() => Promise.resolve(null)),
     };
 
     // Create test dependencies
@@ -62,13 +66,16 @@ describe("Session Approve", () => {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
-      workspaceUtils: mockWorkspaceUtils
+      workspaceUtils: mockWorkspaceUtils,
     };
 
     // Test by session name
-    const resultBySession = await approveSessionFromParams({
-      session: "test-session"
-    }, testDeps);
+    const resultBySession = await approveSessionFromParams(
+      {
+        session: "test-session",
+      },
+      testDeps
+    );
 
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
@@ -88,9 +95,12 @@ describe("Session Approve", () => {
     mockTaskService.getBackendForTask.mockClear();
 
     // Test by task ID
-    const resultByTask = await approveSessionFromParams({
-      task: "#123"
-    }, testDeps);
+    const resultByTask = await approveSessionFromParams(
+      {
+        task: "#123",
+      },
+      testDeps
+    );
 
     // Verify
     expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
@@ -102,16 +112,18 @@ describe("Session Approve", () => {
   test("detects current session when repo path is provided", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) => 
+      getSession: createMock((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         })
       ),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock((sessionName) => Promise.resolve("/test/workdir/test-repo/sessions/current-session"))
+      getSessionWorkdir: createMock((sessionName) =>
+        Promise.resolve("/test/workdir/test-repo/sessions/current-session")
+      ),
     };
 
     const mockGitService = {
@@ -123,14 +135,16 @@ describe("Session Approve", () => {
           return Promise.resolve("Test User");
         }
         return Promise.resolve("");
-      })
+      }),
     };
 
     const mockTaskService = {
       setTaskStatus: createMock(() => Promise.resolve()),
-      getBackendForTask: createMock(() => Promise.resolve({
-        setTaskMetadata: createMock(() => Promise.resolve())
-      }))
+      getBackendForTask: createMock(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      ),
     };
 
     // Create a mock getCurrentSession function that returns a valid session
@@ -143,13 +157,16 @@ describe("Session Approve", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: WorkspaceUtils,
-      getCurrentSession: mockGetCurrentSession
+      getCurrentSession: mockGetCurrentSession,
     };
 
     // Test auto detection
-    const result = await approveSessionFromParams({
-      repo: repoPath
-    }, testDeps);
+    const result = await approveSessionFromParams(
+      {
+        repo: repoPath,
+      },
+      testDeps
+    );
 
     // Verify
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
@@ -163,32 +180,35 @@ describe("Session Approve", () => {
     const mockSessionDB = {
       getSession: createMock(() => Promise.resolve(null)),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock(() => Promise.resolve(""))
+      getSessionWorkdir: createMock(() => Promise.resolve("")),
     };
 
     // Create test dependencies
     const testDeps = {
       sessionDB: mockSessionDB,
       gitService: {
-        execInRepository: createMock(() => Promise.resolve(""))
+        execInRepository: createMock(() => Promise.resolve("")),
       },
       taskService: {
         setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() => Promise.resolve({}))
+        getBackendForTask: createMock(() => Promise.resolve({})),
       },
-      workspaceUtils: {}
+      workspaceUtils: {},
     };
 
     // Test with non-existent session
     try {
-      await approveSessionFromParams({
-        session: "non-existent-session"
-      }, testDeps);
+      await approveSessionFromParams(
+        {
+          session: "non-existent-session",
+        },
+        testDeps
+      );
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+      expect((error as Error).message).toContain('Session "non-existent-session" not found');
     }
   });
 
@@ -198,25 +218,28 @@ describe("Session Approve", () => {
       sessionDB: {
         getSession: createMock(() => Promise.resolve(null)),
         getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        getSessionWorkdir: createMock(() => Promise.resolve(""))
+        getSessionWorkdir: createMock(() => Promise.resolve("")),
       },
       gitService: {
-        execInRepository: createMock(() => Promise.resolve(""))
+        execInRepository: createMock(() => Promise.resolve("")),
       },
       taskService: {
         setTaskStatus: createMock(() => Promise.resolve()),
-        getBackendForTask: createMock(() => Promise.resolve({}))
+        getBackendForTask: createMock(() => Promise.resolve({})),
       },
       workspaceUtils: {
-        getCurrentSession: createMock(() => Promise.resolve(null))
-      }
+        getCurrentSession: createMock(() => Promise.resolve(null)),
+      },
     };
 
     // Test with no arguments
     try {
-      await approveSessionFromParams({
-        repo: "/test/repo/path"
-      }, testDeps);
+      await approveSessionFromParams(
+        {
+          repo: "/test/repo/path",
+        },
+        testDeps
+      );
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {
@@ -228,17 +251,19 @@ describe("Session Approve", () => {
   test("handles errors during task metadata update", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) => 
+      getSession: createMock((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#123",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         })
       ),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock(() => Promise.resolve("/test/workdir/test-repo/sessions/test-session"))
+      getSessionWorkdir: createMock(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      ),
     };
 
     const mockGitService = {
@@ -250,14 +275,16 @@ describe("Session Approve", () => {
           return Promise.resolve("Test User");
         }
         return Promise.resolve("");
-      })
+      }),
     };
 
     const mockTaskService = {
       setTaskStatus: createMock(() => Promise.reject(new Error("Task update failed"))),
-      getBackendForTask: createMock(() => Promise.resolve({
-        setTaskMetadata: createMock(() => Promise.resolve())
-      }))
+      getBackendForTask: createMock(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      ),
     };
 
     // Create test dependencies
@@ -265,16 +292,19 @@ describe("Session Approve", () => {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
-      workspaceUtils: {}
+      workspaceUtils: {},
     };
 
     // Should still succeed even if task update fails
-    const result = await approveSessionFromParams({
-      session: "test-session"
-    }, testDeps);
+    const result = await approveSessionFromParams(
+      {
+        session: "test-session",
+      },
+      testDeps
+    );
 
     // Verify
     expect(result.commitHash).toBe("abcdef123456");
     expect(result.session).toBe("test-session");
   });
-}); 
+});

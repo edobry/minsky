@@ -7,11 +7,11 @@ const sessionDir = "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/
 // Start the MCP server with --repo parameter
 console.log("Starting MCP server with repository path...");
 const mcp = spawn("bun", [
-  path.join(sessionDir, "src/cli.ts"), 
-  "mcp", 
-  "start", 
-  "--repo", 
-  sessionDir
+  path.join(sessionDir, "src/cli.ts"),
+  "mcp",
+  "start",
+  "--repo",
+  sessionDir,
 ]);
 
 // Buffer to collect the output
@@ -26,14 +26,14 @@ mcp.stdout.on("data", (data) => {
   // After server starts, send a command to list all tools
   if (output.includes("Minsky MCP Server started")) {
     console.log("Server started, listing available tools...");
-    
+
     // Use the introspection functionality to get all available tools
     mcp.stdin.write(
       JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "rpc.discover",
-        params: {}
+        params: {},
       }) + "\n"
     );
   }
@@ -48,4 +48,4 @@ mcp.stderr.on("data", (data) => {
 setTimeout(() => {
   console.log("Test complete, shutting down...");
   mcp.kill("SIGINT");
-}, 5000); 
+}, 5000);

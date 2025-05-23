@@ -8,7 +8,7 @@ import { ensureError } from "../../../errors/index.js";
 import { log } from "../../../utils/logger.js";
 
 // Re-export shared options functions needed by other modules
-export { 
+export {
   normalizeSessionParams,
   normalizeRepoOptions,
   normalizeOutputOptions,
@@ -18,7 +18,7 @@ export {
   addOutputOptions,
   addTaskOptions,
   addBackendOptions,
-  addForceOptions
+  addForceOptions,
 } from "./shared-options.js";
 
 // Re-export types from shared options
@@ -45,7 +45,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
-  
+
   try {
     if (options.json) {
       // JSON output
@@ -84,7 +84,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
  */
 export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
-  
+
   if (options.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed:", err);
@@ -95,7 +95,7 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
     // Simple error in regular mode
     log.cliError(`Error: ${err.message}`);
   }
-  
+
   // Set appropriate exit code based on error type
   if (err.name === "ValidationError") {
     process.exitCode = 2;

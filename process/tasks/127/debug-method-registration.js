@@ -14,13 +14,7 @@ if (!fs.existsSync(testDir)) {
 
 // Start the MCP server
 console.log("Starting MCP server...");
-const mcp = spawn("bun", [
-  "src/cli.ts",
-  "mcp",
-  "start",
-  "--repo",
-  process.cwd(),
-]);
+const mcp = spawn("bun", ["src/cli.ts", "mcp", "start", "--repo", process.cwd()]);
 
 // Buffer to collect the output
 let output = "";
@@ -34,8 +28,8 @@ const testSteps = [
       jsonrpc: "2.0",
       id: "debug-1",
       method: "debug.listMethods",
-      params: {}
-    }
+      params: {},
+    },
   },
   {
     name: "Direct Task List",
@@ -46,9 +40,9 @@ const testSteps = [
       method: "tasks.list",
       params: {
         filter: "TODO",
-        limit: 5
-      }
-    }
+        limit: 5,
+      },
+    },
   },
   {
     name: "MCP Tool Execute",
@@ -61,10 +55,10 @@ const testSteps = [
         name: "tasks.list",
         params: {
           filter: "TODO",
-          limit: 5
-        }
-      }
-    }
+          limit: 5,
+        },
+      },
+    },
   },
   {
     name: "Alternative Method Format",
@@ -75,10 +69,10 @@ const testSteps = [
       method: "tasks_list", // Try underscore instead of dot
       params: {
         filter: "TODO",
-        limit: 5
-      }
-    }
-  }
+        limit: 5,
+      },
+    },
+  },
 ];
 
 // Current test step index
@@ -90,11 +84,11 @@ function runNextTest() {
     const step = testSteps[currentStep];
     console.log(`\n==== RUNNING TEST: ${step.name} ====`);
     console.log(`REQUEST: ${JSON.stringify(step.request, null, 2)}`);
-    
+
     mcp.stdin.write(JSON.stringify(step.request) + "\n");
     step.executed = true;
     currentStep++;
-    
+
     // Schedule next test with delay
     setTimeout(runNextTest, 2000);
   } else {
@@ -127,7 +121,7 @@ mcp.stderr.on("data", (data) => {
 // Handle process close
 mcp.on("close", (code) => {
   console.log(`MCP server exited with code ${code}`);
-  
+
   // Write the full output to a log file for analysis
   const logFile = path.join(testDir, "debug-output.log");
   fs.writeFileSync(logFile, output);
@@ -138,4 +132,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Safety timeout reached, shutting down...");
   mcp.kill("SIGINT");
-}, 30000); 
+}, 30000);

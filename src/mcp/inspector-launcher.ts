@@ -78,18 +78,13 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(options: InspectorOptions): InspectorLaunchResult {
-  const {
-    port = 6274,
-    openBrowser = true,
-    mcpTransportType,
-    mcpPort,
-    mcpHost
-  } = options;
+  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
 
   if (!isInspectorAvailable()) {
     return {
       success: false,
-      error: "MCP Inspector is not installed. Run 'bun add -d @modelcontextprotocol/inspector' to install it."
+      error:
+        "MCP Inspector is not installed. Run 'bun add -d @modelcontextprotocol/inspector' to install it.",
     };
   }
 
@@ -118,12 +113,12 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
-    
+
     // Check for immediate launch errors
     if (!inspectorProcess.pid) {
       return {
         success: false,
-        error: "Failed to start MCP Inspector process"
+        error: "Failed to start MCP Inspector process",
       };
     }
 
@@ -131,7 +126,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     inspectorProcess.on("error", (error) => {
       log.error("MCP Inspector process error", {
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
       });
     });
 
@@ -147,18 +142,18 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     return {
       success: true,
       process: inspectorProcess,
-      url: `http://localhost:${port}`
+      url: `http://localhost:${port}`,
     };
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      stack: error instanceof Error ? error.stack : undefined,
     });
 
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error launching MCP Inspector"
+      error: error instanceof Error ? error.message : "Unknown error launching MCP Inspector",
     };
   }
-} 
+}

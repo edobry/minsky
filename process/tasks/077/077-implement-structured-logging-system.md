@@ -202,11 +202,13 @@ The logging implementation will prioritize:
 - **Verbosity Control:** Provide ways to easily control log verbosity for debugging specific modules without flooding the console.
 - **Circular Dependencies:** Ensure the logger module itself doesn't create circular dependencies.
 - **Global Error Handling:** Integrate with global error handlers (e.g., `process.on('uncaughtException')`) to ensure unhandled errors are logged correctly.
+
 ## Implementation Worklog
 
 ### Work Completed
 
 1. **Research & Library Selection**
+
    - Selected Winston as the logging library due to its flexibility in transports and formatting
    - Added Winston dependency to the project (`bun add winston @types/winston`)
 

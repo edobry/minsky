@@ -127,12 +127,14 @@ Create the following new rules:
 ### 4. Testing Strategy
 
 1. Develop test scenarios for the rule test suite (task #041) that:
+
    - Test single rule application
    - Test transitions between rules (e.g., going from session creation to task implementation)
    - Test scenarios that should trigger multiple rules
    - Verify the orchestrator rule correctly guides to specific rules
 
 2. Develop test cases that cover:
+
    - Common workflow patterns
    - Edge cases and error handling
    - Specific command usage scenarios

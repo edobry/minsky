@@ -780,6 +780,7 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Fixed "Cannot access 'MinskyError' before initialization" error that occurred with all commands
 
 - Fixed task serialization in MCP adapter to prevent double-stringification
+
   - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data

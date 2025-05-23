@@ -1,6 +1,7 @@
 # Pull Request for branch `066`
 
 ## Commits
+
 cb16d082 Update task #066 and CHANGELOG.md with completed work
 dc8493cf Fix minsky rules get --format generic inconsistency
 23dde3fd fix: restore interactive status prompt in task status set command
@@ -664,8 +665,8 @@ b50131bb Adds CLI tool for managing git repos and tasks
 75bf28f7 Adds initial SpecStory support
 6310d82e Initializes project structure and dependencies
 
-
 ## Modified Files (All changes since repository creation)
+
 .cursor-rules/testing-boundaries.mdc
 .cursor/rules/README.md
 .cursor/rules/ai-linter-autofix-guideline.mdc
@@ -959,16 +960,16 @@ process/tasks/075/pr.md
 process/tasks/076-complete-interface-agnostic-architecture-migration.md
 process/tasks/077-implement-structured-logging-system.md
 process/tasks/future-tasks.md
-src/__fixtures__/test-data.ts
-src/adapters/__tests__/integration/session.test.ts
-src/adapters/__tests__/integration/tasks.test.ts
+src/**fixtures**/test-data.ts
+src/adapters/**tests**/integration/session.test.ts
+src/adapters/**tests**/integration/tasks.test.ts
 src/adapters/cli/git.ts
 src/adapters/cli/tasks.ts
 src/adapters/mcp/git.ts
 src/adapters/mcp/session.ts
 src/adapters/mcp/tasks.ts
 src/cli.ts
-src/commands/git/__tests__/pr.test.ts
+src/commands/git/**tests**/pr.test.ts
 src/commands/git/branch.ts
 src/commands/git/clone.ts
 src/commands/git/commit.minimal.test.ts
@@ -987,7 +988,7 @@ src/commands/rules/search.ts
 src/commands/rules/stdin-helpers.ts
 src/commands/rules/sync.ts
 src/commands/rules/update.ts
-src/commands/session/__tests__/autoStatusUpdate.test.ts
+src/commands/session/**tests**/autoStatusUpdate.test.ts
 src/commands/session/autodetect.test.ts
 src/commands/session/cd.test.ts.bak
 src/commands/session/cd.ts
@@ -1018,11 +1019,11 @@ src/commands/tasks/list.ts
 src/commands/tasks/status.test.ts
 src/commands/tasks/status.test.ts.bak
 src/commands/tasks/status.ts
-src/domain/__tests__/git.test.ts
-src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts
-src/domain/__tests__/repository.test.ts
-src/domain/__tests__/session.test.ts
-src/domain/__tests__/tasks.test.ts
+src/domain/**tests**/git.test.ts
+src/domain/**tests**/gitServiceTaskStatusUpdate.test.ts
+src/domain/**tests**/repository.test.ts
+src/domain/**tests**/session.test.ts
+src/domain/**tests**/tasks.test.ts
 src/domain/git.pr.test.ts
 src/domain/git.test.ts
 src/domain/git.ts
@@ -1047,7 +1048,7 @@ src/domain/session.ts
 src/domain/tasks.specpath.test.ts
 src/domain/tasks.test.ts
 src/domain/tasks.ts
-src/domain/tasks/__tests__/utils.test.ts
+src/domain/tasks/**tests**/utils.test.ts
 src/domain/tasks/index.ts
 src/domain/tasks/utils.test.ts
 src/domain/tasks/utils.ts
@@ -1066,7 +1067,7 @@ src/schemas/session.ts
 src/schemas/tasks.ts
 src/types/bun-test.d.ts
 src/types/session.d.ts
-src/utils/__tests__/test-utils.test.ts
+src/utils/**tests**/test-utils.test.ts
 src/utils/exec.ts
 src/utils/filter-messages.test.ts
 src/utils/filter-messages.ts
@@ -1080,428 +1081,428 @@ temp_user_preference.md
 tsconfig.json
 workspace.ts.patch
 
-
 ## Stats
-.cursor-rules/testing-boundaries.mdc               |    69 +
- .cursor/rules/README.md                            |    60 +
- .cursor/rules/ai-linter-autofix-guideline.mdc      |    30 +
- .cursor/rules/bun-test-patterns.mdc                |    75 +
- .cursor/rules/bun_over_node.mdc                    |    31 +
- .cursor/rules/changelog.mdc                        |    62 +
- .cursor/rules/cli-testing.mdc                      |    91 +
- .cursor/rules/command-organization.mdc             |    14 +
- .cursor/rules/constants-management.mdc             |   144 +
- .cursor/rules/creating-tasks.mdc                   |   207 +
- .cursor/rules/derived-cursor-rules.mdc             |   492 +
- .cursor/rules/designing-tests.mdc                  |   115 +
- .cursor/rules/domain-oriented-modules.mdc          |    79 +
- .cursor/rules/dont-ignore-errors.mdc               |    28 +
- .cursor/rules/file-size.mdc                        |     6 +
- .cursor/rules/framework-specific-tests.mdc         |    91 +
- .cursor/rules/index.mdc                            |   142 +
- .cursor/rules/json-parsing.mdc                     |    72 +
- .cursor/rules/minsky-workflow.mdc                  |   550 +
- .cursor/rules/module-organization.mdc              |    23 +
- .cursor/rules/pr-description-guidelines.mdc        |   166 +
- .cursor/rules/robust-error-handling.mdc            |   106 +
- .cursor/rules/rule-creation-guidelines.mdc         |   140 +
- .cursor/rules/rule-map.mdc                         |    19 +
- .cursor/rules/rules-management.mdc                 |   143 +
- .cursor/rules/self-improvement-router.mdc          |    22 +
- .cursor/rules/self-improvement.mdc                 |   223 +
- .cursor/rules/session-first-workflow.mdc           |   122 +
- .cursor/rules/task-status-verification.mdc         |    83 +
- .cursor/rules/template-literals.mdc                |     6 +
- .cursor/rules/test-debugging.mdc                   |    57 +
- .cursor/rules/test-driven-bugfix.mdc               |   118 +
- .cursor/rules/test-expectations.mdc                |    31 +
- .cursor/rules/test-infrastructure-patterns.mdc     |   227 +
- .cursor/rules/test-rule.mdc                        |    20 +
- .cursor/rules/testable-design.mdc                  |    99 +
- .cursor/rules/testing-boundaries.mdc               |    70 +
- .cursor/rules/testing-session-repo-changes.mdc     |    65 +
- .cursor/rules/tests.mdc                            |   103 +
- .cursor/rules/user-preferences.mdc                 |    10 +
- .cursorignore                                      |     2 +
- .cursorindexingignore                              |     2 +
- .dockerignore                                      |     8 +
- .eslintrc.json                                     |    60 +
- .github/dependabot.yml                             |     8 +
- .github/workflows/ci.yml                           |    33 +
- .github/workflows/test-quality.yml                 |    48 +
- .gitignore                                         |    37 +
- .husky/pre-commit.disabled                         |    15 +
- .husky/pre-push.disabled                           |     8 +
- .lintstagedrc.json                                 |     5 +
- .prettierrc.json                                   |    11 +
- .specstory/.project.json                           |     6 +
- .specstory/.what-is-this.md                        |    68 +
- ...rived-cursor-rules.mdc.2025-04-28T16-19-14-406Z |   432 +
- ...rived-cursor-rules.mdc.2025-04-28T16-23-34-237Z |   434 +
- ...rived-cursor-rules.mdc.2025-04-28T16-26-37-336Z |   437 +
- ...rived-cursor-rules.mdc.2025-04-28T16-29-38-609Z |   441 +
- ...rived-cursor-rules.mdc.2025-04-28T16-32-41-977Z |   444 +
- ...rived-cursor-rules.mdc.2025-04-28T16-35-43-089Z |   465 +
- ...rived-cursor-rules.mdc.2025-04-28T16-38-45-989Z |   469 +
- ...rived-cursor-rules.mdc.2025-04-28T16-42-11-095Z |   471 +
- ...rived-cursor-rules.mdc.2025-04-28T16-45-16-434Z |   473 +
- ...rived-cursor-rules.mdc.2025-04-28T16-55-46-439Z |   479 +
- ...rived-cursor-rules.mdc.2025-04-28T16-58-45-644Z |   484 +
- ...rived-cursor-rules.mdc.2025-04-28T17-02-12-556Z |   487 +
- ...rived-cursor-rules.mdc.2025-04-28T17-04-48-010Z |   487 +
- ...rived-cursor-rules.mdc.2025-04-28T17-29-59-518Z |   498 +
- ...rived-cursor-rules.mdc.2025-04-28T17-32-59-514Z |   478 +
- ...rived-cursor-rules.mdc.2025-04-28T17-35-59-270Z |   516 +
- ...rived-cursor-rules.mdc.2025-04-28T17-40-23-450Z |   523 +
- ...rived-cursor-rules.mdc.2025-04-28T18-17-16-347Z |   519 +
- ...rived-cursor-rules.mdc.2025-04-28T18-22-39-113Z |   554 +
- ...rived-cursor-rules.mdc.2025-04-28T18-25-39-397Z |   561 +
- ...rived-cursor-rules.mdc.2025-04-28T18-29-08-330Z |   558 +
- ...rived-cursor-rules.mdc.2025-04-28T18-32-15-901Z |   560 +
- ...rived-cursor-rules.mdc.2025-04-28T18-35-14-480Z |   587 +
- ...rived-cursor-rules.mdc.2025-04-28T18-37-46-925Z |   603 +
- ...rived-cursor-rules.mdc.2025-04-28T18-40-46-389Z |   590 +
- ...rived-cursor-rules.mdc.2025-04-28T18-43-47-013Z |   587 +
- ...rived-cursor-rules.mdc.2025-04-28T18-46-48-075Z |   578 +
- ...rived-cursor-rules.mdc.2025-04-28T18-49-47-747Z |   567 +
- ...rived-cursor-rules.mdc.2025-04-28T18-52-47-912Z |   542 +
- ...rived-cursor-rules.mdc.2025-04-28T18-55-46-597Z |   547 +
- ...rived-cursor-rules.mdc.2025-04-28T18-58-46-831Z |   546 +
- ...rived-cursor-rules.mdc.2025-04-28T19-01-47-450Z |   546 +
- ...rived-cursor-rules.mdc.2025-04-28T19-04-46-435Z |   538 +
- ...rived-cursor-rules.mdc.2025-04-28T19-07-47-101Z |   521 +
- ...rived-cursor-rules.mdc.2025-04-28T19-10-49-485Z |   516 +
- ...rived-cursor-rules.mdc.2025-04-29T20-38-19-598Z |   424 +
- ...rived-cursor-rules.mdc.2025-04-29T20-41-58-734Z |   424 +
- ...rived-cursor-rules.mdc.2025-04-29T20-44-21-515Z |   409 +
- ...rived-cursor-rules.mdc.2025-04-29T20-48-06-500Z |   409 +
- ...rived-cursor-rules.mdc.2025-04-29T20-50-33-469Z |   400 +
- ...rived-cursor-rules.mdc.2025-04-29T20-53-33-850Z |   400 +
- ...rived-cursor-rules.mdc.2025-04-29T20-57-04-006Z |   400 +
- ...rived-cursor-rules.mdc.2025-04-29T21-00-05-186Z |   396 +
- ...rived-cursor-rules.mdc.2025-04-29T21-06-31-283Z |   390 +
- ...rived-cursor-rules.mdc.2025-04-29T21-09-34-977Z |   388 +
- ...rived-cursor-rules.mdc.2025-04-29T21-20-43-139Z |   390 +
- ...rived-cursor-rules.mdc.2025-04-30T03-35-04-818Z |   373 +
- ...rived-cursor-rules.mdc.2025-04-30T17-32-30-575Z |   372 +
- ...rived-cursor-rules.mdc.2025-04-30T17-35-57-771Z |   371 +
- ...rived-cursor-rules.mdc.2025-04-30T17-39-00-717Z |   368 +
- ...5-04-26_20-30-setting-up-minsky-cli-with-bun.md |  4725 +++
- ...5-04-26_22-29-task-management-command-design.md |  4253 +++
- ...4-fixing-changelog-duplicates-and-references.md |   170 +
- ...hancing-minsky-cli-task-id-for-session-start.md |   707 +
- ...3-update-tasks-list-commands-for-json-output.md |   829 +
- ...ng-session-commands-for-directory-management.md |    79 +
- ...-27_20-17-minsky-task-workflow-rule-creation.md |   400 +
- ...-add-task-statuses-in-progress-and-in-review.md |   323 +
- ...21-51-project-initialization-task-for-minsky.md |   866 +
- .../2025-04-28_16-22-backlog-task-inquiry.md       |  2475 ++
- .../2025-04-28_16-54-task-#001-progress-check.md   |  2944 ++
- .../2025-04-28_18-34-available-tasks-inquiry.md    |   348 +
- .../2025-04-28_18-34-create-minsky-task-command.md |   990 +
- .../2025-04-28_18-51-available-tasks-inquiry.md    |   322 +
- .../2025-04-28_18-53-available-tasks-inquiry.md    |   834 +
- .../history/2025-04-28_18-53-starting-task-#008.md |   363 +
- ...25-04-28_19-10-starting-work-on-project-#004.md |  3900 +++
- .../2025-04-28_21-34-creating-a-git-push-task.md   |  1188 +
- .../2025-04-29_16-19-available-tasks-inquiry.md    |   237 +
- .../2025-04-29_16-44-available-tasks-inquiry.md    |  2820 ++
- .../2025-04-29_16-45-available-tasks-inquiry.md    |  1365 +
- .../2025-04-29_16-46-debugging-pr-command-logic.md |  4532 +++
- .../2025-04-29_17-23-available-tasks-inquiry.md    |  6347 ++++
- ...6-bug-fixing-rule-create-failing-tests-first.md |   191 +
- .../2025-04-29_18-49-available-tasks-inquiry.md    |   571 +
- .../history/2025-04-29_18-53-starting-task-002.md  |  8436 ++++++
- .../2025-04-29_19-23-continuing-task-001.md        |  1570 +
- ...-04-add-github-option-for-repository-backend.md |   347 +
- ...-08-task-creation-for-session-delete-command.md |   310 +
- .../2025-04-29_20-13-available-tasks-inquiry.md    |   634 +
- ...04-29_20-13-session-start-error-for-task-008.md |  1178 +
- .../2025-04-29_20-27-continuing-task-011.md        |  1325 +
- .../2025-04-29_20-27-task-008-initiation.md        |  3141 ++
- .../history/2025-04-29_20-47-starting-task-016.md  |  3906 +++
- ...25-04-30_01-13-task-011-progress-and-updates.md |   814 +
- ...25-04-30_01-14-task-002-progress-and-updates.md |   878 +
- .../2025-04-30_01-18-available-tasks-inquiry.md    |  4773 +++
- .../2025-04-30_17-43-available-tasks-inquiry.md    |  3096 ++
- ...2025-04-30_17-43-continuing-work-on-task-011.md |  8886 ++++++
- ...25-04-30_17-43-task-002-progress-and-updates.md |  8742 ++++++
- ...-30_19-17-task-011-worklog-and-commit-review.md |  7673 +++++
- ...25-04-30_19-31-task#002-progress-and-updates.md |  7007 +++++
- ...30_19-35-task-008-testing-and-review-updates.md |  8999 ++++++
- ...20-13-finalizing-task-002-and-pr-preparation.md |  6448 ++++
- ...21-28-pr-review-and-validation-for-task-#002.md |  2805 ++
- .../2025-04-30_21-54-available-tasks-inquiry.md    |  1234 +
- ...09-large-file-analysis-and-section-breakdown.md |   446 +
- .../history/2025-05-01_15-41-starting-task-006.md  |  1916 ++
- .../history/2025-05-01_15-41-starting-task-022.md  |  3650 +++
- ..._15-44-task-file-issues-duplicates-and-order.md |   695 +
- .../2025-05-01_16-05-task-009-workflow-update.md   | 12933 ++++++++
- ...-01_16-05-task-011-review-and-progress-check.md |  4121 +++
- ...025-05-01_16-39-continuing-task-022-progress.md | 29334 +++++++++++++++++++
- ..._17-07-session-workspace-command-update-task.md |   840 +
- .../history/2025-05-01_19-32-starting-task-027.md  | 14686 ++++++++++
- ...1_20-45-existing-guidelines-for-cursor-rules.md |  1203 +
- .../2025-05-01_21-15-task-030-initiation.md        |  3727 +++
- .../2025-05-01_23-45-task-003-status-update.md     |  3889 +++
- .../2025-05-02_18-09-task-012-status-inquiry.md    |  2835 ++
- .../2025-05-02_18-34-task-021-status-inquiry.md    |   642 +
- .vscode/extensions.json                            |     3 +
- .vscode/settings.json                              |    23 +
- ...sky-workflow-rule-into-smaller-focused-rules.md |   134 +
- CHANGELOG.md                                       |   358 +
- CHANGELOG.md.save                                  |   145 +
- Dockerfile                                         |    21 +
- README-MCP.md                                      |   140 +
- README.md                                          |   255 +-
- bun-test.d.ts                                      |    57 +
- bun.lock                                           |   979 +
- changelog_entries.txt                              |     0
- detect-placeholder-tests.ts                        |   118 +
- docker-compose.yml                                 |    17 +
- docs/architecture/interface-agnostic-commands.md   |   173 +
- docs/architecture/validation-error-handling.md     |   224 +
- fix-status-test.txt                                |     1 +
- full-ai-prompt.md                                  |   939 +
- minsky.code-workspace                              |     7 +
- package.json                                       |    44 +
- process/README.md                                  |    43 +
- process/tasks.md                                   |   112 +
- process/tasks/001-update-session-start-task-id.md  |   153 +
- process/tasks/002-per-repo-session-storage.md      |   105 +
- process/tasks/002/pr.md                            |   388 +
- process/tasks/003-add-init-command.md              |    58 +
- process/tasks/003/pr.md                            |    26 +
- .../tasks/004-add-task-option-to-session-get.md    |    71 +
- process/tasks/005-add-git-push-command.md          |    90 +
- .../tasks/006-add-quiet-option-to-session-start.md |    88 +
- process/tasks/006/pr.md                            |    22 +
- process/tasks/007-add-tasks-create-command.md      |    78 +
- process/tasks/007/pr.md                            |    18 +
- process/tasks/008-update-tasks-list-hide-done.md   |    38 +
- process/tasks/008/pr.md                            |    24 +
- process/tasks/009-add-git-commit-command.md        |   103 +
- process/tasks/010-enhance-git-pr-command.md        |   172 +
- .../011-fix-git-pr-command-and-add-proper-tests.md |    82 +
- process/tasks/012-add-session-update-command.md    |   104 +
- process/tasks/012/pr.md                            |   375 +
- .../tasks/014-add-repository-backend-support.md    |   210 +
- process/tasks/014/pr.md                            |    63 +
- process/tasks/015-add-session-delete-command.md    |    93 +
- process/tasks/015/pr.md                            |    23 +
- .../016-enforce-main-workspace-task-operations.md  |    84 +
- process/tasks/016/final-pr.md                      |    67 +
- process/tasks/016/pr-summary.md                    |    42 +
- process/tasks/016/pr.md                            |    21 +
- .../017-support-task-id-format-in-task-option.md   |    87 +
- process/tasks/017/pr.md                            |    27 +
- .../tasks/018-add-task-option-to-session-dir.md    |    69 +
- .../tasks/019-implement-test-suite-improvements.md |    87 +
- process/tasks/020-add-task-option-to-git-pr.md     |    94 +
- process/tasks/020/pr.md                            |    18 +
- .../021-refactor-large-methods-in-git-service.md   |    67 +
- process/tasks/021/pr.md                            |    42 +
- process/tasks/022-fix-session-test-failures.md     |   149 +
- process/tasks/022/pr.md                            |   474 +
- .../tasks/023-add-task-spec-path-to-task-object.md |    73 +
- process/tasks/023/pr.md                            |    22 +
- process/tasks/024-fix-session-dir-command-logic.md |    74 +
- process/tasks/024/pr.md                            |    71 +
- process/tasks/025-add-git-approve-command.md       |   198 +
- process/tasks/026-fix-task-spec-paths.md           |    82 +
- process/tasks/026/pr.md                            |    49 +
- .../tasks/027-autodetect-session-in-commands.md    |   131 +
- process/tasks/027/pr-summary.md                    |    59 +
- process/tasks/027/pr-updated.md                    |    49 +
- process/tasks/027/pr.md                            |   345 +
- ...e-task-status-updates-at-key-workflow-points.md |   125 +
- process/tasks/028/pr.md                            |    32 +
- process/tasks/029-add-rules-command.md             |   101 +
- .../030-setup-project-tooling-and-automation.md    |   164 +
- process/tasks/031-add-task-filter-messages.md      |    85 +
- process/tasks/031/pr.md                            |    32 +
- process/tasks/032-auto-rename-task-spec-files.md   |    87 +
- ...3-enhance-init-command-with-additional-rules.md |    79 +
- process/tasks/034-mcp-support.md                   |   179 +
- .../tasks/035-task-create-title-workflow-fix.md    |    50 +
- process/tasks/035/pr.md                            |    27 +
- .../tasks/036-improve-task-creation-workflow.md    |     0
- process/tasks/036/pr.md                            |    44 +
- process/tasks/037-session-commit-command.md        |    56 +
- process/tasks/038-tasks-status-set-prompt.md       |    63 +
- process/tasks/039-interface-agnostic-commands.md   |   657 +
- ...40-add-task-option-to-session-delete-command.md |    81 +
- .../tasks/041-write-test-suite-for-cursor-rules.md |    62 +
- ...rule-descriptions-for-improved-ai-triggering.md |   101 +
- .../043-add-session-information-to-task-details.md |    63 +
- process/tasks/043/pr.md                            |    27 +
- .../044-fix-remaining-test-failures-in-minsky.md   |    80 +
- process/tasks/045-setup-documentation-tooling.md   |    78 +
- .../046-document-dependency-management-process.md  |    73 +
- ...-configure-mcp-server-in-minsky-init-command.md |   118 +
- process/tasks/047/pr.md                            |    98 +
- .../tasks/048-establish-a-rule-library-system.md   |   471 +
- ...on-scoped-mcp-server-for-workspace-isolation.md |   111 +
- .../050-fix-remaining-test-failures-in-minsky.md   |    80 +
- .../tasks/051-add-git-commands-to-mcp-server.md    |    91 +
- ...dd-remaining-task-management-commands-to-mcp.md |    86 +
- ...nt-session-creation-within-existing-sessions.md |    46 +
- ...nfigure-husky-hooks-for-session-repositories.md |    52 +
- ...054-restore-full-test-suite-for-init-command.md |    45 +
- ...document-and-fix-rule-sync-bug-in-minsky-cli.md |    32 +
- process/tasks/055/pr.md                            |    42 +
- ...-explore-oci-artifacts-for-rule-distribution.md |    92 +
- ...ement-typescript-based-rule-authoring-system.md |    93 +
- ...ter-and-zod-for-rule-metadata-and-validation.md |    23 +
- .../059-add-centralized-test-mock-utilities.md     |    30 +
- .../tasks/060-implement-automatic-test-linting.md  |    30 +
- .../061-implement-test-fixture-factory-pattern.md  |    28 +
- ...062-improve-bun-test-typescript-declarations.md |    30 +
- ...fine-and-implement-snapshot-testing-strategy.md |    28 +
- ...scription-validation-to-minsky-rules-create-.md |    77 +
- ...-rules-create-update-description-quoting-bug.md |    27 +
- ...insky-rules-get-format-generic-inconsistency.md |    56 +
- ...workflow-mdc-rule-into-smaller-focused-rules.md |   138 +
- ...i-guideline-do-not-over-optimize-indentation.md |    29 +
- ...ask-id-permissiveness-in-minsky-cli-commands.md |    51 +
- ...on-task-in-minsky-cli-from-session-workspace.md |   140 +
- ...-tests-and-establish-core-testing-principles.md |    48 +
- ...ix-test-failures-and-remaining-linter-errors.md |   108 +
- .../073-fix-adapter-integration-test-failures.md   |    44 +
- ...extend-auto-detection-to-additional-commands.md |    84 +
- ...pendency-installation-for-session-workspaces.md |    68 +
- ...75-fix-minsky-session-delete-command-cleanup.md |    97 +
- process/tasks/075/pr.md                            |    31 +
- ...te-interface-agnostic-architecture-migration.md |   118 +
- .../077-implement-structured-logging-system.md     |    90 +
- process/tasks/future-tasks.md                      |     0
- src/__fixtures__/test-data.ts                      |   116 +
- src/adapters/__tests__/integration/session.test.ts |   257 +
- src/adapters/__tests__/integration/tasks.test.ts   |   321 +
- src/adapters/cli/git.ts                            |   159 +
- src/adapters/cli/tasks.ts                          |   382 +
- src/adapters/mcp/git.ts                            |    68 +
- src/adapters/mcp/session.ts                        |   208 +
- src/adapters/mcp/tasks.ts                          |   129 +
- src/cli.ts                                         |    37 +
- src/commands/git/__tests__/pr.test.ts              |   224 +
- src/commands/git/branch.ts                         |    23 +
- src/commands/git/clone.ts                          |    26 +
- src/commands/git/commit.minimal.test.ts            |    10 +
- src/commands/git/commit.test.ts                    |   276 +
- src/commands/git/commit.ts                         |    73 +
- src/commands/git/index.ts                          |    16 +
- src/commands/git/pr.ts                             |    92 +
- src/commands/init/index.test.ts                    |    40 +
- src/commands/init/index.ts                         |   230 +
- src/commands/mcp/index.ts                          |    91 +
- src/commands/rules/create.ts                       |   224 +
- src/commands/rules/get.ts                          |    90 +
- src/commands/rules/index.ts                        |    20 +
- src/commands/rules/list.ts                         |    88 +
- src/commands/rules/search.ts                       |    64 +
- src/commands/rules/stdin-helpers.ts                |    17 +
- src/commands/rules/sync.ts                         |   184 +
- src/commands/rules/update.ts                       |   119 +
- .../session/__tests__/autoStatusUpdate.test.ts     |    66 +
- src/commands/session/autodetect.test.ts            |    64 +
- src/commands/session/cd.test.ts.bak                |   408 +
- src/commands/session/cd.ts                         |   127 +
- src/commands/session/commit.test.ts                |   181 +
- src/commands/session/commit.ts                     |   143 +
- src/commands/session/delete.test.ts                |   584 +
- src/commands/session/delete.ts                     |   208 +
- src/commands/session/dir.test.ts                   |   426 +
- src/commands/session/dir.ts                        |   127 +
- src/commands/session/get.test.ts                   |   380 +
- src/commands/session/get.ts                        |   129 +
- src/commands/session/index.ts                      |    47 +
- src/commands/session/list.test.ts                  |   193 +
- src/commands/session/list.ts                       |    27 +
- src/commands/session/start.test.ts                 |   187 +
- src/commands/session/start.ts                      |   185 +
- src/commands/session/startSession.test.ts          |   149 +
- src/commands/session/startSession.ts               |   206 +
- src/commands/session/update.test.ts                |    20 +
- src/commands/session/update.ts                     |    82 +
- src/commands/tasks/create.test.ts                  |   252 +
- src/commands/tasks/create.ts                       |   179 +
- src/commands/tasks/get.test.ts                     |   272 +
- src/commands/tasks/get.ts                          |   133 +
- src/commands/tasks/index.ts                        |    16 +
- src/commands/tasks/list.test.ts                    |   478 +
- src/commands/tasks/list.ts                         |   103 +
- src/commands/tasks/status.test.ts                  |   245 +
- src/commands/tasks/status.test.ts.bak              |   223 +
- src/commands/tasks/status.ts                       |   241 +
- src/domain/__tests__/git.test.ts                   |   236 +
- .../__tests__/gitServiceTaskStatusUpdate.test.ts   |    11 +
- src/domain/__tests__/repository.test.ts            |    12 +
- src/domain/__tests__/session.test.ts               |   331 +
- src/domain/__tests__/tasks.test.ts                 |   183 +
- src/domain/git.pr.test.ts                          |    11 +
- src/domain/git.test.ts                             |    12 +
- src/domain/git.ts                                  |  1101 +
- src/domain/index.ts                                |     7 +
- src/domain/init.test.ts                            |   489 +
- src/domain/init.ts                                 |   544 +
- src/domain/localGitBackend.ts                      |   322 +
- src/domain/remoteGitBackend.ts                     |   345 +
- src/domain/repo-utils.test.ts                      |    87 +
- src/domain/repo-utils.ts                           |    53 +
- src/domain/repository.ts                           |   175 +
- src/domain/repository/RepositoryBackend.ts         |    23 +
- src/domain/repository/github.ts                    |   330 +
- src/domain/repository/index.ts                     |   267 +
- src/domain/repository/local.ts                     |   216 +
- src/domain/repository/remote.ts                    |   315 +
- src/domain/rules-format.test.ts                    |   137 +
- src/domain/rules.test.ts                           |   414 +
- src/domain/rules.ts                                |   358 +
- src/domain/session.test.ts                         |   200 +
- src/domain/session.ts                              |   517 +
- src/domain/tasks.specpath.test.ts                  |     0
- src/domain/tasks.test.ts                           |   532 +
- src/domain/tasks.ts                                |   771 +
- src/domain/tasks/__tests__/utils.test.ts           |    29 +
- src/domain/tasks/index.ts                          |     1 +
- src/domain/tasks/utils.test.ts                     |    44 +
- src/domain/tasks/utils.ts                          |    35 +
- src/domain/utils.ts                                |     4 +
- src/domain/validationUtils.ts                      |    16 +
- src/domain/workspace.test.ts                       |   500 +
- src/domain/workspace.ts                            |   248 +
- src/errors/index.ts                                |   124 +
- src/mcp/command-mapper.ts                          |   134 +
- src/mcp/server.ts                                  |   167 +
- src/mcp/tools/session.ts                           |   185 +
- src/mcp/tools/tasks.ts                             |   163 +
- src/schemas/common.ts                              |    93 +
- src/schemas/git.ts                                 |   101 +
- src/schemas/session.ts                             |   109 +
- src/schemas/tasks.ts                               |    99 +
- src/types/bun-test.d.ts                            |    47 +
- src/types/session.d.ts                             |    20 +
- src/utils/__tests__/test-utils.test.ts             |   119 +
- src/utils/exec.ts                                  |     4 +
- src/utils/filter-messages.test.ts                  |    63 +
- src/utils/filter-messages.ts                       |    40 +
- src/utils/process.ts                               |    11 +
- src/utils/repo.ts                                  |    14 +
- src/utils/repository-utils.ts                      |   146 +
- src/utils/task-utils.ts                            |     7 +
- src/utils/test-helpers.ts                          |   202 +
- src/utils/test-utils.ts                            |   124 +
- temp_user_preference.md                            |     2 +
- tsconfig.json                                      |    32 +
- workspace.ts.patch                                 |   200 +
- 413 files changed, 267945 insertions(+), 10 deletions(-)
+
+.cursor-rules/testing-boundaries.mdc | 69 +
+.cursor/rules/README.md | 60 +
+.cursor/rules/ai-linter-autofix-guideline.mdc | 30 +
+.cursor/rules/bun-test-patterns.mdc | 75 +
+.cursor/rules/bun_over_node.mdc | 31 +
+.cursor/rules/changelog.mdc | 62 +
+.cursor/rules/cli-testing.mdc | 91 +
+.cursor/rules/command-organization.mdc | 14 +
+.cursor/rules/constants-management.mdc | 144 +
+.cursor/rules/creating-tasks.mdc | 207 +
+.cursor/rules/derived-cursor-rules.mdc | 492 +
+.cursor/rules/designing-tests.mdc | 115 +
+.cursor/rules/domain-oriented-modules.mdc | 79 +
+.cursor/rules/dont-ignore-errors.mdc | 28 +
+.cursor/rules/file-size.mdc | 6 +
+.cursor/rules/framework-specific-tests.mdc | 91 +
+.cursor/rules/index.mdc | 142 +
+.cursor/rules/json-parsing.mdc | 72 +
+.cursor/rules/minsky-workflow.mdc | 550 +
+.cursor/rules/module-organization.mdc | 23 +
+.cursor/rules/pr-description-guidelines.mdc | 166 +
+.cursor/rules/robust-error-handling.mdc | 106 +
+.cursor/rules/rule-creation-guidelines.mdc | 140 +
+.cursor/rules/rule-map.mdc | 19 +
+.cursor/rules/rules-management.mdc | 143 +
+.cursor/rules/self-improvement-router.mdc | 22 +
+.cursor/rules/self-improvement.mdc | 223 +
+.cursor/rules/session-first-workflow.mdc | 122 +
+.cursor/rules/task-status-verification.mdc | 83 +
+.cursor/rules/template-literals.mdc | 6 +
+.cursor/rules/test-debugging.mdc | 57 +
+.cursor/rules/test-driven-bugfix.mdc | 118 +
+.cursor/rules/test-expectations.mdc | 31 +
+.cursor/rules/test-infrastructure-patterns.mdc | 227 +
+.cursor/rules/test-rule.mdc | 20 +
+.cursor/rules/testable-design.mdc | 99 +
+.cursor/rules/testing-boundaries.mdc | 70 +
+.cursor/rules/testing-session-repo-changes.mdc | 65 +
+.cursor/rules/tests.mdc | 103 +
+.cursor/rules/user-preferences.mdc | 10 +
+.cursorignore | 2 +
+.cursorindexingignore | 2 +
+.dockerignore | 8 +
+.eslintrc.json | 60 +
+.github/dependabot.yml | 8 +
+.github/workflows/ci.yml | 33 +
+.github/workflows/test-quality.yml | 48 +
+.gitignore | 37 +
+.husky/pre-commit.disabled | 15 +
+.husky/pre-push.disabled | 8 +
+.lintstagedrc.json | 5 +
+.prettierrc.json | 11 +
+.specstory/.project.json | 6 +
+.specstory/.what-is-this.md | 68 +
+...rived-cursor-rules.mdc.2025-04-28T16-19-14-406Z | 432 +
+...rived-cursor-rules.mdc.2025-04-28T16-23-34-237Z | 434 +
+...rived-cursor-rules.mdc.2025-04-28T16-26-37-336Z | 437 +
+...rived-cursor-rules.mdc.2025-04-28T16-29-38-609Z | 441 +
+...rived-cursor-rules.mdc.2025-04-28T16-32-41-977Z | 444 +
+...rived-cursor-rules.mdc.2025-04-28T16-35-43-089Z | 465 +
+...rived-cursor-rules.mdc.2025-04-28T16-38-45-989Z | 469 +
+...rived-cursor-rules.mdc.2025-04-28T16-42-11-095Z | 471 +
+...rived-cursor-rules.mdc.2025-04-28T16-45-16-434Z | 473 +
+...rived-cursor-rules.mdc.2025-04-28T16-55-46-439Z | 479 +
+...rived-cursor-rules.mdc.2025-04-28T16-58-45-644Z | 484 +
+...rived-cursor-rules.mdc.2025-04-28T17-02-12-556Z | 487 +
+...rived-cursor-rules.mdc.2025-04-28T17-04-48-010Z | 487 +
+...rived-cursor-rules.mdc.2025-04-28T17-29-59-518Z | 498 +
+...rived-cursor-rules.mdc.2025-04-28T17-32-59-514Z | 478 +
+...rived-cursor-rules.mdc.2025-04-28T17-35-59-270Z | 516 +
+...rived-cursor-rules.mdc.2025-04-28T17-40-23-450Z | 523 +
+...rived-cursor-rules.mdc.2025-04-28T18-17-16-347Z | 519 +
+...rived-cursor-rules.mdc.2025-04-28T18-22-39-113Z | 554 +
+...rived-cursor-rules.mdc.2025-04-28T18-25-39-397Z | 561 +
+...rived-cursor-rules.mdc.2025-04-28T18-29-08-330Z | 558 +
+...rived-cursor-rules.mdc.2025-04-28T18-32-15-901Z | 560 +
+...rived-cursor-rules.mdc.2025-04-28T18-35-14-480Z | 587 +
+...rived-cursor-rules.mdc.2025-04-28T18-37-46-925Z | 603 +
+...rived-cursor-rules.mdc.2025-04-28T18-40-46-389Z | 590 +
+...rived-cursor-rules.mdc.2025-04-28T18-43-47-013Z | 587 +
+...rived-cursor-rules.mdc.2025-04-28T18-46-48-075Z | 578 +
+...rived-cursor-rules.mdc.2025-04-28T18-49-47-747Z | 567 +
+...rived-cursor-rules.mdc.2025-04-28T18-52-47-912Z | 542 +
+...rived-cursor-rules.mdc.2025-04-28T18-55-46-597Z | 547 +
+...rived-cursor-rules.mdc.2025-04-28T18-58-46-831Z | 546 +
+...rived-cursor-rules.mdc.2025-04-28T19-01-47-450Z | 546 +
+...rived-cursor-rules.mdc.2025-04-28T19-04-46-435Z | 538 +
+...rived-cursor-rules.mdc.2025-04-28T19-07-47-101Z | 521 +
+...rived-cursor-rules.mdc.2025-04-28T19-10-49-485Z | 516 +
+...rived-cursor-rules.mdc.2025-04-29T20-38-19-598Z | 424 +
+...rived-cursor-rules.mdc.2025-04-29T20-41-58-734Z | 424 +
+...rived-cursor-rules.mdc.2025-04-29T20-44-21-515Z | 409 +
+...rived-cursor-rules.mdc.2025-04-29T20-48-06-500Z | 409 +
+...rived-cursor-rules.mdc.2025-04-29T20-50-33-469Z | 400 +
+...rived-cursor-rules.mdc.2025-04-29T20-53-33-850Z | 400 +
+...rived-cursor-rules.mdc.2025-04-29T20-57-04-006Z | 400 +
+...rived-cursor-rules.mdc.2025-04-29T21-00-05-186Z | 396 +
+...rived-cursor-rules.mdc.2025-04-29T21-06-31-283Z | 390 +
+...rived-cursor-rules.mdc.2025-04-29T21-09-34-977Z | 388 +
+...rived-cursor-rules.mdc.2025-04-29T21-20-43-139Z | 390 +
+...rived-cursor-rules.mdc.2025-04-30T03-35-04-818Z | 373 +
+...rived-cursor-rules.mdc.2025-04-30T17-32-30-575Z | 372 +
+...rived-cursor-rules.mdc.2025-04-30T17-35-57-771Z | 371 +
+...rived-cursor-rules.mdc.2025-04-30T17-39-00-717Z | 368 +
+...5-04-26_20-30-setting-up-minsky-cli-with-bun.md | 4725 +++
+...5-04-26_22-29-task-management-command-design.md | 4253 +++
+...4-fixing-changelog-duplicates-and-references.md | 170 +
+...hancing-minsky-cli-task-id-for-session-start.md | 707 +
+...3-update-tasks-list-commands-for-json-output.md | 829 +
+...ng-session-commands-for-directory-management.md | 79 +
+...-27_20-17-minsky-task-workflow-rule-creation.md | 400 +
+...-add-task-statuses-in-progress-and-in-review.md | 323 +
+...21-51-project-initialization-task-for-minsky.md | 866 +
+.../2025-04-28_16-22-backlog-task-inquiry.md | 2475 ++
+.../2025-04-28_16-54-task-#001-progress-check.md | 2944 ++
+.../2025-04-28_18-34-available-tasks-inquiry.md | 348 +
+.../2025-04-28_18-34-create-minsky-task-command.md | 990 +
+.../2025-04-28_18-51-available-tasks-inquiry.md | 322 +
+.../2025-04-28_18-53-available-tasks-inquiry.md | 834 +
+.../history/2025-04-28_18-53-starting-task-#008.md | 363 +
+...25-04-28_19-10-starting-work-on-project-#004.md | 3900 +++
+.../2025-04-28_21-34-creating-a-git-push-task.md | 1188 +
+.../2025-04-29_16-19-available-tasks-inquiry.md | 237 +
+.../2025-04-29_16-44-available-tasks-inquiry.md | 2820 ++
+.../2025-04-29_16-45-available-tasks-inquiry.md | 1365 +
+.../2025-04-29_16-46-debugging-pr-command-logic.md | 4532 +++
+.../2025-04-29_17-23-available-tasks-inquiry.md | 6347 ++++
+...6-bug-fixing-rule-create-failing-tests-first.md | 191 +
+.../2025-04-29_18-49-available-tasks-inquiry.md | 571 +
+.../history/2025-04-29_18-53-starting-task-002.md | 8436 ++++++
+.../2025-04-29_19-23-continuing-task-001.md | 1570 +
+...-04-add-github-option-for-repository-backend.md | 347 +
+...-08-task-creation-for-session-delete-command.md | 310 +
+.../2025-04-29_20-13-available-tasks-inquiry.md | 634 +
+...04-29_20-13-session-start-error-for-task-008.md | 1178 +
+.../2025-04-29_20-27-continuing-task-011.md | 1325 +
+.../2025-04-29_20-27-task-008-initiation.md | 3141 ++
+.../history/2025-04-29_20-47-starting-task-016.md | 3906 +++
+...25-04-30_01-13-task-011-progress-and-updates.md | 814 +
+...25-04-30_01-14-task-002-progress-and-updates.md | 878 +
+.../2025-04-30_01-18-available-tasks-inquiry.md | 4773 +++
+.../2025-04-30_17-43-available-tasks-inquiry.md | 3096 ++
+...2025-04-30_17-43-continuing-work-on-task-011.md | 8886 ++++++
+...25-04-30_17-43-task-002-progress-and-updates.md | 8742 ++++++
+...-30_19-17-task-011-worklog-and-commit-review.md | 7673 +++++
+...25-04-30_19-31-task#002-progress-and-updates.md | 7007 +++++
+...30_19-35-task-008-testing-and-review-updates.md | 8999 ++++++
+...20-13-finalizing-task-002-and-pr-preparation.md | 6448 ++++
+...21-28-pr-review-and-validation-for-task-#002.md | 2805 ++
+.../2025-04-30_21-54-available-tasks-inquiry.md | 1234 +
+...09-large-file-analysis-and-section-breakdown.md | 446 +
+.../history/2025-05-01_15-41-starting-task-006.md | 1916 ++
+.../history/2025-05-01_15-41-starting-task-022.md | 3650 +++
+...\_15-44-task-file-issues-duplicates-and-order.md | 695 +
+.../2025-05-01_16-05-task-009-workflow-update.md | 12933 ++++++++
+...-01_16-05-task-011-review-and-progress-check.md | 4121 +++
+...025-05-01_16-39-continuing-task-022-progress.md | 29334 +++++++++++++++++++
+...\_17-07-session-workspace-command-update-task.md | 840 +
+.../history/2025-05-01_19-32-starting-task-027.md | 14686 ++++++++++
+...1_20-45-existing-guidelines-for-cursor-rules.md | 1203 +
+.../2025-05-01_21-15-task-030-initiation.md | 3727 +++
+.../2025-05-01_23-45-task-003-status-update.md | 3889 +++
+.../2025-05-02_18-09-task-012-status-inquiry.md | 2835 ++
+.../2025-05-02_18-34-task-021-status-inquiry.md | 642 +
+.vscode/extensions.json | 3 +
+.vscode/settings.json | 23 +
+...sky-workflow-rule-into-smaller-focused-rules.md | 134 +
+CHANGELOG.md | 358 +
+CHANGELOG.md.save | 145 +
+Dockerfile | 21 +
+README-MCP.md | 140 +
+README.md | 255 +-
+bun-test.d.ts | 57 +
+bun.lock | 979 +
+changelog_entries.txt | 0
+detect-placeholder-tests.ts | 118 +
+docker-compose.yml | 17 +
+docs/architecture/interface-agnostic-commands.md | 173 +
+docs/architecture/validation-error-handling.md | 224 +
+fix-status-test.txt | 1 +
+full-ai-prompt.md | 939 +
+minsky.code-workspace | 7 +
+package.json | 44 +
+process/README.md | 43 +
+process/tasks.md | 112 +
+process/tasks/001-update-session-start-task-id.md | 153 +
+process/tasks/002-per-repo-session-storage.md | 105 +
+process/tasks/002/pr.md | 388 +
+process/tasks/003-add-init-command.md | 58 +
+process/tasks/003/pr.md | 26 +
+.../tasks/004-add-task-option-to-session-get.md | 71 +
+process/tasks/005-add-git-push-command.md | 90 +
+.../tasks/006-add-quiet-option-to-session-start.md | 88 +
+process/tasks/006/pr.md | 22 +
+process/tasks/007-add-tasks-create-command.md | 78 +
+process/tasks/007/pr.md | 18 +
+process/tasks/008-update-tasks-list-hide-done.md | 38 +
+process/tasks/008/pr.md | 24 +
+process/tasks/009-add-git-commit-command.md | 103 +
+process/tasks/010-enhance-git-pr-command.md | 172 +
+.../011-fix-git-pr-command-and-add-proper-tests.md | 82 +
+process/tasks/012-add-session-update-command.md | 104 +
+process/tasks/012/pr.md | 375 +
+.../tasks/014-add-repository-backend-support.md | 210 +
+process/tasks/014/pr.md | 63 +
+process/tasks/015-add-session-delete-command.md | 93 +
+process/tasks/015/pr.md | 23 +
+.../016-enforce-main-workspace-task-operations.md | 84 +
+process/tasks/016/final-pr.md | 67 +
+process/tasks/016/pr-summary.md | 42 +
+process/tasks/016/pr.md | 21 +
+.../017-support-task-id-format-in-task-option.md | 87 +
+process/tasks/017/pr.md | 27 +
+.../tasks/018-add-task-option-to-session-dir.md | 69 +
+.../tasks/019-implement-test-suite-improvements.md | 87 +
+process/tasks/020-add-task-option-to-git-pr.md | 94 +
+process/tasks/020/pr.md | 18 +
+.../021-refactor-large-methods-in-git-service.md | 67 +
+process/tasks/021/pr.md | 42 +
+process/tasks/022-fix-session-test-failures.md | 149 +
+process/tasks/022/pr.md | 474 +
+.../tasks/023-add-task-spec-path-to-task-object.md | 73 +
+process/tasks/023/pr.md | 22 +
+process/tasks/024-fix-session-dir-command-logic.md | 74 +
+process/tasks/024/pr.md | 71 +
+process/tasks/025-add-git-approve-command.md | 198 +
+process/tasks/026-fix-task-spec-paths.md | 82 +
+process/tasks/026/pr.md | 49 +
+.../tasks/027-autodetect-session-in-commands.md | 131 +
+process/tasks/027/pr-summary.md | 59 +
+process/tasks/027/pr-updated.md | 49 +
+process/tasks/027/pr.md | 345 +
+...e-task-status-updates-at-key-workflow-points.md | 125 +
+process/tasks/028/pr.md | 32 +
+process/tasks/029-add-rules-command.md | 101 +
+.../030-setup-project-tooling-and-automation.md | 164 +
+process/tasks/031-add-task-filter-messages.md | 85 +
+process/tasks/031/pr.md | 32 +
+process/tasks/032-auto-rename-task-spec-files.md | 87 +
+...3-enhance-init-command-with-additional-rules.md | 79 +
+process/tasks/034-mcp-support.md | 179 +
+.../tasks/035-task-create-title-workflow-fix.md | 50 +
+process/tasks/035/pr.md | 27 +
+.../tasks/036-improve-task-creation-workflow.md | 0
+process/tasks/036/pr.md | 44 +
+process/tasks/037-session-commit-command.md | 56 +
+process/tasks/038-tasks-status-set-prompt.md | 63 +
+process/tasks/039-interface-agnostic-commands.md | 657 +
+...40-add-task-option-to-session-delete-command.md | 81 +
+.../tasks/041-write-test-suite-for-cursor-rules.md | 62 +
+...rule-descriptions-for-improved-ai-triggering.md | 101 +
+.../043-add-session-information-to-task-details.md | 63 +
+process/tasks/043/pr.md | 27 +
+.../044-fix-remaining-test-failures-in-minsky.md | 80 +
+process/tasks/045-setup-documentation-tooling.md | 78 +
+.../046-document-dependency-management-process.md | 73 +
+...-configure-mcp-server-in-minsky-init-command.md | 118 +
+process/tasks/047/pr.md | 98 +
+.../tasks/048-establish-a-rule-library-system.md | 471 +
+...on-scoped-mcp-server-for-workspace-isolation.md | 111 +
+.../050-fix-remaining-test-failures-in-minsky.md | 80 +
+.../tasks/051-add-git-commands-to-mcp-server.md | 91 +
+...dd-remaining-task-management-commands-to-mcp.md | 86 +
+...nt-session-creation-within-existing-sessions.md | 46 +
+...nfigure-husky-hooks-for-session-repositories.md | 52 +
+...054-restore-full-test-suite-for-init-command.md | 45 +
+...document-and-fix-rule-sync-bug-in-minsky-cli.md | 32 +
+process/tasks/055/pr.md | 42 +
+...-explore-oci-artifacts-for-rule-distribution.md | 92 +
+...ement-typescript-based-rule-authoring-system.md | 93 +
+...ter-and-zod-for-rule-metadata-and-validation.md | 23 +
+.../059-add-centralized-test-mock-utilities.md | 30 +
+.../tasks/060-implement-automatic-test-linting.md | 30 +
+.../061-implement-test-fixture-factory-pattern.md | 28 +
+...062-improve-bun-test-typescript-declarations.md | 30 +
+...fine-and-implement-snapshot-testing-strategy.md | 28 +
+...scription-validation-to-minsky-rules-create-.md | 77 +
+...-rules-create-update-description-quoting-bug.md | 27 +
+...insky-rules-get-format-generic-inconsistency.md | 56 +
+...workflow-mdc-rule-into-smaller-focused-rules.md | 138 +
+...i-guideline-do-not-over-optimize-indentation.md | 29 +
+...ask-id-permissiveness-in-minsky-cli-commands.md | 51 +
+...on-task-in-minsky-cli-from-session-workspace.md | 140 +
+...-tests-and-establish-core-testing-principles.md | 48 +
+...ix-test-failures-and-remaining-linter-errors.md | 108 +
+.../073-fix-adapter-integration-test-failures.md | 44 +
+...extend-auto-detection-to-additional-commands.md | 84 +
+...pendency-installation-for-session-workspaces.md | 68 +
+...75-fix-minsky-session-delete-command-cleanup.md | 97 +
+process/tasks/075/pr.md | 31 +
+...te-interface-agnostic-architecture-migration.md | 118 +
+.../077-implement-structured-logging-system.md | 90 +
+process/tasks/future-tasks.md | 0
+src/**fixtures**/test-data.ts | 116 +
+src/adapters/**tests**/integration/session.test.ts | 257 +
+src/adapters/**tests**/integration/tasks.test.ts | 321 +
+src/adapters/cli/git.ts | 159 +
+src/adapters/cli/tasks.ts | 382 +
+src/adapters/mcp/git.ts | 68 +
+src/adapters/mcp/session.ts | 208 +
+src/adapters/mcp/tasks.ts | 129 +
+src/cli.ts | 37 +
+src/commands/git/**tests**/pr.test.ts | 224 +
+src/commands/git/branch.ts | 23 +
+src/commands/git/clone.ts | 26 +
+src/commands/git/commit.minimal.test.ts | 10 +
+src/commands/git/commit.test.ts | 276 +
+src/commands/git/commit.ts | 73 +
+src/commands/git/index.ts | 16 +
+src/commands/git/pr.ts | 92 +
+src/commands/init/index.test.ts | 40 +
+src/commands/init/index.ts | 230 +
+src/commands/mcp/index.ts | 91 +
+src/commands/rules/create.ts | 224 +
+src/commands/rules/get.ts | 90 +
+src/commands/rules/index.ts | 20 +
+src/commands/rules/list.ts | 88 +
+src/commands/rules/search.ts | 64 +
+src/commands/rules/stdin-helpers.ts | 17 +
+src/commands/rules/sync.ts | 184 +
+src/commands/rules/update.ts | 119 +
+.../session/**tests**/autoStatusUpdate.test.ts | 66 +
+src/commands/session/autodetect.test.ts | 64 +
+src/commands/session/cd.test.ts.bak | 408 +
+src/commands/session/cd.ts | 127 +
+src/commands/session/commit.test.ts | 181 +
+src/commands/session/commit.ts | 143 +
+src/commands/session/delete.test.ts | 584 +
+src/commands/session/delete.ts | 208 +
+src/commands/session/dir.test.ts | 426 +
+src/commands/session/dir.ts | 127 +
+src/commands/session/get.test.ts | 380 +
+src/commands/session/get.ts | 129 +
+src/commands/session/index.ts | 47 +
+src/commands/session/list.test.ts | 193 +
+src/commands/session/list.ts | 27 +
+src/commands/session/start.test.ts | 187 +
+src/commands/session/start.ts | 185 +
+src/commands/session/startSession.test.ts | 149 +
+src/commands/session/startSession.ts | 206 +
+src/commands/session/update.test.ts | 20 +
+src/commands/session/update.ts | 82 +
+src/commands/tasks/create.test.ts | 252 +
+src/commands/tasks/create.ts | 179 +
+src/commands/tasks/get.test.ts | 272 +
+src/commands/tasks/get.ts | 133 +
+src/commands/tasks/index.ts | 16 +
+src/commands/tasks/list.test.ts | 478 +
+src/commands/tasks/list.ts | 103 +
+src/commands/tasks/status.test.ts | 245 +
+src/commands/tasks/status.test.ts.bak | 223 +
+src/commands/tasks/status.ts | 241 +
+src/domain/**tests**/git.test.ts | 236 +
+.../**tests**/gitServiceTaskStatusUpdate.test.ts | 11 +
+src/domain/**tests**/repository.test.ts | 12 +
+src/domain/**tests**/session.test.ts | 331 +
+src/domain/**tests**/tasks.test.ts | 183 +
+src/domain/git.pr.test.ts | 11 +
+src/domain/git.test.ts | 12 +
+src/domain/git.ts | 1101 +
+src/domain/index.ts | 7 +
+src/domain/init.test.ts | 489 +
+src/domain/init.ts | 544 +
+src/domain/localGitBackend.ts | 322 +
+src/domain/remoteGitBackend.ts | 345 +
+src/domain/repo-utils.test.ts | 87 +
+src/domain/repo-utils.ts | 53 +
+src/domain/repository.ts | 175 +
+src/domain/repository/RepositoryBackend.ts | 23 +
+src/domain/repository/github.ts | 330 +
+src/domain/repository/index.ts | 267 +
+src/domain/repository/local.ts | 216 +
+src/domain/repository/remote.ts | 315 +
+src/domain/rules-format.test.ts | 137 +
+src/domain/rules.test.ts | 414 +
+src/domain/rules.ts | 358 +
+src/domain/session.test.ts | 200 +
+src/domain/session.ts | 517 +
+src/domain/tasks.specpath.test.ts | 0
+src/domain/tasks.test.ts | 532 +
+src/domain/tasks.ts | 771 +
+src/domain/tasks/**tests**/utils.test.ts | 29 +
+src/domain/tasks/index.ts | 1 +
+src/domain/tasks/utils.test.ts | 44 +
+src/domain/tasks/utils.ts | 35 +
+src/domain/utils.ts | 4 +
+src/domain/validationUtils.ts | 16 +
+src/domain/workspace.test.ts | 500 +
+src/domain/workspace.ts | 248 +
+src/errors/index.ts | 124 +
+src/mcp/command-mapper.ts | 134 +
+src/mcp/server.ts | 167 +
+src/mcp/tools/session.ts | 185 +
+src/mcp/tools/tasks.ts | 163 +
+src/schemas/common.ts | 93 +
+src/schemas/git.ts | 101 +
+src/schemas/session.ts | 109 +
+src/schemas/tasks.ts | 99 +
+src/types/bun-test.d.ts | 47 +
+src/types/session.d.ts | 20 +
+src/utils/**tests**/test-utils.test.ts | 119 +
+src/utils/exec.ts | 4 +
+src/utils/filter-messages.test.ts | 63 +
+src/utils/filter-messages.ts | 40 +
+src/utils/process.ts | 11 +
+src/utils/repo.ts | 14 +
+src/utils/repository-utils.ts | 146 +
+src/utils/task-utils.ts | 7 +
+src/utils/test-helpers.ts | 202 +
+src/utils/test-utils.ts | 124 +
+temp_user_preference.md | 2 +
+tsconfig.json | 32 +
+workspace.ts.patch | 200 +
+413 files changed, 267945 insertions(+), 10 deletions(-)
+
 ## Uncommitted changes in working directory
-M	bun.lock
-M	package.json
-M	src/domain/rules.test.ts
+
+M bun.lock
+M package.json
+M src/domain/rules.test.ts
 
 minsky
 process/tasks/066/pr.md
-
-

@@ -11,9 +11,14 @@ import {
   createMock,
   mockModule,
   setupTestMocks,
-  createMockObject
+  createMockObject,
 } from "../../../utils/test-utils/mocking.js";
-import { type TaskGetParams, type TaskListParams, type TaskStatusGetParams, type TaskStatusSetParams } from "../../../schemas/tasks.js";
+import {
+  type TaskGetParams,
+  type TaskListParams,
+  type TaskStatusGetParams,
+  type TaskStatusSetParams,
+} from "../../../schemas/tasks.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -43,22 +48,22 @@ describe("Tasks Domain Methods", () => {
       title: "Test Task 1",
       description: "This is a test task",
       status: TASK_STATUS.TODO,
-      specPath: "process/tasks/123-test-task-1.md"
+      specPath: "process/tasks/123-test-task-1.md",
     },
     {
       id: "124",
       title: "Test Task 2",
       description: "This is another test task",
       status: TASK_STATUS.IN_PROGRESS,
-      specPath: "process/tasks/124-test-task-2.md"
+      specPath: "process/tasks/124-test-task-2.md",
     },
     {
       id: "125",
       title: "Test Task 3",
       description: "This is a completed test task",
       status: TASK_STATUS.DONE,
-      specPath: "process/tasks/125-test-task-3.md"
-    }
+      specPath: "process/tasks/125-test-task-3.md",
+    },
   ];
 
   beforeEach(() => {
@@ -74,10 +79,10 @@ describe("Tasks Domain Methods", () => {
       // Arrange
       const params: TaskGetParams = { taskId: "123", json: false };
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
-      
+
       // Act
       const result = await mockGetTaskFromParams(params);
-      
+
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(mockTasks[0]);
@@ -90,25 +95,25 @@ describe("Tasks Domain Methods", () => {
       const params: TaskGetParams = { taskId: "999", json: false };
       const error = new Error(`Task not found: ${params.taskId}`);
       mockGetTaskFromParams.mockRejectedValue(error);
-      
+
       // Act & Assert
-      await expect(mockGetTaskFromParams(params))
-        .rejects
-        .toThrow(`Task not found: ${params.taskId}`);
+      await expect(mockGetTaskFromParams(params)).rejects.toThrow(
+        `Task not found: ${params.taskId}`
+      );
     });
 
     test("gets task with custom repo path", async () => {
       // Arrange
-      const params: TaskGetParams = { 
+      const params: TaskGetParams = {
         taskId: "123",
         repo: "/custom/repo/path",
-        json: false
+        json: false,
       };
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
-      
+
       // Act
       const result = await mockGetTaskFromParams(params);
-      
+
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(mockTasks[0]);
@@ -120,10 +125,10 @@ describe("Tasks Domain Methods", () => {
       // Arrange
       const params: TaskListParams = { all: true, json: false };
       mockListTasksFromParams.mockResolvedValue(mockTasks);
-      
+
       // Act
       const result = await mockListTasksFromParams(params);
-      
+
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(mockTasks);
@@ -132,17 +137,17 @@ describe("Tasks Domain Methods", () => {
 
     test("filters tasks by status", async () => {
       // Arrange
-      const params: TaskListParams = { 
-        all: true, 
+      const params: TaskListParams = {
+        all: true,
         filter: TASK_STATUS.IN_PROGRESS,
-        json: false 
+        json: false,
       };
-      const filteredTasks = mockTasks.filter(task => task.status === TASK_STATUS.IN_PROGRESS);
+      const filteredTasks = mockTasks.filter((task) => task.status === TASK_STATUS.IN_PROGRESS);
       mockListTasksFromParams.mockResolvedValue(filteredTasks);
-      
+
       // Act
       const result = await mockListTasksFromParams(params);
-      
+
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual([mockTasks[1]]);
@@ -152,16 +157,16 @@ describe("Tasks Domain Methods", () => {
 
     test("handles custom repo path", async () => {
       // Arrange
-      const params: TaskListParams = { 
+      const params: TaskListParams = {
         all: true,
         repo: "/custom/repo/path",
-        json: false
+        json: false,
       };
       mockListTasksFromParams.mockResolvedValue(mockTasks);
-      
+
       // Act
       const result = await mockListTasksFromParams(params);
-      
+
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(mockTasks);
@@ -173,10 +178,10 @@ describe("Tasks Domain Methods", () => {
       // Arrange
       const params: TaskStatusGetParams = { taskId: "124", json: false };
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.IN_PROGRESS);
-      
+
       // Act
       const result = await mockGetTaskStatusFromParams(params);
-      
+
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
       expect(result).toBe(TASK_STATUS.IN_PROGRESS);
@@ -187,25 +192,25 @@ describe("Tasks Domain Methods", () => {
       const params: TaskStatusGetParams = { taskId: "999", json: false };
       const error = new Error(`Task not found: ${params.taskId}`);
       mockGetTaskStatusFromParams.mockRejectedValue(error);
-      
+
       // Act & Assert
-      await expect(mockGetTaskStatusFromParams(params))
-        .rejects
-        .toThrow(`Task not found: ${params.taskId}`);
+      await expect(mockGetTaskStatusFromParams(params)).rejects.toThrow(
+        `Task not found: ${params.taskId}`
+      );
     });
 
     test("handles custom repo path", async () => {
       // Arrange
-      const params: TaskStatusGetParams = { 
-        taskId: "125", 
+      const params: TaskStatusGetParams = {
+        taskId: "125",
         repo: "/custom/repo/path",
-        json: false 
+        json: false,
       };
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.DONE);
-      
+
       // Act
       const result = await mockGetTaskStatusFromParams(params);
-      
+
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
       expect(result).toBe(TASK_STATUS.DONE);
@@ -215,51 +220,51 @@ describe("Tasks Domain Methods", () => {
   describe("setTaskStatusFromParams", () => {
     test("sets task status", async () => {
       // Arrange
-      const params: TaskStatusSetParams = { 
-        taskId: "123", 
+      const params: TaskStatusSetParams = {
+        taskId: "123",
         status: TASK_STATUS.IN_PROGRESS,
-        json: false 
+        json: false,
       };
       mockSetTaskStatusFromParams.mockResolvedValue(undefined);
-      
+
       // Act
       await mockSetTaskStatusFromParams(params);
-      
+
       // Assert
       expect(mockSetTaskStatusFromParams).toHaveBeenCalledWith(params);
     });
 
     test("throws error when setting invalid status", async () => {
       // Arrange
-      const params: TaskStatusSetParams = { 
-        taskId: "123", 
+      const params: TaskStatusSetParams = {
+        taskId: "123",
         status: "INVALID_STATUS" as any,
-        json: false 
+        json: false,
       };
       const error = new Error("Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW");
       mockSetTaskStatusFromParams.mockRejectedValue(error);
-      
+
       // Act & Assert
-      await expect(mockSetTaskStatusFromParams(params))
-        .rejects
-        .toThrow("Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW");
+      await expect(mockSetTaskStatusFromParams(params)).rejects.toThrow(
+        "Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW"
+      );
     });
 
     test("handles custom repo path", async () => {
       // Arrange
-      const params: TaskStatusSetParams = { 
-        taskId: "123", 
+      const params: TaskStatusSetParams = {
+        taskId: "123",
         status: TASK_STATUS.DONE,
         repo: "/custom/repo/path",
-        json: false
+        json: false,
       };
       mockSetTaskStatusFromParams.mockResolvedValue(undefined);
-      
+
       // Act
       await mockSetTaskStatusFromParams(params);
-      
+
       // Assert
       expect(mockSetTaskStatusFromParams).toHaveBeenCalledWith(params);
     });
   });
-}); 
+});

@@ -13,7 +13,9 @@ setupTestMocks();
 
 // Type guard to check if a schema has a description property
 const hasDescription = (obj: any): obj is { description: string } => {
-  return obj && typeof obj === "object" && "description" in obj && typeof obj.description === "string";
+  return (
+    obj && typeof obj === "object" && "description" in obj && typeof obj.description === "string"
+  );
 };
 
 describe("Parameter Schemas", () => {
@@ -22,7 +24,7 @@ describe("Parameter Schemas", () => {
       const schema = schemas.optionalString("Test description");
       expect(schema._def.typeName).toBe("ZodOptional");
       expect(schema._def.innerType._def.typeName).toBe("ZodString");
-      
+
       const innerType = schema._def.innerType as z.ZodString;
       expect(innerType.description).toBe("Test description");
     });
@@ -37,7 +39,7 @@ describe("Parameter Schemas", () => {
       const schema = schemas.optionalBoolean("Test description");
       expect(schema._def.typeName).toBe("ZodOptional");
       expect(schema._def.innerType._def.typeName).toBe("ZodBoolean");
-      
+
       const innerType = schema._def.innerType as z.ZodBoolean;
       expect(innerType.description).toBe("Test description");
     });
@@ -77,13 +79,13 @@ describe("Parameter Schemas", () => {
         if (schema._def.typeName === "ZodOptional" && schema._def.innerType) {
           const innerType = schema._def.innerType;
           expect(hasDescription(innerType)).toBe(true);
-          
+
           if (hasDescription(innerType)) {
             expect(innerType.description.length).toBeGreaterThan(0);
           }
         } else {
           expect(hasDescription(schema)).toBe(true);
-          
+
           if (hasDescription(schema)) {
             expect(schema.description.length).toBeGreaterThan(0);
           }
@@ -91,4 +93,4 @@ describe("Parameter Schemas", () => {
       }
     });
   });
-}); 
+});

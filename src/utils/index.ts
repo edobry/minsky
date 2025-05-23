@@ -3,10 +3,10 @@
  * Exports all utility functions and classes
  */
 
-export { log } from "./logger.js";
-export * from "./exec.js";
-export * from "./repository-utils.js";
-export * from "./task-utils.js";
-export * from "./tempdir.js";
-export * from "./process.js";
-export * from "./repo.js"; 
+export { log } from "./logger";
+export * from "./exec";
+export * from "./repository-utils";
+export * from "./task-utils";
+export * from "./tempdir";
+export * from "./process";
+export * from "./repo";

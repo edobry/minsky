@@ -13,10 +13,7 @@ import {
 } from "../tasks.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
-import { 
-  createMock,
-  setupTestMocks 
-} from "../../utils/test-utils/mocking.js";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -35,7 +32,9 @@ const defaultGetTaskMock = (id: string) => Promise.resolve(id === "#123" ? mockT
 const mockTaskService = {
   listTasks: createMock(() => Promise.resolve([mockTask])),
   getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((id: string) => Promise.resolve(id === "#123" ? TASK_STATUS.TODO : null)),
+  getTaskStatus: createMock((id: string) =>
+    Promise.resolve(id === "#123" ? TASK_STATUS.TODO : null)
+  ),
   setTaskStatus: createMock(() => Promise.resolve()),
   backends: [] as any,
   currentBackend: {} as any,
@@ -190,7 +189,7 @@ describe("interface-agnostic task functions", () => {
     test("should set task status with valid parameters", async () => {
       // Reset getTask mock to its default implementation for this test
       mockTaskService.getTask.mockImplementation(defaultGetTaskMock);
-      
+
       const params = {
         taskId: "#123",
         status: TASK_STATUS.IN_PROGRESS,

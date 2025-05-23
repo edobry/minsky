@@ -33,7 +33,7 @@ export function getCurrentWorkingDirectory(): string {
 export function mockCurrentWorkingDirectory(mockImpl: () => string): () => void {
   const originalImpl = currentWorkingDirectoryImpl;
   currentWorkingDirectoryImpl = mockImpl;
-  
+
   // Return a function to restore the original
   return () => {
     currentWorkingDirectoryImpl = originalImpl;

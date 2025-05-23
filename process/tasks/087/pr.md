@@ -24,6 +24,7 @@ This PR implements a unified approach to resolve session and repository referenc
 ## Testing
 
 The implementation includes comprehensive unit tests for:
+
 - URI normalization for different URI formats (HTTPS, SSH, file://, plain paths, Windows paths)
 - URI validation and conversion between different formats
 - Repository information extraction

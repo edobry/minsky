@@ -1,6 +1,6 @@
 /**
  * Tests for the logger utility
- * 
+ *
  * @module logger.test
  * @migrated Uses native Bun test patterns
  */
@@ -43,18 +43,18 @@ describe("Logger", () => {
   beforeEach(() => {
     // Reset environment variables before each test
     for (const key in process.env) {
-      if (key !== 'NODE_ENV' && !key.startsWith('BUN_')) {
+      if (key !== "NODE_ENV" && !key.startsWith("BUN_")) {
         delete process.env[key];
       }
     }
-    
+
     // Restore only non-test environment variables
     for (const key in originalEnv) {
-      if (key !== 'MINSKY_LOG_MODE' && key !== 'NODE_ENV' && !key.startsWith('BUN_')) {
+      if (key !== "MINSKY_LOG_MODE" && key !== "NODE_ENV" && !key.startsWith("BUN_")) {
         process.env[key] = originalEnv[key];
       }
     }
-    
+
     // Restore original TTY value
     Object.defineProperty(process.stdout, "isTTY", {
       value: originalStdoutIsTTY,
@@ -94,4 +94,4 @@ describe("Logger", () => {
       expect(getLogMode()).toBe(LogMode.STRUCTURED);
     });
   });
-}); 
+});

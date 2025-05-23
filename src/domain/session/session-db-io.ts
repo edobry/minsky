@@ -24,15 +24,15 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
-  
+
   try {
     if (!existsSync(dbPath)) {
       return initializeSessionDbState({ baseDir });
     }
-    
+
     const data = readFileSync(dbPath, "utf8");
     const sessions = JSON.parse(data);
-    
+
     // Migrate existing sessions to include repoName
     const migratedSessions = sessions.map((session: SessionRecord) => {
       if (!session.repoName && session.repoUrl) {
@@ -40,15 +40,13 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       }
       return session;
     });
-    
+
     return {
       sessions: migratedSessions,
       baseDir,
     };
   } catch (e) {
-    console.error(
-      `Error reading session database: ${e instanceof Error ? e.message : String(e)}`
-    );
+    console.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -56,17 +54,20 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
 /**
  * Write sessions to the database file
  */
-export function writeSessionDbFile(state: SessionDbState, options: SessionDbFileOptions = {}): boolean {
+export function writeSessionDbFile(
+  state: SessionDbState,
+  options: SessionDbFileOptions = {}
+): boolean {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  
+
   try {
     // Ensure directory exists
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true });
     }
-    
+
     writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
   } catch (error) {

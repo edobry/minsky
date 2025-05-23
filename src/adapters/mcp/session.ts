@@ -12,7 +12,7 @@ import {
   GIT_BRANCH_DESCRIPTION,
   SESSION_QUIET_DESCRIPTION,
   FORCE_DESCRIPTION,
-  GIT_REMOTE_DESCRIPTION
+  GIT_REMOTE_DESCRIPTION,
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions from domain/index.js as required by linter

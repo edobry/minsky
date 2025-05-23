@@ -45,4 +45,4 @@ The changes were tested with the following:
 - [x] All tests pass
 - [x] Code quality is acceptable
 - [x] Documentation is updated
-- [x] Changelog is updated 
+- [x] Changelog is updated

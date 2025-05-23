@@ -11,7 +11,7 @@ const mcp = spawn("bun", [
   "mcp",
   "start",
   "--repo",
-  sessionDir
+  sessionDir,
 ]);
 
 // Buffer to collect the output
@@ -26,13 +26,13 @@ mcp.stdout.on("data", (data) => {
   // After the server starts, send a request to list all methods
   if (output.includes("Minsky MCP Server started")) {
     console.log("Server started, requesting method list...");
-    
+
     mcp.stdin.write(
       JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "debug.listMethods",
-        params: {}
+        params: {},
       }) + "\n"
     );
   }
@@ -52,4 +52,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Test complete, shutting down...");
   mcp.kill("SIGINT");
-}, 10000); 
+}, 10000);

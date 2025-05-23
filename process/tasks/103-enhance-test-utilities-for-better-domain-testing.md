@@ -7,16 +7,19 @@ The current test utilities in the project are limited, which leads to duplicatio
 ## Requirements
 
 1. **Dependency Generation Utilities**
+
    - Create utilities for generating complete test dependency objects
    - Support partial implementations with sensible defaults
    - Integrate with TypeScript type system for type safety
 
 2. **Mock Creation Enhancements**
+
    - Improve the existing `createMock` utility to better handle type constraints
    - Add support for complex mock scenarios without type casting
    - Create pattern for mocking readonly properties safely
 
 3. **Test Data Generation**
+
    - Create fixtures for common domain objects (Sessions, Tasks, etc.)
    - Add randomized test data generation utilities
    - Implement factory patterns for consistent test data
@@ -29,16 +32,19 @@ The current test utilities in the project are limited, which leads to duplicatio
 ## Implementation Steps
 
 1. [ ] Enhance mock creation utilities:
+
    - [ ] Create `createPartialMock` for partial implementations
    - [ ] Add type-safe `mockFunction` utility
    - [ ] Create `createTestSuite` utility for managing test context
 
 2. [ ] Add dependency generation utilities:
+
    - [ ] Create `createTestDeps` for generating dependency objects
    - [ ] Implement `withMockedDeps` for overriding defaults
    - [ ] Add utilities for complex dependency chains
 
 3. [ ] Implement test data generation:
+
    - [ ] Create factory functions for domain entities
    - [ ] Add randomization utilities for property values
    - [ ] Implement fixtures for common test scenarios
@@ -53,4 +59,4 @@ The current test utilities in the project are limited, which leads to duplicatio
 - [ ] All new utilities have corresponding test cases
 - [ ] Test code duplication is reduced across the codebase
 - [ ] Type safety is maintained without `as any` casting
-- [ ] Existing tests can be refactored to use the new utilities 
+- [ ] Existing tests can be refactored to use the new utilities

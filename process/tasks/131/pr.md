@@ -7,6 +7,7 @@ This PR implements task #131, fixing TypeScript linter errors in the dependency 
 ## Motivation & Context
 
 The dependency injection helpers in `dependencies.ts` had several TypeScript issues:
+
 - Explicit `any` types were used in interfaces, reducing type safety
 - Mock implementations used incorrect method names that didn't match the actual domain interfaces
 - Some functions had unused parameters causing linter warnings
@@ -24,16 +25,19 @@ The solution focused on improving type safety while maintaining backward compati
 4. **Update test patterns**: Modified tests to use `withMockedDeps` instead of `mockImplementation` for better compatibility
 
 Alternative approaches considered:
+
 - Using strict typing throughout would have required extensive changes to existing tests
 - Keeping the `any` types would have compromised type safety
 
 ## Key Changes
 
 ### Fixed TypeScript Type Issues
+
 - Replaced explicit `any` types with `unknown` in interface definitions for better type safety
 - Updated `DomainDependencies`, `TaskDependencies`, `SessionDependencies`, and `GitDependencies` interfaces
 
 ### Updated Mock Interface Methods
+
 - Fixed `GitServiceInterface` mock methods to match actual interface:
 
 <pre><code class="language-typescript">
@@ -50,6 +54,7 @@ branch: () => Promise.resolve(...),
 - Updated `SessionProviderInterface` mock methods to match actual interface
 
 ### Improved Mock Implementation Patterns
+
 - Replaced `createMock` wrappers with direct function implementations:
 
 <pre><code class="language-typescript">
@@ -65,10 +70,12 @@ const gitService = createPartialMock&lt;GitServiceInterface&gt;({
 </code></pre>
 
 ### Fixed Unused Parameter Warnings
+
 - Prefixed unused parameters with underscore: `_taskId: string`
 - Removed unused `createMock` import
 
 ### Updated Test Compatibility
+
 - Fixed integration test in `enhanced-utils.test.ts` to use `withMockedDeps` instead of calling `mockImplementation` on regular functions
 - Maintained all existing test functionality while improving type compatibility
 
@@ -84,6 +91,7 @@ None. All changes maintain backward compatibility with existing test code.
 - Mock implementations provide the same functionality with improved type safety
 
 ### Test Results
+
 - All 23 tests in the test-utils directory pass
 - No regression in functionality
 - TypeScript linter warnings eliminated

@@ -24,4 +24,4 @@ export const initParamsSchema = z.object({
 /**
  * Type definition for init parameters
  */
-export type InitParams = z.infer<typeof initParamsSchema>; 
+export type InitParams = z.infer<typeof initParamsSchema>;

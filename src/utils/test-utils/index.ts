@@ -1,6 +1,6 @@
 /**
  * Test Utilities
- * 
+ *
  * This module exports utilities for testing Minsky components.
  * It includes utilities for:
  * - Mocking common functions and services
@@ -26,12 +26,12 @@ export * from "./dependencies";
 export * from "./factories";
 
 // Additional exports from the main test-utils file
-export { 
+export {
   mockDateFunctions,
   setupConsoleSpy,
   createTempTestDir,
-  setupTestEnvironment, 
-  TEST_TIMESTAMPS
+  setupTestEnvironment,
+  TEST_TIMESTAMPS,
 } from "../test-utils";
 
 // Export types commonly used in tests

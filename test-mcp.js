@@ -14,7 +14,14 @@ const DEBUG = process.env.DEBUG === "true";
 
 // Start the MCP server with detailed method registration logs
 console.log("Starting Minsky MCP Server...");
-const mcp = spawn("bun", ["src/cli.ts", "mcp", "start", "--repo", process.cwd(), DEBUG ? "--debug" : ""]);
+const mcp = spawn("bun", [
+  "src/cli.ts",
+  "mcp",
+  "start",
+  "--repo",
+  process.cwd(),
+  DEBUG ? "--debug" : "",
+]);
 
 // Variable to track if we're ready to accept commands
 let serverReady = false;
@@ -27,7 +34,7 @@ mcp.stdout.on("data", (data) => {
   const str = data.toString();
   if (DEBUG) console.log(`[MCP stdout] ${str}`);
   outputBuffer.push(str);
-  
+
   // Process JSONRPC responses
   try {
     const response = JSON.parse(str);
@@ -38,7 +45,7 @@ mcp.stdout.on("data", (data) => {
     // Not JSON, might be informational message
     // Don't do anything special with non-JSON output
   }
-  
+
   // Check if the server is ready to accept commands
   if (str.includes("Minsky MCP Server started")) {
     serverReady = true;
@@ -85,13 +92,13 @@ function promptForCommand() {
     } else {
       try {
         let jsonObject;
-        
+
         // Check if it's a command shorthand (e.g., "tasks.list" or "tasks_list")
         if (!answer.startsWith("{")) {
           // Parse the command and optional params
           const parts = answer.split(" ");
           const method = parts[0];
-          
+
           // Build a JSON-RPC request
           jsonObject = {
             jsonrpc: "2.0",
@@ -99,7 +106,7 @@ function promptForCommand() {
             method: method,
             params: {},
           };
-          
+
           // If there are additional params, try to parse them
           if (parts.length > 1) {
             try {
@@ -115,17 +122,17 @@ function promptForCommand() {
           // It's a full JSON object
           jsonObject = JSON.parse(answer);
         }
-        
+
         console.log("Sending request:");
         console.log(JSON.stringify(jsonObject, null, 2));
         mcp.stdin.write(JSON.stringify(jsonObject) + "\n");
-        
+
         // Log the normalized method name format (for debugging)
         if (DEBUG && jsonObject.method) {
           console.log(`[DEBUG] Method format examples:`);
           console.log(`- Original: ${jsonObject.method}`);
-          console.log(`- Normalized: ${jsonObject.method.replace(/[^a-zA-Z0-9_.]/g, '_')}`);
-          console.log(`- Underscore: ${jsonObject.method.replace(/\./g, '_')}`);
+          console.log(`- Normalized: ${jsonObject.method.replace(/[^a-zA-Z0-9_.]/g, "_")}`);
+          console.log(`- Underscore: ${jsonObject.method.replace(/\./g, "_")}`);
         }
       } catch (e) {
         console.log(`Error parsing command: ${e.message}`);
@@ -173,26 +180,26 @@ function listTools() {
     jsonrpc: "2.0",
     id: "listTools",
     method: "debug.listMethods",
-    params: {}
+    params: {},
   };
-  
+
   console.log("Requesting method list...");
   mcp.stdin.write(JSON.stringify(request) + "\n");
-  
+
   // Also try with underscore format as a fallback
   setTimeout(() => {
     const fallbackRequest = {
       jsonrpc: "2.0",
       id: "listToolsFallback",
       method: "debug_listMethods",
-      params: {}
+      params: {},
     };
-    
+
     if (DEBUG) {
       console.log("Trying fallback underscore format...");
       mcp.stdin.write(JSON.stringify(fallbackRequest) + "\n");
     }
-    
+
     // Continue with prompt regardless
     setTimeout(promptForCommand, 500);
   }, 500);
@@ -204,4 +211,4 @@ setTimeout(() => {
     console.log("\n⚠️ Server not ready yet, but proceeding anyway...");
     promptForCommand();
   }
-}, 2000); 
+}, 2000);

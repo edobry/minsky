@@ -40,11 +40,13 @@ Minsky provides a comprehensive set of mocking utilities to simplify test writin
 `createMock` is the core mocking utility that creates a function-like object that tracks how it was called.
 
 **Import:**
+
 ```typescript
 import { createMock } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Create a basic mock
 const mockFn = createMock();
@@ -57,6 +59,7 @@ expect(mockGreet("World")).toBe("Hello, World!");
 ```
 
 **Properties:**
+
 - `mock.calls`: Array of arguments passed to each call
 - `mock.calls.length`: Number of times the mock was called
 
@@ -65,11 +68,13 @@ expect(mockGreet("World")).toBe("Hello, World!");
 `mockFunction` is a type-safe version of `createMock` that provides better TypeScript support.
 
 **Import:**
+
 ```typescript
 import { mockFunction } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Define a function type
 type GreetFn = (name: string) => string;
@@ -84,11 +89,13 @@ const result = mockGreet("World"); // TypeScript knows result is string
 `setupTestMocks` ensures that mocks are properly cleaned up after each test to prevent test pollution.
 
 **Import:**
+
 ```typescript
 import { setupTestMocks } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // At the top level of your test file
 setupTestMocks();
@@ -98,7 +105,7 @@ describe("My tests", () => {
     const mockFn = createMock();
     // Use the mock
   });
-  
+
   // Mocks are automatically cleaned up between tests
   test("using more mocks", () => {
     const anotherMock = createMock();
@@ -114,16 +121,18 @@ describe("My tests", () => {
 `mockModule` allows you to mock an entire module with a custom implementation.
 
 **Import:**
+
 ```typescript
 import { mockModule } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Mock a module
 mockModule("../path/to/module", () => ({
   someFunction: createMock(() => "mocked result"),
-  someValue: "mocked value"
+  someValue: "mocked value",
 }));
 
 // Later imports will use the mocked implementation
@@ -140,18 +149,16 @@ expect(someFunction()).toBe("mocked result");
 `createMockObject` creates an object with all specified methods mocked.
 
 **Import:**
+
 ```typescript
 import { createMockObject } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Create a mock service with multiple methods
-const userService = createMockObject([
-  "getUser",
-  "updateUser",
-  "deleteUser"
-]);
+const userService = createMockObject(["getUser", "updateUser", "deleteUser"]);
 
 // Configure specific behavior
 userService.getUser.mockImplementation((id) => ({ id, name: "Test User" }));
@@ -167,11 +174,13 @@ expect(userService.getUser).toHaveBeenCalledWith("123");
 `createPartialMock` creates a mock object that implements an interface with custom implementations for specific methods.
 
 **Import:**
+
 ```typescript
 import { createPartialMock } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Define an interface
 interface UserService {
@@ -182,7 +191,7 @@ interface UserService {
 
 // Create a partial mock with only some methods implemented
 const mockUserService = createPartialMock<UserService>({
-  getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
+  getUser: async (id) => (id === "123" ? { id, name: "Test User" } : null),
 });
 
 // Other methods are automatically mocked
@@ -195,15 +204,19 @@ expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated"
 `mockReadonlyProperty` allows you to mock a readonly property on an object.
 
 **Import:**
+
 ```typescript
 import { mockReadonlyProperty } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Object with readonly property
 const config = {
-  get environment() { return "production"; }
+  get environment() {
+    return "production";
+  },
 };
 
 // Mock the property
@@ -220,16 +233,18 @@ expect(config.environment).toBe("test");
 `createMockFileSystem` creates a mock filesystem that can be used in tests without touching the real filesystem.
 
 **Import:**
+
 ```typescript
 import { createMockFileSystem } from "../utils/test-utils/mocking";
 ```
 
 **Usage:**
+
 ```typescript
 // Create a mock filesystem with initial files
 const mockFS = createMockFileSystem({
   "/path/to/file.txt": "Initial content",
-  "/path/to/config.json": JSON.stringify({ setting: true })
+  "/path/to/config.json": JSON.stringify({ setting: true }),
 });
 
 // Mock the fs module
@@ -238,7 +253,7 @@ mockModule("fs", () => ({
   readFileSync: mockFS.readFileSync,
   writeFileSync: mockFS.writeFileSync,
   mkdirSync: mockFS.mkdirSync,
-  unlink: mockFS.unlink
+  unlink: mockFS.unlink,
 }));
 
 // Now you can use the fs module in your tests
@@ -258,18 +273,22 @@ expect(fs.existsSync("/path/to/new-file.txt")).toBe(true);
 `createTestDeps` creates mock implementations of common domain dependencies for testing.
 
 **Import:**
+
 ```typescript
 import { createTestDeps } from "../utils/test-utils/dependencies";
 ```
 
 **Usage:**
+
 ```typescript
 // Create mock dependencies
 const deps = createTestDeps({
   // Override specific implementations
   gitService: createPartialMock({
-    createPR: createMock(() => Promise.resolve({ success: true, url: "https://github.com/org/repo/pull/123" }))
-  })
+    createPR: createMock(() =>
+      Promise.resolve({ success: true, url: "https://github.com/org/repo/pull/123" })
+    ),
+  }),
 });
 
 // Use in tests
@@ -278,6 +297,7 @@ expect(deps.gitService.createPR).toHaveBeenCalled();
 ```
 
 **Available Dependencies:**
+
 - `sessionDB`: Mock implementation of `SessionProviderInterface`
 - `gitService`: Mock implementation of `GitServiceInterface`
 - `taskService`: Mock implementation of `TaskServiceInterface`
@@ -288,17 +308,19 @@ expect(deps.gitService.createPR).toHaveBeenCalled();
 `createTaskTestDeps` creates task-specific test dependencies.
 
 **Import:**
+
 ```typescript
 import { createTaskTestDeps } from "../utils/test-utils/dependencies";
 ```
 
 **Usage:**
+
 ```typescript
 // Create task-specific dependencies
 const taskDeps = createTaskTestDeps({
   taskService: createPartialMock({
-    getTask: createMock(() => Promise.resolve({ id: "#123", title: "Test Task", status: "TODO" }))
-  })
+    getTask: createMock(() => Promise.resolve({ id: "#123", title: "Test Task", status: "TODO" })),
+  }),
 });
 
 // Use in tests
@@ -368,11 +390,11 @@ Prefer dependency injection for easier testing:
 // Easier to test
 function createService(deps) {
   return {
-    doSomething: () => deps.otherService.callMethod()
+    doSomething: () => deps.otherService.callMethod(),
   };
 }
 
 // Test with
 const mockDeps = { otherService: { callMethod: createMock() } };
 const service = createService(mockDeps);
-``` 
+```

@@ -1,6 +1,6 @@
 /**
  * Mock Function Compatibility Layer
- * 
+ *
  * This module provides Jest/Vitest compatible mock function implementations that work with Bun's test runner.
  * It extends Bun's mock functions with additional methods and proper tracking of calls, arguments, and results.
  */
@@ -22,37 +22,37 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
    * All arguments received in all calls to the mock function.
    */
   calls: TArgs[];
-  
+
   /**
    * The results of all calls to the mock function.
    */
   results: MockResult<TReturn>[];
-  
+
   /**
    * The instances created when the mock was used as a constructor.
    */
   instances: any[];
-  
+
   /**
    * The order of invocations of the mock function relative to other mocks.
    */
   invocationCallOrder: number[];
-  
+
   /**
    * The arguments of the last call to the mock function.
    */
   lastCall: TArgs | null;
-  
+
   /**
    * The current implementation of the mock function.
    */
   implementation: ((...args: TArgs) => TReturn) | null;
-  
+
   /**
    * Queue of one-time implementations to use before falling back to the default implementation.
    */
   implementationsOnce: ((...args: TArgs) => TReturn)[];
-  
+
   /**
    * The original implementation of the mocked function (if created with spyOn).
    */
@@ -68,7 +68,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
    * Mock function that can be called with arguments.
    */
   (...args: TArgs): TReturn;
-  
+
   /**
    * Mock metadata and tracking information.
    */
@@ -77,78 +77,78 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
      * All arguments received in all calls to the mock function.
      */
     calls: TArgs[];
-    
+
     /**
      * The results of all calls to the mock function.
      */
     results: MockResult<TReturn>[];
-    
+
     /**
      * The instances created when the mock was used as a constructor.
      */
     instances: any[];
-    
+
     /**
      * The order of invocations of the mock function relative to other mocks.
      */
     invocationCallOrder: number[];
-    
+
     /**
      * The arguments of the last call to the mock function.
      */
     lastCall: TArgs | null;
   };
-  
+
   /**
    * Clears all information about mock calls.
    */
   mockClear(): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Resets all information about the mock and replaces the implementation with an empty function.
    */
   mockReset(): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Restores the original (non-mocked) implementation.
    */
   mockRestore(): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Sets a new implementation for the mock function.
    */
   mockImplementation(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Sets a one-time implementation for the next call.
    */
   mockImplementationOnce(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Sets the return value for all calls to the mock function.
    */
   mockReturnValue(value: TReturn): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Sets a one-time return value for the next call.
    */
   mockReturnValueOnce(value: TReturn): CompatMockFunction<TReturn, TArgs>;
-  
+
   /**
    * Sets a promise return value that resolves to the given value.
    */
   mockResolvedValue<U>(value: U): CompatMockFunction<Promise<U>, TArgs>;
-  
+
   /**
    * Sets a one-time promise return value that resolves to the given value.
    */
   mockResolvedValueOnce<U>(value: U): CompatMockFunction<Promise<U>, TArgs>;
-  
+
   /**
    * Sets a promise return value that rejects with the given value.
    */
   mockRejectedValue(value: any): CompatMockFunction<Promise<never>, TArgs>;
-  
+
   /**
    * Sets a one-time promise return value that rejects with the given value.
    */
@@ -170,14 +170,14 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
     lastCall: null,
     implementation: null,
     implementationsOnce: [],
-    originalImplementation: null
+    originalImplementation: null,
   };
 }
 
 /**
  * Creates a compatibility mock function that wraps Bun's mock function.
  * This adds all the Jest/Vitest compatible methods and tracking behavior.
- * 
+ *
  * @param implementation Optional initial implementation
  * @returns A Jest/Vitest compatible mock function
  */
@@ -186,12 +186,12 @@ export function createCompatMock<T extends (...args: any[]) => any>(
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> {
   // Create the state object for tracking
   const state = createMockState<Parameters<T>, ReturnType<T>>();
-  
+
   // Set the initial implementation if provided
   if (implementation) {
     state.implementation = implementation;
   }
-  
+
   // Create our implementation function
   const implementationFn = (...args: Parameters<T>): ReturnType<T> => {
     try {
@@ -199,7 +199,7 @@ export function createCompatMock<T extends (...args: any[]) => any>(
       state.calls.push(args as Parameters<T>);
       state.lastCall = args as Parameters<T>;
       state.invocationCallOrder.push(++globalInvocationCount);
-      
+
       // Determine which implementation to use
       let result: ReturnType<T>;
       if (state.implementationsOnce.length > 0) {
@@ -213,134 +213,142 @@ export function createCompatMock<T extends (...args: any[]) => any>(
         // Default implementation returns undefined
         result = undefined as unknown as ReturnType<T>;
       }
-      
+
       // Track the result
       state.results.push({
         type: "return",
-        value: result
+        value: result,
       });
-      
+
       return result;
     } catch (error) {
       // Track the error
       state.results.push({
         type: "throw",
-        value: error
+        value: error,
       });
       throw error;
     }
   };
-  
+
   // Create the Bun mock function with our implementation
   const bunMockFn = mock(implementationFn);
-  
+
   // Instead of trying to modify Bun's mock function directly (which may be read-only),
   // create a new function that delegates to it
-  const mockFn = function(...args: Parameters<T>): ReturnType<T> {
+  const mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
     return implementationFn(...args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
-  
+
   // Add the mock property
   mockFn.mock = {
     calls: state.calls,
     results: state.results,
     instances: state.instances,
     invocationCallOrder: state.invocationCallOrder,
-    lastCall: state.lastCall
+    lastCall: state.lastCall,
   };
-  
+
   // Add mockClear method
-  mockFn.mockClear = function() {
+  mockFn.mockClear = function () {
     // Reset the state but keep implementation
     state.calls = [];
     state.results = [];
     state.instances = [];
     state.invocationCallOrder = [];
     state.lastCall = null;
-    
+
     // Update the mock object
     mockFn.mock = {
       calls: state.calls,
       results: state.results,
       instances: state.instances,
       invocationCallOrder: state.invocationCallOrder,
-      lastCall: state.lastCall
+      lastCall: state.lastCall,
     };
-    
+
     return mockFn;
   };
-  
+
   // Add mockReset method
-  mockFn.mockReset = function() {
+  mockFn.mockReset = function () {
     // Clear all tracking data and implementation
     mockFn.mockClear();
     state.implementation = null;
     state.implementationsOnce = [];
-    
+
     return mockFn;
   };
-  
+
   // Add mockRestore method
-  mockFn.mockRestore = function() {
+  mockFn.mockRestore = function () {
     mockFn.mockReset();
     if (state.originalImplementation) {
       state.implementation = state.originalImplementation;
     }
     return mockFn;
   };
-  
+
   // Add mockImplementation method
-  mockFn.mockImplementation = function(fn) {
+  mockFn.mockImplementation = function (fn) {
     state.implementation = fn;
     return mockFn;
   };
-  
+
   // Add mockImplementationOnce method
-  mockFn.mockImplementationOnce = function(fn) {
+  mockFn.mockImplementationOnce = function (fn) {
     state.implementationsOnce.push(fn);
     return mockFn;
   };
-  
+
   // Add mockReturnValue method
-  mockFn.mockReturnValue = function(value) {
+  mockFn.mockReturnValue = function (value) {
     return mockFn.mockImplementation(() => value);
   };
-  
+
   // Add mockReturnValueOnce method
-  mockFn.mockReturnValueOnce = function(value) {
+  mockFn.mockReturnValueOnce = function (value) {
     return mockFn.mockImplementationOnce(() => value);
   };
-  
+
   // Add mockResolvedValue method
-  mockFn.mockResolvedValue = function<U>(value: U) {
+  mockFn.mockResolvedValue = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don't match
-    return mockFn.mockImplementation(() => Promise.resolve(value) as unknown as ReturnType<T>) as any;
+    return mockFn.mockImplementation(
+      () => Promise.resolve(value) as unknown as ReturnType<T>
+    ) as any;
   };
-  
+
   // Add mockResolvedValueOnce method
-  mockFn.mockResolvedValueOnce = function<U>(value: U) {
+  mockFn.mockResolvedValueOnce = function <U>(value: U) {
     // Use a cast to suppress TypeScript errors since the return types don't match
-    return mockFn.mockImplementationOnce(() => Promise.resolve(value) as unknown as ReturnType<T>) as any;
+    return mockFn.mockImplementationOnce(
+      () => Promise.resolve(value) as unknown as ReturnType<T>
+    ) as any;
   };
-  
+
   // Add mockRejectedValue method
-  mockFn.mockRejectedValue = function(value) {
+  mockFn.mockRejectedValue = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don't match
-    return mockFn.mockImplementation(() => Promise.reject(value) as unknown as ReturnType<T>) as any;
+    return mockFn.mockImplementation(
+      () => Promise.reject(value) as unknown as ReturnType<T>
+    ) as any;
   };
-  
+
   // Add mockRejectedValueOnce method
-  mockFn.mockRejectedValueOnce = function(value) {
+  mockFn.mockRejectedValueOnce = function (value) {
     // Use a cast to suppress TypeScript errors since the return types don't match
-    return mockFn.mockImplementationOnce(() => Promise.reject(value) as unknown as ReturnType<T>) as any;
+    return mockFn.mockImplementationOnce(
+      () => Promise.reject(value) as unknown as ReturnType<T>
+    ) as any;
   };
-  
+
   // If there's an initial implementation, set it
   if (implementation) {
     mockFn.mockImplementation(implementation);
   }
-  
+
   return mockFn;
 }
 
@@ -371,7 +379,7 @@ export function spyOn<T extends object, M extends keyof T>(
 ): CompatMockFunction<any, any> {
   // Store the original method
   const original = object[method];
-  
+
   // Create a mock function that wraps the original
   const mockFn = createCompatMock((...args: any[]) => {
     if (typeof original === "function") {
@@ -379,13 +387,13 @@ export function spyOn<T extends object, M extends keyof T>(
     }
     return undefined;
   });
-  
+
   // Store the original implementation for restoration
   (mockFn as any).mock.originalImplementation = original;
-  
+
   // Replace the method with our mock
   (object as any)[method] = mockFn;
-  
+
   return mockFn;
 }
 
@@ -397,7 +405,7 @@ export function resetAllMocks(): void {
   // This delegates to Bun's mock.restore() for now
   // In the future, we might need to track our own mocks
   mock.restore();
-  
+
   // Reset the global invocation counter
   globalInvocationCount = 0;
 }
@@ -411,7 +419,7 @@ export function resetAllMocks(): void {
  */
 export function autoMockModule<T extends object>(module: T): T {
   const mockedModule = { ...module } as any;
-  
+
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {
     if (typeof mockedModule[key] === "function") {
@@ -420,7 +428,7 @@ export function autoMockModule<T extends object>(module: T): T {
       mockedModule[key] = autoMockModule(mockedModule[key]);
     }
   }
-  
+
   return mockedModule as T;
 }
 
@@ -433,4 +441,4 @@ export function setupMockCompat(): void {
   afterEach(() => {
     resetAllMocks();
   });
-} 
+}

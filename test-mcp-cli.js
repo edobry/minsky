@@ -10,13 +10,13 @@ console.log(`Session directory: ${sessionDir}`);
 
 // Start the MCP server
 const mcp = spawn("bun", [
-  "run", 
+  "run",
   path.join(sessionDir, "src/cli.ts"),
   "mcp",
   "start",
   "--stdio",
   "--repo",
-  sessionDir
+  sessionDir,
 ]);
 
 // Buffer to collect the output
@@ -32,7 +32,7 @@ mcp.stdout.on("data", (data) => {
   if (output.includes("Minsky MCP Server started")) {
     console.log("Server started, sending tasks.list command...");
     console.log("Repository path from project context should be used automatically");
-    
+
     mcp.stdin.write(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -41,7 +41,7 @@ mcp.stdout.on("data", (data) => {
         params: {
           name: "tasks.list",
           params: {
-            all: true
+            all: true,
           },
         },
       }) + "\n"
@@ -63,4 +63,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Test complete, shutting down...");
   mcp.kill("SIGINT");
-}, 10000); 
+}, 10000);

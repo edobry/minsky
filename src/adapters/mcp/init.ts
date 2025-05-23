@@ -19,13 +19,22 @@ export function registerInitTools(commandMapper: CommandMapper): void {
       repoPath: z.string().optional().describe("Repository path (defaults to current directory)"),
       backend: z.enum(["tasks.md", "tasks.csv"]).optional().describe("Task backend type"),
       ruleFormat: z.enum(["cursor", "generic"]).optional().describe("Rule format"),
-      mcp: z.object({
-        enabled: z.boolean().optional().describe("Enable MCP configuration"),
-        transport: z.enum(["stdio", "sse", "httpStream"]).optional().describe("MCP transport type"),
-        port: z.number().optional().describe("Port for MCP network transports"),
-        host: z.string().optional().describe("Host for MCP network transports"),
-      }).optional().describe("MCP configuration options"),
-      mcpOnly: z.boolean().optional().describe("Only configure MCP, skip other initialization steps"),
+      mcp: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable MCP configuration"),
+          transport: z
+            .enum(["stdio", "sse", "httpStream"])
+            .optional()
+            .describe("MCP transport type"),
+          port: z.number().optional().describe("Port for MCP network transports"),
+          host: z.string().optional().describe("Host for MCP network transports"),
+        })
+        .optional()
+        .describe("MCP configuration options"),
+      mcpOnly: z
+        .boolean()
+        .optional()
+        .describe("Only configure MCP, skip other initialization steps"),
       overwrite: z.boolean().optional().describe("Overwrite existing files"),
     }),
     execute: async (params) => {
@@ -51,8 +60,8 @@ export function registerInitTools(commandMapper: CommandMapper): void {
           backend: initParams.backend,
           ruleFormat: initParams.ruleFormat,
           mcp: initParams.mcp,
-        }
+        },
       };
     },
   });
-} 
+}

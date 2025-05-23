@@ -54,12 +54,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../mocking",
-        "../dependencies",
-        "../factories"
-      ],
+      "imports": ["bun:test", "../mocking", "../dependencies", "../factories"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -121,14 +116,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../index"
-      ],
-      "mockDependencies": [
-        "some/module/path",
-        "another/module/path"
-      ],
+      "imports": ["bun:test", "../index"],
+      "mockDependencies": ["some/module/path", "another/module/path"],
       "classification": {
         "mockingComplexity": "low",
         "frameworkDependency": "bun",
@@ -189,10 +178,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../mocking.js"
-      ],
+      "imports": ["bun:test", "../mocking.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "medium",
@@ -254,11 +240,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../param-schemas.js",
-        "zod"
-      ],
+      "imports": ["bun:test", "../param-schemas.js", "zod"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -320,10 +302,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../option-descriptions.js"
-      ],
+      "imports": ["bun:test", "../option-descriptions.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -385,10 +364,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./filter-messages"
-      ],
+      "imports": ["bun:test", "./filter-messages"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -450,10 +426,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./logger"
-      ],
+      "imports": ["bun:test", "./logger"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -515,14 +488,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "commander",
-        "../shared-options.js"
-      ],
-      "mockDependencies": [
-        "../../../../domain/tasks.js"
-      ],
+      "imports": ["bun:test", "commander", "../shared-options.js"],
+      "mockDependencies": ["../../../../domain/tasks.js"],
       "classification": {
         "mockingComplexity": "low",
         "frameworkDependency": "bun",
@@ -583,11 +550,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../../domain/git",
-        "../../../utils/test-utils/mocking"
-      ],
+      "imports": ["bun:test", "../../../domain/git", "../../../utils/test-utils/mocking"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -649,14 +612,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../../domain/rules.js",
-        "../../../utils/test-utils/mocking.js"
-      ],
-      "mockDependencies": [
-        "../../../domain/rules.js"
-      ],
+      "imports": ["bun:test", "../../../domain/rules.js", "../../../utils/test-utils/mocking.js"],
+      "mockDependencies": ["../../../domain/rules.js"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -717,10 +674,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../../domain/workspace.js"
-      ],
+      "imports": ["bun:test", "../../../domain/workspace.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -856,9 +810,7 @@
         "../../../utils/test-utils/mocking.js",
         "../../../schemas/tasks.js"
       ],
-      "mockDependencies": [
-        "../../../domain/tasks.js"
-      ],
+      "mockDependencies": ["../../../domain/tasks.js"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -919,14 +871,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../../domain/tasks.js",
-        "../../../utils/test-utils/mocking.js"
-      ],
-      "mockDependencies": [
-        "../../../domain/tasks.js"
-      ],
+      "imports": ["bun:test", "../../../domain/tasks.js", "../../../utils/test-utils/mocking.js"],
+      "mockDependencies": ["../../../domain/tasks.js"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -1401,10 +1347,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../cli/rules.js"
-      ],
+      "imports": ["bun:test", "../../cli/rules.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1466,10 +1409,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../../cli/rules.js"
-      ],
+      "imports": ["bun:test", "../../cli/rules.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1598,9 +1538,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test"
-      ],
+      "imports": ["bun:test"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1669,10 +1607,7 @@
         "../../../utils/test-utils/mocking",
         "../../cli/rules.js"
       ],
-      "mockDependencies": [
-        "fs",
-        "fs/promises"
-      ],
+      "mockDependencies": ["fs", "fs/promises"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -1733,9 +1668,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test"
-      ],
+      "imports": ["bun:test"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1864,10 +1797,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../network-errors.js"
-      ],
+      "imports": ["bun:test", "../network-errors.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1929,14 +1859,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./rules.js",
-        "fs",
-        "path",
-        "gray-matter",
-        "../utils/logger.js"
-      ],
+      "imports": ["bun:test", "./rules.js", "fs", "path", "gray-matter", "../utils/logger.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -1998,10 +1921,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./utils"
-      ],
+      "imports": ["bun:test", "./utils"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2063,11 +1983,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../taskService.js",
-        "../markdownTaskBackend.js"
-      ],
+      "imports": ["bun:test", "../taskService.js", "../markdownTaskBackend.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2129,10 +2045,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../taskFunctions.js"
-      ],
+      "imports": ["bun:test", "../taskFunctions.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2194,12 +2107,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./rules",
-        "fs",
-        "path"
-      ],
+      "imports": ["bun:test", "./rules", "fs", "path"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2333,12 +2241,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./repo-utils",
-        "../utils/test-utils/mocking",
-        "./session"
-      ],
+      "imports": ["bun:test", "./repo-utils", "../utils/test-utils/mocking", "./session"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "high",
@@ -2462,24 +2365,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./tasks",
-        "fs",
-        "path",
-        "./repo-utils",
-        "path"
-      ],
-      "mockDependencies": [
-        "fs",
-        "fs",
-        "fs",
-        "fs",
-        "fs",
-        "fs",
-        "fs",
-        "fs"
-      ],
+      "imports": ["bun:test", "./tasks", "fs", "path", "./repo-utils", "path"],
+      "mockDependencies": ["fs", "fs", "fs", "fs", "fs", "fs", "fs", "fs"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -2610,11 +2497,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../git",
-        "../../utils/test-utils/mocking"
-      ],
+      "imports": ["bun:test", "../git", "../../utils/test-utils/mocking"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2676,14 +2559,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../git",
-        "../tasks"
-      ],
-      "mockDependencies": [
-        "child_process"
-      ],
+      "imports": ["bun:test", "../git", "../tasks"],
+      "mockDependencies": ["child_process"],
       "classification": {
         "mockingComplexity": "medium",
         "frameworkDependency": "bun",
@@ -2814,11 +2691,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../session.js",
-        "../../errors/index.js"
-      ],
+      "imports": ["bun:test", "../session.js", "../../errors/index.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -2950,11 +2823,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../uri-utils.js",
-        "../../errors/index.js"
-      ],
+      "imports": ["bun:test", "../uri-utils.js", "../../errors/index.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3016,12 +2885,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../workspace",
-        "fs",
-        "path"
-      ],
+      "imports": ["bun:test", "../workspace", "fs", "path"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3152,9 +3016,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test"
-      ],
+      "imports": ["bun:test"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3216,11 +3078,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../tasks.js",
-        "../../errors/index.js"
-      ],
+      "imports": ["bun:test", "../tasks.js", "../../errors/index.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "medium",
@@ -3282,10 +3140,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "../repository/github.js"
-      ],
+      "imports": ["bun:test", "../repository/github.js"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3347,13 +3202,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./git"
-      ],
-      "mockDependencies": [
-        "child_process"
-      ],
+      "imports": ["bun:test", "./git"],
+      "mockDependencies": ["child_process"],
       "classification": {
         "mockingComplexity": "low",
         "frameworkDependency": "bun",
@@ -3414,13 +3264,8 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./git"
-      ],
-      "mockDependencies": [
-        "child_process"
-      ],
+      "imports": ["bun:test", "./git"],
+      "mockDependencies": ["child_process"],
       "classification": {
         "mockingComplexity": "low",
         "frameworkDependency": "bun",
@@ -3481,12 +3326,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./session-adapter",
-        "fs",
-        "path"
-      ],
+      "imports": ["bun:test", "./session-adapter", "fs", "path"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3548,10 +3388,7 @@
           "withCleanup": 0
         }
       },
-      "imports": [
-        "bun:test",
-        "./session-db"
-      ],
+      "imports": ["bun:test", "./session-db"],
       "mockDependencies": [],
       "classification": {
         "mockingComplexity": "low",
@@ -3672,9 +3509,7 @@
   "failingPatterns": [
     {
       "pattern": "jest.spyOn usage",
-      "files": [
-        "src/utils/test-utils/__tests__/mocking.test.ts"
-      ]
+      "files": ["src/utils/test-utils/__tests__/mocking.test.ts"]
     }
   ]
 }

@@ -186,11 +186,13 @@ Currently, the migration is only partially complete:
 ## Remaining Work
 
 1. **Fix Failing Tests**: Several tests are still failing due to mocking issues or environment-specific problems. These need to be fixed:
+
    - Fix init domain tests that fail due to file system permissions (mock file system properly)
    - Fix session.test.ts database-related test failures
    - Fix adapter CLI tests that fail with jest mocking issues
 
 2. **Remove Old Implementation Files**: Once all tests pass, remove the old implementation files that have been replaced by the interface-agnostic architecture:
+
    - Remove old tasks implementation files in src/commands/tasks/
    - Remove old git implementation files in src/commands/git/
    - Remove old session implementation files in src/commands/session/

@@ -8,15 +8,15 @@ mock.module("../logger.js", () => ({
   log: {
     debug: () => {},
     error: () => {},
-    cliWarn: () => {}
-  }
+    cliWarn: () => {},
+  },
 }));
 
-import { 
-  detectPackageManager, 
-  getInstallCommand, 
+import {
+  detectPackageManager,
+  getInstallCommand,
   installDependencies,
-  type PackageManager
+  type PackageManager,
 } from "../package-manager.js";
 
 describe("Package Manager Utilities", () => {
@@ -129,9 +129,9 @@ describe("Package Manager Utilities", () => {
 
       const result = await installDependencies("/fake/repo");
       expect(result.success).toBe(true);
-      expect(execSyncMock).toHaveBeenCalledWith("npm install", { 
-        cwd: "/fake/repo", 
-        stdio: "inherit" 
+      expect(execSyncMock).toHaveBeenCalledWith("npm install", {
+        cwd: "/fake/repo",
+        stdio: "inherit",
       });
     });
 
@@ -139,13 +139,13 @@ describe("Package Manager Utilities", () => {
       execSyncMock.mockImplementation(() => Buffer.from("Success"));
 
       const result = await installDependencies("/fake/repo", {
-        packageManager: "bun"
+        packageManager: "bun",
       });
-      
+
       expect(result.success).toBe(true);
-      expect(execSyncMock).toHaveBeenCalledWith("bun install", { 
-        cwd: "/fake/repo", 
-        stdio: "inherit" 
+      expect(execSyncMock).toHaveBeenCalledWith("bun install", {
+        cwd: "/fake/repo",
+        stdio: "inherit",
       });
     });
 
@@ -153,7 +153,7 @@ describe("Package Manager Utilities", () => {
       existsSyncMock.mockImplementation(() => false);
 
       const result = await installDependencies("/fake/repo");
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toBe("No package manager detected for this project");
       expect(execSyncMock).not.toHaveBeenCalled();
@@ -161,9 +161,9 @@ describe("Package Manager Utilities", () => {
 
     test("handles unsupported package manager", async () => {
       const result = await installDependencies("/fake/repo", {
-        packageManager: undefined
+        packageManager: undefined,
       });
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toBe("No package manager detected for this project");
       expect(execSyncMock).not.toHaveBeenCalled();
@@ -180,7 +180,7 @@ describe("Package Manager Utilities", () => {
       });
 
       const result = await installDependencies("/fake/repo");
-      
+
       expect(result.success).toBe(false);
       expect(result.error).toBe("Installation failed");
     });
@@ -194,11 +194,11 @@ describe("Package Manager Utilities", () => {
       execSyncMock.mockImplementation(() => Buffer.from("Success"));
 
       await installDependencies("/fake/repo", { quiet: true });
-      
-      expect(execSyncMock).toHaveBeenCalledWith("npm install", { 
-        cwd: "/fake/repo", 
-        stdio: "ignore" 
+
+      expect(execSyncMock).toHaveBeenCalledWith("npm install", {
+        cwd: "/fake/repo",
+        stdio: "ignore",
       });
     });
   });
-}); 
+});

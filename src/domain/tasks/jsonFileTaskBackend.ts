@@ -1,13 +1,18 @@
 /**
  * JsonFileTaskBackend implementation
- * 
+ *
  * Uses the DatabaseStorage abstraction to store tasks in JSON format.
  * This provides a more robust backend than the markdown format while
  * maintaining the same interface.
  */
 
 import { join, dirname } from "path";
-import type { TaskData, TaskState, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type {
+  TaskData,
+  TaskState,
+  TaskSpecData,
+  TaskBackendConfig,
+} from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createJsonFileStorage } from "../storage/json-file-storage";
@@ -51,7 +56,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       initializeState: () => ({
         tasks: [],
         lastUpdated: new Date().toISOString(),
-        metadata: {}
+        metadata: {},
       }),
       prettyPrint: true,
     });
@@ -66,7 +71,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         return {
           success: false,
           error: result.error,
-          filePath: this.storage.getStorageLocation()
+          filePath: this.storage.getStorageLocation(),
         };
       }
 
@@ -77,36 +82,34 @@ export class JsonFileTaskBackend implements TaskBackend {
       return {
         success: true,
         content,
-        filePath: this.storage.getStorageLocation()
+        filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: typedError,
-        filePath: this.storage.getStorageLocation()
+        filePath: this.storage.getStorageLocation(),
       };
     }
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/") 
-        ? specPath 
-        : join(this.workspacePath, specPath);
+      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       const content = await readFile(fullPath, "utf8");
       return {
         success: true,
         content,
-        filePath: fullPath
+        filePath: fullPath,
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: typedError,
-        filePath: specPath
+        filePath: specPath,
       };
     }
   }
@@ -133,24 +136,24 @@ export class JsonFileTaskBackend implements TaskBackend {
     const state: TaskState = {
       tasks,
       lastUpdated: new Date().toISOString(),
-      metadata: {}
+      metadata: {},
     };
     return JSON.stringify(state, null, 2);
   }
 
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
-    const lines = content.split('\n');
-    let title = '';
-    let description = '';
-    let id = '';
+    const lines = content.split("\n");
+    let title = "";
+    let description = "";
+    let id = "";
     let inDescription = false;
-    
+
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('# ')) {
+      if (trimmed.startsWith("# ")) {
         const headerText = trimmed.slice(2);
-        
+
         // Try to extract task ID and title from header like "Task #123: Title"
         const taskMatch = headerText.match(/^Task\s+#?(\d+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
@@ -160,20 +163,20 @@ export class JsonFileTaskBackend implements TaskBackend {
           // Fallback: use entire header as title
           title = headerText.trim();
         }
-      } else if (trimmed === '## Context' || trimmed === '## Description') {
+      } else if (trimmed === "## Context" || trimmed === "## Description") {
         inDescription = true;
-      } else if (trimmed.startsWith('## ') && inDescription) {
+      } else if (trimmed.startsWith("## ") && inDescription) {
         inDescription = false;
       } else if (inDescription && trimmed) {
-        description += (description ? '\n' : '') + trimmed;
+        description += (description ? "\n" : "") + trimmed;
       }
     }
-    
+
     return {
       id,
       title,
       description: description.trim(),
-      metadata: {}
+      metadata: {},
     };
   }
 
@@ -188,12 +191,12 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       // Parse the content to get tasks
       const tasks = this.parseTasks(content);
-      
+
       // Create state object
       const state: TaskState = {
         tasks,
         lastUpdated: new Date().toISOString(),
-        metadata: {}
+        metadata: {},
       };
 
       // Initialize storage if needed
@@ -201,28 +204,26 @@ export class JsonFileTaskBackend implements TaskBackend {
 
       // Write to storage
       const result = await this.storage.writeState(state);
-      
+
       return {
         success: result.success,
         error: result.error,
         bytesWritten: result.bytesWritten,
-        filePath: this.storage.getStorageLocation()
+        filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: typedError,
-        filePath: this.storage.getStorageLocation()
+        filePath: this.storage.getStorageLocation(),
       };
     }
   }
 
   async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/") 
-        ? specPath 
-        : join(this.workspacePath, specPath);
+      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);
@@ -234,14 +235,14 @@ export class JsonFileTaskBackend implements TaskBackend {
       return {
         success: true,
         bytesWritten: content.length,
-        filePath: fullPath
+        filePath: fullPath,
       };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: typedError,
-        filePath: specPath
+        filePath: specPath,
       };
     }
   }
@@ -278,8 +279,8 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.getEntities();
     } catch (error) {
-      log.error("Failed to get all tasks from database", { 
-        error: error instanceof Error ? error.message : String(error) 
+      log.error("Failed to get all tasks from database", {
+        error: error instanceof Error ? error.message : String(error),
       });
       return [];
     }
@@ -295,9 +296,9 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.getEntity(id);
     } catch (error) {
-      log.error("Failed to get task by ID from database", { 
+      log.error("Failed to get task by ID from database", {
         id,
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error),
       });
       return null;
     }
@@ -313,9 +314,9 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.createEntity(task);
     } catch (error) {
-      log.error("Failed to create task in database", { 
+      log.error("Failed to create task in database", {
         task,
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -332,10 +333,10 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.updateEntity(id, updates);
     } catch (error) {
-      log.error("Failed to update task in database", { 
+      log.error("Failed to update task in database", {
         id,
         updates,
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -351,9 +352,9 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.deleteEntity(id);
     } catch (error) {
-      log.error("Failed to delete task from database", { 
+      log.error("Failed to delete task from database", {
         id,
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -377,28 +378,28 @@ export class JsonFileTaskBackend implements TaskBackend {
    */
   private parseMarkdownTasks(content: string): TaskData[] {
     const tasks: TaskData[] = [];
-    const lines = content.split('\n');
+    const lines = content.split("\n");
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('- [ ] ') || trimmed.startsWith('- [x] ')) {
-        const completed = trimmed.startsWith('- [x] ');
+      if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
+        const completed = trimmed.startsWith("- [x] ");
         const taskLine = trimmed.slice(6); // Remove '- [ ] ' or '- [x] '
-        
+
         // Extract task ID and title
         const idMatch = taskLine.match(/\[#(\d+)\]/);
         const linkMatch = taskLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
-        
+
         if (idMatch && idMatch[1] && linkMatch && linkMatch[1] && linkMatch[2]) {
           const id = `#${idMatch[1]}`;
           const title = linkMatch[1];
           const specPath = linkMatch[2];
-          
+
           tasks.push({
             id,
             title,
             status: completed ? "DONE" : "TODO",
-            specPath
+            specPath,
           });
         }
       }
@@ -415,5 +416,4 @@ export class JsonFileTaskBackend implements TaskBackend {
  */
 export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
   return new JsonFileTaskBackend(config);
-} 
- 
+}

@@ -33,7 +33,7 @@ export interface SessionDbState {
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
-  
+
   return {
     sessions: [],
     baseDir,
@@ -77,8 +77,8 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
  * Update an existing session
  */
 export function updateSessionFn(
-  state: SessionDbState, 
-  sessionName: string, 
+  state: SessionDbState,
+  sessionName: string,
   updates: Partial<Omit<SessionRecord, "session">>
 ): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
@@ -138,6 +138,6 @@ export function getSessionWorkdirFn(state: SessionDbState, sessionName: string):
   if (!session) {
     return null;
   }
-  
+
   return getRepoPathFn(state, session);
 }

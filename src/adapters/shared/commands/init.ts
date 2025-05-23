@@ -104,8 +104,10 @@ export function registerInitCommands() {
         return { success: true, message: "Project initialized successfully." };
       } catch (error: any) {
         log.error("Error initializing project", { error });
-        throw error instanceof ValidationError ? error : new ValidationError(error?.message || String(error));
+        throw error instanceof ValidationError
+          ? error
+          : new ValidationError(error?.message || String(error));
       }
     },
   });
-} 
+}

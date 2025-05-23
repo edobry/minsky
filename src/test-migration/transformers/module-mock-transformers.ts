@@ -7,11 +7,11 @@ import { Transformer } from "./pipeline";
 abstract class ModuleMockTransformer implements Transformer {
   abstract patternId: string;
   priority = 70; // Medium priority
-  safetyLevel: 'low' | 'medium' | 'high' = 'low'; // More risky transformation
+  safetyLevel: "low" | "medium" | "high" = "low"; // More risky transformation
 
   /**
    * Transform a module mock
-   * 
+   *
    * @param text Original module mock text
    * @param node AST node for the module mock
    * @param sourceFile Source file containing the module mock
@@ -23,10 +23,10 @@ abstract class ModuleMockTransformer implements Transformer {
     }
     return text;
   }
-  
+
   /**
    * Transform a module mock call expression
-   * 
+   *
    * @param callExpr Call expression to transform
    * @param sourceFile Source file containing the call
    * @returns Transformed module mock text
@@ -38,11 +38,11 @@ abstract class ModuleMockTransformer implements Transformer {
  * Transformer for Jest module mocks
  */
 export class JestModuleMockTransformer extends ModuleMockTransformer {
-  patternId = 'jest-mock-module';
-  
+  patternId = "jest-mock-module";
+
   /**
    * Transform a Jest module mock
-   * 
+   *
    * @param callExpr Call expression to transform
    * @param sourceFile Source file containing the call
    * @returns Transformed module mock text
@@ -50,31 +50,35 @@ export class JestModuleMockTransformer extends ModuleMockTransformer {
   protected transformModuleMock(callExpr: Node, sourceFile: SourceFile): string {
     if (Node.isCallExpression(callExpr)) {
       const text = callExpr.getText();
-      
+
       // Simple jest.mock(path)
       const pathMatch = text.match(/jest\.mock\(\s*["'](.*?)["']\s*\)/);
       if (pathMatch) {
         const modulePath = pathMatch[1];
         return `mock.module("${modulePath}", () => ({}));`;
       }
-      
+
       // jest.mock with factory
-      const factoryMatch = text.match(/jest\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*\{(.*)\}\s*\)/s);
+      const factoryMatch = text.match(
+        /jest\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*\{(.*)\}\s*\)/s
+      );
       if (factoryMatch) {
         const modulePath = factoryMatch[1];
         const factoryBody = factoryMatch[2];
         return `mock.module("${modulePath}", () => {${factoryBody}});`;
       }
-      
+
       // jest.mock with object
-      const objectMatch = text.match(/jest\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*(\{.*\})\s*\)/s);
+      const objectMatch = text.match(
+        /jest\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*(\{.*\})\s*\)/s
+      );
       if (objectMatch) {
         const modulePath = objectMatch[1];
         const mockObject = objectMatch[2];
         return `mock.module("${modulePath}", () => ${mockObject});`;
       }
     }
-    
+
     // Fall back to original text
     return callExpr.getText();
   }
@@ -84,11 +88,11 @@ export class JestModuleMockTransformer extends ModuleMockTransformer {
  * Transformer for Vitest module mocks
  */
 export class ViModuleMockTransformer extends ModuleMockTransformer {
-  patternId = 'vi-mock-module';
-  
+  patternId = "vi-mock-module";
+
   /**
    * Transform a Vitest module mock
-   * 
+   *
    * @param callExpr Call expression to transform
    * @param sourceFile Source file containing the call
    * @returns Transformed module mock text
@@ -96,22 +100,24 @@ export class ViModuleMockTransformer extends ModuleMockTransformer {
   protected transformModuleMock(callExpr: Node, sourceFile: SourceFile): string {
     if (Node.isCallExpression(callExpr)) {
       const text = callExpr.getText();
-      
+
       // Simple vi.mock(path)
       const pathMatch = text.match(/vi\.mock\(\s*["'](.*?)["']\s*\)/);
       if (pathMatch) {
         const modulePath = pathMatch[1];
         return `mock.module("${modulePath}", () => ({}));`;
       }
-      
+
       // vi.mock with factory
-      const factoryMatch = text.match(/vi\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*\{(.*)\}\s*\)/s);
+      const factoryMatch = text.match(
+        /vi\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*\{(.*)\}\s*\)/s
+      );
       if (factoryMatch) {
         const modulePath = factoryMatch[1];
         const factoryBody = factoryMatch[2];
         return `mock.module("${modulePath}", () => {${factoryBody}});`;
       }
-      
+
       // vi.mock with object
       const objectMatch = text.match(/vi\.mock\(\s*["'](.*?)["']\s*,\s*\(\)\s*=>\s*(\{.*\})\s*\)/s);
       if (objectMatch) {
@@ -120,8 +126,8 @@ export class ViModuleMockTransformer extends ModuleMockTransformer {
         return `mock.module("${modulePath}", () => ${mockObject});`;
       }
     }
-    
+
     // Fall back to original text
     return callExpr.getText();
   }
-} 
+}
