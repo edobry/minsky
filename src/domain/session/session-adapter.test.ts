@@ -8,8 +8,8 @@ import * as fs from "fs";
 import * as path from "path";
 
 describe("SessionAdapter", () => {
-  // Create a temp test directory
-  const testDir = `/tmp/minsky-session-test-${Date.now()}`;
+  // Create a temp test directory with unique name to prevent test collisions
+  const testDir = `/tmp/minsky-session-test-${Date.now()}-${Math.random().toString(36).substring(2)}`;
   const dbPath = path.join(testDir, "test-session-db.json");
 
   // Helper to create a test adapter
