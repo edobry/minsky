@@ -2,9 +2,9 @@
  * Test suite for SessionAdapter class
  */
 
-import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { SessionAdapter } from "./session-adapter.js";
-import { createMockFileSystem, setupTestMocks } from "../../utils/test-utils/mocking.js";
+import { describe, it, expect, beforeEach } from "bun:test";
+import { SessionAdapter } from "./session-adapter";
+import { createMockFileSystem, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -13,32 +13,24 @@ describe("SessionAdapter", () => {
   let mockFS: ReturnType<typeof createMockFileSystem>;
   const dbPath = "/test/session-db.json";
 
-  // Helper to create a test adapter
-  const createTestAdapter = () => {
-    return new SessionAdapter(dbPath);
-  };
-
   beforeEach(() => {
     // Create fresh mock filesystem for each test
     mockFS = createMockFileSystem({
       "/test": "", // Directory marker
     });
 
-    // Mock fs module
-    mock.module("fs", () => ({
+    // Mock fs module using the existing utility
+    mockModule("fs", () => ({
       existsSync: mockFS.existsSync,
       mkdirSync: mockFS.mkdirSync,
-      readFileSync: (path: string) => {
-        const content = mockFS.readFileSync(path);
-        return content;
-      },
+      readFileSync: mockFS.readFileSync,
       writeFileSync: mockFS.writeFileSync,
       unlinkSync: mockFS.unlink,
       rmdirSync: () => {}, // Mock directory removal as no-op
     }));
 
     // Mock session-db-io module to use our mock filesystem
-    mock.module("./session-db-io.js", () => {
+    mockModule("./session-db-io", () => {
       return {
         readSessionDbFile: (options: any) => {
           try {
@@ -68,13 +60,13 @@ describe("SessionAdapter", () => {
   });
 
   it("should initialize with empty sessions", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const sessions = await adapter.listSessions();
     expect(sessions).toEqual([]);
   });
 
   it("should add and retrieve a session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
@@ -93,7 +85,7 @@ describe("SessionAdapter", () => {
   });
 
   it("should retrieve a session by task ID", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
@@ -111,7 +103,7 @@ describe("SessionAdapter", () => {
   });
 
   it("should update a session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
@@ -129,7 +121,7 @@ describe("SessionAdapter", () => {
   });
 
   it("should delete a session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
@@ -148,14 +140,14 @@ describe("SessionAdapter", () => {
   });
 
   it("should return false when deleting a non-existent session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const result = await adapter.deleteSession("non-existent");
     
     expect(result).toBe(false);
   });
 
   it("should get repository path for a session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
@@ -172,7 +164,7 @@ describe("SessionAdapter", () => {
   });
 
   it("should get working directory for a session", async () => {
-    const adapter = createTestAdapter();
+    const adapter = new SessionAdapter(dbPath);
     const testSession = {
       session: "test-session",
       repoName: "test-repo",
