@@ -70,6 +70,11 @@ const tasksStatusGetParams: CommandParameterMap = {
     description: "Backend identifier",
     required: false,
   },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
 };
 
 /**
@@ -112,6 +117,11 @@ const tasksStatusSetParams: CommandParameterMap = {
     description: "Backend identifier",
     required: false,
   },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
 };
 
 /**
@@ -146,6 +156,11 @@ const tasksSpecParams: CommandParameterMap = {
   backend: {
     schema: z.string(),
     description: "Backend identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -314,6 +329,11 @@ const tasksListParams: CommandParameterMap = {
     description: "Session identifier",
     required: false,
   },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
 };
 
 /**
@@ -343,6 +363,11 @@ const tasksGetParams: CommandParameterMap = {
   session: {
     schema: z.string(),
     description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -380,6 +405,11 @@ const tasksCreateParams: CommandParameterMap = {
   session: {
     schema: z.string(),
     description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };

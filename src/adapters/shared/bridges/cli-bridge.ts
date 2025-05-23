@@ -190,11 +190,19 @@ export class CliCommandBridge {
           // Use custom formatter if provided
           options.outputFormatter(result);
         } else {
-          // Use standard outputResult utility
-          outputResult(result, {
-            json: !!rawParameters.json,
-            formatter: this.getDefaultFormatter(commandDef),
-          });
+          // Use standard outputResult utility with JSON handling
+          if (context.format === "json") {
+            // For JSON output, bypass the default formatter and output JSON directly
+            outputResult(result, {
+              json: true,
+            });
+          } else {
+            // Use default formatter for text output
+            outputResult(result, {
+              json: false,
+              formatter: this.getDefaultFormatter(commandDef),
+            });
+          }
         }
       } catch (error) {
         // Handle any errors using the CLI error handler
