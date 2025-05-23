@@ -106,6 +106,17 @@ const sessionStartCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  skipInstall: {
+    schema: z.boolean(),
+    description: "Skip automatic dependency installation",
+    required: false,
+    defaultValue: false,
+  },
+  packageManager: {
+    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
+    description: "Override the detected package manager",
+    required: false,
+  },
 };
 
 /**
@@ -376,6 +387,8 @@ export function registerSessionCommands(): void {
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
+          skipInstall: params.skipInstall,
+          packageManager: params.packageManager,
         });
 
         return {
