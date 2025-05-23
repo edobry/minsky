@@ -78,27 +78,27 @@ export interface CategoryCommandOptions {
 
 /**
  * Main CLI bridge class
- * 
+ *
  * Handles conversion of shared commands to Commander.js commands
  */
 export class CliCommandBridge {
   private customizations: Map<string, CliCommandOptions> = new Map();
   private categoryCustomizations: Map<CommandCategory, CategoryCommandOptions> = new Map();
-  
+
   /**
    * Register command customization options
    */
   registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
     this.customizations.set(commandId, options);
   }
-  
+
   /**
    * Register category customization options
    */
   registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
     this.categoryCustomizations.set(category, options);
   }
-  
+
   /**
    * Get combined command options (defaults + customizations)
    */
@@ -109,13 +109,13 @@ export class CliCommandBridge {
       hidden: false,
       forceOptions: false,
     };
-    
+
     return {
       ...defaults,
       ...this.customizations.get(commandId),
     };
   }
-  
+
   /**
    * Generate a CLI command from a shared command definition
    */
@@ -124,42 +124,41 @@ export class CliCommandBridge {
     if (!commandDef) {
       return null;
     }
-    
+
     const options = this.getCommandOptions(commandId);
-    
+
     // Create the basic command
-    const command = new Command(commandDef.name)
-      .description(commandDef.description);
-    
+    const command = new Command(commandDef.name).description(commandDef.description);
+
     // Add aliases if specified
     if (options.aliases?.length) {
       command.aliases(options.aliases);
     }
-    
+
     // Hide from help if specified
     if (options.hidden) {
       // Alternative approach: use a special prefix that can be filtered out
       command.description(`[HIDDEN] ${command.description()}`);
     }
-    
+
     // Create parameter mappings
     const mappings = this.createCommandParameterMappings(commandDef, options);
-    
+
     // Add arguments to the command
     addArgumentsFromMappings(command, mappings);
-    
+
     // Add options to the command
-    createOptionsFromMappings(mappings).forEach(option => {
+    createOptionsFromMappings(mappings).forEach((option) => {
       command.addOption(option);
     });
-    
+
     // Add action handler
     command.action(async (...args) => {
       // Last argument is always the Command instance in Commander.js
       const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
       const positionalArgs = args.slice(0, args.length - 1);
-      
+
       try {
         // Create combined parameters from options and arguments
         const rawParameters = this.extractRawParameters(
@@ -168,10 +167,10 @@ export class CliCommandBridge {
           positionalArgs,
           mappings
         );
-        
+
         // Create execution context
-      const context: CliExecutionContext = {
-        interface: "cli",
+        const context: CliExecutionContext = {
+          interface: "cli",
           debug: !!rawParameters.debug,
           format: rawParameters.json ? "json" : "text",
           cliSpecificData: {
@@ -179,16 +178,13 @@ export class CliCommandBridge {
             rawArgs: commandInstance.args,
           },
         };
-        
+
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters(
-          commandDef.parameters,
-          rawParameters
-        );
-        
+        const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
+
         // Execute the command with parameters and context
         const result = await commandDef.execute(normalizedParams, context);
-        
+
         // Handle output
         if (options.outputFormatter) {
           // Use custom formatter if provided
@@ -205,10 +201,10 @@ export class CliCommandBridge {
         handleCliError(error);
       }
     });
-    
+
     return command;
   }
-  
+
   /**
    * Generate CLI commands for all commands in a category
    */
@@ -217,54 +213,96 @@ export class CliCommandBridge {
     if (commands.length === 0) {
       return null;
     }
-    
+
     const customOptions = this.categoryCustomizations.get(category) || {};
-    
+
     // Create the base category command
     const categoryName = customOptions.name || category.toLowerCase();
-    const categoryCommand = new Command(categoryName)
-      .description(customOptions.description || `${category} commands`);
-    
+    const categoryCommand = new Command(categoryName).description(
+      customOptions.description || `${category} commands`
+    );
+
     // Add aliases if specified
     if (customOptions.aliases?.length) {
       categoryCommand.aliases(customOptions.aliases);
     }
-    
+
+    // Group commands by their nested structure
+    const commandGroups = new Map<string, Command>();
+
     // Add all commands in this category as subcommands
-    commands.forEach(commandDef => {
+    commands.forEach((commandDef) => {
       const commandOptions = customOptions.commandOptions?.[commandDef.id];
       if (commandOptions) {
         this.registerCommandCustomization(commandDef.id, commandOptions);
       }
-      
-      const subcommand = this.generateCommand(commandDef.id);
-      if (subcommand) {
-        categoryCommand.addCommand(subcommand);
+
+      // Parse command name for nested structure (e.g., "status get" -> ["status", "get"])
+      const nameParts = commandDef.name.split(" ");
+
+      if (nameParts.length === 1) {
+        // Simple command - add directly to category
+        const subcommand = this.generateCommand(commandDef.id);
+        if (subcommand) {
+          categoryCommand.addCommand(subcommand);
+        }
+      } else if (nameParts.length === 2) {
+        // Nested command - create/get the parent command and add as subcommand
+        const parentName = nameParts[0];
+        const childName = nameParts[1];
+
+        if (!parentName || !childName) {
+          log.warn(`Invalid command name structure: ${commandDef.name}`);
+          return;
+        }
+
+        // Get or create the parent command
+        let parentCommand = commandGroups.get(parentName);
+        if (!parentCommand) {
+          parentCommand = new Command(parentName).description(`${parentName} commands`);
+          commandGroups.set(parentName, parentCommand);
+          categoryCommand.addCommand(parentCommand);
+        }
+
+        // Create the child command with the correct name
+        const childCommand = this.generateCommand(commandDef.id);
+        if (childCommand) {
+          // Update the child command name to just the child part
+          childCommand.name(childName);
+          parentCommand.addCommand(childCommand);
+        }
+      } else {
+        // More complex nesting - handle it recursively or warn
+        log.warn(`Complex command nesting not yet supported: ${commandDef.name}`);
+        const subcommand = this.generateCommand(commandDef.id);
+        if (subcommand) {
+          categoryCommand.addCommand(subcommand);
+        }
       }
     });
-    
+
     return categoryCommand;
   }
-  
+
   /**
    * Generate CLI commands for all categories
    */
   generateAllCategoryCommands(program: Command): void {
     // Get unique categories from all commands
     const categories = new Set<CommandCategory>();
-    sharedCommandRegistry.getAllCommands().forEach(cmd => {
+    sharedCommandRegistry.getAllCommands().forEach((cmd) => {
       categories.add(cmd.category);
     });
-    
+
     // Generate commands for each category
-    categories.forEach(category => {
+    categories.forEach((category) => {
       const categoryCommand = this.generateCategoryCommand(category);
       if (categoryCommand) {
         program.addCommand(categoryCommand);
       }
     });
   }
-  
+
   /**
    * Create parameter mappings for a command
    */
@@ -272,27 +310,22 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(
-      commandDef.parameters,
-      options.parameters || {}
-    );
-    
+    const mappings = createParameterMappings(commandDef.parameters, options.parameters || {});
+
     // If automatic argument generation is enabled
     if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
       // Find the first required parameter to use as an argument
-      const firstRequiredIndex = mappings.findIndex(
-        mapping => mapping.paramDef.required
-      );
-      
+      const firstRequiredIndex = mappings.findIndex((mapping) => mapping.paramDef.required);
+
       if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
         // Mark it as an argument
         mappings[firstRequiredIndex].options.asArgument = true;
       }
     }
-    
+
     return mappings;
   }
-  
+
   /**
    * Extract raw parameters from CLI options and arguments
    */
@@ -303,27 +336,27 @@ export class CliCommandBridge {
     mappings: ParameterMapping[]
   ): Record<string, any> {
     const result = { ...options };
-    
+
     // Map positional arguments to parameter names
     const argumentMappings = mappings
-      .filter(mapping => mapping.options.asArgument)
+      .filter((mapping) => mapping.options.asArgument)
       .sort((a, b) => {
         // Required arguments come first
         if (a.paramDef.required && !b.paramDef.required) return -1;
         if (!a.paramDef.required && b.paramDef.required) return 1;
         return 0;
       });
-    
+
     // Assign positional arguments to their corresponding parameters
     argumentMappings.forEach((mapping, index) => {
       if (index < positionalArgs.length) {
         result[mapping.name] = positionalArgs[index];
       }
     });
-    
+
     return result;
   }
-  
+
   /**
    * Get a default formatter for command results
    */
@@ -343,10 +376,10 @@ export class CliCommandBridge {
       }
     };
   }
-} 
+}
 
 /**
  * Default exported instance for the CLI bridge
  * This singleton is used by the CLI to generate commands from the shared registry
  */
-export const cliBridge = new CliCommandBridge(); 
+export const cliBridge = new CliCommandBridge();
