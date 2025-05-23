@@ -226,7 +226,7 @@
 
 - [x] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
-- [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
+- [+] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
 - [x] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
@@ -262,6 +262,4 @@
 
 - [x] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
 
-- [ ] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
-
-- [ ] Test Fix in Session Workspace [#136](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#135/process/tasks/136-test-fix-in-session-workspace.md)
+- [x] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
