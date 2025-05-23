@@ -263,3 +263,5 @@
 - [ ] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
 
 - [ ] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
+
+- [ ] Test Fix in Session Workspace [#136](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#135/process/tasks/136-test-fix-in-session-workspace.md)

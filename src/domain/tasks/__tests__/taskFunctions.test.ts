@@ -95,7 +95,7 @@ Code block with task-like content:
       expect(formatTasksToMarkdown([])).toBe("");
     });
 
-    test("should format tasks to markdown", () => {
+    test("should format tasks to markdown with one-liner format only", () => {
       const tasks: TaskData[] = [
         {
           id: "#001",
@@ -112,9 +112,10 @@ Code block with task-like content:
 
       const markdown = formatTasksToMarkdown(tasks);
       expect(markdown).toContain("- [ ] First task [#001](#)");
-      expect(markdown).toContain("  - Description line 1");
-      expect(markdown).toContain("  - Description line 2");
       expect(markdown).toContain("- [x] Completed task [#002](#)");
+      // Descriptions should NOT be included in the markdown output
+      expect(markdown).not.toContain("Description line 1");
+      expect(markdown).not.toContain("Description line 2");
     });
 
     test("should use task specPath if available", () => {
