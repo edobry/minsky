@@ -217,6 +217,205 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     });
   });
 
+  describe("Repository Operations with Dependency Injection", () => {
+    let gitService: GitService;
+
+    beforeEach(() => {
+      gitService = new GitService("/test/base/dir");
+    });
+
+    test("should handle commit operations with proper hash extraction", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("commit")) {
+            return { stdout: "[main abc123] Test commit message\n 1 file changed, 1 insertion(+)", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.commitWithDependencies("Test commit message", "/test/repo", mockDeps);
+
+      expect(result).toBe("abc123");
+      expectToHaveBeenCalled(mockDeps.execAsync);
+    });
+
+    test("should extract commit hash from various git output formats", async () => {
+      const testCases = [
+        { output: "[main abc123] Test commit", expected: "abc123" },
+        { output: "[feature def456] Another commit", expected: "def456" },
+        { output: "[task#123 789abc] Task commit", expected: "789abc" }
+      ];
+
+      for (const testCase of testCases) {
+        const mockDeps = {
+          execAsync: createMock(async () => ({ 
+            stdout: testCase.output, 
+            stderr: "" 
+          })) as any
+        };
+        
+        const result = await gitService.commitWithDependencies("Test", "/test/repo", mockDeps);
+        expect(result).toBe(testCase.expected);
+      }
+    });
+
+    test("should handle missing commit hash in git output", async () => {
+      const mockDeps = {
+        execAsync: createMock(async () => ({ 
+          stdout: "Invalid git output", 
+          stderr: "" 
+        })) as any
+      };
+
+      await expect(gitService.commitWithDependencies("Test", "/test/repo", mockDeps)).rejects.toThrow("Failed to extract commit hash");
+    });
+
+    test("should handle commit with amend flag", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          expect(command).toContain("--amend");
+          return { stdout: "[main def456] Amended commit\n 1 file changed", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.commitWithDependencies("Amended message", "/test/repo", mockDeps, true);
+      expect(result).toBe("def456");
+    });
+
+    test("should handle stash operations with state management", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("status --porcelain")) {
+            return { stdout: "M  modified-file.ts\n?? untracked-file.ts", stderr: "" }; // Has changes
+          }
+          if (command.includes("stash push")) {
+            return { stdout: "Saved working directory and index state", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.stashed).toBe(true);
+      expectToHaveBeenCalled(mockDeps.execAsync);
+    });
+
+    test("should handle no changes to stash scenario", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("status --porcelain")) {
+            return { stdout: "", stderr: "" }; // No changes
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.stashed).toBe(false);
+    });
+
+    test("should handle popStash with existing stash", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("stash list")) {
+            return { stdout: "stash@{0}: WIP on main: abc123 Previous work", stderr: "" };
+          }
+          if (command.includes("stash pop")) {
+            return { stdout: "Dropped refs/stash@{0}", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.stashed).toBe(true);
+    });
+
+    test("should handle popStash with no stash available", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("stash list")) {
+            return { stdout: "", stderr: "" }; // No stash
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.stashed).toBe(false);
+    });
+
+    test("should handle merge conflicts with proper detection", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("rev-parse HEAD")) {
+            return { stdout: "original-hash", stderr: "" };
+          }
+          if (command.includes("merge feature-branch")) {
+            throw new Error("Automatic merge failed; fix conflicts and then commit the result");
+          }
+          if (command.includes("status --porcelain")) {
+            return { stdout: "UU conflicted-file.ts\nAA another-conflict.ts", stderr: "" }; // Conflict markers
+          }
+          if (command.includes("merge --abort")) {
+            return { stdout: "", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.mergeBranchWithDependencies("/test/repo", "feature-branch", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.merged).toBe(false);
+      expect(result.conflicts).toBe(true);
+    });
+
+    test("should handle successful merge without conflicts", async () => {
+      let callCount = 0;
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("rev-parse HEAD")) {
+            callCount++;
+            // First call returns original hash, second call returns new hash
+            const hash = callCount === 1 ? "original-hash" : "new-merge-hash";
+            return { stdout: hash, stderr: "" };
+          }
+          if (command.includes("merge feature-branch")) {
+            return { stdout: "Merge made by the 'recursive' strategy.", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.mergeBranchWithDependencies("/test/repo", "feature-branch", mockDeps);
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.merged).toBe(true);
+      expect(result.conflicts).toBe(false);
+    });
+
+    test("should handle error scenarios with proper error propagation", async () => {
+      const mockDeps = {
+        execAsync: createMock(async () => {
+          throw new Error("fatal: not a git repository");
+        }) as any
+      };
+
+      await expect(gitService.stashChangesWithDependencies("/test/repo", mockDeps)).rejects.toThrow("Failed to stash changes");
+      await expect(gitService.mergeBranchWithDependencies("/test/repo", "feature", mockDeps)).rejects.toThrow("Failed to merge branch");
+    });
+  });
+
   describe("Architecture Analysis - Testing Limitations", () => {
     test("should demonstrate the core testing challenge", () => {
       // This test documents the architectural limitation we discovered:
@@ -232,7 +431,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       // 3. Module mocking in Bun doesn't intercept these imports in test context
       
       // Solution: Use dependency injection patterns like prWithDependencies()
-      // Future work: Add *WithDependencies variants for critical methods
+      // ✅ IMPLEMENTED: Added *WithDependencies variants for critical methods:
+      // - commitWithDependencies()
+      // - stashChangesWithDependencies()
+      // - popStashWithDependencies()
+      // - mergeBranchWithDependencies()
     });
   });
 });

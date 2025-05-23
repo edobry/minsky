@@ -75,6 +75,13 @@ export interface PrTestDependencies {
 // PrDependencies now extends the proper interface
 export interface PrDependencies extends PrTestDependencies {}
 
+/**
+ * Basic dependencies for simple git operations that don't need session management
+ */
+export interface BasicGitDependencies {
+  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+}
+
 export interface CloneOptions {
   repoUrl: string;
   session?: string;
@@ -965,6 +972,26 @@ export class GitService implements GitServiceInterface {
     return match[1];
   }
 
+  /**
+   * Testable version of commit with dependency injection
+   */
+  async commitWithDependencies(
+    message: string, 
+    workdir: string, 
+    deps: BasicGitDependencies, 
+    amend: boolean = false
+  ): Promise<string> {
+    const amendFlag = amend ? "--amend" : "";
+    const { stdout } = await deps.execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
+
+    // Extract commit hash from git output
+    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
+    if (!match?.[1]) {
+      throw new Error("Failed to extract commit hash from git output");
+    }
+    return match[1];
+  }
+
   // Add methods for session update command
   async stashChanges(workdir: string): Promise<StashResult> {
     try {
@@ -985,6 +1012,28 @@ export class GitService implements GitServiceInterface {
     }
   }
 
+  /**
+   * Testable version of stashChanges with dependency injection
+   */
+  async stashChangesWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
+    try {
+      // Check if there are changes to stash
+      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+      if (!status.trim()) {
+        // No changes to stash
+        return { workdir, stashed: false };
+      }
+
+      // Stash changes
+      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(
+        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
   async popStash(workdir: string): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
@@ -996,6 +1045,26 @@ export class GitService implements GitServiceInterface {
 
       // Pop the stash
       await execAsync(`git -C ${workdir} stash pop`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /**
+   * Testable version of popStash with dependency injection
+   */
+  async popStashWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
+    try {
+      // Check if there's a stash to pop
+      const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
+      if (!stashList.trim()) {
+        // No stash to pop
+        return { workdir, stashed: false };
+      }
+
+      // Pop the stash
+      await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
@@ -1047,6 +1116,40 @@ export class GitService implements GitServiceInterface {
 
       // Get new commit hash
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Return whether any changes were merged
+      return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
+    } catch (err) {
+      throw new Error(
+        `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  /**
+   * Testable version of mergeBranch with dependency injection
+   */
+  async mergeBranchWithDependencies(workdir: string, branch: string, deps: BasicGitDependencies): Promise<MergeResult> {
+    try {
+      // Get current commit hash
+      const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Try to merge the branch
+      try {
+        await deps.execAsync(`git -C ${workdir} merge ${branch}`);
+      } catch (err) {
+        // Check if there are merge conflicts
+        const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+        if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
+          // Abort the merge and report conflicts
+          await deps.execAsync(`git -C ${workdir} merge --abort`);
+          return { workdir, merged: false, conflicts: true };
+        }
+        throw err;
+      }
+
+      // Get new commit hash
+      const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Return whether any changes were merged
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
