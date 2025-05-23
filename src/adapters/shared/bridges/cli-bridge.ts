@@ -406,27 +406,53 @@ export class CliCommandBridge {
           } else {
             log.cli("No sessions found.");
           }
+        } else if (commandDef.id === "rules.list" && result.rules) {
+          // Handle rules list results
+          if (Array.isArray(result.rules)) {
+            if (result.rules.length > 0) {
+              result.rules.forEach((rule: Record<string, unknown>) => {
+                this.formatRuleSummary(rule);
+              });
+            } else {
+              log.cli("No rules found.");
+            }
+          }
+        } else if (commandDef.id === "rules.get" && result.rule) {
+          // Handle rules get results
+          this.formatRuleDetails(result.rule);
         } else {
           // Generic object handling - show all simple properties and handle complex ones
-          Object.entries(result).forEach(([key, value]) => {
-            // Skip internal metadata properties that are not useful for users
-            if (key === "success") {
-              return;
-            }
+          const meaningfulEntries = Object.entries(result).filter(([key]) => key !== "success");
 
-            if (typeof value !== "object" || value === null) {
+          // If there's only one meaningful property and it's a simple message, show just the value
+          if (meaningfulEntries.length === 1) {
+            const [key, value] = meaningfulEntries[0]!;
+            if (key === "message" && (typeof value === "string" || typeof value === "number")) {
+              log.cli(String(value));
+            } else if (typeof value !== "object" || value === null) {
               log.cli(`${key}: ${value}`);
             } else if (Array.isArray(value)) {
               log.cli(`${key}: [${value.length} items]`);
             } else {
-              // For complex objects, try to show a meaningful summary
-              if (key === "session" && value && typeof value === "object") {
-                this.formatSessionDetails(value as Record<string, unknown>);
-              } else {
-                log.cli(`${key}: ${JSON.stringify(value)}`);
-              }
+              log.cli(`${key}: ${JSON.stringify(value)}`);
             }
-          });
+          } else {
+            // Multiple properties - show all with labels
+            meaningfulEntries.forEach(([key, value]) => {
+              if (typeof value !== "object" || value === null) {
+                log.cli(`${key}: ${value}`);
+              } else if (Array.isArray(value)) {
+                log.cli(`${key}: [${value.length} items]`);
+              } else {
+                // For complex objects, try to show a meaningful summary
+                if (key === "session" && value && typeof value === "object") {
+                  this.formatSessionDetails(value as Record<string, unknown>);
+                } else {
+                  log.cli(`${key}: ${JSON.stringify(value)}`);
+                }
+              }
+            });
+          }
         }
       } else if (result !== undefined) {
         // Just print the result as is
@@ -465,6 +491,38 @@ export class CliCommandBridge {
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
     log.cli(`${sessionName}${taskId}${repoName}`);
+  }
+
+  /**
+   * Format rule details for human-readable output
+   */
+  private formatRuleDetails(rule: Record<string, unknown>): void {
+    if (!rule) return;
+
+    // Display rule information in a user-friendly format
+    if (rule.id) log.cli(`Rule: ${rule.id}`);
+    if (rule.description) log.cli(`Description: ${rule.description}`);
+    if (rule.format) log.cli(`Format: ${rule.format}`);
+    if (rule.globs && Array.isArray(rule.globs)) {
+      log.cli(`Globs: ${rule.globs.join(", ")}`);
+    }
+    if (rule.tags && Array.isArray(rule.tags)) {
+      log.cli(`Tags: ${rule.tags.join(", ")}`);
+    }
+    if (rule.path) log.cli(`Path: ${rule.path}`);
+  }
+
+  /**
+   * Format rule summary for list views
+   */
+  private formatRuleSummary(rule: Record<string, unknown>): void {
+    if (!rule) return;
+
+    const ruleId = rule.id || "unknown";
+    const description = rule.description ? ` - ${rule.description}` : "";
+    const format = rule.format ? ` [${rule.format}]` : "";
+
+    log.cli(`${ruleId}${format}${description}`);
   }
 }
 
