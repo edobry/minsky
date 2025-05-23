@@ -60,8 +60,8 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(2);
-      expect(spy).toHaveBeenCalledWith("--json", "Output result as JSON");
-      expect(spy).toHaveBeenCalledWith("--debug", "Enable debug output");
+      expect(spy).toHaveBeenCalledWith("--json", "Format output as JSON");
+      expect(spy).toHaveBeenCalledWith("--debug", "Show debug information");
     });
 
     it("should add task identification options to a command", () => {
@@ -72,7 +72,7 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith("--task <taskId>", "Task ID to match");
+      expect(spy).toHaveBeenCalledWith("--task <taskId>", "ID of the task (with or without # prefix)");
     });
 
     it("should add backend options to a command", () => {
@@ -83,7 +83,7 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith("-b, --backend <backend>", "Specify backend type");
+      expect(spy).toHaveBeenCalledWith("-b, --backend <backend>", "Type of backend to use");
     });
   });
 
