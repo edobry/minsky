@@ -494,6 +494,14 @@ _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-me
 
 ### Fixed
 
+- Fixed session command issues after merge
+
+  - Restored missing `--task` parameter to `session get` command for backward compatibility
+  - Added missing `skipInstall` parameter to `session start` command execution
+  - Added missing `force` parameter to `session update` command execution
+  - Fixed parameter mismatches between shared command registry and domain schemas
+  - Ensured all session commands properly support both `--session` and `--task` options
+
 - Fixed inconsistent option parsing between command modules
 
 - Fixed test failures in domain module:
