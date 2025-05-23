@@ -253,9 +253,11 @@
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
 
 - [x] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+
   - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
   - **Current issues:**
   - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
@@ -267,3 +269,5 @@
 - [ ] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
 
 - [ ] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
+
+- [ ] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
