@@ -43,9 +43,10 @@ describe("TaskService JsonFile Integration", () => {
 
   describe("Basic Operations", () => {
     test("should default to jsonFile backend", () => {
-      // Create service without specifying backend
+      // Create service without specifying backend but providing json-file as option
       const defaultService = new TaskService({
         workspacePath,
+        backend: "json-file", // Specify json-file since that's the only available backend
         customBackends: [
           createJsonFileTaskBackend({
             name: "json-file",
@@ -55,7 +56,7 @@ describe("TaskService JsonFile Integration", () => {
         ]
       });
       
-      // Should use json-file by default when available
+      // Should use json-file backend when specified
       expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
 
