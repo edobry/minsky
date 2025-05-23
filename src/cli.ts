@@ -31,13 +31,13 @@ export async function createCli(): Promise<Command> {
 
   const gitCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.GIT);
   if (gitCategoryCommand) cli.addCommand(gitCategoryCommand);
-  
+
   const sessionCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.SESSION);
   if (sessionCategoryCommand) cli.addCommand(sessionCategoryCommand);
-  
+
   const rulesCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.RULES);
   if (rulesCategoryCommand) cli.addCommand(rulesCategoryCommand);
-  
+
   const initCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.INIT);
   if (initCategoryCommand) cli.addCommand(initCategoryCommand);
 

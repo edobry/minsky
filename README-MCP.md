@@ -98,11 +98,13 @@ minsky mcp start --with-inspector
 ```
 
 This will:
+
 1. Start the MCP server normally
 2. Launch the MCP Inspector on port 6274 (by default)
 3. Open a browser window to the inspector interface
 
 The inspector allows you to:
+
 - View all tools available through the MCP server
 - See request/response payloads for each tool invocation
 - Test tool invocations directly through the UI
@@ -145,18 +147,21 @@ The Minsky MCP server exposes the following tools:
 ### Git Operations
 
 - `git.clone`: Clone a repository
-  - Parameters: 
+
+  - Parameters:
     - `url`: URL of the Git repository to clone (required)
     - `session`: Session identifier for the clone (optional)
     - `destination`: Target directory for the clone (optional)
     - `branch`: Branch to checkout after cloning (optional)
 
 - `git.branch`: Create a branch in a repository
+
   - Parameters:
     - `session`: Session to create branch in (required)
     - `name`: Name of the branch to create (required)
 
 - `git.commit`: Commit changes
+
   - Parameters:
     - `message`: Commit message (required)
     - `session`: Session to commit changes for (optional)
@@ -166,6 +171,7 @@ The Minsky MCP server exposes the following tools:
     - `noStage`: Skip staging changes (optional)
 
 - `git.push`: Push changes to a remote repository
+
   - Parameters:
     - `session`: Session to push changes for (optional)
     - `repo`: Path to the repository (optional)
@@ -207,11 +213,13 @@ When using the `session.start` tool, you can specify different repository backen
 #### Backend-Specific Parameters
 
 For `remote` backend:
+
 - `repoUrl`: URL of the remote repository
 - `authMethod`: Authentication method (`ssh`, `https`, or `token`)
 - `cloneDepth`: Clone depth for shallow clones
 
 For `github` backend:
+
 - `githubOwner`: Owner/organization name
 - `githubRepo`: Repository name
 - `githubToken`: GitHub access token for authentication
@@ -219,18 +227,21 @@ For `github` backend:
 ### Rules Management
 
 - `rules.list`: List all rules in the workspace
+
   - Parameters:
     - `format` (optional): Filter by rule format (cursor or generic)
     - `tag` (optional): Filter by tag
     - `debug` (optional): Show debug information
 
 - `rules.get`: Get a specific rule by ID
+
   - Parameters:
     - `id`: Rule ID to retrieve
     - `format` (optional): Preferred rule format (cursor or generic)
     - `debug` (optional): Show debug information
 
 - `rules.create`: Create a new rule
+
   - Parameters:
     - `id`: ID of the rule to create
     - `content` (optional): Content of the rule (or path to file containing content)
@@ -242,6 +253,7 @@ For `github` backend:
     - `overwrite` (optional): Overwrite existing rule if it exists
 
 - `rules.update`: Update an existing rule
+
   - Parameters:
     - `id`: ID of the rule to update
     - `content` (optional): New content of the rule (or path to file containing content)
@@ -310,11 +322,13 @@ Here's an example of how to use the Minsky MCP server with Claude's MCP integrat
 Lists all tasks with basic filtering options.
 
 **Parameters**:
+
 - `filter` (optional): Filter tasks by status
 - `all` (optional): Include completed tasks (default: false)
 - `backend` (optional): Task backend to use (markdown, github)
 
 **Example**:
+
 ```json
 {
   "name": "tasks.list",
@@ -330,10 +344,12 @@ Lists all tasks with basic filtering options.
 Get details for a specific task by ID.
 
 **Parameters**:
+
 - `taskId`: ID of the task to retrieve
 - `backend` (optional): Task backend to use (markdown, github)
 
 **Example**:
+
 ```json
 {
   "name": "tasks.get",
@@ -348,10 +364,12 @@ Get details for a specific task by ID.
 Get the status of a specific task.
 
 **Parameters**:
+
 - `taskId`: ID of the task
 - `backend` (optional): Task backend to use (markdown, github)
 
 **Example**:
+
 ```json
 {
   "name": "tasks.status.get",
@@ -366,11 +384,13 @@ Get the status of a specific task.
 Set the status of a specific task.
 
 **Parameters**:
+
 - `taskId`: ID of the task
 - `status`: New status for the task (TODO, IN-PROGRESS, IN-REVIEW, DONE)
 - `backend` (optional): Task backend to use (markdown, github)
 
 **Example**:
+
 ```json
 {
   "name": "tasks.status.set",
@@ -386,11 +406,13 @@ Set the status of a specific task.
 Create a new task from a specification file.
 
 **Parameters**:
+
 - `specPath`: Path to the task specification file
 - `force` (optional): Force creation even if task already exists (default: false)
 - `backend` (optional): Task backend to use (markdown, github)
 
 **Example**:
+
 ```json
 {
   "name": "tasks.create",

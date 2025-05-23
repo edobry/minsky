@@ -14,6 +14,7 @@ The original `workspace.test.ts` tested the following key functions:
 - `resolveWorkspacePath`
 
 The tests used problematic mocking patterns:
+
 - Module mocking that is incompatible with Bun
 - Direct mocking of functions rather than using dependency injection
 - Lack of proper test isolation
@@ -29,18 +30,15 @@ import {
   getSessionFromRepo,
   getCurrentSession,
   resolveWorkspacePath,
-  type WorkspaceUtilsInterface
+  type WorkspaceUtilsInterface,
 } from "../../../domain/workspace.js";
-import {
-  createPartialMock,
-  createTestContext
-} from "../../../utils/test-utils/mocking.js";
+import { createPartialMock, createTestContext } from "../../../utils/test-utils/mocking.js";
 import { createTestDeps } from "../../../utils/test-utils/dependencies.js";
 
 describe("Workspace Domain Methods", () => {
   // Create test context for managing test resources
   const testContext = createTestContext();
-  
+
   // Create base test dependencies
   const baseDeps = createTestDeps({
     // Use partial mocks with only the necessary functions implemented
@@ -59,7 +57,7 @@ describe("Workspace Domain Methods", () => {
   afterEach(() => {
     testContext.tearDown();
   });
-  
+
   // Test implementations will go here
 });
 ```
@@ -75,17 +73,17 @@ describe("isSessionRepository", () => {
       ...baseDeps,
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         ...baseDeps.workspaceUtils,
-        execGitCommand: async () => ({ 
-          stdout: "ref/heads/task#123", 
-          stderr: "" 
+        execGitCommand: async () => ({
+          stdout: "ref/heads/task#123",
+          stderr: "",
         }),
         pathExists: async (path) => path.includes(".git"),
       }),
     };
-    
+
     // Act
     const result = await isSessionRepository(repoPath, deps);
-    
+
     // Assert
     expect(result).toBe(true);
   });
@@ -97,17 +95,17 @@ describe("isSessionRepository", () => {
       ...baseDeps,
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         ...baseDeps.workspaceUtils,
-        execGitCommand: async () => ({ 
-          stdout: "main", 
-          stderr: "" 
+        execGitCommand: async () => ({
+          stdout: "main",
+          stderr: "",
         }),
         pathExists: async () => true,
       }),
     };
-    
+
     // Act
     const result = await isSessionRepository(repoPath, deps);
-    
+
     // Assert
     expect(result).toBe(false);
   });
@@ -124,10 +122,10 @@ describe("isSessionRepository", () => {
         },
       }),
     };
-    
+
     // Act
     const result = await isSessionRepository(repoPath, deps);
-    
+
     // Assert
     expect(result).toBe(false);
   });
@@ -143,9 +141,9 @@ describe("getSessionFromRepo", () => {
     const repoPath = "/Users/user/.local/state/minsky/git/repo-name/sessions/session-name";
     const expectedResult = {
       session: "session-name",
-      mainWorkspace: "https://github.com/org/repo.git"
+      mainWorkspace: "https://github.com/org/repo.git",
     };
-    
+
     const deps = {
       ...baseDeps,
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
@@ -161,14 +159,14 @@ describe("getSessionFromRepo", () => {
         },
       }),
     };
-    
+
     // Act
     const result = await getSessionFromRepo(repoPath, deps);
-    
+
     // Assert
     expect(result).toEqual(expect.objectContaining(expectedResult));
   });
-  
+
   // Add more test cases for getSessionFromRepo
 });
 ```
@@ -198,16 +196,14 @@ describe("getCurrentSession", () => {
         isValidGitRepo: async () => true,
       }),
     };
-    
+
     // Act
     const result = await getCurrentSession(deps);
-    
+
     // Assert
-    expect(result).toEqual(
-      expect.objectContaining({ session: "session-name" })
-    );
+    expect(result).toEqual(expect.objectContaining({ session: "session-name" }));
   });
-  
+
   // Add more test cases for getCurrentSession
 });
 ```
@@ -221,22 +217,23 @@ describe("resolveWorkspacePath", () => {
     const sessionName = "task#123";
     const options: WorkspaceResolutionOptions = { sessionName };
     const expectedPath = "/Users/user/.local/state/minsky/git/repo-name/sessions/task#123";
-    
+
     const deps = {
       ...baseDeps,
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         ...baseDeps.workspaceUtils,
-        resolveSessionPath: async (name) => `/Users/user/.local/state/minsky/git/repo-name/sessions/${name}`,
+        resolveSessionPath: async (name) =>
+          `/Users/user/.local/state/minsky/git/repo-name/sessions/${name}`,
       }),
     };
-    
+
     // Act
     const result = await resolveWorkspacePath(options, deps);
-    
+
     // Assert
     expect(result).toBe(expectedPath);
   });
-  
+
   // Add more test cases for resolveWorkspacePath
 });
 ```
@@ -260,4 +257,4 @@ describe("resolveWorkspacePath", () => {
 1. Review the domain interfaces implementation from task #101
 2. Study the workspace module implementation to understand dependencies
 3. Start the actual implementation by replacing the placeholder test
-4. Once completed, follow the same pattern for the other test files 
+4. Once completed, follow the same pattern for the other test files

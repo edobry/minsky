@@ -6,12 +6,7 @@ const sessionDir = "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/
 
 // Run the help command
 console.log("Checking MCP help output for repository path parameter...");
-const help = spawn("bun", [
-  path.join(sessionDir, "src/cli.ts"),
-  "mcp",
-  "start",
-  "--help"
-]);
+const help = spawn("bun", [path.join(sessionDir, "src/cli.ts"), "mcp", "start", "--help"]);
 
 // Handle stdout data
 help.stdout.on("data", (data) => {
@@ -40,4 +35,4 @@ help.stderr.on("data", (data) => {
 // Handle process close
 help.on("close", (code) => {
   console.log(`\nHelp command exited with code ${code}`);
-}); 
+});

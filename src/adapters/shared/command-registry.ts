@@ -1,6 +1,6 @@
 /**
  * Shared Command Registry
- * 
+ *
  * Central registry for commands that can be exposed through multiple interfaces
  * (CLI, MCP, etc.). This provides a shared abstraction layer to reduce duplication
  * and ensure consistency.
@@ -11,7 +11,7 @@ import { MinskyError } from "../../errors/index.js";
 
 /**
  * Command category enum
- * 
+ *
  * Used to organize commands into logical groups
  */
 export enum CommandCategory {
@@ -25,7 +25,7 @@ export enum CommandCategory {
 
 /**
  * Command execution context
- * 
+ *
  * Provides context about how a command was invoked
  */
 export interface CommandExecutionContext {
@@ -65,7 +65,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
  */
 export type CommandExecutionHandler<
   T extends CommandParameterMap = CommandParameterMap,
-  R = unknown
+  R = unknown,
 > = (
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
   context: CommandExecutionContext
@@ -76,7 +76,7 @@ export type CommandExecutionHandler<
  */
 export interface CommandDefinition<
   T extends CommandParameterMap = CommandParameterMap,
-  R = unknown
+  R = unknown,
 > {
   /** Unique command identifier */
   id: string;
@@ -111,16 +111,14 @@ export interface SharedCommand {
 export interface CommandRegistry {
   /**
    * Register a new command in the registry
-   * 
+   *
    * @param commandDef Command definition to register
    */
-  registerCommand<T extends CommandParameterMap, R>(
-    commandDef: CommandDefinition<T, R>
-  ): void;
+  registerCommand<T extends CommandParameterMap, R>(commandDef: CommandDefinition<T, R>): void;
 
   /**
    * Get a command by its identifier
-   * 
+   *
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
@@ -128,7 +126,7 @@ export interface CommandRegistry {
 
   /**
    * Get all commands in a specific category
-   * 
+   *
    * @param category Command category
    * @returns Array of command definitions
    */
@@ -136,7 +134,7 @@ export interface CommandRegistry {
 
   /**
    * List all registered commands
-   * 
+   *
    * @returns All registered command definitions
    */
   getAllCommands(): SharedCommand[];
@@ -150,7 +148,7 @@ export class SharedCommandRegistry implements CommandRegistry {
 
   /**
    * Register a command in the registry
-   * 
+   *
    * @param commandDef Command definition
    * @param options Registration options
    * @throws {MinskyError} If command with same ID is already registered and allowOverwrite is false
@@ -162,13 +160,13 @@ export class SharedCommandRegistry implements CommandRegistry {
     if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
-    
+
     this.commands.set(commandDef.id, commandDef as unknown as SharedCommand);
   }
 
   /**
    * Get a command by its identifier
-   * 
+   *
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
@@ -178,18 +176,17 @@ export class SharedCommandRegistry implements CommandRegistry {
 
   /**
    * Get all commands in a specific category
-   * 
+   *
    * @param category Command category
    * @returns Array of command definitions
    */
   getCommandsByCategory(category: CommandCategory): SharedCommand[] {
-    return Array.from(this.commands.values())
-      .filter(cmd => cmd.category === category);
+    return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
   }
 
   /**
    * List all registered commands
-   * 
+   *
    * @returns All registered command definitions
    */
   getAllCommands(): SharedCommand[] {
@@ -198,7 +195,7 @@ export class SharedCommandRegistry implements CommandRegistry {
 
   /**
    * Check if a command is already registered
-   * 
+   *
    * @param id Command identifier
    * @returns True if command is registered, false otherwise
    */
@@ -208,7 +205,7 @@ export class SharedCommandRegistry implements CommandRegistry {
 
   /**
    * Clear all registered commands
-   * 
+   *
    * @deprecated Use a fresh registry instance instead of clearing state
    */
   clear(): void {
@@ -218,7 +215,7 @@ export class SharedCommandRegistry implements CommandRegistry {
 
 /**
  * Create a new instance of the shared command registry
- * 
+ *
  * This function should be used instead of a global singleton to ensure
  * proper isolation in tests and better dependency management.
  */
@@ -228,7 +225,7 @@ export function createSharedCommandRegistry(): SharedCommandRegistry {
 
 /**
  * Default instance for backwards compatibility
- * 
+ *
  * @deprecated Use createSharedCommandRegistry() and dependency injection instead
  */
-export const sharedCommandRegistry = createSharedCommandRegistry(); 
+export const sharedCommandRegistry = createSharedCommandRegistry();

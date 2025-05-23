@@ -22,6 +22,7 @@ This PR adds a new `spec` subcommand to the `tasks` command that allows users to
 ## Testing
 
 The implementation has been manually tested to verify:
+
 - Retrieving full specification content for a task
 - Extracting specific sections from a specification
 - Proper error handling for invalid task IDs or missing specs

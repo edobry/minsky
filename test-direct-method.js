@@ -11,7 +11,7 @@ const mcp = spawn("bun", [
   "mcp",
   "start",
   "--repo",
-  sessionDir
+  sessionDir,
 ]);
 
 // Buffer to collect the output
@@ -26,13 +26,13 @@ mcp.stdout.on("data", (data) => {
   // After server starts, send a request to the rpc.discover method
   if (output.includes("Minsky MCP Server started")) {
     console.log("Server started, attempting rpc.discover...");
-    
+
     mcp.stdin.write(
       JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "rpc.discover",
-        params: {}
+        params: {},
       }) + "\n"
     );
 
@@ -45,8 +45,8 @@ mcp.stdout.on("data", (data) => {
           id: "2",
           method: "Task.List",
           params: {
-            all: true
-          }
+            all: true,
+          },
         }) + "\n"
       );
     }, 500);
@@ -60,8 +60,8 @@ mcp.stdout.on("data", (data) => {
           id: "3",
           method: "task.list",
           params: {
-            all: true
-          }
+            all: true,
+          },
         }) + "\n"
       );
     }, 1000);
@@ -74,7 +74,7 @@ mcp.stdout.on("data", (data) => {
           jsonrpc: "2.0",
           id: "4",
           method: "help",
-          params: {}
+          params: {},
         }) + "\n"
       );
     }, 1500);
@@ -95,4 +95,4 @@ mcp.on("close", (code) => {
 setTimeout(() => {
   console.log("Test complete, shutting down...");
   mcp.kill("SIGINT");
-}, 5000); 
+}, 5000);

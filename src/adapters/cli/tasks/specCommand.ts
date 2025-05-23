@@ -22,13 +22,16 @@ export function createSpecCommand(): Command {
   const command = new Command("spec")
     .description("Get task specification content")
     .argument("<task-id>", "ID of the task to retrieve specification content for")
-    .option("--section <section>", "Specific section of the specification to retrieve (e.g., 'requirements')");
-  
+    .option(
+      "--section <section>",
+      "Specific section of the specification to retrieve (e.g., 'requirements')"
+    );
+
   // Add shared options
   addRepoOptions(command);
   addOutputOptions(command);
   addBackendOptions(command);
-  
+
   command.action(
     async (
       taskId: string,
@@ -52,12 +55,12 @@ export function createSpecCommand(): Command {
 
         // Convert CLI options to domain parameters using normalization helper
         const normalizedParams = normalizeTaskParams(options);
-        
+
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
           taskId: normalizedTaskId,
-          section: options.section
+          section: options.section,
         };
 
         // Call the domain function
@@ -66,25 +69,30 @@ export function createSpecCommand(): Command {
         // Format and display the result
         outputResult(result, {
           json: options.json,
-          formatter: (data: { task: { id: string; title: string }; specPath: string; content: string; section?: string }) => {
+          formatter: (data: {
+            task: { id: string; title: string };
+            specPath: string;
+            content: string;
+            section?: string;
+          }) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
-            
+
             // If a specific section was requested, try to extract it
             if (data.section) {
               // Simple extraction logic for common section patterns
               const content = data.content;
-              const sectionRegex = new RegExp(`## ${data.section}`, 'i');
+              const sectionRegex = new RegExp(`## ${data.section}`, "i");
               const match = content.match(sectionRegex);
-              
+
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
                 const nextSectionMatch = content.slice(startIndex + match[0].length).match(/^## /m);
-                const endIndex = nextSectionMatch 
-                  ? startIndex + match[0].length + nextSectionMatch.index 
+                const endIndex = nextSectionMatch
+                  ? startIndex + match[0].length + nextSectionMatch.index
                   : content.length;
-                
+
                 const sectionContent = content.slice(startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
@@ -104,6 +112,6 @@ export function createSpecCommand(): Command {
       }
     }
   );
-  
+
   return command;
-} 
+}

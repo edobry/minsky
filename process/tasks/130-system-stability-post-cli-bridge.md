@@ -161,19 +161,22 @@ The session-first workflow must be maintained throughout, ensuring all changes o
 ## Completion Summary
 
 ### Work Completed
+
 This task achieved significant system stabilization following the CLI bridge implementation. The session workspace was properly maintained throughout all changes.
 
 #### Major Accomplishments
+
 1. **Test Suite Stabilization**: Achieved 483 passing tests (95.9% success rate) vs. target of 470+
-2. **Error Reduction**: Maintained 1 test error (stable)  
+2. **Error Reduction**: Maintained 1 test error (stable)
 3. **Failure Reduction**: Reduced from 31 failing tests to 20 (35% improvement)
 4. **Infrastructure Integration**: Successfully merged task #114's test migration improvements
 5. **CLI Bridge Compatibility**: Maintained CLI bridge functionality while fixing stability issues
 6. **Bun:Test Compatibility**: Fixed all straightforward compatibility issues
 
 #### Specific Fixes Implemented
+
 1. **CommandMapper Tests**: Fixed `toHaveBeenCalledWith` → `spy.mock.calls` compatibility
-2. **Session Review Tests**: Fixed mock reset issues and assertion patterns  
+2. **Session Review Tests**: Fixed mock reset issues and assertion patterns
 3. **Session Commands Tests**: Fixed asymmetric matcher compatibility (`expect.objectContaining`)
 4. **Tasks Commands**: Fixed `registerTasksCommands()` no-op function implementation
 5. **Import Extensions**: Resolved multiple import extension linter issues
@@ -181,19 +184,23 @@ This task achieved significant system stabilization following the CLI bridge imp
 #### Categorized Remaining Issues (20 failures)
 
 **Test Isolation Issues (7 failures)**
+
 - SessionAdapter tests (5) - Pass individually, fail in full suite due to shared state
 - Shared Rules Commands (2) - Pass individually, fail in full suite due to registry pollution
 
-**Infrastructure Issues (13 failures)**  
+**Infrastructure Issues (13 failures)**
+
 - Git Integration Tests - Hanging for 858+ seconds, environment/mocking issues
 
 ### Current Metrics
+
 - **Test Success Rate**: 98.4% (489 pass, 8 fail, 1 error, 6 skip)
 - **Major Improvement**: +6 passing tests, -12 failing tests through shared state cleanup
 - **Tests Fixed**: 18 additional tests now passing vs. original baseline
 - **Compatibility Issues**: All bun:test compatibility patterns resolved
 
-### Completion Assessment  
+### Completion Assessment
+
 **Status**: 98% complete. Achieved major breakthrough with shared state cleanup, identifying and resolving the core test isolation pattern. Remaining 8 failures are complex architectural issues requiring deep investigation beyond the scope of post-CLI-bridge stability fixes.
 
 **Key Achievement**: Successfully identified and resolved shared state pollution in `sharedCommandRegistry` singleton, demonstrating systematic approach to test isolation issues.
@@ -201,7 +208,9 @@ This task achieved significant system stabilization following the CLI bridge imp
 **Next Phase**: The remaining test isolation issues (SessionAdapter filesystem state, Rules Commands additional shared state) would require dedicated investigation of module-level state, async operations, and database connections in separate tasks.
 
 ## Session Workspace Compliance
+
 All changes were made in the session workspace using absolute paths:
+
 - Base path: `/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#130/`
 - Task specification: Located in session workspace (moved from incorrectly placed main workspace file)
 - No changes remain in main workspace that should be in session workspace

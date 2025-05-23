@@ -117,7 +117,7 @@ export function createMCPCommand(): Command {
         );
         // Register debug tools first to ensure they're available for debugging
         registerDebugTools(commandMapper);
-        
+
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);

@@ -28,6 +28,7 @@ The implementation follows an automatic code generation approach:
 4. **Progressive Migration**: Migrated commands incrementally while maintaining backward compatibility, allowing for thorough testing at each step.
 
 Alternative approaches considered:
+
 - **Manual synchronization**: Rejected due to maintenance overhead and error-prone nature
 - **Code generation scripts**: Rejected in favor of runtime generation for better flexibility
 - **Wrapper functions**: Rejected as it would still require maintaining two implementations
@@ -37,6 +38,7 @@ Alternative approaches considered:
 ### CLI Bridge Implementation
 
 - **Core Bridge**: Implemented in `src/adapters/shared/bridges/cli-bridge.ts`
+
   - Automatic Commander.js command generation from shared registry
   - Flexible parameter mapping between Zod schemas and CLI options
   - Support for command customization (aliases, help text, parameter configuration)

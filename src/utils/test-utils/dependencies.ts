@@ -54,7 +54,10 @@ export interface SessionData {
  */
 export interface GitDependencies {
   gitService: GitServiceInterface;
-  execAsync: (command: string, options?: Record<string, unknown>) => Promise<{ stdout: string; stderr: string }>;
+  execAsync: (
+    command: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ stdout: string; stderr: string }>;
   getSession: (name: string) => Promise<SessionData | null>;
   getSessionWorkdir: (repoName: string, session: string) => string;
   [key: string]: unknown;
@@ -77,7 +80,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     deleteSession: () => Promise.resolve(true),
     getRepoPath: () => Promise.resolve("/mock/repo/path"),
     getSessionWorkdir: () => Promise.resolve("/mock/workdir/path"),
-    ...(overrides.sessionDB || {})
+    ...(overrides.sessionDB || {}),
   });
 
   // Create default git service mock using createPartialMock
@@ -93,7 +96,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     push: () => Promise.resolve(),
     popStash: () => Promise.resolve(),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
-    ...(overrides.gitService || {})
+    ...(overrides.gitService || {}),
   });
 
   // Create default task service mock using createPartialMock
@@ -109,7 +112,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
         title: "Test Task",
         status: "TODO",
       }),
-    ...(overrides.taskService || {})
+    ...(overrides.taskService || {}),
   });
 
   // Create default workspace utils mock using createPartialMock
@@ -119,7 +122,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getCurrentSession: () => Promise.resolve(null),
     getSessionFromWorkspace: () => Promise.resolve(null),
     resolveWorkspacePath: () => Promise.resolve("/mock/workspace/path"),
-    ...(overrides.workspaceUtils || {})
+    ...(overrides.workspaceUtils || {}),
   });
 
   // Return the combined dependencies
@@ -150,7 +153,7 @@ export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): T
         title: "Test Task",
         status: "TODO",
       }),
-    ...(overrides.taskService || {})
+    ...(overrides.taskService || {}),
   });
 
   const resolveWorkspacePath = () => Promise.resolve("/mock/workspace/path");
@@ -181,7 +184,7 @@ export function createSessionTestDeps(
     deleteSession: () => Promise.resolve(true),
     getRepoPath: () => Promise.resolve("/mock/repo/path"),
     getSessionWorkdir: () => Promise.resolve("/mock/workdir/path"),
-    ...(overrides.sessionDB || {})
+    ...(overrides.sessionDB || {}),
   });
 
   const gitService = createPartialMock<GitServiceInterface>({
@@ -195,7 +198,7 @@ export function createSessionTestDeps(
     push: () => Promise.resolve(),
     popStash: () => Promise.resolve(),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
-    ...(overrides.gitService || {})
+    ...(overrides.gitService || {}),
   });
 
   return {
@@ -222,7 +225,7 @@ export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): Git
     push: () => Promise.resolve(),
     popStash: () => Promise.resolve(),
     getStatus: () => Promise.resolve({ modified: [], untracked: [], deleted: [] }),
-    ...(overrides.gitService || {})
+    ...(overrides.gitService || {}),
   });
 
   const execAsync = () => Promise.resolve({ stdout: "", stderr: "" });
@@ -282,7 +285,7 @@ export function createMockRepositoryBackend(
       Promise.resolve({
         success: true,
       }),
-    ...overrides
+    ...overrides,
   });
 }
 
@@ -310,8 +313,13 @@ export function withMockedDeps<T extends Record<string, unknown>, R>(
   Object.keys(mockOverrides).forEach((key) => {
     const k = key as keyof T;
     const override = mockOverrides[k];
-    
-    if (typeof override === "object" && override !== null && typeof tempDeps[k] === "object" && tempDeps[k] !== null) {
+
+    if (
+      typeof override === "object" &&
+      override !== null &&
+      typeof tempDeps[k] === "object" &&
+      tempDeps[k] !== null
+    ) {
       // For object properties, merge with original instead of replacing
       tempDeps[k] = {
         ...tempDeps[k],
@@ -332,9 +340,7 @@ export function withMockedDeps<T extends Record<string, unknown>, R>(
  * @param partialDeps Partial nested dependencies to apply
  * @returns A complete set of deeply nested dependencies with mocks
  */
-export function createDeepTestDeps(
-  partialDeps: Partial<DomainDependencies>
-): DomainDependencies {
+export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): DomainDependencies {
   // Start with a base set of dependencies
   const baseDeps = createTestDeps();
 
@@ -387,4 +393,4 @@ export function createPartialTestDeps(
   overrides: Partial<DomainDependencies> = {}
 ): Partial<DomainDependencies> {
   return overrides;
-} 
+}

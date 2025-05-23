@@ -41,6 +41,7 @@ This PR implements consistent repository URI handling across the codebase as out
 ## Testing
 
 The implementation includes comprehensive tests that:
+
 - Verify parsing for all supported URI formats
 - Test normalization of various URI types
 - Validate repository URI formats
@@ -53,4 +54,4 @@ The implementation includes comprehensive tests that:
 - [x] All tests pass
 - [x] Code quality is acceptable
 - [x] Documentation is updated
-- [x] Changelog is updated 
+- [x] Changelog is updated

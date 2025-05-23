@@ -124,7 +124,7 @@ The implementation followed these principles:
 
 5. **Future Improvements**
    - Consider adding more Git operations like:
-     - `git.status`: Get status of a repository 
+     - `git.status`: Get status of a repository
      - `git.log`: View commit history
      - `git.list-branches`: List all branches in a repository
 

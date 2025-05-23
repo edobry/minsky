@@ -6,7 +6,7 @@ import {
   deleteSessionFromParams,
   SessionDB,
   type Session,
-  createSessionDeps
+  createSessionDeps,
 } from "../../../domain/session.js";
 import { type SessionDeleteParams } from "../../../schemas/session.js";
 import { GitService } from "../../../domain/git.js";
@@ -16,7 +16,7 @@ import {
   createMock,
   mockModule,
   setupTestMocks,
-  createMockObject
+  createMockObject,
 } from "../../../utils/test-utils/mocking.js";
 
 // Tests have been migrated to test domain methods directly
@@ -53,25 +53,19 @@ describe("Session Domain Methods", () => {
       getSession: () => ({ session: "test-session", repoName: "test-repo", repoUrl: "test-url" }),
       listSessions: () => [
         { session: "session1", repoName: "repo1", repoUrl: "url1" },
-        { session: "session2", repoName: "repo2", repoUrl: "url2" }
-      ]
+        { session: "session2", repoName: "repo2", repoUrl: "url2" },
+      ],
     }
   );
 
-  const mockGitService = createMockObject(
-    ["clone", "checkout", "getBranch", "getSessionRecord"],
-    {
-      clone: () => ({ workdir: "/mock/path/to/repo" }),
-      getBranch: () => "main"
-    }
-  );
+  const mockGitService = createMockObject(["clone", "checkout", "getBranch", "getSessionRecord"], {
+    clone: () => ({ workdir: "/mock/path/to/repo" }),
+    getBranch: () => "main",
+  });
 
-  const mockTaskService = createMockObject(
-    ["getTask", "updateTaskStatus"],
-    {
-      getTask: () => ({ id: "123", title: "Test Task", status: "TODO" })
-    }
-  );
+  const mockTaskService = createMockObject(["getTask", "updateTaskStatus"], {
+    getTask: () => ({ id: "123", title: "Test Task", status: "TODO" }),
+  });
 
   const mockWorkspaceUtils = {
     isSessionRepository: createMock(() => true),
@@ -80,23 +74,23 @@ describe("Session Domain Methods", () => {
 
   // Mock the SessionDB constructor to return our mock instance
   const mockSessionDBConstructor = createMock(() => mockSessionDB);
-  
+
   beforeEach(() => {
     // Reset call counts and mock implementations for each test
-    Object.values(mockSessionDB).forEach(mock => mock.mockClear());
-    Object.values(mockGitService).forEach(mock => mock.mockClear());
-    Object.values(mockTaskService).forEach(mock => mock.mockClear());
-    Object.values(mockWorkspaceUtils).forEach(mock => mock.mockClear());
-    
+    Object.values(mockSessionDB).forEach((mock) => mock.mockClear());
+    Object.values(mockGitService).forEach((mock) => mock.mockClear());
+    Object.values(mockTaskService).forEach((mock) => mock.mockClear());
+    Object.values(mockWorkspaceUtils).forEach((mock) => mock.mockClear());
+
     // Mock the domain dependencies
     mockModule("../../../domain/session.js", () => {
       // Import original using the correct pattern
       const original = require("../../../domain/session.js");
-      
+
       // Override SessionDB constructor with our mock
       return {
         ...original,
-        SessionDB: mockSessionDBConstructor
+        SessionDB: mockSessionDBConstructor,
       };
     });
 
@@ -115,10 +109,10 @@ describe("Session Domain Methods", () => {
       const sessionData = { session: "test-session", repoName: "test-repo", repoUrl: "test-url" };
       mockGetSessionFromParams.mockResolvedValue(sessionData);
       const params = { name: "test-session" };
-      
+
       // Act
       const result = await mockGetSessionFromParams(params);
-      
+
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(sessionData);
@@ -129,10 +123,10 @@ describe("Session Domain Methods", () => {
       const sessionData = { session: "task-session", repoName: "task-repo", taskId: "123" };
       mockGetSessionFromParams.mockResolvedValue(sessionData);
       const params = { task: "123" };
-      
+
       // Act
       const result = await mockGetSessionFromParams(params);
-      
+
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(sessionData);
@@ -142,10 +136,10 @@ describe("Session Domain Methods", () => {
       // Arrange
       mockGetSessionFromParams.mockResolvedValue(null);
       const params = { name: "non-existent" };
-      
+
       // Act
       const result = await mockGetSessionFromParams(params);
-      
+
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toBeNull();
@@ -157,14 +151,14 @@ describe("Session Domain Methods", () => {
       // Arrange
       const sessionsData = [
         { session: "session1", repoName: "repo1", repoUrl: "url1" },
-        { session: "session2", repoName: "repo2", repoUrl: "url2" }
+        { session: "session2", repoName: "repo2", repoUrl: "url2" },
       ];
       mockListSessionsFromParams.mockResolvedValue(sessionsData);
       const params = {};
-      
+
       // Act
       const result = await mockListSessionsFromParams(params);
-      
+
       // Assert
       expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(sessionsData);
@@ -177,15 +171,15 @@ describe("Session Domain Methods", () => {
     test("deletes existing session", async () => {
       // Arrange
       mockDeleteSessionFromParams.mockResolvedValue(true);
-      const params: SessionDeleteParams = { 
+      const params: SessionDeleteParams = {
         name: "test-session",
         force: false,
-        repo: undefined
+        repo: undefined,
       };
-      
+
       // Act
       const result = await mockDeleteSessionFromParams(params);
-      
+
       // Assert
       expect(mockDeleteSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toBe(true);
@@ -193,34 +187,34 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error("Session \"non-existent\" not found");
+      const error = new Error('Session "non-existent" not found');
       mockDeleteSessionFromParams.mockRejectedValue(error);
-      const params: SessionDeleteParams = { 
+      const params: SessionDeleteParams = {
         name: "non-existent",
         force: false,
-        repo: undefined
+        repo: undefined,
       };
-      
+
       // Act & Assert
-      await expect(mockDeleteSessionFromParams(params))
-        .rejects
-        .toThrow("Session \"non-existent\" not found");
+      await expect(mockDeleteSessionFromParams(params)).rejects.toThrow(
+        'Session "non-existent" not found'
+      );
     });
 
     test("throws error when name is not provided", async () => {
       // Arrange
       const error = new Error("Session name must be provided");
       mockDeleteSessionFromParams.mockRejectedValue(error);
-      const params: SessionDeleteParams = { 
+      const params: SessionDeleteParams = {
         name: "", // Empty string triggers validation error
         force: false,
-        repo: undefined
+        repo: undefined,
       };
-      
+
       // Act & Assert
-      await expect(mockDeleteSessionFromParams(params))
-        .rejects
-        .toThrow("Session name must be provided");
+      await expect(mockDeleteSessionFromParams(params)).rejects.toThrow(
+        "Session name must be provided"
+      );
     });
   });
 
@@ -232,20 +226,20 @@ describe("Session Domain Methods", () => {
           session: "new-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
-          branch: "new-session"
+          branch: "new-session",
         },
         cloneResult: { workdir: "/path/to/workdir" },
-        branchResult: { branch: "new-session" }
+        branchResult: { branch: "new-session" },
       };
       mockStartSessionFromParams.mockResolvedValue(sessionResult);
-      const params = { 
+      const params = {
         name: "new-session",
-        repo: "https://github.com/test/repo.git"
+        repo: "https://github.com/test/repo.git",
       };
-      
+
       // Act
       const result = await mockStartSessionFromParams(params);
-      
+
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(sessionResult);
@@ -261,21 +255,21 @@ describe("Session Domain Methods", () => {
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
           branch: "task#123",
-          taskId: "123"
+          taskId: "123",
         },
         cloneResult: { workdir: "/path/to/workdir" },
         branchResult: { branch: "task#123" },
-        statusUpdateResult: { id: "123", status: "IN-PROGRESS" }
+        statusUpdateResult: { id: "123", status: "IN-PROGRESS" },
       };
       mockStartSessionFromParams.mockResolvedValue(sessionResult);
-      const params = { 
+      const params = {
         task: "123",
-        repo: "https://github.com/test/repo.git"
+        repo: "https://github.com/test/repo.git",
       };
-      
+
       // Act
       const result = await mockStartSessionFromParams(params);
-      
+
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(sessionResult);
@@ -288,11 +282,11 @@ describe("Session Domain Methods", () => {
       const error = new Error("Missing required parameters: repo");
       mockStartSessionFromParams.mockRejectedValue(error);
       const params = { name: "new-session" }; // Missing repo parameter
-      
+
       // Act & Assert
-      await expect(mockStartSessionFromParams(params))
-        .rejects
-        .toThrow("Missing required parameters: repo");
+      await expect(mockStartSessionFromParams(params)).rejects.toThrow(
+        "Missing required parameters: repo"
+      );
     });
   });
 
@@ -303,28 +297,28 @@ describe("Session Domain Methods", () => {
         session: "existing-session",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo.git",
-        branch: "main"
+        branch: "main",
       };
-      
+
       const updatedSessionData = {
         ...sessionData,
         branch: "new-branch",
-        notes: "Session notes updated" 
+        notes: "Session notes updated",
       };
-      
+
       mockUpdateSessionFromParams.mockResolvedValue(updatedSessionData);
-      
-      const params = { 
+
+      const params = {
         name: "existing-session",
         updates: {
           branch: "new-branch",
-          notes: "Session notes updated"
-        }
+          notes: "Session notes updated",
+        },
       };
-      
+
       // Act
       const result = await mockUpdateSessionFromParams(params);
-      
+
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toEqual(updatedSessionData);
@@ -335,17 +329,17 @@ describe("Session Domain Methods", () => {
     test("returns null when session not found", async () => {
       // Arrange
       mockUpdateSessionFromParams.mockResolvedValue(null);
-      
-      const params = { 
+
+      const params = {
         name: "non-existent-session",
         updates: {
-          branch: "new-branch"
-        }
+          branch: "new-branch",
+        },
       };
-      
+
       // Act
       const result = await mockUpdateSessionFromParams(params);
-      
+
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
       expect(result).toBeNull();
@@ -355,17 +349,17 @@ describe("Session Domain Methods", () => {
       // Arrange
       const error = new Error("Session name must be provided");
       mockUpdateSessionFromParams.mockRejectedValue(error);
-      
-      const params = { 
+
+      const params = {
         updates: {
-          branch: "new-branch"
-        }
+          branch: "new-branch",
+        },
       };
-      
+
       // Act & Assert
-      await expect(mockUpdateSessionFromParams(params))
-        .rejects
-        .toThrow("Session name must be provided");
+      await expect(mockUpdateSessionFromParams(params)).rejects.toThrow(
+        "Session name must be provided"
+      );
     });
   });
 
@@ -374,13 +368,13 @@ describe("Session Domain Methods", () => {
       // Arrange
       const expectedPath = "/path/to/session/directory";
       mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
-      const params = { 
-        name: "test-session"
+      const params = {
+        name: "test-session",
       };
-      
+
       // Act
       const result = await mockGetSessionDirFromParams(params);
-      
+
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
       expect(result).toBe(expectedPath);
@@ -390,13 +384,13 @@ describe("Session Domain Methods", () => {
       // Arrange
       const expectedPath = "/path/to/task/session/directory";
       mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
-      const params = { 
-        task: "123"
+      const params = {
+        task: "123",
       };
-      
+
       // Act
       const result = await mockGetSessionDirFromParams(params);
-      
+
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
       expect(result).toBe(expectedPath);
@@ -404,16 +398,16 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error("Session \"non-existent\" not found");
+      const error = new Error('Session "non-existent" not found');
       mockGetSessionDirFromParams.mockRejectedValue(error);
-      const params = { 
-        name: "non-existent"
+      const params = {
+        name: "non-existent",
       };
-      
+
       // Act & Assert
-      await expect(mockGetSessionDirFromParams(params))
-        .rejects
-        .toThrow("Session \"non-existent\" not found");
+      await expect(mockGetSessionDirFromParams(params)).rejects.toThrow(
+        'Session "non-existent" not found'
+      );
     });
   });
 
@@ -424,17 +418,17 @@ describe("Session Domain Methods", () => {
         session: "current-session",
         repoName: "test-repo",
         branch: "current-session",
-        taskId: "#123"
+        taskId: "#123",
       };
-      
+
       const mockInspectSessionFromParams = createMock(() => Promise.resolve(sessionData));
       mockModule("../../../domain/session.js", () => ({
-        inspectSessionFromParams: mockInspectSessionFromParams
+        inspectSessionFromParams: mockInspectSessionFromParams,
       }));
-      
+
       // Act
       const result = await mockInspectSessionFromParams({});
-      
+
       // Assert
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
       expect(result).toEqual(sessionData);
@@ -444,16 +438,18 @@ describe("Session Domain Methods", () => {
 
     test("throws error when not in a session workspace", async () => {
       // Arrange
-      const error = new Error("Not in a session workspace. Please navigate to a session directory first.");
+      const error = new Error(
+        "Not in a session workspace. Please navigate to a session directory first."
+      );
       const mockInspectSessionFromParams = createMock(() => Promise.reject(error));
       mockModule("../../../domain/session.js", () => ({
-        inspectSessionFromParams: mockInspectSessionFromParams
+        inspectSessionFromParams: mockInspectSessionFromParams,
       }));
-      
+
       // Act & Assert
-      await expect(mockInspectSessionFromParams({}))
-        .rejects
-        .toThrow("Not in a session workspace. Please navigate to a session directory first.");
+      await expect(mockInspectSessionFromParams({})).rejects.toThrow(
+        "Not in a session workspace. Please navigate to a session directory first."
+      );
     });
   });
-}); 
+});

@@ -7,7 +7,11 @@ import { join } from "path";
 import { TaskService } from "../taskService";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
-import { createMockFileSystem, setupTestMocks, mockModule } from "../../../utils/test-utils/mocking";
+import {
+  createMockFileSystem,
+  setupTestMocks,
+  mockModule,
+} from "../../../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup to prevent race conditions
 setupTestMocks();
@@ -26,7 +30,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
     // Create mock filesystem with initial directory structure
     mockFS = createMockFileSystem({
       [workspacePath]: "", // Directory marker
-      [`${workspacePath}/process`]: "", // Directory marker  
+      [`${workspacePath}/process`]: "", // Directory marker
       [`${workspacePath}/process/tasks`]: "", // Directory marker
     });
 
@@ -101,13 +105,13 @@ describe("TaskService JsonFile Integration (v2)", () => {
       const specPath = join(workspacePath, "process", "tasks", "test-task.md");
       const specContent =
         "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
-      
+
       // Write file to mock filesystem
       mockFS._files.set(specPath, specContent);
-      
-      // Use relative path from workspace for task creation  
+
+      // Use relative path from workspace for task creation
       const relativeSpecPath = "process/tasks/test-task.md";
-      
+
       const task = await taskService.createTask(relativeSpecPath);
 
       expect(task.id).toBe("#123");
@@ -129,7 +133,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       const specPath = join(workspacePath, "process", "tasks", "status-test.md");
       const specContent =
         "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
-      
+
       mockFS._files.set(specPath, specContent);
 
       // Create task using relative path
@@ -252,4 +256,4 @@ describe("TaskService JsonFile Integration (v2)", () => {
       expect(tasks.length).toBe(1);
     });
   });
-}); 
+});

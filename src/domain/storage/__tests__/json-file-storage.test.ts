@@ -37,7 +37,11 @@ describe("JsonFileStorage Core Tests", () => {
     const timestamp = Date.now();
     const uuid = randomUUID();
     const sequence = ++testSequenceNumber;
-    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}-${sequence}`);
+    testDirPath = join(
+      process.cwd(),
+      "test-tmp",
+      `storage-core-test-${timestamp}-${uuid}-${sequence}`
+    );
     testDbPath = join(testDirPath, "test.json");
 
     // Ensure test directory exists
@@ -64,8 +68,8 @@ describe("JsonFileStorage Core Tests", () => {
     // Enhanced cleanup to prevent race conditions
     try {
       // Wait a bit to ensure any pending operations complete
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       // Clean up test files
       if (existsSync(testDirPath)) {
         rmSync(testDirPath, { recursive: true, force: true });

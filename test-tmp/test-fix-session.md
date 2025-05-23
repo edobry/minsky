@@ -7,6 +7,7 @@ This is a test to verify that the fix for the verbose content extraction bug wor
 The fix should ensure that only the task title appears in the main tasks.md file, while all the detailed content (like this Context section with multiple paragraphs and bullet points) remains in the individual specification file.
 
 This test includes:
+
 - Multiple paragraphs in Context section
 - Bullet points and lists
 - Technical details and implementation notes
@@ -25,4 +26,4 @@ This verbose content should NOT appear in tasks.md after the fix is applied.
 
 - [ ] Task entry in tasks.md follows one-liner format
 - [ ] No verbose content appears in main task list
-- [ ] All details preserved in individual spec file 
+- [ ] All details preserved in individual spec file

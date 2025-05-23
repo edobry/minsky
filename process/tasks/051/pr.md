@@ -47,6 +47,7 @@ The implementation followed these principles:
    - Maintained consistent patterns for error handling and response formatting
 
 3. **Documentation**
+
    - Updated README-MCP.md with detailed information about the Git commands
    - Included parameter listings and descriptions
 

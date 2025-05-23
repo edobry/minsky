@@ -7,18 +7,21 @@ This document outlines the criteria for successful migration of tests from Jest/
 A test file is considered successfully migrated when:
 
 1. **Functional Equivalence**
+
    - The test passes with Bun's test runner
    - All test cases from the original file are preserved
    - The test coverage remains the same or improves
    - All assertions verify the same conditions as the original
 
 2. **Pattern Adherence**
+
    - Uses native Bun mocking features instead of Jest/Vitest patterns
    - Uses `mock()` instead of `jest.fn()`
    - Uses `mock.module()` instead of `jest.mock()`
    - Uses Bun's assertion patterns
 
 3. **Code Quality**
+
    - No duplicated test code
    - Improved readability over the original
    - Follows project-wide testing conventions
@@ -43,23 +46,25 @@ For each migrated test, perform the following verification steps:
 
 Common migration patterns are documented in the Migration Patterns Library:
 
-| Jest/Vitest Pattern | Bun Equivalent |
-|---------------------|----------------|
-| `jest.fn()` | `mock()` |
-| `jest.fn().mockReturnValue(x)` | `mock(args => x)` or use extended mock utilities |
-| `jest.mock('module')` | `mock.module('module', () => { /* implementation */ })` |
-| `jest.spyOn(object, 'method')` | Use dependency injection or mock utilities |
-| `expect(x).toEqual(y)` | `expect(x).toEqual(y)` (compatible) |
+| Jest/Vitest Pattern            | Bun Equivalent                                          |
+| ------------------------------ | ------------------------------------------------------- |
+| `jest.fn()`                    | `mock()`                                                |
+| `jest.fn().mockReturnValue(x)` | `mock(args => x)` or use extended mock utilities        |
+| `jest.mock('module')`          | `mock.module('module', () => { /* implementation */ })` |
+| `jest.spyOn(object, 'method')` | Use dependency injection or mock utilities              |
+| `expect(x).toEqual(y)`         | `expect(x).toEqual(y)` (compatible)                     |
 
 ## Error Handling
 
 Common migration errors and their solutions:
 
 1. **Missing mock properties**
+
    - Use the Bun compatibility layer in `src/utils/test-utils/mock-compatibility.ts`
    - Implement custom mock utilities for specific patterns
 
 2. **Module mocking differences**
+
    - Use explicit mock module implementations instead of auto-mocking
    - Consider using dependency injection instead of module mocking
 

@@ -98,4 +98,4 @@ During the implementation of Git commands for the MCP server (task #51), several
 
 This task builds on the observations made during task #51 implementation, where we identified several opportunities for abstraction between CLI and MCP adapters. It leverages the groundwork laid by tasks #96 and #97 to create a more comprehensive abstraction layer.
 
-The abstraction should maintain the interface-agnostic command architecture pattern already established in the codebase, while further reducing duplication and ensuring consistency across interfaces. The goal is to have command logic defined once but exposed through multiple interfaces seamlessly. 
+The abstraction should maintain the interface-agnostic command architecture pattern already established in the codebase, while further reducing duplication and ensuring consistency across interfaces. The goal is to have command logic defined once but exposed through multiple interfaces seamlessly.

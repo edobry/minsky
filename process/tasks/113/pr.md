@@ -9,6 +9,7 @@ This PR implements an automated test migration script that helps migrate Jest/Vi
 ### Added
 
 - Created a comprehensive test migration tool with the following components:
+
   - AST-based pattern analysis using ts-morph to identify migration targets
   - Pattern registry system to classify and identify common test patterns
   - Flexible transformation pipeline with configurable safety levels
@@ -18,6 +19,7 @@ This PR implements an automated test migration script that helps migrate Jest/Vi
   - CLI interface with analyze, migrate, and batch commands
 
 - Implemented pattern detection for common Jest/Vitest patterns:
+
   - Import declarations from @jest/globals and vitest
   - Mock function creation and configuration (jest.fn(), vi.fn(), mockImplementation, etc.)
   - Module mocks (jest.mock(), vi.mock())
@@ -25,6 +27,7 @@ This PR implements an automated test migration script that helps migrate Jest/Vi
   - Special matchers (expect.anything(), expect.any(), etc.)
 
 - Added specialized transformers for different pattern types:
+
   - Import transformers for Jest/Vitest imports
   - Mock function transformers for jest.fn()/vi.fn() with implementation/return value
   - Module mock transformers for jest.mock()/vi.mock() with factory functions
@@ -32,6 +35,7 @@ This PR implements an automated test migration script that helps migrate Jest/Vi
   - Mock configuration transformers for mockReset/mockClear methods
 
 - Added safety controls with three levels:
+
   - Low: Aggressive transformations including potentially risky changes
   - Medium: Balanced approach with moderate risk transformations
   - High: Conservative approach focusing only on safe transformations
@@ -55,6 +59,7 @@ The implementation is approximately 80% complete:
 - Verification and batch processing systems are operational
 
 Remaining work:
+
 - Timer mock transformers and custom matchers
 - Unit and integration tests for the components
 - Additional documentation for troubleshooting
@@ -75,14 +80,15 @@ The implementation includes the foundational structure for the migration tool. U
 - [x] Changelog is updated
 
 ## Commits
+
 14f5f719 Update CHANGELOG.md with Task #113 implementation details
 992da710 Create initial project structure for test migration tool with core components
 3e526237 Add content to implementation plan and technology assessment documents
 7f834cab Update task #113 spec with detailed implementation plan and supporting documentation
 4e971768 Implement mock function transformers for Jest and Vitest
 
-
 ## Modified Files (Showing changes from merge-base with main)
+
 CHANGELOG.md
 process/tasks/113/detailed-implementation-plan.md
 process/tasks/113/migration-patterns.md
@@ -105,34 +111,34 @@ src/test-migration/tsconfig.json
 src/test-migration/utils/diff.ts
 src/test-migration/types.d.ts
 
-
 ## Stats
-CHANGELOG.md                                       | 491 +++++++++++++++++++++
- process/tasks/113/detailed-implementation-plan.md  |  95 ++++
- process/tasks/113/migration-patterns.md            |   0
- process/tasks/113/technology-assessment.md         |  93 ++++
- src/test-migration/commands/analyze.ts             |  89 ++++
- src/test-migration/commands/batch.ts               | 227 ++++++++++
- src/test-migration/commands/migrate.ts             | 128 ++++++
- src/test-migration/core/analyzer.ts                | 282 ++++++++++++
- src/test-migration/core/test-runner.ts             | 116 +++++
- src/test-migration/core/transformer.ts             | 164 +++++++
- src/test-migration/index.ts                        |  54 +++
- src/test-migration/package.json                    |  26 ++
- src/test-migration/patterns/registry.ts            | 371 ++++++++++++++++
- src/test-migration/transformers/import-transformers.ts | 113 +++++
- src/test-migration/transformers/mock-function-transformers.ts | 148 +++++++
- src/test-migration/transformers/module-mock-transformers.ts | 128 ++++++
- src/test-migration/transformers/assertion-transformers.ts | 94 ++++
- src/test-migration/transformers/pipeline.ts        | 117 +++++
- src/test-migration/tsconfig.json                   |  18 +
- src/test-migration/utils/diff.ts                   | 116 +++++
- src/test-migration/types.d.ts                      |  10 +
- 21 files changed, 2880 insertions(+)
+
+CHANGELOG.md | 491 +++++++++++++++++++++
+process/tasks/113/detailed-implementation-plan.md | 95 ++++
+process/tasks/113/migration-patterns.md | 0
+process/tasks/113/technology-assessment.md | 93 ++++
+src/test-migration/commands/analyze.ts | 89 ++++
+src/test-migration/commands/batch.ts | 227 ++++++++++
+src/test-migration/commands/migrate.ts | 128 ++++++
+src/test-migration/core/analyzer.ts | 282 ++++++++++++
+src/test-migration/core/test-runner.ts | 116 +++++
+src/test-migration/core/transformer.ts | 164 +++++++
+src/test-migration/index.ts | 54 +++
+src/test-migration/package.json | 26 ++
+src/test-migration/patterns/registry.ts | 371 ++++++++++++++++
+src/test-migration/transformers/import-transformers.ts | 113 +++++
+src/test-migration/transformers/mock-function-transformers.ts | 148 +++++++
+src/test-migration/transformers/module-mock-transformers.ts | 128 ++++++
+src/test-migration/transformers/assertion-transformers.ts | 94 ++++
+src/test-migration/transformers/pipeline.ts | 117 +++++
+src/test-migration/tsconfig.json | 18 +
+src/test-migration/utils/diff.ts | 116 +++++
+src/test-migration/types.d.ts | 10 +
+21 files changed, 2880 insertions(+)
+
 ## Uncommitted changes in working directory
-M	process/tasks/113/pr.md
+
+M process/tasks/113/pr.md
 M process/tasks/113-implement-automated-test-migration-script.md
-
-
 
 Task #113 status updated: IN-REVIEW → IN-REVIEW

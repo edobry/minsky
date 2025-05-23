@@ -1,13 +1,17 @@
 # feat(#121): Add session review command for PR review
 
 ## Summary
+
 This PR implements task #121, adding a new `session review` command that provides a consolidated view of task specifications, PR descriptions, and code changes. It helps developers efficiently review PRs by gathering all relevant information in one place.
 
 ## Motivation & Context
+
 PR reviews currently require accessing multiple sources of information (task spec, PR description, diffs) across different tools and interfaces. This change streamlines the review process by gathering all relevant information in a single comprehensive view.
 
 ## Design Approach
+
 We designed the feature following the established three-layer architecture:
+
 1. **Domain layer**: Core implementation with proper dependency injection
 2. **Adapter layer**: CLI interface and shared command implementation
 3. **Schema layer**: Standardized parameter validation
@@ -15,6 +19,7 @@ We designed the feature following the established three-layer architecture:
 The implementation supports multiple detection and output modes with proper error handling and a consistent user experience.
 
 ## Key Changes
+
 - Added `sessionReviewFromParams` function to the domain layer with:
   - Auto-detection of current session when no parameters provided
   - Support for session name or task ID parameters
@@ -28,6 +33,7 @@ The implementation supports multiple detection and output modes with proper erro
 - Updated CLI interface to include the new command
 
 ## Testing
+
 - Added unit tests that verify:
   - Review by session name functionality
   - Review by task ID functionality
@@ -57,6 +63,7 @@ minsky session review --json
 ```
 
 The command's output includes:
+
 - Task specification from the associated task
 - PR description from the PR branch commit message
 - Detailed diff statistics (files changed, insertions, deletions)

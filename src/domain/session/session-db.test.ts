@@ -214,4 +214,4 @@ describe("SessionDB Functional Implementation", () => {
       expect(workdir).toBeNull();
     });
   });
-}); 
+});

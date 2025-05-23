@@ -40,7 +40,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.list", {
-          repositoryPath: args.repositoryPath
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -62,17 +62,19 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "get",
     "Get a task by ID",
     z.object({
-      taskId: z.union([
-        z.string().describe("Task ID to retrieve"),
-        z.array(z.string()).describe("Array of task IDs to retrieve")
-      ]).describe("Task ID or array of task IDs to retrieve"),
+      taskId: z
+        .union([
+          z.string().describe("Task ID to retrieve"),
+          z.array(z.string()).describe("Array of task IDs to retrieve"),
+        ])
+        .describe("Task ID or array of task IDs to retrieve"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
     async (args) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.get", {
-          repositoryPath: args.repositoryPath
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -100,7 +102,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.get", {
-          repositoryPath: args.repositoryPath
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -133,7 +135,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.set", {
-          repositoryPath: args.repositoryPath
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -167,7 +169,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.create", {
-          repositoryPath: args.repositoryPath
+          repositoryPath: args.repositoryPath,
         });
       }
 

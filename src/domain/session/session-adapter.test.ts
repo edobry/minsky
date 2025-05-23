@@ -44,16 +44,19 @@ describe("SessionAdapter", () => {
             // Return initial state if file doesn't exist
             return {
               sessions: [],
-              baseDir: options.baseDir || "/test/base", 
+              baseDir: options.baseDir || "/test/base",
             };
           }
         },
         writeSessionDbFile: (state: any, options: any) => {
           const filePath = options.dbPath || dbPath;
-          mockFS.writeFileSync(filePath, JSON.stringify({
-            sessions: state.sessions,
-            baseDir: state.baseDir,
-          }));
+          mockFS.writeFileSync(
+            filePath,
+            JSON.stringify({
+              sessions: state.sessions,
+              baseDir: state.baseDir,
+            })
+          );
         },
       };
     });
@@ -78,7 +81,7 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSession("test-session");
-    
+
     expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?.session).toBe("test-session");
     expect(retrievedSession?.taskId).toBe("#123");
@@ -97,7 +100,7 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     const retrievedSession = await adapter.getSessionByTaskId("123");
-    
+
     expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?.session).toBe("test-session");
   });
@@ -115,7 +118,7 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     await adapter.updateSession("test-session", { branch: "updated-branch" });
-    
+
     const retrievedSession = await adapter.getSession("test-session");
     expect(retrievedSession?.branch).toBe("updated-branch");
   });
@@ -133,7 +136,7 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     const result = await adapter.deleteSession("test-session");
-    
+
     expect(result).toBe(true);
     const sessions = await adapter.listSessions();
     expect(sessions).toEqual([]);
@@ -142,7 +145,7 @@ describe("SessionAdapter", () => {
   it("should return false when deleting a non-existent session", async () => {
     const adapter = new SessionAdapter(dbPath);
     const result = await adapter.deleteSession("non-existent");
-    
+
     expect(result).toBe(false);
   });
 
@@ -159,7 +162,7 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     const repoPath = await adapter.getRepoPath(testSession);
-    
+
     expect(repoPath).toContain("test-repo/sessions/test-session");
   });
 
@@ -176,8 +179,8 @@ describe("SessionAdapter", () => {
 
     await adapter.addSession(testSession);
     const workdir = await adapter.getSessionWorkdir("test-session");
-    
+
     expect(workdir !== null).toBe(true);
     expect(workdir).toContain("test-repo/sessions/test-session");
   });
-}); 
+});

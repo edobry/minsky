@@ -107,11 +107,13 @@ The abstraction should maintain the interface-agnostic command architecture patt
 The current implementation has:
 
 1. **CLI Adapter**:
+
    - Uses Commander.js for command-line parsing
    - Has specialized utils for error handling, output formatting, and option normalization
    - Directly calls domain functions with normalized parameters
 
 2. **MCP Adapter**:
+
    - Uses CommandMapper with Zod schemas
    - Has some utility duplication with CLI adapter
    - Directly calls domain functions with parameters from the MCP layer
@@ -128,6 +130,7 @@ The implementation will create a comprehensive shared abstraction layer with the
 #### 1. Command Registry
 
 A generic command registry that will:
+
 - Define an interface for registering commands that can be exposed through multiple interfaces
 - Support command categorization (e.g., git commands, task commands)
 - Maintain metadata about command parameters, descriptions, and behavior
@@ -136,6 +139,7 @@ A generic command registry that will:
 #### 2. Error Handling Strategy
 
 A unified error handling approach that will:
+
 - Create a common base error handler for adapter-agnostic processing
 - Implement interface-specific error formatters for CLI and MCP
 - Ensure consistent error codes and messages across interfaces
@@ -144,6 +148,7 @@ A unified error handling approach that will:
 #### 3. Schema Bridge
 
 A bridge between Zod schemas and Commander options that will:
+
 - Create utilities to derive Commander options from Zod schemas
 - Support bi-directional conversion between CLI options and structured objects
 - Ensure type safety and consistent validation
@@ -152,6 +157,7 @@ A bridge between Zod schemas and Commander options that will:
 #### 4. Response Formatting
 
 Common response formatting utilities that will:
+
 - Implement shared helpers for formatting command responses
 - Support multiple output formats (text, JSON) across interfaces
 - Create interface-specific formatters for CLI and MCP
@@ -214,15 +220,18 @@ The primary goal of implementing a shared adapter layer has been completed succe
 For future extension:
 
 1. **Additional Command Groups**
+
    - Migrate task commands to the shared layer
    - Migrate session commands to the shared layer
    - Migrate rules commands to the shared layer
 
 2. **Enhanced Testing**
+
    - Add more comprehensive integration tests
    - Add end-to-end tests that verify CLI and MCP functionality together
 
 3. **Refinement**
+
    - Fix TypeScript type errors in bridge implementations
    - Improve error handling in edge cases
    - Enhance documentation with more examples

@@ -7,7 +7,7 @@ import {
   getCurrentSession,
   getCurrentSessionContext,
   createWorkspaceUtils,
-  type WorkspaceUtilsInterface
+  type WorkspaceUtilsInterface,
 } from "./workspace";
 import { SessionDB, type SessionProviderInterface, createSessionProvider } from "./session";
 import { promises as fs } from "fs";
@@ -89,19 +89,23 @@ const stubSessionDB = {
 };
 
 // Create a mock WorkspaceUtils implementation
-function createMockWorkspaceUtils(overrides: Partial<WorkspaceUtilsInterface> = {}): WorkspaceUtilsInterface {
+function createMockWorkspaceUtils(
+  overrides: Partial<WorkspaceUtilsInterface> = {}
+): WorkspaceUtilsInterface {
   return {
     isWorkspace: createMockFn(async () => true),
     isSessionWorkspace: createMockFn(async () => false),
     getCurrentSession: createMockFn(async () => null),
     getSessionFromWorkspace: createMockFn(async () => null),
     resolveWorkspacePath: createMockFn(async (options) => options.workspace || process.cwd()),
-    ...overrides
+    ...overrides,
   };
 }
 
 // Create a mock SessionProvider implementation
-function createMockSessionProvider(overrides: Partial<SessionProviderInterface> = {}): SessionProviderInterface {
+function createMockSessionProvider(
+  overrides: Partial<SessionProviderInterface> = {}
+): SessionProviderInterface {
   return {
     listSessions: createMockFn(async () => []),
     getSession: createMockFn(async () => null),
@@ -111,7 +115,7 @@ function createMockSessionProvider(overrides: Partial<SessionProviderInterface> 
     deleteSession: createMockFn(async () => false),
     getRepoPath: createMockFn(async () => ""),
     getSessionWorkdir: createMockFn(async () => ""),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -145,7 +149,7 @@ describe("Workspace Utils", () => {
 
       // Using both the original function and the interface implementation
       const workspaceUtils = createWorkspaceUtils();
-      
+
       const result1 = await isSessionRepository("/some/repo/path", mockExecAsync);
       const result2 = await workspaceUtils.isSessionWorkspace("/some/repo/path");
 
@@ -303,27 +307,27 @@ describe("Workspace Utils", () => {
       // Mock fs.access
       const originalAccess = fs.access;
       fs.access = createMockFn(() => Promise.resolve()) as any;
-      
+
       // Create a mock WorkspaceUtils implementation
       const mockUtils = createMockWorkspaceUtils({
         resolveWorkspacePath: createMockFn(async (options) => {
           if (options.workspace) return options.workspace;
           return "/default/path";
-        })
+        }),
       });
-      
+
       // Test both original function and interface implementation
       const result1 = await resolveWorkspacePath(
         { workspace: "/path/to/workspace" },
         { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
       );
-      
+
       const result2 = await mockUtils.resolveWorkspacePath({ workspace: "/path/to/workspace" });
-      
+
       expect(result1).toBe("/path/to/workspace");
       expect(result2).toBe("/path/to/workspace");
       expect((fs.access as any).calls[0]).toEqual([join("/path/to/workspace", "process")]);
-      
+
       // Restore original
       fs.access = originalAccess;
     });
@@ -359,20 +363,23 @@ describe("Workspace Utils", () => {
 
       // Create a mock function but don't assign it to the readonly property
       const mockGetCwd = createMock(() => sessionPath);
-      
+
       // Create a resolved workspace path using explicit dependency injection
       const resolveWorkspaceWithDeps = async () => {
         // Inject dependencies properly
-        return resolveWorkspacePath({}, {
-          // Provide a custom getSessionFromRepo that calls the real implementation with our mock execAsync
-          getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync)
-        });
+        return resolveWorkspacePath(
+          {},
+          {
+            // Provide a custom getSessionFromRepo that calls the real implementation with our mock execAsync
+            getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync),
+          }
+        );
       };
-      
+
       // The actual test now uses process.cwd() so we can't fully test the session path detection
       // This should be fixed in a future refactoring to fully support dependency injection
       const result = await resolveWorkspaceWithDeps();
-      
+
       // In this case we can't properly test the expected result as we can't override process.cwd
       // But we can at least verify the mock calls were made
       expect(mockExecAsync.calls.length).toBeGreaterThan(0);
@@ -399,7 +406,7 @@ describe("Workspace Utils", () => {
         { sessionWorkspace: "/provided/session/workspace" },
         { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
       );
-      
+
       expect(result).toBe("/provided/session/workspace");
     });
   });
@@ -422,7 +429,7 @@ describe("Workspace Utils", () => {
             createdAt: new Date().toISOString(),
             backendType: "local",
             remote: { authMethod: "ssh", depth: 1 },
-          })
+          }),
       });
     });
 
@@ -432,13 +439,13 @@ describe("Workspace Utils", () => {
 
       // Create workspace utils with injected dependencies for testing
       const workspaceUtils = createMockWorkspaceUtils({
-        getCurrentSession: createMockFn(async () => sessionName)
+        getCurrentSession: createMockFn(async () => sessionName),
       });
 
       // Test both original function and interface implementation
       const result1 = await getCurrentSession("/some/path", mockExecAsync, mockSessionProvider);
       const result2 = await workspaceUtils.getCurrentSession("/some/path");
-      
+
       expect(result1).toBe(null); // This will be null due to our test environment
       expect(result2).toBe(sessionName); // This will match our mock implementation
     });
@@ -476,7 +483,7 @@ describe("getCurrentSessionContext", () => {
   });
 
   const mockSessionProvider = createMockSessionProvider({
-    getSession: mockGetSession
+    getSession: mockGetSession,
   });
 
   beforeEach(() => {

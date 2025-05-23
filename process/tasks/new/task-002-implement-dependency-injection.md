@@ -7,6 +7,7 @@ Current domain functions have inconsistent dependency injection patterns, with s
 ## Implementation
 
 1. Refactor core domain functions to accept dependencies as parameters, focusing on the most commonly used functions first:
+
    - `resolveRepoPath`
    - `getCurrentSession`
    - `approveSessionFromParams`
@@ -14,6 +15,7 @@ Current domain functions have inconsistent dependency injection patterns, with s
    - `listSessionsFromParams`
 
 2. For each function, implement a consistent pattern:
+
    ```typescript
    export function someFunction(
      params: Params,
@@ -24,10 +26,10 @@ Current domain functions have inconsistent dependency injection patterns, with s
    ): Result {
      // Implementation
    }
-   
+
    const defaultDeps = {
      service1: createDefaultService1(),
-     service2: createDefaultService2()
+     service2: createDefaultService2(),
    };
    ```
 
@@ -53,4 +55,4 @@ Current domain functions have inconsistent dependency injection patterns, with s
 - Makes tests more reliable and easier to maintain
 - Enables precise control over dependencies in tests
 - Reduces the need for complex module mocking
-- Improves code documentation by making dependencies explicit 
+- Improves code documentation by making dependencies explicit

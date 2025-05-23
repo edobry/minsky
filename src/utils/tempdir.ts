@@ -10,7 +10,10 @@ import * as os from "os";
  * @param opts.softFail - If true, returns null instead of throwing on failure
  * @returns The path to the created temp directory, or null if softFail and all attempts fail
  */
-export function createRobustTempDir(prefix = "minsky-test-", opts?: { softFail?: boolean }): string | null {
+export function createRobustTempDir(
+  prefix = "minsky-test-",
+  opts?: { softFail?: boolean }
+): string | null {
   const locations = [
     "/tmp/minsky-test-tmp",
     process.env.SESSION_WORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null,
@@ -36,7 +39,9 @@ export function createRobustTempDir(prefix = "minsky-test-", opts?: { softFail?:
     }
   }
   if (opts?.softFail) {
-    console.warn(`[WARN] All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`);
+    console.warn(
+      `[WARN] All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`
+    );
     return null;
   }
   throw new Error(`All temp dir creation attempts failed for prefix '${prefix}'.`);
@@ -50,4 +55,4 @@ export function createRobustTempDir(prefix = "minsky-test-", opts?: { softFail?:
  *   if (!tempDir) {
  *     // Handle failure (skip test, log warning, etc.)
  *   }
- */ 
+ */

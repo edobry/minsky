@@ -319,7 +319,7 @@ export class SessionDB implements SessionProviderInterface {
       const parts = normalizedRepoName.split("/");
       if (parts.length > 1) {
         // Keep "local" as is, but normalize the rest
-        normalizedRepoName = `${parts[0]  }-${  parts.slice(1).join("-")}`;
+        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
       }
     }
 
@@ -505,7 +505,8 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } = params;
+  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+    params;
 
   // Create dependencies with defaults
   const deps = {
@@ -609,7 +610,7 @@ export async function startSessionFromParams(
       const parts = repoName.split("/");
       if (parts.length > 1) {
         // Keep "local" as is, but normalize the rest
-        normalizedRepoName = `${parts[0]  }-${  parts.slice(1).join("-")}`;
+        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
       }
     } else {
       // For other repository types, normalize as usual
@@ -621,13 +622,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-          "minsky",
-          "git",
-          normalizedRepoName,
-          "sessions",
-          sessionName
-        );
+            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+            "minsky",
+            "git",
+            normalizedRepoName,
+            "sessions",
+            sessionName
+          );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -660,12 +661,12 @@ export async function startSessionFromParams(
       try {
         // Dynamically import the package manager module to avoid circular dependencies
         const { installDependencies } = await import("../utils/package-manager.js");
-        
+
         const { success, error } = await installDependencies(sessionDir, {
           packageManager: packageManager,
-          quiet: quiet
+          quiet: quiet,
         });
-        
+
         if (!success && !quiet) {
           log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
 Error: ${error}`);
@@ -844,7 +845,7 @@ export async function updateSessionFromParams(
     // Check if the workspace is dirty using git status command directly
     const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
     const isDirty = statusOutput.trim().length > 0;
-    
+
     if (isDirty && !force) {
       throw new MinskyError(
         `Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override.`

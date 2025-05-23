@@ -9,23 +9,27 @@ This PR implements comprehensive enhancements to the test utilities in the Minsk
 ### Added
 
 - **Enhanced mock creation utilities** for better type safety:
+
   - `mockFunction<T>()` - Type-safe mock functions with proper parameter and return type inference
   - `createPartialMock<T>()` - Interface implementations with automatic mocking of unimplemented methods
   - `mockReadonlyProperty()` - Utility for mocking readonly properties on objects
   - `createSpyOn()` - Replacement for jest.spyOn with proper TypeScript support
 
 - **Test context management utilities** for better test isolation:
+
   - `TestContext` class for managing test resources and cleanup
   - `createTestSuite()` - Easy setup of test context in beforeEach/afterEach hooks
   - `withCleanup()` - Registration of automatic cleanup functions in tests
 
 - **Dependency generation utilities** for domain testing:
+
   - Enhanced `createTestDeps()` with better type safety
   - Domain-specific dependency generators: `createTaskTestDeps()`, `createSessionTestDeps()`, `createGitTestDeps()`
   - `withMockedDeps()` - Temporary dependency overrides for specific tests
   - `createDeepTestDeps()` - Support for deeply nested dependency structures
 
 - **Test data factory functions** for domain entities:
+
   - Entity factories: `createTaskData()`, `createSessionData()`, `createRepositoryData()`
   - Array generators: `createTaskDataArray()`, `createSessionDataArray()`
   - Randomization utilities: `createRandomId()`, `createTaskId()`, `createRandomString()`, etc.
@@ -53,4 +57,4 @@ The implementation includes a comprehensive test file that verifies all new util
 - [x] Documentation is updated
 - [x] Changelog is updated
 
-_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._ 
+_See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory/history/2023-11-05_15-30-enhance-test-utilities.md) for test utilities enhancement._

@@ -1,6 +1,7 @@
 # Pull Request for branch `task#067`
 
 ## Commits
+
 63fae0f6 task#067: Create smaller focused rules to replace monolithic minsky-workflow.mdc
 cd501c6e task#067: Update CHANGELOG.md and fix frontmatter in workflow orchestrator rule
 b2431de7 task #067: Improved rule files with proper descriptions - encountered technical issues with frontmatter editing
@@ -14,8 +15,8 @@ d4471d14 refactor(#067): Create modular minsky workflow rules with proper frontm
 981a291e task#067: Create initial drafts of refactored workflow rule files
 a837b55a task#067: Update task specs for #067 and #041 with improved refactoring plan and testing approach
 
-
 ## Modified Files (Changes compared to merge-base with main)
+
 .cursor/rules/index.mdc
 .cursor/rules/minsky-cli-usage.mdc
 .cursor/rules/minsky-session-management.mdc
@@ -45,40 +46,40 @@ temp-rules/pr-preparation-workflow.mdc
 temp-rules/task-implementation-workflow.mdc
 temp-rules/task-status-protocol.mdc
 
-
 ## Stats
-.cursor/rules/index.mdc                            |   7 +-
- .cursor/rules/minsky-cli-usage.mdc                 |  34 ++
- .cursor/rules/minsky-session-management.mdc        |  20 +
- .cursor/rules/minsky-workflow-orchestrator.mdc     |  48 ++
- .cursor/rules/minsky-workflow.mdc                  | 586 ---------------------
- .cursor/rules/pr-preparation-workflow.mdc          |  21 +
- .cursor/rules/task-implementation-workflow.mdc     |  29 +
- .cursor/rules/task-status-protocol.mdc             |  19 +
- .cursor/rules/task-status-verification.mdc         | 111 ----
- CHANGELOG.md                                       |  16 +
- create_rule_files.py                               | 200 +++++++
- deprecated-notice.md                               |  18 +
- new-rules/minsky-workflow-orchestrator.mdc         | 161 ++++++
- .../tasks/041-write-test-suite-for-cursor-rules.md |  47 +-
- ...workflow-mdc-rule-into-smaller-focused-rules.md |  87 ++-
- process/tasks/067/pr.md                            |   5 +
- temp-fixed-rules/minsky-cli-usage.mdc              | 162 ++++++
- temp-fixed-rules/minsky-session-management.mdc     | 113 ++++
- temp-fixed-rules/minsky-workflow-orchestrator.mdc  | 161 ++++++
- temp-fixed-rules/pr-preparation-workflow.mdc       | 145 +++++
- temp-fixed-rules/task-implementation-workflow.mdc  | 160 ++++++
- temp-fixed-rules/task-status-protocol.mdc          | 163 ++++++
- temp-rules/minsky-cli-usage.mdc                    | 162 ++++++
- temp-rules/minsky-session-management.mdc           | 183 +++++++
- temp-rules/minsky-workflow-orchestrator.mdc        | 143 +++++
- temp-rules/pr-preparation-workflow.mdc             | 144 +++++
- temp-rules/task-implementation-workflow.mdc        | 163 ++++++
- temp-rules/task-status-protocol.mdc                | 163 ++++++
- 28 files changed, 2557 insertions(+), 714 deletions(-)
+
+.cursor/rules/index.mdc | 7 +-
+.cursor/rules/minsky-cli-usage.mdc | 34 ++
+.cursor/rules/minsky-session-management.mdc | 20 +
+.cursor/rules/minsky-workflow-orchestrator.mdc | 48 ++
+.cursor/rules/minsky-workflow.mdc | 586 ---------------------
+.cursor/rules/pr-preparation-workflow.mdc | 21 +
+.cursor/rules/task-implementation-workflow.mdc | 29 +
+.cursor/rules/task-status-protocol.mdc | 19 +
+.cursor/rules/task-status-verification.mdc | 111 ----
+CHANGELOG.md | 16 +
+create_rule_files.py | 200 +++++++
+deprecated-notice.md | 18 +
+new-rules/minsky-workflow-orchestrator.mdc | 161 ++++++
+.../tasks/041-write-test-suite-for-cursor-rules.md | 47 +-
+...workflow-mdc-rule-into-smaller-focused-rules.md | 87 ++-
+process/tasks/067/pr.md | 5 +
+temp-fixed-rules/minsky-cli-usage.mdc | 162 ++++++
+temp-fixed-rules/minsky-session-management.mdc | 113 ++++
+temp-fixed-rules/minsky-workflow-orchestrator.mdc | 161 ++++++
+temp-fixed-rules/pr-preparation-workflow.mdc | 145 +++++
+temp-fixed-rules/task-implementation-workflow.mdc | 160 ++++++
+temp-fixed-rules/task-status-protocol.mdc | 163 ++++++
+temp-rules/minsky-cli-usage.mdc | 162 ++++++
+temp-rules/minsky-session-management.mdc | 183 +++++++
+temp-rules/minsky-workflow-orchestrator.mdc | 143 +++++
+temp-rules/pr-preparation-workflow.mdc | 144 +++++
+temp-rules/task-implementation-workflow.mdc | 163 ++++++
+temp-rules/task-status-protocol.mdc | 163 ++++++
+28 files changed, 2557 insertions(+), 714 deletions(-)
+
 ## Uncommitted changes in working directory
-M	process/tasks/067/pr.md
 
-
+M process/tasks/067/pr.md
 
 Task #067 status updated: TODO → IN-REVIEW

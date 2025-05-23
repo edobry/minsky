@@ -13,16 +13,16 @@ import {
   GIT_FORCE_DESCRIPTION,
   TASK_ID_DESCRIPTION,
   DEBUG_DESCRIPTION,
-  NO_STATUS_UPDATE_DESCRIPTION
+  NO_STATUS_UPDATE_DESCRIPTION,
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions
-import { 
-  createPullRequestFromParams, 
+import {
+  createPullRequestFromParams,
   commitChangesFromParams,
   cloneFromParams,
   branchFromParams,
-  pushFromParams 
+  pushFromParams,
 } from "../../domain/index.js";
 
 /**

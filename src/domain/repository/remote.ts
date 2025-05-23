@@ -281,26 +281,26 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // This is a more complete implementation that would work with actual repositories
       const sessions = await this.sessionDb.listSessions();
-      const currentSessions = sessions.filter(s => s.repoUrl === this.repoUrl);
-      
+      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
+
       if (currentSessions.length === 0) {
         return {
           success: false,
-          message: "No active sessions found for this repository"
+          message: "No active sessions found for this repository",
         };
       }
 
       // For each session with this repository, push changes
       for (const session of currentSessions) {
         const workdir = this.getSessionWorkdir(session.session);
-        
+
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
           const branch = branchOutput.trim();
-          
+
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
         } catch (pushError) {
@@ -309,34 +309,34 @@ export class RemoteGitBackend implements RepositoryBackend {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error
+              error,
             };
           } else if (error.message.includes("[rejected]")) {
             return {
               success: false,
               message: "Push rejected. Try pulling changes first or use force push if appropriate.",
-              error
+              error,
             };
           } else {
             return {
               success: false,
               message: `Failed to push to remote repository: ${error.message}`,
-              error
+              error,
             };
           }
         }
       }
-      
+
       return {
         success: true,
-        message: "Successfully pushed changes to remote repository"
+        message: "Successfully pushed changes to remote repository",
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
         message: `Failed to push to remote repository: ${error.message}`,
-        error
+        error,
       };
     }
   }
@@ -357,28 +357,28 @@ export class RemoteGitBackend implements RepositoryBackend {
       // 1. Get the current session path
       // 2. Determine the current branch
       // 3. Pull from remote repository
-      
+
       const sessions = await this.sessionDb.listSessions();
-      const currentSessions = sessions.filter(s => s.repoUrl === this.repoUrl);
-      
+      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
+
       if (currentSessions.length === 0) {
         return {
           success: false,
-          message: "No active sessions found for this repository"
+          message: "No active sessions found for this repository",
         };
       }
 
       // For each session with this repository, pull changes
       for (const session of currentSessions) {
         const workdir = this.getSessionWorkdir(session.session);
-        
+
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
           const branch = branchOutput.trim();
-          
+
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);
         } catch (pullError) {
@@ -387,34 +387,34 @@ export class RemoteGitBackend implements RepositoryBackend {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
-              error
+              error,
             };
           } else if (error.message.includes("conflict")) {
             return {
               success: false,
               message: "Pull failed due to conflicts. Resolve conflicts manually.",
-              error
+              error,
             };
           } else {
             return {
               success: false,
               message: `Failed to pull from remote repository: ${error.message}`,
-              error
+              error,
             };
           }
         }
       }
-      
+
       return {
         success: true,
-        message: "Successfully pulled changes from remote repository"
+        message: "Successfully pulled changes from remote repository",
       };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
         message: `Failed to pull from remote repository: ${error.message}`,
-        error
+        error,
       };
     }
   }

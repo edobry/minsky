@@ -35,13 +35,13 @@ export async function resolveRepoPath(
   const deps: RepoUtilsDependencies = {
     sessionProvider: depsInput?.sessionProvider || new SessionDB(),
     execCwd: depsInput?.execCwd || execAsync,
-    getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory
+    getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };
 
   if (options.repo) {
     return options.repo;
   }
-  
+
   if (options.session) {
     const record = await deps.sessionProvider.getSession(options.session);
     if (!record) {
@@ -49,7 +49,7 @@ export async function resolveRepoPath(
     }
     return record.repoUrl;
   }
-  
+
   // Fallback: use current git repo
   try {
     const { stdout } = await deps.execCwd("git rev-parse --show-toplevel");

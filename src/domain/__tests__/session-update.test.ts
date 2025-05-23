@@ -31,14 +31,16 @@ describe("updateSessionFromParams", () => {
     };
 
     mockSessionProvider = {
-      getSession: createMock(() => Promise.resolve({
-        session: "test-session",
-        repoName: "test-repo",
-        repoUrl: "https://example.com/test-repo",
-        branch: "test-branch",
-        createdAt: "2023-01-01",
-        taskId: "123"
-      })),
+      getSession: createMock(() =>
+        Promise.resolve({
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "https://example.com/test-repo",
+          branch: "test-branch",
+          createdAt: "2023-01-01",
+          taskId: "123",
+        })
+      ),
     };
 
     mockGetCurrentSession = createMock(() => Promise.resolve("test-session"));
@@ -46,7 +48,12 @@ describe("updateSessionFromParams", () => {
 
   test("throws ValidationError when name is not provided", async () => {
     try {
-      await updateSessionFromParams({ name: "", noStash: false, noPush: false, force: false } as any);
+      await updateSessionFromParams({
+        name: "",
+        noStash: false,
+        noPush: false,
+        force: false,
+      } as any);
       throw new Error("Should have thrown an error");
     } catch (error: unknown) {
       expectToBeInstanceOf(error, ValidationError);
@@ -198,4 +205,4 @@ describe("updateSessionFromParams", () => {
       expectToBeInstanceOf(error, MinskyError);
     }
   });
-}); 
+});

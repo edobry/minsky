@@ -4,17 +4,10 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  type Task,
-  TASK_STATUS,
-} from "../../../domain/tasks.ts";
-import {
-  createMock,
-  mockModule,
-  setupTestMocks,
-} from "../../../utils/test-utils/mocking.ts";
-import type { 
-  TaskListParams, 
+import { type Task, TASK_STATUS } from "../../../domain/tasks.ts";
+import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.ts";
+import type {
+  TaskListParams,
   TaskGetParams,
   TaskStatusGetParams,
   TaskStatusSetParams,
@@ -71,22 +64,22 @@ describe("Extended Task Management Domain Methods", () => {
       title: "Test Task 1",
       description: "This is a test task",
       status: TASK_STATUS.TODO,
-      specPath: "process/tasks/123-test-task-1.md"
+      specPath: "process/tasks/123-test-task-1.md",
     },
     {
       id: "#124",
       title: "Test Task 2 - MCP Related",
       description: "This is another test task",
       status: TASK_STATUS.IN_PROGRESS,
-      specPath: "process/tasks/124-test-task-2-mcp-related.md"
+      specPath: "process/tasks/124-test-task-2-mcp-related.md",
     },
     {
       id: "#125",
       title: "Test Task 3",
       description: "This is a completed test task",
       status: TASK_STATUS.DONE,
-      specPath: "process/tasks/125-test-task-3.md"
-    }
+      specPath: "process/tasks/125-test-task-3.md",
+    },
   ];
 
   beforeEach(() => {
@@ -98,6 +91,6 @@ describe("Extended Task Management Domain Methods", () => {
     mockGetTaskInfoFromParams.mockReset();
   });
 
-  // TODO: Tests for filterTasksFromParams, updateTaskFromParams, deleteTaskFromParams, 
+  // TODO: Tests for filterTasksFromParams, updateTaskFromParams, deleteTaskFromParams,
   // and getTaskInfoFromParams will be added when these features are implemented
-}); 
+});

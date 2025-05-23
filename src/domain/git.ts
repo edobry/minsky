@@ -1429,7 +1429,10 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of stashChanges with dependency injection
    */
-  async stashChangesWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
+  async stashChangesWithDependencies(
+    workdir: string,
+    deps: BasicGitDependencies
+  ): Promise<StashResult> {
     try {
       // Check if there are changes to stash
       const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
@@ -1451,7 +1454,10 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of popStash with dependency injection
    */
-  async popStashWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
+  async popStashWithDependencies(
+    workdir: string,
+    deps: BasicGitDependencies
+  ): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
       const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
@@ -1471,7 +1477,11 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of mergeBranch with dependency injection
    */
-  async mergeBranchWithDependencies(workdir: string, branch: string, deps: BasicGitDependencies): Promise<MergeResult> {
+  async mergeBranchWithDependencies(
+    workdir: string,
+    branch: string,
+    deps: BasicGitDependencies
+  ): Promise<MergeResult> {
     try {
       // Get current commit hash
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
@@ -1526,7 +1536,9 @@ export class GitService implements GitServiceInterface {
   ): Promise<PullResult> {
     try {
       // Get current branch
-      const { stdout: branch } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      const { stdout: branch } = await deps.execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
       const currentBranch = branch.trim();
 
       // Get current commit hash
@@ -1627,10 +1639,7 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of push with dependency injection
    */
-  async pushWithDependencies(
-    options: PushOptions,
-    deps: PrDependencies
-  ): Promise<PushResult> {
+  async pushWithDependencies(options: PushOptions, deps: PrDependencies): Promise<PushResult> {
     let workdir: string;
     let branch: string;
     const remote = options.remote || "origin";

@@ -15,7 +15,7 @@ The original approach of targeting specific failure counts (<35 failures, <5 err
 We employed a systematic approach to identify and resolve architectural issues:
 
 1. **Pattern Analysis**: Categorized failures into distinct architectural patterns
-2. **Root Cause Resolution**: Addressed underlying architectural issues rather than symptoms  
+2. **Root Cause Resolution**: Addressed underlying architectural issues rather than symptoms
 3. **Progressive Testing**: Verified improvements at each step with full test suite runs
 4. **Architectural Separation**: Improved separation between domain logic and infrastructure layers
 
@@ -31,21 +31,25 @@ We employed a systematic approach to identify and resolve architectural issues:
 ### Specific Fixes
 
 #### Bun:Test Compatibility (Early Phase)
+
 - Fixed `toHaveBeenCalledTimes` → `spy.mock.calls.length` compatibility issues
 - Resolved `toHaveBeenCalledWith` → `spy.mock.calls` assertion patterns
 - Updated asymmetric matcher usage (`expect.objectContaining`)
 
 #### Command Registry Architecture
+
 - Moved all command registrations inside registration functions to eliminate duplicate registrations
 - Fixed import-time side effects in tasks commands (`tasks.status.get`, `tasks.status.set`, `tasks.spec`)
 - Updated test expectations to reflect correct command counts (6 total tasks commands)
 
 #### Test Infrastructure
+
 - Enhanced `setupTestMocks()` utility with comprehensive shared state cleanup
 - Added cleanup for CLI bridge state, error handlers, and global singletons
 - Implemented proper mock filesystem for SessionAdapter tests
 
 #### Module Dependencies
+
 - Fixed module mocking paths in Rules Commands tests (`utils/rules-helpers` vs `adapters/cli/rules`)
 - Added missing `registerCategorizedCliCommands` export function in CLI bridge
 - Ensured extensionless imports throughout the codebase
@@ -97,7 +101,7 @@ function resetSharedState(): void {
 The improvements showed consistent progress:
 
 - **Initial State**: 471 pass, 31 fail, 1 error (93.4% success rate)
-- **After Bun:Test Fixes**: 480 pass, 23 fail, 1 error (95.2% success rate)  
+- **After Bun:Test Fixes**: 480 pass, 23 fail, 1 error (95.2% success rate)
 - **After Command Registry**: 483 pass, 20 fail, 1 error (95.9% success rate)
 - **After Shared State Cleanup**: 489 pass, 8 fail, 1 error (98.4% success rate)
 - **After Module Path Fixes**: 485 pass, 6 fail, 1 error (98.8% success rate)
@@ -124,7 +128,7 @@ No data migrations required. All changes are internal architectural improvements
 ### Test Categories Addressed
 
 1. **Bun:Test Compatibility**: Fixed assertion patterns and mock usage
-2. **Test Isolation**: Eliminated shared state pollution between tests  
+2. **Test Isolation**: Eliminated shared state pollution between tests
 3. **Module Mocking**: Corrected import paths and mocking configurations
 4. **Filesystem Operations**: Replaced real filesystem with mock implementations
 
@@ -140,5 +144,3 @@ No data migrations required. All changes are internal architectural improvements
 - Enhanced `setupTestMocks()` utility with comprehensive cleanup
 - Improved mock filesystem implementation for better isolation
 - Standardized test patterns for better maintainability
-
- 

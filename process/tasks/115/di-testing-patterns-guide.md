@@ -18,11 +18,13 @@
 ## Pattern 1: Manual DI (Domain Functions)
 
 **When to use:**
+
 - Testing domain functions that accept dependencies as parameters
 - Need precise control over dependency behavior
 - Testing complex business logic with multiple interactions
 
 **Example:**
+
 ```typescript
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
@@ -41,11 +43,13 @@ describe("updateSessionFromParams", () => {
     };
 
     mockSessionProvider = {
-      getSession: createMock(() => Promise.resolve({
-        session: "test-session",
-        repoName: "test-repo",
-        // ... other properties
-      })),
+      getSession: createMock(() =>
+        Promise.resolve({
+          session: "test-session",
+          repoName: "test-repo",
+          // ... other properties
+        })
+      ),
     };
   });
 
@@ -65,12 +69,14 @@ describe("updateSessionFromParams", () => {
 ```
 
 **Pros:**
+
 - Explicit dependency control
 - Type-safe
 - Easy to customize per test
 - Clear test intentions
 
 **Cons:**
+
 - More boilerplate
 - Need to manually create all dependencies
 
@@ -79,11 +85,13 @@ describe("updateSessionFromParams", () => {
 ## Pattern 2: Spy Pattern (Adapters & Integration)
 
 **When to use:**
+
 - Testing adapters, commands, or CLI handlers
 - Need to verify calls to existing modules
 - Testing integration between layers
 
 **Example:**
+
 ```typescript
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import * as tasksDomain from "../../../../domain/tasks.js";
@@ -92,8 +100,9 @@ describe("Tasks Command Handler", () => {
   let getTaskStatusSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams")
-      .mockImplementation(() => Promise.resolve("TODO"));
+    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams").mockImplementation(() =>
+      Promise.resolve("TODO")
+    );
   });
 
   afterEach(() => {
@@ -115,11 +124,13 @@ describe("Tasks Command Handler", () => {
 ```
 
 **Pros:**
+
 - Simple setup
 - Good for integration testing
 - Tests real module interactions
 
 **Cons:**
+
 - Less control over dependencies
 - Requires understanding module structure
 
@@ -128,11 +139,13 @@ describe("Tasks Command Handler", () => {
 ## Pattern 3: Utility Helpers (Simple Tests)
 
 **When to use:**
+
 - Testing utilities or simple functions
 - Want consistent, reusable test setups
 - Need quick, standard dependency configurations
 
 **Example:**
+
 ```typescript
 import { describe, test, expect } from "bun:test";
 import { createTestDeps, createTaskData, withMockedDeps } from "../../utils/test-utils";
@@ -140,7 +153,7 @@ import { createTestDeps, createTaskData, withMockedDeps } from "../../utils/test
 describe("Utility Function Tests", () => {
   test("should work with default dependencies", async () => {
     const deps = createTestDeps();
-    
+
     // Test your function with standard dependencies
     const result = await myUtilityFunction(deps);
     expect(result).toBeDefined();
@@ -151,8 +164,8 @@ describe("Utility Function Tests", () => {
       createTestDeps(),
       {
         taskService: {
-          getTask: createMock(() => Promise.resolve(createTaskData({ status: "DONE" })))
-        }
+          getTask: createMock(() => Promise.resolve(createTaskData({ status: "DONE" }))),
+        },
       },
       async (deps) => {
         return await myUtilityFunction(deps);
@@ -165,11 +178,13 @@ describe("Utility Function Tests", () => {
 ```
 
 **Pros:**
+
 - Minimal boilerplate
 - Consistent patterns
 - Good for simple tests
 
 **Cons:**
+
 - Less control over specific behaviors
 - May be overkill for very simple functions
 
@@ -178,6 +193,7 @@ describe("Utility Function Tests", () => {
 ## Common Scenarios & Recipes
 
 ### ✅ Testing Domain Logic (Use Pattern 1)
+
 ```typescript
 // Domain functions that accept dependencies
 await updateSessionFromParams(params, deps);
@@ -186,6 +202,7 @@ await getTaskFromParams(params, deps);
 ```
 
 ### ✅ Testing Command Handlers (Use Pattern 2)
+
 ```typescript
 // CLI adapters, MCP handlers, shared commands
 const command = registry.getCommand("tasks.list");
@@ -193,12 +210,14 @@ await command.execute(params, context);
 ```
 
 ### ✅ Testing Utilities (Use Pattern 3)
+
 ```typescript
 // Utility functions, helpers, simple business logic
 const result = await utilityFunction(deps);
 ```
 
 ### ✅ Testing Error Handling (Any Pattern)
+
 ```typescript
 // Use custom assertions for clean error testing
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.ts";
@@ -216,13 +235,16 @@ try {
 ## Migration Examples
 
 ### From Jest/Vitest to Manual DI
+
 **Before (Jest):**
+
 ```typescript
 jest.mock("../domain/git");
 const mockGitService = require("../domain/git") as jest.Mocked<typeof GitService>;
 ```
 
 **After (Manual DI):**
+
 ```typescript
 const mockGitService = {
   stashChanges: createMock(() => Promise.resolve()),
@@ -231,25 +253,30 @@ const mockGitService = {
 ```
 
 ### From Complex Mocking to Utility Helpers
+
 **Before (Complex):**
+
 ```typescript
 const mockTaskService = {
-  getTask: createMock(() => Promise.resolve({
-    id: "#123",
-    title: "Test Task",
-    status: "TODO",
-    description: "Test description",
-    worklog: []
-  }))
+  getTask: createMock(() =>
+    Promise.resolve({
+      id: "#123",
+      title: "Test Task",
+      status: "TODO",
+      description: "Test description",
+      worklog: [],
+    })
+  ),
 };
 ```
 
 **After (Utility Helper):**
+
 ```typescript
 const deps = createTestDeps({
   taskService: {
-    getTask: createMock(() => Promise.resolve(createTaskData({ status: "TODO" })))
-  }
+    getTask: createMock(() => Promise.resolve(createTaskData({ status: "TODO" }))),
+  },
 });
 ```
 
@@ -261,4 +288,4 @@ const deps = createTestDeps({
 2. **Be consistent** - Use the same pattern for similar types of tests in your file
 3. **Use custom assertions** - `expectToBeInstanceOf`, `expectToHaveBeenCalled` for cleaner tests
 4. **Clean up properly** - Always use `setupTestMocks()` or proper afterEach cleanup
-5. **Keep it readable** - Choose the pattern that makes your test intention clearest 
+5. **Keep it readable** - Choose the pattern that makes your test intention clearest

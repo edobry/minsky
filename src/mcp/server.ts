@@ -85,12 +85,15 @@ export class MinskyMCPServer {
     try {
       this.projectContext = options.projectContext || createProjectContextFromCwd();
       log.debug("Using project context", {
-        repositoryPath: this.projectContext.repositoryPath
+        repositoryPath: this.projectContext.repositoryPath,
       });
     } catch (error) {
-      log.warn("Failed to create project context from current directory, tools requiring repository context may not work", {
-        error: error instanceof Error ? error.message : String(error)
-      });
+      log.warn(
+        "Failed to create project context from current directory, tools requiring repository context may not work",
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
       // Create a minimal context with an empty path, tools will need to handle this
       this.projectContext = { repositoryPath: "" };
     }
@@ -138,14 +141,14 @@ export class MinskyMCPServer {
     // Listen for client connections
     this.server.on("connect", () => {
       log.agent("Client connected to Minsky MCP Server", {
-        transport: this.options.transportType
+        transport: this.options.transportType,
       });
     });
 
     // Listen for client disconnections
     this.server.on("disconnect", () => {
       log.agent("Client disconnected from Minsky MCP Server", {
-        transport: this.options.transportType
+        transport: this.options.transportType,
       });
     });
 
@@ -189,9 +192,9 @@ export class MinskyMCPServer {
         transport: this.options.transportType,
         serverName: this.options.name,
         version: this.options.version,
-        repositoryPath: this.projectContext.repositoryPath
+        repositoryPath: this.projectContext.repositoryPath,
       });
-      
+
       // Debug log of registered methods
       try {
         // Get the tool names
@@ -203,11 +206,11 @@ export class MinskyMCPServer {
         }
         log.debug("MCP Server registered methods", {
           methodCount: methods.length,
-          methods
+          methods,
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: e instanceof Error ? e.message : String(e)
+          error: e instanceof Error ? e.message : String(e),
         });
       }
     } catch (error) {
@@ -215,7 +218,7 @@ export class MinskyMCPServer {
       log.error("Failed to start Minsky MCP Server", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        transport: this.options.transportType
+        transport: this.options.transportType,
       });
 
       // Always rethrow the error - the caller is responsible for user-friendly handling

@@ -11,7 +11,7 @@ const log = {
   cliWarn: jest.fn(),
   cliError: jest.fn(),
   setLevel: jest.fn(),
-  cliDebug: jest.fn()
+  cliDebug: jest.fn(),
 };
 
-module.exports = { log }; 
+module.exports = { log };

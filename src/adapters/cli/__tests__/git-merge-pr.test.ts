@@ -16,15 +16,18 @@ describe("GitService Default Branch Detection", () => {
   // Save original methods for restoration
   let originalExecInRepository: any;
   let execMock: any;
-  
+
   // Mock dependencies
   beforeEach(() => {
     // Use project's test utilities for mocking
     originalExecInRepository = GitService.prototype.execInRepository;
-    GitService.prototype.execInRepository = createMock(() => Promise.resolve("")) as unknown as (workdir: string, command: string) => Promise<string>;
+    GitService.prototype.execInRepository = createMock(() => Promise.resolve("")) as unknown as (
+      workdir: string,
+      command: string
+    ) => Promise<string>;
     execMock = GitService.prototype.execInRepository;
   });
-  
+
   // Restore original methods
   afterEach(() => {
     GitService.prototype.execInRepository = originalExecInRepository;
@@ -33,7 +36,7 @@ describe("GitService Default Branch Detection", () => {
   test("should attempt to detect default branch when merging PRs", async () => {
     // Arrange
     const gitService = new GitService();
-    
+
     // First mock call will be for the symbolic-ref command to detect default branch
     execMock.mockImplementation((workdir: string, cmd: string) => {
       if (cmd.includes("symbolic-ref")) {
@@ -41,10 +44,10 @@ describe("GitService Default Branch Detection", () => {
       }
       return Promise.resolve("");
     });
-    
+
     // Act
     await gitService.fetchDefaultBranch("/test/repo");
-    
+
     // Assert
     expect(execMock.mock.calls.length).toBeGreaterThan(0);
     expect(execMock.mock.calls[0][0]).toBe("/test/repo");
@@ -54,7 +57,7 @@ describe("GitService Default Branch Detection", () => {
   test("should handle errors when detecting default branch", async () => {
     // Arrange
     const gitService = new GitService();
-    
+
     // Mock symbolic-ref to throw an error
     execMock.mockImplementation((workdir: string, cmd: string) => {
       if (cmd.includes("symbolic-ref")) {
@@ -62,11 +65,11 @@ describe("GitService Default Branch Detection", () => {
       }
       return Promise.resolve("");
     });
-    
+
     // Act
     const result = await gitService.fetchDefaultBranch("/test/repo");
-    
+
     // Assert
     expect(result).toBe("main");
   });
-}); 
+});

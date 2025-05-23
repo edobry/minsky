@@ -65,4 +65,4 @@ declare namespace jest {
     toHaveBeenCalled(): R;
     toHaveBeenCalledWith(...args: any[]): R;
   }
-} 
+}

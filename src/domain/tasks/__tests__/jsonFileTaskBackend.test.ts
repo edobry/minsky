@@ -45,8 +45,8 @@ describe("JsonFileTaskBackend", () => {
     // Enhanced cleanup to prevent race conditions
     try {
       // Wait a bit to ensure any pending operations complete
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       // Clean up test directories
       if (existsSync(workspacePath)) {
         rmSync(workspacePath, { recursive: true, force: true });

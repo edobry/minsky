@@ -84,15 +84,18 @@ Develop a test suite and a testing harness for validating the behavior of cursor
 ## Test Scenarios for Refactored Workflow Rules
 
 1. **Basic Navigation Tests:**
+
    - User asks about available tasks → verify minsky-cli-usage is triggered
    - User requests to start a task → verify transition from cli-usage to session-management
    - User requests to implement a feature → verify task-implementation-workflow is triggered
 
 2. **Cross-Reference Tests:**
+
    - Test that following a cross-reference in one rule leads to the correct application of the referenced rule
    - Verify that the orchestrator rule correctly guides users to the most relevant specific rule
 
 3. **Workflow Sequence Tests:**
+
    - Create test cases that simulate a full workflow from task selection to PR submission
    - Verify that the appropriate rules are triggered at each step and in the correct sequence
 

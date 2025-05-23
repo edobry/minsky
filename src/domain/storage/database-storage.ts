@@ -1,10 +1,10 @@
 /**
  * DatabaseStorage Interface
- * 
+ *
  * This module defines the generic interface for database storage operations.
  * It's designed to be implementation-agnostic, supporting various backends
  * such as JSON files, SQLite, PostgreSQL, etc.
- * 
+ *
  * T = The data entity type (e.g., TaskData, SessionRecord)
  * S = The state container type (e.g., TaskState, SessionDbState)
  */
@@ -36,7 +36,7 @@ export interface DatabaseQueryOptions {
 
 /**
  * Generic database storage interface
- * 
+ *
  * T = Entity type (e.g., TaskData)
  * S = State type (e.g., TaskState containing entities array)
  */
@@ -109,4 +109,4 @@ export interface DatabaseStorage<T, S> {
    * @returns Promise resolving to true if successful
    */
   initialize(): Promise<boolean>;
-} 
+}

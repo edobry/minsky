@@ -13,7 +13,7 @@ function customMatterStringify(content: string, data: any): string {
   const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: "\"", // Use double quotes when necessary
+    quotingType: '"', // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 
@@ -141,7 +141,7 @@ export class RuleService {
   async getRule(id: string, options: RuleOptions = {}): Promise<Rule> {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
-    
+
     if (options.debug) {
       log.debug("Getting rule", { id: bareId, requestedFormat: options.format });
     }
@@ -151,7 +151,7 @@ export class RuleService {
       const requestedFormat = options.format;
       const dirPath = this.getRuleDirPath(requestedFormat);
       const filePath = join(dirPath, `${bareId}.mdc`);
-      
+
       if (options.debug) {
         log.debug("Checking requested format", { format: requestedFormat, filePath });
       }
@@ -159,24 +159,24 @@ export class RuleService {
       try {
         // Check if file exists in the requested format
         await fs.access(filePath);
-        
+
         if (options.debug) {
           log.debug("File exists in requested format", { filePath });
         }
 
         // File exists in requested format, read and parse it
         const content = await fs.readFile(filePath, "utf-8");
-        
+
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
           // Some rule files may have formatting issues in their frontmatter that cause gray-matter to throw
           const { data, content: ruleContent } = matter(content);
-          
+
           if (options.debug) {
-            log.debug("Successfully parsed frontmatter", { 
-              filePath, 
+            log.debug("Successfully parsed frontmatter", {
+              filePath,
               dataKeys: Object.keys(data),
-              contentLength: ruleContent.length
+              contentLength: ruleContent.length,
             });
           }
 
@@ -198,18 +198,18 @@ export class RuleService {
             log.error("Error parsing frontmatter", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, 200) // Log the first 200 chars for debugging
+              content: content.substring(0, 200), // Log the first 200 chars for debugging
             });
           }
-          
+
           // If there's an issue with the frontmatter, try to handle it gracefully
           // Just extract content after the second '---' or use the whole content if no frontmatter markers
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf('---', 3);
-          if (content.startsWith('---') && frontmatterEndIndex > 0) {
+          const frontmatterEndIndex = content.indexOf("---", 3);
+          if (content.startsWith("---") && frontmatterEndIndex > 0) {
             extractedContent = content.substring(frontmatterEndIndex + 3).trim();
           }
-          
+
           // Return a basic rule object with just the content, missing the metadata from frontmatter
           // This is better than failing completely as we still provide the rule content
           return {
@@ -222,9 +222,9 @@ export class RuleService {
       } catch (error) {
         // Rule not found in the requested format
         if (options.debug) {
-          log.debug("File not found in requested format", { 
+          log.debug("File not found in requested format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
           });
         }
         // Instead of failing immediately, try other formats below
@@ -240,7 +240,7 @@ export class RuleService {
 
       const dirPath = this.getRuleDirPath(format);
       const filePath = join(dirPath, `${bareId}.mdc`);
-      
+
       if (options.debug) {
         log.debug("Checking alternative format", { format, filePath });
       }
@@ -248,23 +248,23 @@ export class RuleService {
       try {
         // Check if file exists
         await fs.access(filePath);
-        
+
         if (options.debug) {
           log.debug("File exists in alternative format", { filePath });
         }
 
         // File exists, read and parse it
         const content = await fs.readFile(filePath, "utf-8");
-        
+
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
           const { data, content: ruleContent } = matter(content);
-          
+
           if (options.debug) {
-            log.debug("Successfully parsed frontmatter in alternative format", { 
-              filePath, 
+            log.debug("Successfully parsed frontmatter in alternative format", {
+              filePath,
               dataKeys: Object.keys(data),
-              contentLength: ruleContent.length
+              contentLength: ruleContent.length,
             });
           }
 
@@ -307,17 +307,17 @@ export class RuleService {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, 200) // Log the first 200 chars for debugging
+              content: content.substring(0, 200), // Log the first 200 chars for debugging
             });
           }
-          
+
           // Same frontmatter error handling as above for consistency
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf('---', 3);
-          if (content.startsWith('---') && frontmatterEndIndex > 0) {
+          const frontmatterEndIndex = content.indexOf("---", 3);
+          if (content.startsWith("---") && frontmatterEndIndex > 0) {
             extractedContent = content.substring(frontmatterEndIndex + 3).trim();
           }
-          
+
           return {
             id: bareId,
             content: extractedContent,
@@ -328,9 +328,9 @@ export class RuleService {
       } catch (error) {
         // File doesn't exist in this format, try the next one
         if (options.debug) {
-          log.debug("File not found in alternative format", { 
+          log.debug("File not found in alternative format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
           });
         }
         continue;
@@ -341,7 +341,7 @@ export class RuleService {
     if (options.debug) {
       log.error("Rule not found in any format", { id: bareId, requestedFormat: options.format });
     }
-    
+
     if (options.format) {
       throw new Error(
         `Rule '${id}' not found in '${options.format}' format or any other available format`

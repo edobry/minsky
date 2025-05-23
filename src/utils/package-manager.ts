@@ -4,7 +4,7 @@
 import { join } from "path";
 import { existsSync } from "fs";
 import { execSync } from "child_process";
-import { log } from "./logger.js";
+import { log } from "./logger";
 
 /**
  * Supported package manager types
@@ -71,47 +71,45 @@ export async function installDependencies(
   try {
     // Detect or use provided package manager
     const detectedPackageManager = options.packageManager || detectPackageManager(repoPath);
-    
+
     if (!detectedPackageManager) {
-      return { 
-        success: false, 
-        error: "No package manager detected for this project" 
+      return {
+        success: false,
+        error: "No package manager detected for this project",
       };
     }
-    
+
     const installCmd = getInstallCommand(detectedPackageManager);
-    
+
     if (!installCmd) {
-      return { 
-        success: false, 
-        error: `Unsupported package manager: ${detectedPackageManager}` 
+      return {
+        success: false,
+        error: `Unsupported package manager: ${detectedPackageManager}`,
       };
     }
-    
+
     // Log installation start unless quiet
     if (!options.quiet) {
       log.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
-    
+
     // Execute the install command
-    const output = execSync(installCmd, { 
+    const output = execSync(installCmd, {
       cwd: repoPath,
-      stdio: options.quiet ? 'ignore' : 'inherit'
+      stdio: options.quiet ? "ignore" : "inherit",
     }).toString();
-    
+
     return { success: true, output };
   } catch (error) {
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : String(error);
-      
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
     if (!options.quiet) {
       log.error(`Failed to install dependencies: ${errorMessage}`);
     }
-    
-    return { 
-      success: false, 
-      error: errorMessage 
+
+    return {
+      success: false,
+      error: errorMessage,
     };
   }
-} 
+}

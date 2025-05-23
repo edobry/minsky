@@ -1,9 +1,9 @@
 /**
  * Option Descriptions
- * 
+ *
  * This module provides standardized descriptions for command options across
  * CLI and MCP adapters to ensure consistency in documentation and help text.
- * 
+ *
  * Descriptions are organized by functional area for easier maintenance.
  */
 
@@ -52,7 +52,8 @@ export const TASK_ID_DESCRIPTION = "ID of the task (with or without # prefix)";
 /**
  * Description for task status filter option
  */
-export const TASK_STATUS_FILTER_DESCRIPTION = "Filter tasks by status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
+export const TASK_STATUS_FILTER_DESCRIPTION =
+  "Filter tasks by status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
 
 /**
  * Description for task status option
@@ -162,9 +163,10 @@ export const REPO_URL_DESCRIPTION = "Remote repository URL for remote/github bac
 /**
  * Description for the authentication method option
  */
-export const AUTH_METHOD_DESCRIPTION = "Authentication method for remote repository (ssh, https, token)";
+export const AUTH_METHOD_DESCRIPTION =
+  "Authentication method for remote repository (ssh, https, token)";
 
 /**
  * Description for the clone depth option
  */
-export const CLONE_DEPTH_DESCRIPTION = "Clone depth for remote repositories"; 
+export const CLONE_DEPTH_DESCRIPTION = "Clone depth for remote repositories";

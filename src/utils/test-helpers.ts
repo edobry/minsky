@@ -84,19 +84,19 @@ type FS = {
 const useVirtualFS = true; // Set to true to use virtual filesystem
 const fsOps: FS = useVirtualFS
   ? {
-    mkdirSync: mockMkdirSync,
-    existsSync: mockExistsSync,
-    rmSync: mockRmSync,
-    writeFileSync: mockWriteFileSync,
-    readFileSync: mockReadFileSync,
-  }
+      mkdirSync: mockMkdirSync,
+      existsSync: mockExistsSync,
+      rmSync: mockRmSync,
+      writeFileSync: mockWriteFileSync,
+      readFileSync: mockReadFileSync,
+    }
   : {
-    mkdirSync,
-    existsSync,
-    rmSync,
-    writeFileSync,
-    readFileSync,
-  };
+      mkdirSync,
+      existsSync,
+      rmSync,
+      writeFileSync,
+      readFileSync,
+    };
 
 // Interface for test environment setup
 export interface MinskyTestEnv {

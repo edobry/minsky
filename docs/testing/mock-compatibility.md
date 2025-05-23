@@ -108,7 +108,7 @@ mockFn.mockReset(); // Clears call data and implementation
 
 // Create a spy on an object method
 const object = {
-  method: () => "original"
+  method: () => "original",
 };
 const spy = compat.spyOn(object, "method");
 
@@ -146,9 +146,11 @@ expect("hello 123").toEqual(expect.stringMatching(/\d+/));
 
 ```typescript
 // Match an object containing specific properties
-expect({ name: "John", age: 30 }).toEqual(expect.objectContaining({
-  name: "John"
-}));
+expect({ name: "John", age: 30 }).toEqual(
+  expect.objectContaining({
+    name: "John",
+  })
+);
 
 // Match an array containing specific items
 expect([1, 2, 3, 4]).toEqual(expect.arrayContaining([2, 3]));
@@ -163,13 +165,13 @@ import { AsymmetricMatcher } from "../../utils/test-utils/compatibility";
 
 class IsEvenMatcher implements AsymmetricMatcher {
   asymmetricMatch(other: unknown): boolean {
-    return typeof other === 'number' && other % 2 === 0;
+    return typeof other === "number" && other % 2 === 0;
   }
-  
+
   toString(): string {
     return "IsEven";
   }
-  
+
   toJSON(): string {
     return "IsEven";
   }
@@ -187,12 +189,12 @@ expect(2).toEqual(new IsEvenMatcher());
 // Mock a module with a factory function
 compat.mockModule("../path/to/module", () => ({
   someFunction: compat.createCompatMock().mockReturnValue("mocked value"),
-  someProperty: "mocked property"
+  someProperty: "mocked property",
 }));
 
 // Use Jest-like syntax
 compat.jest.mock("../path/to/module", () => ({
-  someFunction: compat.createCompatMock()
+  someFunction: compat.createCompatMock(),
 }));
 ```
 
@@ -200,11 +202,7 @@ compat.jest.mock("../path/to/module", () => ({
 
 ```typescript
 // Mock a specific function in a module
-compat.mockModuleFunction(
-  "../path/to/module",
-  "specificFunction",
-  () => "mocked result"
-);
+compat.mockModuleFunction("../path/to/module", "specificFunction", () => "mocked result");
 
 // Get a mocked module
 const mockedModule = compat.getMockModule("../path/to/module");
@@ -273,12 +271,12 @@ Replace Jest/Vitest module mocking with compatibility module mocking.
 ```typescript
 // Before
 jest.mock("../path/to/module", () => ({
-  someFunction: jest.fn().mockReturnValue("mocked")
+  someFunction: jest.fn().mockReturnValue("mocked"),
 }));
 
 // After
 compat.jest.mock("../path/to/module", () => ({
-  someFunction: compat.createCompatMock().mockReturnValue("mocked")
+  someFunction: compat.createCompatMock().mockReturnValue("mocked"),
 }));
 ```
 
@@ -319,4 +317,4 @@ beforeEach(() => {
   // Reset all mocks
   compat.resetAllMocks();
 });
-``` 
+```

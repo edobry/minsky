@@ -17,4 +17,4 @@ export {
 export { normalizeTaskId } from "./taskFunctions.js";
 
 // Re-export from taskService.js
-export { TaskService, createTaskService } from "./taskService.js"; 
+export { TaskService, createTaskService } from "./taskService.js";

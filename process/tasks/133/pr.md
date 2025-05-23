@@ -25,6 +25,7 @@ The solution standardizes on the `--task` flag naming by updating the git comman
 4. **Parameter Mapping**: Added transformation layer between interface and domain
 
 Alternative approaches considered:
+
 - **Standardize on `--task-id`**: Rejected due to verbosity and need to change more commands
 - **CLI flag customization**: Rejected due to complexity and potential for future confusion
 - **Domain layer changes**: Rejected to maintain backward compatibility and avoid breaking changes
@@ -32,16 +33,19 @@ Alternative approaches considered:
 ## Key Changes
 
 ### CLI Adapter Updates
+
 - Updated `src/adapters/shared/commands/git.ts`:
   - Changed `taskId` parameter to `task` in `prCommandParams` definition
   - Updated parameter mapping in execute function: `taskId: params.task`
 
-### MCP Adapter Updates  
+### MCP Adapter Updates
+
 - Updated `src/adapters/mcp/git.ts`:
   - Changed schema definition from `taskId` to `task` parameter
   - Added parameter mapping: `taskId: args.task` for domain compatibility
 
 ### Documentation Updates
+
 - Updated task specification with complete implementation details and verification results
 - Added changelog entry documenting the fix with SpecStory reference
 
@@ -139,18 +143,21 @@ None. This change only affects CLI flag naming, not functionality:
 ## Testing
 
 ### Manual Verification
+
 - ✅ Verified `minsky git pr --task <id>` works correctly
-- ✅ Verified `minsky session get --task <id>` continues to work  
+- ✅ Verified `minsky session get --task <id>` continues to work
 - ✅ Confirmed help text shows consistent `--task` flag naming
 - ✅ Verified task status updates work correctly with new flag
 - ✅ Tested both CLI and session command workflows end-to-end
 
 ### Automated Testing
+
 - ✅ Existing test suite runs without regressions
 - ✅ No breaking changes to domain layer functionality
 - ✅ Parameter mapping functions correctly in both adapters
 
 ### Verification Commands
+
 All verification commands from the task specification now work consistently:
 
 <pre><code class="language-bash">
@@ -162,10 +169,13 @@ minsky git pr --task 133 --session "task#133"
 ## Implementation Notes
 
 ### Global vs Local Testing
+
 The implementation is complete in the session workspace, but testing with the global `minsky` installation shows the old behavior since it hasn't been updated with these changes yet. This is expected behavior - the changes will take effect once the PR is merged and deployed.
 
 ### Domain Layer Preservation
+
 The decision to maintain `taskId` at the domain layer while using `task` at the interface layer provides:
+
 - **Backward compatibility**: No changes to existing domain functions
 - **Interface consistency**: Users see consistent `--task` flags
-- **Minimal risk**: Changes isolated to interface layer only 
+- **Minimal risk**: Changes isolated to interface layer only

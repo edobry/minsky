@@ -1,6 +1,6 @@
 /**
  * Module Mocking Compatibility Layer
- * 
+ *
  * This module provides Jest/Vitest compatible module mocking utilities that work with Bun's test runner.
  * It extends Bun's mock.module with automatic module detection and improved typing.
  */
@@ -21,12 +21,12 @@ export interface MockModuleOptions {
    * Whether to auto-mock functions in the module
    */
   autoMock?: boolean;
-  
+
   /**
    * Whether to use the actual implementations for non-mocked properties
    */
   useActual?: boolean;
-  
+
   /**
    * Whether to create virtual mocks for all non-function properties
    */
@@ -39,24 +39,24 @@ export interface MockModuleOptions {
 const defaultOptions: MockModuleOptions = {
   autoMock: false,
   useActual: true,
-  virtual: false
+  virtual: false,
 };
 
 /**
  * Creates an automatic mock of a module's exports
- * 
+ *
  * @param modulePath The module path to mock
  * @param actualModule The actual module to base mocks on
  * @returns A mocked version of the module
  */
 function createAutoMock(modulePath: string, actualModule: any): any {
   const mockExports: Record<string, any> = {};
-  
+
   // Create a mock for each export
   for (const key in actualModule) {
     if (Object.prototype.hasOwnProperty.call(actualModule, key)) {
       const value = actualModule[key];
-      
+
       if (typeof value === "function") {
         // Mock functions
         mockExports[key] = createCompatMock(value);
@@ -69,24 +69,24 @@ function createAutoMock(modulePath: string, actualModule: any): any {
       }
     }
   }
-  
+
   return mockExports;
 }
 
 /**
  * Mocks a module with the provided factory or auto-mocking
- * 
+ *
  * @param modulePath The path to the module to mock
  * @param factory A function that returns the mocked module
  * @param options Options for how to mock the module
  */
 export function mockModule(
-  modulePath: string, 
-  factory?: () => any, 
+  modulePath: string,
+  factory?: () => any,
   options?: MockModuleOptions
 ): void {
   const mockOptions = { ...defaultOptions, ...options };
-  
+
   try {
     // Store the original module if we haven't already
     if (!originalModules.has(modulePath)) {
@@ -101,7 +101,7 @@ export function mockModule(
         originalModules.set(modulePath, undefined);
       }
     }
-    
+
     // If a factory was provided, use it to create the mock
     if (factory) {
       // For Bun v1.2.13, we need to use the right mock API pattern
@@ -111,7 +111,7 @@ export function mockModule(
       mockedModules.set(modulePath, mockImpl);
       return;
     }
-    
+
     // If no factory was provided and autoMock is enabled, create an automatic mock
     if (mockOptions.autoMock) {
       const originalModule = originalModules.get(modulePath);
@@ -122,7 +122,7 @@ export function mockModule(
         return;
       }
     }
-    
+
     // Default fallback: mock with an empty object
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
@@ -134,13 +134,13 @@ export function mockModule(
 
 /**
  * Restores the original implementation of a mocked module
- * 
+ *
  * @param modulePath The path to the module to restore
  */
 export function restoreModule(modulePath: string): void {
   // Remove the mock and allow the original module to be loaded again
   mock.restore();
-  
+
   // Remove from our tracking maps
   mockedModules.delete(modulePath);
 }
@@ -151,14 +151,14 @@ export function restoreModule(modulePath: string): void {
 export function restoreAllModules(): void {
   // Use mock.restore() to remove all mocks
   mock.restore();
-  
+
   // Clear our tracking maps
   mockedModules.clear();
 }
 
 /**
  * Gets the mock instance for a module
- * 
+ *
  * @param modulePath The path to the mocked module
  * @returns The mock implementation of the module or undefined if not mocked
  */
@@ -168,19 +168,19 @@ export function getMockModule(modulePath: string): any {
 
 /**
  * Mocks a specific function in a module
- * 
+ *
  * @param modulePath The path to the module containing the function
  * @param exportName The name of the exported function to mock
  * @param mockImplementation The mock implementation of the function
  */
 export function mockModuleFunction(
-  modulePath: string, 
-  exportName: string, 
+  modulePath: string,
+  exportName: string,
   mockImplementation: (...args: any[]) => any
 ): void {
   // Get the original module if we have it
   const originalModule = originalModules.get(modulePath);
-  
+
   // Create a factory that returns a module with the specified function mocked
   mockModule(modulePath, () => {
     const mockModule = originalModule ? { ...originalModule } : {};
@@ -194,8 +194,8 @@ export function mockModuleFunction(
  */
 export function createJestMock() {
   return function jestMock(
-    modulePath: string, 
-    factory?: () => any, 
+    modulePath: string,
+    factory?: () => any,
     options?: MockModuleOptions
   ): void {
     mockModule(modulePath, factory, options);
@@ -221,20 +221,20 @@ export function createJestModuleMocking() {
      * Mocks a module with the provided factory
      */
     mock: createJestMock(),
-    
+
     /**
      * Restores a mocked module to its original implementation
      */
     unmock: restoreModule,
-    
+
     /**
      * Restores all mocked modules
      */
     resetModules: restoreAllModules,
-    
+
     /**
      * Gets the mock instance for a module
      */
-    getMockFromModule: getMockModule
+    getMockFromModule: getMockModule,
   };
-} 
+}

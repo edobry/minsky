@@ -18,44 +18,46 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
       const methodNames = commandMapper.getRegisteredMethodNames();
-      
+
       // Sort method names for easier reading
       const sortedMethods = [...methodNames].sort();
-      
+
       // Log the methods for debugging
       log.debug("Listing all registered MCP methods", {
         count: sortedMethods.length,
-        methods: sortedMethods
+        methods: sortedMethods,
       });
-      
+
       return {
         methods: sortedMethods,
-        count: sortedMethods.length
+        count: sortedMethods.length,
       };
-    }
+    },
   });
 
   // Echo command for testing JSON-RPC communication
   commandMapper.addCommand({
     name: "debug.echo",
     description: "Echo back the provided parameters (for testing MCP communication)",
-    parameters: z.object({
-      message: z.string().optional().describe("Message to echo back"),
-      // Allow any additional properties for flexible testing
-    }).passthrough(),
+    parameters: z
+      .object({
+        message: z.string().optional().describe("Message to echo back"),
+        // Allow any additional properties for flexible testing
+      })
+      .passthrough(),
     execute: async (args) => {
       // Log the echo request
       log.debug("Debug echo request", {
-        args
+        args,
       });
-      
+
       // Return the provided arguments with a timestamp
       return {
         success: true,
         timestamp: new Date().toISOString(),
         echo: args,
       };
-    }
+    },
   });
 
   // System info command for diagnostics
@@ -70,7 +72,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
       const arch = process.arch;
       const uptime = process.uptime();
       const memory = process.memoryUsage();
-      
+
       // Return formatted system information
       return {
         nodejs: {
@@ -85,9 +87,9 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
           heapUsed: formatBytes(memory.heapUsed),
           external: formatBytes(memory.external),
         },
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-    }
+    },
   });
 }
 
@@ -97,11 +99,11 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
  * @returns Formatted string with appropriate unit (KB, MB, GB)
  */
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  
+  if (bytes === 0) return "0 Bytes";
+
   const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-} 
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}

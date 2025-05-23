@@ -43,18 +43,14 @@ expect(mockGreet("World")).toBe("Hello, World!");
 // Mock a module
 mockModule("fs", () => ({
   readFileSync: createMock(() => "file content"),
-  existsSync: createMock(() => true)
+  existsSync: createMock(() => true),
 }));
 ```
 
 ### Enhanced Mocking
 
 ```typescript
-import { 
-  mockFunction, 
-  createPartialMock, 
-  mockReadonlyProperty 
-} from "../utils/test-utils";
+import { mockFunction, createPartialMock, mockReadonlyProperty } from "../utils/test-utils";
 
 // Create a type-safe mock function
 type GreetFn = (name: string) => string;
@@ -70,7 +66,7 @@ interface UserService {
 
 // Only implement the methods you need
 const mockUserService = createPartialMock<UserService>({
-  getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
+  getUser: async (id) => (id === "123" ? { id, name: "Test User" } : null),
 });
 
 // Other methods are still available and mocked
@@ -79,7 +75,9 @@ expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated"
 
 // Mock readonly properties
 const config = {
-  get environment() { return "production"; }
+  get environment() {
+    return "production";
+  },
 };
 mockReadonlyProperty(config, "environment", "test");
 expect(config.environment).toBe("test");
@@ -97,15 +95,15 @@ describe("My Test Suite", () => {
   // Set up automatic context management
   beforeEach(beforeEachTest);
   afterEach(afterEachTest);
-  
+
   test("resource cleanup", () => {
     const resource = acquireResource();
-    
+
     // Register cleanup to happen automatically
     withCleanup(() => {
       releaseResource(resource);
     });
-    
+
     // Test code that might throw
     expect(resource.getData()).toBeDefined();
   });
@@ -130,23 +128,21 @@ const task = await deps.taskService.getTask("#123");
 // Override specific methods for testing
 const customDeps = createTestDeps({
   sessionDB: {
-    getSession: createMock(() => Promise.resolve({
-      session: "custom-session",
-      taskId: "123",
-      // ...other properties
-    }))
-  }
+    getSession: createMock(() =>
+      Promise.resolve({
+        session: "custom-session",
+        taskId: "123",
+        // ...other properties
+      })
+    ),
+  },
 });
 ```
 
 ### Domain-Specific Dependencies
 
 ```typescript
-import { 
-  createTaskTestDeps,
-  createSessionTestDeps,
-  createGitTestDeps 
-} from "../utils/test-utils";
+import { createTaskTestDeps, createSessionTestDeps, createGitTestDeps } from "../utils/test-utils";
 
 // Create task-specific dependencies
 const taskDeps = createTaskTestDeps();
@@ -168,11 +164,13 @@ const result = withMockedDeps(
   originalDeps,
   {
     sessionDB: {
-      getSession: createMock(() => Promise.resolve({ 
-        session: "temp-session",
-        // other properties
-      }))
-    }
+      getSession: createMock(() =>
+        Promise.resolve({
+          session: "temp-session",
+          // other properties
+        })
+      ),
+    },
   },
   async (mockDeps) => {
     // Use mockDeps here with the temporary override
@@ -184,11 +182,11 @@ const result = withMockedDeps(
 // Create deeply nested dependencies with overrides
 const deepDeps = createDeepTestDeps({
   sessionDB: {
-    getSession: createMock(() => Promise.resolve({ name: "test-session" }))
+    getSession: createMock(() => Promise.resolve({ name: "test-session" })),
   },
   gitService: {
-    repoStatus: createMock(() => Promise.resolve({ clean: false }))
-  }
+    repoStatus: createMock(() => Promise.resolve({ clean: false })),
+  },
 });
 ```
 
@@ -197,11 +195,7 @@ const deepDeps = createDeepTestDeps({
 ### Domain Entity Factories
 
 ```typescript
-import { 
-  createTaskData, 
-  createSessionData, 
-  createRepositoryData 
-} from "../utils/test-utils";
+import { createTaskData, createSessionData, createRepositoryData } from "../utils/test-utils";
 
 // Create a task with default values
 const defaultTask = createTaskData();
@@ -210,19 +204,19 @@ const defaultTask = createTaskData();
 const customTask = createTaskData({
   id: "#042",
   title: "Custom Task",
-  status: "IN-PROGRESS"
+  status: "IN-PROGRESS",
 });
 
 // Create a session record
 const session = createSessionData({
   taskId: "123",
-  session: "task#123"
+  session: "task#123",
 });
 
 // Create a repository configuration
 const repo = createRepositoryData({
   type: "github",
-  repoUrl: "github.com/user/repo"
+  repoUrl: "github.com/user/repo",
 });
 ```
 
@@ -235,8 +229,8 @@ import { createTaskDataArray, createSessionDataArray } from "../utils/test-utils
 const tasks = createTaskDataArray(5);
 
 // Create 3 in-progress tasks
-const inProgressTasks = createTaskDataArray(3, { 
-  status: "IN-PROGRESS" 
+const inProgressTasks = createTaskDataArray(3, {
+  status: "IN-PROGRESS",
 });
 
 // Create an array of 3 sessions
@@ -246,11 +240,11 @@ const sessions = createSessionDataArray(3);
 ### Randomization Utilities
 
 ```typescript
-import { 
-  createRandomId, 
-  createRandomString, 
+import {
+  createRandomId,
+  createRandomString,
   createRandomFilePath,
-  createFieldData
+  createFieldData,
 } from "../utils/test-utils";
 
 // Create a random ID
@@ -270,7 +264,7 @@ const user = {
   id: createFieldData("id"),
   name: createFieldData("name"),
   email: createFieldData("email"),
-  createdAt: createFieldData("createdAt")
+  createdAt: createFieldData("createdAt"),
 };
 ```
 
@@ -296,4 +290,4 @@ const user = {
 
 ## Examples
 
-See `/src/utils/test-utils/__tests__/enhanced-utils.test.ts` for comprehensive examples of how to use these utilities effectively. 
+See `/src/utils/test-utils/__tests__/enhanced-utils.test.ts` for comprehensive examples of how to use these utilities effectively.

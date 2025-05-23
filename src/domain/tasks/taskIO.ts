@@ -6,7 +6,11 @@
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { log } from "../../utils/logger.js";
-import type { TaskWriteOperationResult, TaskReadOperationResult, TaskFileOperationResult } from "../../types/tasks/taskData.js";
+import type {
+  TaskWriteOperationResult,
+  TaskReadOperationResult,
+  TaskFileOperationResult,
+} from "../../types/tasks/taskData.js";
 
 /**
  * Read the tasks file
@@ -38,7 +42,10 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
  * @param content Content to write
  * @returns Promise resolving to success status or error
  */
-export async function writeTasksFile(filePath: string, content: string): Promise<TaskWriteOperationResult> {
+export async function writeTasksFile(
+  filePath: string,
+  content: string
+): Promise<TaskWriteOperationResult> {
   try {
     await fs.writeFile(filePath, content, "utf-8");
     return {
@@ -86,11 +93,14 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
  * @param content Content to write
  * @returns Promise resolving to success status or error
  */
-export async function writeTaskSpecFile(filePath: string, content: string): Promise<TaskWriteOperationResult> {
+export async function writeTaskSpecFile(
+  filePath: string,
+  content: string
+): Promise<TaskWriteOperationResult> {
   try {
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
-    
+
     await fs.writeFile(filePath, content, "utf-8");
     return {
       success: true,
@@ -180,8 +190,8 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
     const files = await fs.readdir(dirPath);
     return files;
   } catch (error) {
-    log.error(`Failed to list files in directory: ${dirPath}`, { 
-      error: error instanceof Error ? error : String(error) 
+    log.error(`Failed to list files in directory: ${dirPath}`, {
+      error: error instanceof Error ? error : String(error),
     });
     return null;
   }
@@ -216,4 +226,4 @@ export function getTaskSpecFilePath(taskId: string, title: string, workspacePath
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
-} 
+}

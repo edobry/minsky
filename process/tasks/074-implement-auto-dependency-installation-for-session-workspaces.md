@@ -129,7 +129,7 @@ export function detectPackageManager(repoPath: string): PackageManager {
 ## Work Log
 
 - **2025-05-23**: Initial investigation revealed auto-dependency installation was implemented but had bugs
-- **2025-05-23**: **BUG FOUND**: Package manager detection was looking for `bun.lockb` instead of `bun.lock` 
+- **2025-05-23**: **BUG FOUND**: Package manager detection was looking for `bun.lockb` instead of `bun.lock`
 - **2025-05-23**: **BUG FIXED**: Updated `detectPackageManager` function to check for correct `bun.lock` file
 - **2025-05-23**: **ENHANCEMENT**: Added missing `--packageManager` CLI flag to override auto-detection
 - **2025-05-23**: Updated test case to reflect correct Bun lock file name
@@ -141,16 +141,19 @@ export function detectPackageManager(repoPath: string): PackageManager {
 The auto-dependency installation feature was **implemented but broken** due to incorrect file detection:
 
 ### Issues Found:
-1. **Primary Bug**: Code checked for `bun.lockb` but Bun actually uses `bun.lock` 
+
+1. **Primary Bug**: Code checked for `bun.lockb` but Bun actually uses `bun.lock`
 2. **Missing CLI Flag**: `--packageManager` option was not exposed in the CLI interface
 
 ### Issues Fixed:
+
 1. ✅ Changed `bun.lockb` → `bun.lock` in `detectPackageManager()` function
-2. ✅ Added `--packageManager` parameter to CLI command interface  
+2. ✅ Added `--packageManager` parameter to CLI command interface
 3. ✅ Updated test case description for clarity
 4. ✅ Verified all 17 tests pass
 
 ### Result:
+
 - Session creation now correctly detects Bun and runs `bun install` instead of `npm install`
 - Users can override package manager detection with `--packageManager` flag
 - Feature works as originally specified in requirements

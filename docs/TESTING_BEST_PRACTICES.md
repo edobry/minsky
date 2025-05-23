@@ -58,10 +58,10 @@ describe("userService.createUser", () => {
   test("should create a user with valid input", () => {
     // Arrange: Set up the test environment and inputs
     const userData = { name: "Test User", email: "test@example.com" };
-    
+
     // Act: Execute the code being tested
     const newUser = userService.createUser(userData);
-    
+
     // Assert: Verify the expected outcomes
     expect(newUser.id).toBeDefined();
     expect(newUser.name).toBe(userData.name);
@@ -80,10 +80,10 @@ describe("userService.fetchUserData", () => {
   test("should fetch user data asynchronously", async () => {
     // Arrange
     const userId = "123";
-    
+
     // Act
     const userData = await userService.fetchUserData(userId);
-    
+
     // Assert
     expect(userData).toBeDefined();
     expect(userData.id).toBe(userId);
@@ -131,24 +131,26 @@ describe("userService.fetchUserData", () => {
 ### Mocking Best Practices
 
 1. **Mock at the right level**:
+
    - Prefer to mock at the dependency boundary
    - Don't mock everything by default
    - Consider using real implementations for critical logic
 
 2. **Use the right mocking approach**:
+
    ```typescript
    // For function mocks
    import { createMock } from "../utils/test-utils/mocking";
    const mockFn = createMock();
-   
+
    // For object mocks
    import { createMockObject } from "../utils/test-utils/mocking";
    const mockService = createMockObject(["getUser", "createUser", "deleteUser"]);
-   
+
    // For partial implementations
    import { createPartialMock } from "../utils/test-utils/mocking";
    const mockService = createPartialMock({
-     getUser: async (id) => id === "valid" ? { id, name: "Test" } : null
+     getUser: async (id) => (id === "valid" ? { id, name: "Test" } : null),
    });
    ```
 
@@ -177,7 +179,7 @@ export function createUserService(deps) {
         deps.logger.error(`Error fetching user ${id}: ${error.message}`);
         throw error;
       }
-    }
+    },
   };
 }
 
@@ -190,13 +192,13 @@ test("getUser should handle repository errors", async () => {
   const error = new Error("DB connection failed");
   const mockFindById = createMock(() => Promise.reject(error));
   const mockLogger = { error: createMock() };
-  
+
   // Create service with mocked dependencies
   const userService = createUserService({
     userRepository: { findById: mockFindById },
-    logger: mockLogger
+    logger: mockLogger,
   });
-  
+
   // Test
   try {
     await userService.getUser("123");
@@ -220,10 +222,10 @@ test("createTask should call the right dependencies", async () => {
   // Create test dependencies
   const deps = createTestDeps({
     taskService: createPartialMock({
-      createTask: createMock(() => Promise.resolve({ id: "new-task" }))
-    })
+      createTask: createMock(() => Promise.resolve({ id: "new-task" })),
+    }),
   });
-  
+
   // Use deps in test
   const result = await someFunction(deps);
   expect(deps.taskService.createTask).toHaveBeenCalled();
@@ -236,15 +238,15 @@ test("createTask should call the right dependencies", async () => {
 
 ```typescript
 // Value equality
-expect(result).toBe(5);               // Strict equality (===)
-expect(result).toEqual({ id: 1 });    // Deep equality for objects
+expect(result).toBe(5); // Strict equality (===)
+expect(result).toEqual({ id: 1 }); // Deep equality for objects
 
 // Truthiness
-expect(value).toBeTruthy();           // Tests if value is truthy
-expect(value).toBeFalsy();            // Tests if value is falsy
-expect(value).toBeNull();             // Tests if value is null
-expect(value).toBeUndefined();        // Tests if value is undefined
-expect(value).toBeDefined();          // Tests if value is defined
+expect(value).toBeTruthy(); // Tests if value is truthy
+expect(value).toBeFalsy(); // Tests if value is falsy
+expect(value).toBeNull(); // Tests if value is null
+expect(value).toBeUndefined(); // Tests if value is undefined
+expect(value).toBeDefined(); // Tests if value is defined
 
 // Numbers
 expect(value).toBeGreaterThan(3);
@@ -271,7 +273,7 @@ test("should throw error for invalid input", () => {
   expect(() => {
     validateInput("");
   }).toThrow();
-  
+
   expect(() => {
     validateInput("");
   }).toThrow("Input cannot be empty");
@@ -296,12 +298,12 @@ When testing complex objects, focus on the relevant properties:
 ```typescript
 test("createUser should return a valid user object", () => {
   const result = userService.createUser({ name: "Test" });
-  
+
   // Only test what matters for this test
   expect(result).toEqual({
     id: expect.any(String),
     name: "Test",
-    createdAt: expect.any(Date)
+    createdAt: expect.any(Date),
   });
 });
 ```
@@ -321,7 +323,7 @@ export function createTestUser(overrides = {}) {
     email: "test@example.com",
     roles: ["user"],
     createdAt: new Date("2023-01-01"),
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -331,9 +333,9 @@ import { createTestUser } from "../test-utils/factories";
 test("should update user email", () => {
   const user = createTestUser();
   const updatedEmail = "new@example.com";
-  
+
   const result = userService.updateEmail(user, updatedEmail);
-  
+
   expect(result.email).toBe(updatedEmail);
 });
 ```
@@ -345,17 +347,17 @@ Use `beforeEach` and `afterEach` to manage test state:
 ```typescript
 describe("Database operations", () => {
   let db;
-  
+
   beforeEach(async () => {
     db = createInMemoryDatabase();
     await db.connect();
   });
-  
+
   afterEach(async () => {
     await db.clear();
     await db.disconnect();
   });
-  
+
   test("should store data correctly", async () => {
     await db.insert({ key: "test", value: "data" });
     const result = await db.get("test");
@@ -373,14 +375,24 @@ Use nested `describe` blocks to group related tests:
 ```typescript
 describe("UserService", () => {
   describe("getUser", () => {
-    test("should return user by ID", () => { /* ... */ });
-    test("should return null for invalid ID", () => { /* ... */ });
-    test("should throw error for unauthorized access", () => { /* ... */ });
+    test("should return user by ID", () => {
+      /* ... */
+    });
+    test("should return null for invalid ID", () => {
+      /* ... */
+    });
+    test("should throw error for unauthorized access", () => {
+      /* ... */
+    });
   });
-  
+
   describe("updateUser", () => {
-    test("should update user properties", () => { /* ... */ });
-    test("should reject invalid properties", () => { /* ... */ });
+    test("should update user properties", () => {
+      /* ... */
+    });
+    test("should reject invalid properties", () => {
+      /* ... */
+    });
   });
 });
 ```
@@ -400,8 +412,10 @@ interface TestContext {
 const testWithUser = test.with({
   beforeEach(ctx: TestContext) {
     ctx.user = createTestUser();
-    ctx.service = createUserService({ /* deps */ });
-  }
+    ctx.service = createUserService({
+      /* deps */
+    });
+  },
 });
 
 testWithUser("should update user profile", ({ user, service }) => {
@@ -423,6 +437,7 @@ testWithUser("should update user profile", ({ user, service }) => {
 ### Effective Debugging Techniques
 
 - Use console output judiciously
+
   ```typescript
   test("complex operation", () => {
     const result = complexOperation();
@@ -432,12 +447,13 @@ testWithUser("should update user profile", ({ user, service }) => {
   ```
 
 - Debug step-by-step
+
   ```typescript
   test("multi-step process", () => {
     // Step 1
     const step1Result = step1();
     expect(step1Result).toBeDefined();
-    
+
     // Step 2
     const step2Result = step2(step1Result);
     expect(step2Result).toEqual(expected);
@@ -456,6 +472,7 @@ testWithUser("should update user profile", ({ user, service }) => {
 ### 1. Testing Implementation Details
 
 **Bad:**
+
 ```typescript
 test("internal method _processData should work", () => {
   // Testing private implementation details
@@ -465,6 +482,7 @@ test("internal method _processData should work", () => {
 ```
 
 **Good:**
+
 ```typescript
 test("processInput should handle valid data", () => {
   // Testing the public API
@@ -476,6 +494,7 @@ test("processInput should handle valid data", () => {
 ### 2. Overlapping Tests
 
 **Bad:**
+
 ```typescript
 test("should create user", () => {
   const user = service.createUser(data);
@@ -488,6 +507,7 @@ test("should create user", () => {
 ```
 
 **Good:**
+
 ```typescript
 test("should create user with correct basic properties", () => {
   const user = service.createUser(data);
@@ -505,6 +525,7 @@ test("should assign default user role to new users", () => {
 ### 3. Non-Isolated Tests
 
 **Bad:**
+
 ```typescript
 // Test depends on global state
 let sharedUser;
@@ -522,12 +543,13 @@ test("second test uses that user", () => {
 ```
 
 **Good:**
+
 ```typescript
 test("creating and then updating a user", () => {
   // Self-contained test
   const user = service.createUser(data);
   expect(user.id).toBeDefined();
-  
+
   const updated = service.updateUser(user.id, { active: true });
   expect(updated.active).toBe(true);
 });
@@ -536,30 +558,32 @@ test("creating and then updating a user", () => {
 ### 4. Excessive Mocking
 
 **Bad:**
+
 ```typescript
 test("user validation", () => {
   // Mocking everything, including simple validation logic
   const validateEmail = jest.fn(() => true);
   const validateName = jest.fn(() => true);
-  
+
   const service = createService({ validateEmail, validateName });
   service.validateUser({ name: "Test", email: "test@example.com" });
-  
+
   expect(validateEmail).toHaveBeenCalled();
   expect(validateName).toHaveBeenCalled();
 });
 ```
 
 **Good:**
+
 ```typescript
 test("user validation", () => {
   // Use real validation logic, mock only external dependencies
   const emailService = { sendValidationEmail: createMock() };
-  
+
   const service = createService({ emailService });
   const result = service.validateUser({ name: "Test", email: "test@example.com" });
-  
+
   expect(result.valid).toBe(true);
   expect(emailService.sendValidationEmail).toHaveBeenCalled();
 });
-``` 
+```

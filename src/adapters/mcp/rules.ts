@@ -99,7 +99,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       const ruleService = new RuleService(workspacePath);
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const tag = isString(args.tag) ? args.tag : undefined;
       const debug = args.debug === true;
 
@@ -138,7 +138,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const debug = args.debug === true;
 
       // Call domain function
@@ -193,12 +193,10 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) 
-        ? args.tags.split(",").map(tag => tag.trim()) 
-        : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
 
       // Convert formats with type safety
-      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const overwrite = args.overwrite === true;
 
       // Call domain function with correct signature
@@ -245,7 +243,7 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       // Resolve workspace path
       const workspacePath = await resolveWorkspacePath({});
       const ruleService = new RuleService(workspacePath);
-      
+
       // Ensure id is string
       if (!isString(args.id)) {
         throw new Error("Rule ID must be a string");
@@ -266,12 +264,10 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Parse tags
-      const tags = isString(args.tags) 
-        ? args.tags.split(",").map(tag => tag.trim()) 
-        : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
 
       // Convert format with type safety
-      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
 
       // Create update options object
       const updateOptions: UpdateRuleOptions = {
@@ -318,9 +314,9 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
       }
 
       // Convert parameters with type safety
-      const format = isString(args.format) ? args.format as RuleFormat : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const tag = isString(args.tag) ? args.tag : undefined;
-      
+
       // Note: debug parameter is accepted in the command but not passed to the domain
       // as SearchRuleOptions doesn't include a debug option
 
@@ -330,11 +326,11 @@ export function registerRulesTools(commandMapper: CommandMapper): void {
         format,
         tag,
       };
-      
+
       const rules = await ruleService.searchRules(searchOptions);
 
       // Return search results as a record
       return { rules };
     },
   });
-} 
+}

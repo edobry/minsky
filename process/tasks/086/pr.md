@@ -35,25 +35,26 @@ The changes are primarily documentation and code comments, with minimal function
 - [x] Changelog is updated
 
 ## Commits
+
 d534d5f6 Task #86: Formalize Core Minsky Concepts and Relationships
 
-
 ## Modified Files (Showing changes from merge-base with main)
+
 CHANGELOG.md
 README.md
 src/domain/session.ts
 src/domain/workspace.ts
 
-
 ## Stats
-CHANGELOG.md            | 10 ++++++
- README.md               | 23 +++++++++++++
- src/domain/session.ts   | 88 +++++++++++++++++++++++++++++--------------------
- src/domain/workspace.ts | 50 +++++++++++++++-------------
- 4 files changed, 113 insertions(+), 58 deletions(-)
+
+CHANGELOG.md | 10 ++++++
+README.md | 23 +++++++++++++
+src/domain/session.ts | 88 +++++++++++++++++++++++++++++--------------------
+src/domain/workspace.ts | 50 +++++++++++++++-------------
+4 files changed, 113 insertions(+), 58 deletions(-)
+
 ## Uncommitted changes in working directory
+
 process/tasks/086/pr.md
-
-
 
 Task #86 status updated: TODO → IN-REVIEW
