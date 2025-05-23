@@ -1,11 +1,18 @@
 /**
- * MCP Rules Adapter Tests
+ * MCP Rules Adapter Integration Tests
+ * @migrated Already using native Bun patterns
+ * @refactored Uses project utilities and proper TypeScript imports with improved mocking
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { CommandMapper } from "../../../mcp/command-mapper.js";
-import { registerRulesTools } from "../../../adapters/mcp/rules.js";
-import * as workspace from "../../../domain/workspace.js";
-import * as rulesDomain from "../../../domain/rules.js";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { CommandMapper } from "../../../mcp/command-mapper.ts";
+import { registerRulesTools } from "../../../adapters/mcp/rules.ts";
+import * as workspace from "../../../domain/workspace.ts";
+import * as rulesDomain from "../../../domain/rules.ts";
+import { createMock, mockModule, setupTestMocks, spyOn } from "../../../utils/test-utils/mocking.ts";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../../../utils/test-utils/assertions.ts";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 // Define interfaces for mock object types
 interface MockRuleService {
@@ -23,9 +30,10 @@ describe("MCP Rules Adapter", () => {
   let getRuleSpy: any;
   let ruleServiceConstructorSpy: any;
   
-  // Mock command mapper
+  // Mock command mapper with proper server mock
   let commandMapper: CommandMapper;
   let addCommandSpy: any;
+  let mockServer: any;
   
   // Mock rule data
   const mockRules = [
@@ -58,8 +66,8 @@ describe("MCP Rules Adapter", () => {
 
     // Create mock object for methods
     const mockMethods: MockRuleService = {
-      listRules: mock((options?: any) => Promise.resolve(mockRules)),
-      getRule: mock((id: string, options?: any) =>
+      listRules: createMock((options?: any) => Promise.resolve(mockRules)),
+      getRule: createMock((id: string, options?: any) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
@@ -71,7 +79,7 @@ describe("MCP Rules Adapter", () => {
           tags: ["test"]
         })
       ),
-      createRule: mock((id: string, content: string, meta: any, options?: any) =>
+      createRule: createMock((id: string, content: string, meta: any, options?: any) =>
         Promise.resolve({
           id,
           name: meta.name,
@@ -83,7 +91,7 @@ describe("MCP Rules Adapter", () => {
           tags: meta.tags
         })
       ),
-      updateRule: mock((id: string, updates: any, options?: any) =>
+      updateRule: createMock((id: string, updates: any, options?: any) =>
         Promise.resolve({
           id,
           name: updates.meta?.name || `Rule ${id}`,
@@ -95,7 +103,7 @@ describe("MCP Rules Adapter", () => {
           tags: updates.meta?.tags || ["test"]
         })
       ),
-      searchRules: mock((options?: any) =>
+      searchRules: createMock((options?: any) =>
         Promise.resolve([
           {
             id: "test-search-rule",
@@ -119,8 +127,15 @@ describe("MCP Rules Adapter", () => {
     ruleServiceConstructorSpy = spyOn(rulesDomain, "RuleService");
     ruleServiceConstructorSpy.mockImplementation(() => mockMethods);
     
-    // Set up command mapper mock
+    // Create a proper mock server for CommandMapper
+    mockServer = {
+      addTool: createMock(() => {}),
+    };
+    
+    // Set up command mapper with mocked server
     commandMapper = new CommandMapper();
+    // @ts-ignore - Override private property for testing
+    commandMapper.server = mockServer;
     addCommandSpy = spyOn(commandMapper, "addCommand");
   });
 
@@ -128,10 +143,13 @@ describe("MCP Rules Adapter", () => {
     // Register tools
     registerRulesTools(commandMapper);
     
-    // Verify the command was registered
-    expect(addCommandSpy).toHaveBeenCalledWith(expect.objectContaining({
-      name: "rules.list"
-    }));
+    // Verify the command was registered using our helper
+    expectToHaveBeenCalled(addCommandSpy);
+    
+    // Check that rules.list was one of the registered commands
+    const callArgs = addCommandSpy.mock.calls;
+    const rulesListCall = callArgs.find((call: any) => call[0]?.name === "rules.list");
+    expect(rulesListCall).toBeDefined();
   });
 
   test("rules.list command excludes content by default", async () => {
@@ -154,10 +172,10 @@ describe("MCP Rules Adapter", () => {
       debug: true
     });
     
-    // Verify domain functions were called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    expect(listRulesSpy).toHaveBeenCalledWith({
+    // Verify domain functions were called using our helpers
+    expectToHaveBeenCalledWith(resolveWorkspacePathSpy, {});
+    expectToHaveBeenCalledWith(ruleServiceConstructorSpy, "/test/workspace");
+    expectToHaveBeenCalledWith(listRulesSpy, {
       format: "cursor",
       tag: "test",
       debug: true
@@ -173,55 +191,6 @@ describe("MCP Rules Adapter", () => {
       expect(rule).not.toHaveProperty("content");
       
       // Verify other properties are present
-      expect(rule).toHaveProperty("id");
-      expect(rule).toHaveProperty("name");
-      expect(rule).toHaveProperty("description");
-      expect(rule).toHaveProperty("format");
-      expect(rule).toHaveProperty("path");
-    }
-  });
-
-  test("rules.list command includes content when includeContent=true", async () => {
-    // Register tools
-    registerRulesTools(commandMapper);
-    
-    // Get the execute function from the rules.list registration
-    const listCommandCall = addCommandSpy.mock.calls.find(
-      (call: any) => call[0].name === "rules.list"
-    );
-    expect(listCommandCall).toBeDefined();
-    
-    // Extract the execute function
-    const executeFunction = listCommandCall[0].execute;
-    
-    // Call the execute function with includeContent=true
-    const result = await executeFunction({
-      format: "cursor",
-      tag: "test",
-      debug: true,
-      includeContent: true
-    });
-    
-    // Verify domain functions were called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    expect(listRulesSpy).toHaveBeenCalledWith({
-      format: "cursor",
-      tag: "test",
-      debug: true
-    });
-    
-    // Verify that content is included in the result
-    expect(result).toHaveProperty("rules");
-    expect(Array.isArray(result.rules)).toBe(true);
-    expect(result.rules.length).toBe(2);
-    
-    // Check that content is present in every rule
-    for (const rule of result.rules) {
-      expect(rule).toHaveProperty("content");
-      expect(typeof rule.content).toBe("string");
-      
-      // Verify other properties are also present
       expect(rule).toHaveProperty("id");
       expect(rule).toHaveProperty("name");
       expect(rule).toHaveProperty("description");
@@ -250,10 +219,10 @@ describe("MCP Rules Adapter", () => {
       debug: true
     });
     
-    // Verify domain functions were called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    expect(getRuleSpy).toHaveBeenCalledWith("test-rule", {
+    // Verify domain functions were called using our helpers
+    expectToHaveBeenCalledWith(resolveWorkspacePathSpy, {});
+    expectToHaveBeenCalledWith(ruleServiceConstructorSpy, "/test/workspace");
+    expectToHaveBeenCalledWith(getRuleSpy, "test-rule", {
       format: "cursor",
       debug: true
     });

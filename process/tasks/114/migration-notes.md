@@ -62,3 +62,12 @@ Below are common patterns encountered during migrations:
 | `src/domain/__tests__/git-default-branch.test.ts` | Migrated | Easy | Phase 2B-1, Found already migrated |
 | `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` | Migrated | Easy | Phase 2B-2, Migrated Jest patterns to Bun |
 | `src/domain/session/session-adapter.test.ts` | Migrated | Easy | Phase 2B-3, Found already migrated |
+
+## Phase 2C: High Business Value (Core Workflow Tests)
+| `src/domain/__tests__/session-update.test.ts` | Migrated | Medium | Phase 2C-1, Migrated Jest patterns to Bun with proper error handling |
+| `src/domain/__tests__/git-pr-workflow.test.ts` | Migrated | Medium | Phase 2C-2, Found already migrated, refactored with project utilities |
+| `src/domain/__tests__/repository-uri.test.ts` | Migrated | Medium | Phase 2C-3, Found already migrated, refactored with proper TypeScript imports |
+
+## Additional Assertion Helpers Created
+
+9. `expectToHaveBeenCalledWith(mockFn, ...args)` - For `expect(mockFn).toHaveBeenCalledWith(...args)` with proper argument matching
