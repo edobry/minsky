@@ -236,13 +236,13 @@ describe("Tasks Domain Methods", () => {
         status: "INVALID_STATUS" as any,
         json: false 
       };
-      const error = new Error(`Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW`);
+      const error = new Error("Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW");
       mockSetTaskStatusFromParams.mockRejectedValue(error);
       
       // Act & Assert
       await expect(mockSetTaskStatusFromParams(params))
         .rejects
-        .toThrow(`Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW`);
+        .toThrow("Status must be one of: TODO, DONE, IN-PROGRESS, IN-REVIEW");
     });
 
     test("handles custom repo path", async () => {

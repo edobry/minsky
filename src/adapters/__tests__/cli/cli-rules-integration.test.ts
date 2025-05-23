@@ -9,7 +9,7 @@ describe("Rules CLI Helper Functions Integration", () => {
     expect(commaGlobs).toEqual(["**/*.ts", "**/*.js", "*.md"]);
 
     // Test JSON array format
-    const jsonGlobs = parseGlobs('["**/*.ts", "**/*.js", "*.md"]');
+    const jsonGlobs = parseGlobs("[\"**/*.ts\", \"**/*.js\", \"*.md\"]");
     expect(jsonGlobs).toEqual(["**/*.ts", "**/*.js", "*.md"]);
 
     // Test undefined input

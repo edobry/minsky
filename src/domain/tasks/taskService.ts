@@ -145,7 +145,7 @@ export class TaskService {
   async setTaskStatus(id: string, status: string): Promise<void> {
     // Verify status is valid
     if (!["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE"].includes(status)) {
-      throw new Error(`Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE`);
+      throw new Error("Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE");
     }
     
     // First check if the task exists

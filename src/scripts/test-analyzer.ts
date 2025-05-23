@@ -13,14 +13,14 @@
  *   bun src/scripts/test-analyzer.ts [--output-file=<path>] [--target-dir=<dir>]
  */
 
-import { readdir, readFile, writeFile, mkdir } from 'fs/promises';
-import { join, resolve, relative } from 'path';
-import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { readdir, readFile, writeFile, mkdir } from "fs/promises";
+import { join, resolve, relative } from "path";
+import { fileURLToPath } from "url";
+import { existsSync } from "fs";
 
 // Get current directory
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const baseDir = resolve(__dirname, '../..');
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const baseDir = resolve(__dirname, "../..");
 
 // Configuration
 const config = {
@@ -31,11 +31,11 @@ const config = {
 
 // Parse command line arguments
 for (const arg of process.argv.slice(2)) {
-  if (arg.startsWith('--output-file=')) {
-    const value = arg.split('=')[1];
+  if (arg.startsWith("--output-file=")) {
+    const value = arg.split("=")[1];
     if (value) config.outputFile = value;
-  } else if (arg.startsWith('--target-dir=')) {
-    const value = arg.split('=')[1];
+  } else if (arg.startsWith("--target-dir=")) {
+    const value = arg.split("=")[1];
     if (value) config.targetDir = value;
   }
 }
@@ -107,10 +107,10 @@ interface TestFileAnalysis {
   imports: string[];
   mockDependencies: string[];
   classification: {
-    mockingComplexity: 'low' | 'medium' | 'high';
-    frameworkDependency: 'jest' | 'vitest' | 'bun' | 'mixed' | 'none'; 
-    migrationDifficulty: 'easy' | 'medium' | 'hard';
-    testType: 'unit' | 'integration' | 'e2e' | 'unknown';
+    mockingComplexity: "low" | "medium" | "high";
+    frameworkDependency: "jest" | "vitest" | "bun" | "mixed" | "none"; 
+    migrationDifficulty: "easy" | "medium" | "hard";
+    testType: "unit" | "integration" | "e2e" | "unknown";
   };
   summary: string;
 }
@@ -199,7 +199,7 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const content = await readFile(path, 'utf-8');
+  const content = await readFile(path, "utf-8");
   const relativePath = relative(baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
@@ -224,13 +224,13 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);
   const usesJest =
-    imports.some((i: string) => i.includes('jest')) || 
+    imports.some((i: string) => i.includes("jest")) || 
     (counts.frameworkFeatures.jestImport !== undefined && counts.frameworkFeatures.jestImport > 0);
   const usesBun =
-    imports.some((i: string) => i.includes('bun:test')) || 
+    imports.some((i: string) => i.includes("bun:test")) || 
     (counts.frameworkFeatures.bunImport !== undefined && counts.frameworkFeatures.bunImport > 0);
   const usesVitest =
-    imports.some((i: string) => i.includes('vitest')) || 
+    imports.some((i: string) => i.includes("vitest")) || 
     (counts.frameworkFeatures.vitestImport !== undefined && counts.frameworkFeatures.vitestImport > 0);
   const usesCustomMocks =
     (counts.mockPatterns.customMock !== undefined && counts.mockPatterns.customMock > 0) || 
@@ -240,30 +240,30 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   
   // Simple heuristic for integration vs. unit tests
   const isIntegration = 
-    relativePath.includes('integration') || 
-    relativePath.includes('e2e') ||
+    relativePath.includes("integration") || 
+    relativePath.includes("e2e") ||
     mockDependencies.length > 3;
   
   // Classify the test file
   const classification = {
     mockingComplexity: 
-      totalMocks <= 3 ? 'low' : (totalMocks <= 10 ? 'medium' : 'high') as 'low' | 'medium' | 'high',
+      totalMocks <= 3 ? "low" : (totalMocks <= 10 ? "medium" : "high") as "low" | "medium" | "high",
     frameworkDependency: 
-      usesBun ? 'bun' : (usesJest ? 'jest' : (usesVitest ? 'vitest' : 'none')) as 'jest' | 'vitest' | 'bun' | 'mixed' | 'none',
-    migrationDifficulty: 'medium' as 'easy' | 'medium' | 'hard', // Default
+      usesBun ? "bun" : (usesJest ? "jest" : (usesVitest ? "vitest" : "none")) as "jest" | "vitest" | "bun" | "mixed" | "none",
+    migrationDifficulty: "medium" as "easy" | "medium" | "hard", // Default
     testType: 
-      isIntegration ? 'integration' : 'unit' as 'unit' | 'integration' | 'e2e' | 'unknown',
+      isIntegration ? "integration" : "unit" as "unit" | "integration" | "e2e" | "unknown",
   };
   
   // Determine migration difficulty based on various factors
   if (usesCustomMocks && usesBun) {
-    classification.migrationDifficulty = 'easy';
+    classification.migrationDifficulty = "easy";
   } else if (usesMockModule && (usesJest || usesVitest)) {
-    classification.migrationDifficulty = 'hard';
+    classification.migrationDifficulty = "hard";
   } else if (totalMocks > 10) {
-    classification.migrationDifficulty = 'hard';
+    classification.migrationDifficulty = "hard";
   } else if (totalMocks === 0) {
-    classification.migrationDifficulty = 'easy';
+    classification.migrationDifficulty = "easy";
   }
   
   // Generate summary
@@ -341,10 +341,10 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
   
   // Identify failing patterns (good heuristic for what's failing in Bun)
   const failingPatterns: { pattern: string; files: string[] }[] = [
-    { pattern: 'jest.mock usage', files: [] },
-    { pattern: 'jest.spyOn usage', files: [] },
-    { pattern: 'beforeEach/afterEach without imports', files: [] },
-    { pattern: 'mock.fn not imported', files: [] },
+    { pattern: "jest.mock usage", files: [] },
+    { pattern: "jest.spyOn usage", files: [] },
+    { pattern: "beforeEach/afterEach without imports", files: [] },
+    { pattern: "mock.fn not imported", files: [] },
   ];
   
   for (const file of testFiles) {
@@ -352,7 +352,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.mockModule !== undefined &&
       file.counts.mockPatterns.mockModule > 0 &&
-      !file.imports.some((i: string) => i.includes('bun:test'))
+      !file.imports.some((i: string) => i.includes("bun:test"))
     ) {
       failingPatterns[0]?.files?.push(file.relativePath);
     }
@@ -361,7 +361,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.spyOn !== undefined &&
       file.counts.mockPatterns.spyOn > 0 &&
-      !file.imports.some((i: string) => i.includes('createSpyOn'))
+      !file.imports.some((i: string) => i.includes("createSpyOn"))
     ) {
       failingPatterns[1]?.files?.push(file.relativePath);
     }
@@ -372,7 +372,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
         file.counts.frameworkFeatures.jestBeforeEach > 0) ||
        (file.counts.frameworkFeatures.jestAfterEach !== undefined && 
         file.counts.frameworkFeatures.jestAfterEach > 0)) &&
-      !file.imports.some((i: string) => i.includes('bun:test'))
+      !file.imports.some((i: string) => i.includes("bun:test"))
     ) {
       failingPatterns[2]?.files?.push(file.relativePath);
     }
@@ -381,7 +381,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.bunMock !== undefined && 
       file.counts.mockPatterns.bunMock > 0 && 
-      !file.imports.some((i: string) => i.includes('bun:test'))
+      !file.imports.some((i: string) => i.includes("bun:test"))
     ) {
       failingPatterns[3]?.files?.push(file.relativePath);
     }
@@ -403,18 +403,18 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
  */
 async function generateMarkdownSummary(report: AnalysisReport, outputPath: string): Promise<void> {
   const md = [
-    '# Test Analysis Report',
-    '',
+    "# Test Analysis Report",
+    "",
     `Generated: ${new Date(report.timestamp).toLocaleString()}`,
-    '',
+    "",
     `Total test files analyzed: **${report.testFilesCount}**`,
-    '',
-    '## Test Classification Summary',
-    '',
-    '### By Mocking Complexity',
-    '',
-    '| Complexity | Count | Percentage |',
-    '|-----------|-------|------------|',
+    "",
+    "## Test Classification Summary",
+    "",
+    "### By Mocking Complexity",
+    "",
+    "| Complexity | Count | Percentage |",
+    "|-----------|-------|------------|",
   ];
   
   // Mocking complexity table
@@ -424,11 +424,11 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
   }
   
   md.push(
-    '',
-    '### By Framework Dependency',
-    '',
-    '| Framework | Count | Percentage |',
-    '|-----------|-------|------------|'
+    "",
+    "### By Framework Dependency",
+    "",
+    "| Framework | Count | Percentage |",
+    "|-----------|-------|------------|"
   );
   
   // Framework dependency table
@@ -438,11 +438,11 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
   }
   
   md.push(
-    '',
-    '### By Migration Difficulty',
-    '',
-    '| Difficulty | Count | Percentage |',
-    '|-----------|-------|------------|'
+    "",
+    "### By Migration Difficulty",
+    "",
+    "| Difficulty | Count | Percentage |",
+    "|-----------|-------|------------|"
   );
   
   // Migration difficulty table
@@ -452,11 +452,11 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
   }
   
   md.push(
-    '',
-    '### By Test Type',
-    '',
-    '| Type | Count | Percentage |',
-    '|-----------|-------|------------|'
+    "",
+    "### By Test Type",
+    "",
+    "| Type | Count | Percentage |",
+    "|-----------|-------|------------|"
   );
   
   // Test type table
@@ -466,11 +466,11 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
   }
   
   md.push(
-    '',
-    '## Top Test Utilities Usage',
-    '',
-    '| Utility | Usage Count |',
-    '|---------|-------------|'
+    "",
+    "## Top Test Utilities Usage",
+    "",
+    "| Utility | Usage Count |",
+    "|---------|-------------|"
   );
   
   // Top utilities table
@@ -481,39 +481,39 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
   }
   
   md.push(
-    '',
-    '## Common Failing Patterns',
-    ''
+    "",
+    "## Common Failing Patterns",
+    ""
   );
   
   // Failing patterns
   for (const { pattern, files } of report.failingPatterns) {
     md.push(`### ${pattern} (${files.length} files)`);
-    md.push('');
+    md.push("");
     for (const file of files.slice(0, 10)) { // Show up to 10 files per pattern
       md.push(`- \`${file}\``);
     }
     if (files.length > 10) {
       md.push(`- ... and ${files.length - 10} more files`);
     }
-    md.push('');
+    md.push("");
   }
   
   md.push(
-    '',
-    '## Files by Migration Difficulty',
-    ''
+    "",
+    "## Files by Migration Difficulty",
+    ""
   );
   
   // Files by migration difficulty
-  const difficultyLevels: ('easy' | 'medium' | 'hard')[] = ['hard', 'medium', 'easy'];
+  const difficultyLevels: ("easy" | "medium" | "hard")[] = ["hard", "medium", "easy"];
   for (const difficulty of difficultyLevels) {
     const filesWithDifficulty = report.testFiles.filter(
       file => file.classification.migrationDifficulty === difficulty
     );
     
     md.push(`### ${difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} (${filesWithDifficulty.length} files)`);
-    md.push('');
+    md.push("");
     
     for (const file of filesWithDifficulty.slice(0, 15)) { // Show up to 15 files per difficulty
       md.push(`- \`${file.relativePath}\` - ${file.classification.mockingComplexity} mocking, ${file.classification.testType} test`);
@@ -521,31 +521,31 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     if (filesWithDifficulty.length > 15) {
       md.push(`- ... and ${filesWithDifficulty.length - 15} more files`);
     }
-    md.push('');
+    md.push("");
   }
   
   md.push(
-    '',
-    '## Migration Strategy Recommendations',
-    '',
-    '### Recommended Approach',
-    '',
-    '1. **Start with "easy" tests** - First migrate tests with low mocking complexity',
-    '2. **Create utility adapters** - Develop adapters for common Jest patterns',
-    '3. **Standardize mocking utilities** - Enhance current mocking utilities',
-    '4. **Tackle integration tests last** - These often have the most complex mocking needs',
-    '',
-    '### Priority Tests for Migration',
-    ''
+    "",
+    "## Migration Strategy Recommendations",
+    "",
+    "### Recommended Approach",
+    "",
+    "1. **Start with \"easy\" tests** - First migrate tests with low mocking complexity",
+    "2. **Create utility adapters** - Develop adapters for common Jest patterns",
+    "3. **Standardize mocking utilities** - Enhance current mocking utilities",
+    "4. **Tackle integration tests last** - These often have the most complex mocking needs",
+    "",
+    "### Priority Tests for Migration",
+    ""
   );
   
   // Priority tests
   const priorityTests = report.testFiles
-    .filter(file => file.classification.migrationDifficulty === 'easy')
+    .filter(file => file.classification.migrationDifficulty === "easy")
     .sort((a, b) => {
       // Sort by test type (unit first), then by complexity (low first)
       if (a.classification.testType !== b.classification.testType) {
-        return a.classification.testType === 'unit' ? -1 : 1;
+        return a.classification.testType === "unit" ? -1 : 1;
       }
       const aMockModule = a.counts.mockPatterns.mockModule || 0;
       const bMockModule = b.counts.mockPatterns.mockModule || 0;
@@ -557,7 +557,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     md.push(`- \`${file.relativePath}\``);
   }
   
-  await writeFile(outputPath, md.join('\n'));
+  await writeFile(outputPath, md.join("\n"));
 }
 
 /**
@@ -565,8 +565,8 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
  */
 async function main() {
   try {
-    console.log('Test Analyzer Script');
-    console.log('-------------------');
+    console.log("Test Analyzer Script");
+    console.log("-------------------");
     console.log(`Analyzing tests in: ${config.targetDir}`);
     
     // Find all test files
@@ -581,13 +581,13 @@ async function main() {
       const analysis = await analyzeTestFile(file);
       analyses.push(analysis);
     }
-    console.log('\nAnalysis complete');
+    console.log("\nAnalysis complete");
     
     // Generate the report
     const report = await generateReport(analyses);
     
     // Create output directory if needed
-    const outputDir = resolve(baseDir, 'test-analysis');
+    const outputDir = resolve(baseDir, "test-analysis");
     if (!existsSync(outputDir)) {
       await mkdir(outputDir, { recursive: true });
     }
@@ -598,25 +598,25 @@ async function main() {
     console.log(`Report written to: ${jsonOutputPath}`);
     
     // Write Markdown summary
-    const mdOutputPath = resolve(outputDir, config.outputFile.replace(/\.json$/, '.md'));
+    const mdOutputPath = resolve(outputDir, config.outputFile.replace(/\.json$/, ".md"));
     await generateMarkdownSummary(report, mdOutputPath);
     console.log(`Summary written to: ${mdOutputPath}`);
     
     // Output quick stats
-    console.log('\nQuick Stats:');
+    console.log("\nQuick Stats:");
     console.log(`- Total test files: ${report.testFilesCount}`);
-    console.log(`- Files by difficulty: ` + 
+    console.log("- Files by difficulty: " + 
                 `Easy: ${report.categoryCounts.migrationDifficulty.easy}, ` +
                 `Medium: ${report.categoryCounts.migrationDifficulty.medium}, ` +
                 `Hard: ${report.categoryCounts.migrationDifficulty.hard}`);
-    console.log(`- Framework dependencies: ` + 
+    console.log("- Framework dependencies: " + 
                 `Bun: ${report.categoryCounts.frameworkDependency.bun}, ` +
                 `Jest: ${report.categoryCounts.frameworkDependency.jest}, ` +
                 `Vitest: ${report.categoryCounts.frameworkDependency.vitest}, ` +
                 `None: ${report.categoryCounts.frameworkDependency.none}`);
     
   } catch (error) {
-    console.error('Error running test analyzer:', error);
+    console.error("Error running test analyzer:", error);
     process.exit(1);
   }
 }

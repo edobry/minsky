@@ -170,15 +170,15 @@ export class CliCommandBridge {
         );
         
         // Create execution context
-              const context: CliExecutionContext = {
+      const context: CliExecutionContext = {
         interface: "cli",
-        debug: !!rawParameters.debug,
-        format: rawParameters.json ? "json" : "text",
-        cliSpecificData: {
-          command: commandInstance,
-          rawArgs: commandInstance.args,
-        },
-      };
+          debug: !!rawParameters.debug,
+          format: rawParameters.json ? "json" : "text",
+          cliSpecificData: {
+            command: commandInstance,
+            rawArgs: commandInstance.args,
+          },
+        };
         
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(
@@ -343,7 +343,7 @@ export class CliCommandBridge {
       }
     };
   }
-}
+} 
 
 /**
  * Default exported instance for the CLI bridge
