@@ -216,7 +216,7 @@ function resetSharedState(): void {
 
   try {
     // Reset any global test state
-    if (typeof global !== 'undefined') {
+    if (typeof global !== "undefined") {
       // Reset date functions if they were mocked
       const testUtilsModule = require("../test-utils");
       if (testUtilsModule?.mockDateFunctions && global.Date !== Date) {
@@ -368,14 +368,21 @@ export function createMockExecSync(
  */
 export function createMockFileSystem(initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
+  const directories = new Set<string>();
 
   // Initialize with provided files
   Object.entries(initialFiles).forEach(([path, content]) => {
     files.set(path, content);
+    // Also add all parent directories
+    const parts = path.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      directories.add(parts.slice(0, i).join("/"));
+    }
   });
 
-  return {
-    existsSync: createMock((path: string) => files.has(path)),
+  const mockFs = {
+    // Sync methods
+    existsSync: createMock((path: string) => files.has(path) || directories.has(path)),
     readFileSync: createMock((path: string, options?: any) => {
       if (!files.has(path)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -384,17 +391,67 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
     writeFileSync: createMock((path: string, data: string) => {
       files.set(path, data);
+      // Add parent directories
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
     }),
     unlink: createMock((path: string) => {
       files.delete(path);
     }),
-    mkdirSync: createMock((path: string) => {
-      // Just record that the directory exists
-      files.set(path, "");
+    mkdirSync: createMock((path: string, options?: any) => {
+      directories.add(path);
     }),
-    // Access the internal files map for validation in tests
+    rmSync: createMock((path: string, options?: any) => {
+      // Remove the path and any files/directories under it
+      files.delete(path);
+      directories.delete(path);
+      const pathPrefix = `${path}/`;
+      for (const filePath of files.keys()) {
+        if (filePath.startsWith(pathPrefix)) {
+          files.delete(filePath);
+        }
+      }
+      for (const dirPath of directories) {
+        if (dirPath.startsWith(pathPrefix)) {
+          directories.delete(dirPath);
+        }
+      }
+    }),
+
+    // Async methods (fs/promises)
+    readFile: createMock(async (path: string, options?: any) => {
+      if (!files.has(path)) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      }
+      return files.get(path);
+    }),
+    writeFile: createMock(async (path: string, data: string, options?: any) => {
+      files.set(path, data);
+      // Add parent directories
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    }),
+    mkdir: createMock(async (path: string, options?: any) => {
+      directories.add(path);
+      // If recursive option, add all parent directories
+      if (options?.recursive) {
+        const parts = path.split("/");
+        for (let i = 1; i <= parts.length; i++) {
+          directories.add(parts.slice(0, i).join("/"));
+        }
+      }
+    }),
+
+    // Access the internal state for validation in tests
     _files: files,
+    _directories: directories,
   };
+
+  return mockFs;
 }
 
 /**
@@ -512,7 +569,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
   });
 
   // Replace the original method with our mock
-  // @ts-ignore - We've already verified this is a function
+  // @ts-expect-error - We've already verified this is a function
   obj[method] = mockFn;
 
   // Return the mock function for assertions
