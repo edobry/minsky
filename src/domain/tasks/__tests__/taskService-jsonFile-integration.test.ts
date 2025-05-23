@@ -1,5 +1,5 @@
 /**
- * Integration tests for TaskService with JsonFileTaskBackend
+ * Integration tests for TaskService with JsonFileTaskBackend (v2 - with mocking)
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
@@ -12,14 +12,14 @@ import { createMockFileSystem, setupTestMocks, mockModule } from "../../../utils
 // Set up automatic mock cleanup to prevent race conditions
 setupTestMocks();
 
-describe("TaskService JsonFile Integration", () => {
+describe("TaskService JsonFile Integration (v2)", () => {
   let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
   let mockFS: ReturnType<typeof createMockFileSystem>;
 
   beforeEach(async () => {
-    // Use consistent test paths (no need for uniqueness with mocks)
+    // Use consistent test paths
     workspacePath = "/test/workspace";
     dbPath = "/test/tasks.json";
 
@@ -44,7 +44,7 @@ describe("TaskService JsonFile Integration", () => {
       writeFile: mockFS.writeFile,
       mkdir: mockFS.mkdir,
       access: async (path: string) => {
-        if (!mockFS.existsSync(path)) {
+        if (!mockFS._files.has(path) && !mockFS._directories.has(path)) {
           throw new Error(`ENOENT: no such file or directory, access '${path}'`);
         }
       },
@@ -68,16 +68,16 @@ describe("TaskService JsonFile Integration", () => {
       backend: "json-file",
     });
 
-    // Ensure the backend storage is ready by doing a simple operation
+    // Ensure the backend storage is ready
     await taskService.listTasks();
   });
 
   describe("Basic Operations", () => {
     test("should default to jsonFile backend", () => {
-      // Create service without specifying backend but providing json-file as option
+      // Create service with json-file backend specified
       const defaultService = new TaskService({
         workspacePath,
-        backend: "json-file", // Specify json-file since that's the only available backend
+        backend: "json-file",
         customBackends: [
           createJsonFileTaskBackend({
             name: "json-file",
@@ -87,7 +87,6 @@ describe("TaskService JsonFile Integration", () => {
         ],
       });
 
-      // Should use json-file backend when specified
       expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
 
@@ -104,7 +103,7 @@ describe("TaskService JsonFile Integration", () => {
         "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
       
       // Write file to mock filesystem
-      mockFS.writeFileSync(specPath, specContent);
+      mockFS._files.set(specPath, specContent);
       
       // Use relative path from workspace for task creation  
       const relativeSpecPath = "process/tasks/test-task.md";
@@ -130,7 +129,8 @@ describe("TaskService JsonFile Integration", () => {
       const specPath = join(workspacePath, "process", "tasks", "status-test.md");
       const specContent =
         "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
-      await writeFile(specPath, specContent, "utf8");
+      
+      mockFS._files.set(specPath, specContent);
 
       // Create task using relative path
       const relativeSpecPath = "process/tasks/status-test.md";
@@ -155,11 +155,11 @@ describe("TaskService JsonFile Integration", () => {
       // Create multiple test tasks
       const task1Spec = join(workspacePath, "process", "tasks", "filter-test-1.md");
       const task1Content = "# Task #125: Filter Test 1\n\n## Context\n\nFirst test task.";
-      await writeFile(task1Spec, task1Content, "utf8");
+      mockFS._files.set(task1Spec, task1Content);
 
       const task2Spec = join(workspacePath, "process", "tasks", "filter-test-2.md");
       const task2Content = "# Task #126: Filter Test 2\n\n## Context\n\nSecond test task.";
-      await writeFile(task2Spec, task2Content, "utf8");
+      mockFS._files.set(task2Spec, task2Content);
 
       // Create tasks using relative paths
       await taskService.createTask("process/tasks/filter-test-1.md");
@@ -211,7 +211,7 @@ describe("TaskService JsonFile Integration", () => {
       // Create a test task first
       const specPath = join(workspacePath, "process", "tasks", "validation-test.md");
       const specContent = "# Task #127: Validation Test\n\n## Context\n\nTest validation.";
-      await writeFile(specPath, specContent, "utf8");
+      mockFS._files.set(specPath, specContent);
       await taskService.createTask("process/tasks/validation-test.md");
 
       // Should reject invalid status
@@ -226,7 +226,7 @@ describe("TaskService JsonFile Integration", () => {
       // Create task with first service instance
       const specPath = join(workspacePath, "process", "tasks", "persistence-test.md");
       const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
-      await writeFile(specPath, specContent, "utf8");
+      mockFS._files.set(specPath, specContent);
 
       await taskService.createTask("process/tasks/persistence-test.md");
       await taskService.setTaskStatus("#128", "IN-PROGRESS");
@@ -252,4 +252,4 @@ describe("TaskService JsonFile Integration", () => {
       expect(tasks.length).toBe(1);
     });
   });
-});
+}); 
