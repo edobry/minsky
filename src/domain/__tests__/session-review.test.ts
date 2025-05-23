@@ -107,6 +107,52 @@ describe("sessionReviewFromParams", () => {
     }
     
     (mockGetCurrentSession as any).mockReset();
+
+    // Restore mock implementations after reset
+    (mockSessionDB.getSession as any).mockImplementation(() => ({
+      session: "testSession",
+      taskId: "#123",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/test-repo",
+      branch: "feature/test",
+      createdAt: new Date().toISOString(),
+    }));
+
+    (mockSessionDB.getSessionByTaskId as any).mockImplementation(() => ({
+      session: "task#123",
+      taskId: "#123",
+      repoName: "test-repo",
+      repoUrl: "https://github.com/test/test-repo",
+      branch: "feature/test",
+      createdAt: new Date().toISOString(),
+    }));
+
+    (mockSessionDB.getSessionWorkdir as any).mockImplementation(() => "/fake/path/to/session");
+    (mockSessionDB.listSessions as any).mockImplementation(() => []);
+    (mockSessionDB.addSession as any).mockImplementation(() => Promise.resolve());
+    (mockSessionDB.updateSession as any).mockImplementation(() => Promise.resolve());
+    (mockSessionDB.deleteSession as any).mockImplementation(() => Promise.resolve(true));
+    (mockSessionDB.getRepoPath as any).mockImplementation(() => "/fake/path/to/repo");
+
+    (mockGitService.execInRepository as any).mockImplementation((path: string, command: string) => {
+      if (command.includes("git ls-remote")) {
+        return "refs/heads/pr/testSession";
+      }
+      if (command.includes("log -1")) {
+        return "PR Title\n\nPR Description body";
+      }
+      if (command.includes("diff --stat")) {
+        return "3 files changed, 10 insertions(+), 5 deletions(-)";
+      }
+      if (command.includes("git diff")) {
+        return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
+      }
+      return "";
+    });
+
+    (mockTaskService.getTaskSpecData as any).mockImplementation(() => Promise.resolve("# Task Specification\n\nThis is a test task"));
+    (mockWorkspaceUtils.isSessionWorkspace as any).mockImplementation(() => Promise.resolve(false));
+    (mockGetCurrentSession as any).mockImplementation(() => Promise.resolve("testSession"));
   });
 
   test("gets review info by session name", async () => {
@@ -128,8 +174,10 @@ describe("sessionReviewFromParams", () => {
     });
     expect(result.diff).toBe("diff --git a/file.txt b/file.txt\n+new line\n-old line");
 
-    expect(mockSessionDB.getSession).toHaveBeenCalledWith("testSession");
-    expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("testSession");
+    expect((mockSessionDB.getSession as any).mock.calls.length).toBe(1);
+    expect((mockSessionDB.getSession as any).mock.calls[0][0]).toBe("testSession");
+    expect((mockSessionDB.getSessionWorkdir as any).mock.calls.length).toBe(1);
+    expect((mockSessionDB.getSessionWorkdir as any).mock.calls[0][0]).toBe("testSession");
   });
 
   test("gets review info by task ID", async () => {
@@ -140,7 +188,8 @@ describe("sessionReviewFromParams", () => {
 
     expect(result.session).toBe("task#123");
     expect(result.taskId).toBe("#123");
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("123");
+    expect((mockSessionDB.getSessionByTaskId as any).mock.calls.length).toBe(1);
+    expect((mockSessionDB.getSessionByTaskId as any).mock.calls[0][0]).toBe("#123");
   });
 
   test("auto-detects current session when no parameters provided", async () => {
