@@ -3,13 +3,14 @@
     // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ES2022",
-    "module": "NodeNext",
+    "module": "esnext",
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
+    "allowImportingTsExtensions": true,
 
     // Bundler mode
-    "moduleResolution": "NodeNext",
+    "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "noEmit": true,
 

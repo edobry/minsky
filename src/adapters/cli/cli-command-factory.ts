@@ -1,6 +1,6 @@
 /**
  * CLI Command Factory
- * 
+ *
  * Factory for creating CLI commands from shared commands using the CLI bridge.
  */
 
@@ -18,10 +18,7 @@ const cliBridge = new CliCommandBridge();
 /**
  * Register customizations for a specific command
  */
-export function customizeCommand(
-  commandId: string,
-  options: CliCommandOptions
-): void {
+export function customizeCommand(commandId: string, options: CliCommandOptions): void {
   cliBridge.registerCommandCustomization(commandId, options);
 }
 
@@ -68,47 +65,50 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       "tasks.list": {
         useFirstRequiredParamAsArgument: false,
         parameters: {
-          status: {
+          filter: {
             alias: "s",
-            description: "Filter by task status"
-          }
-        }
+            description: "Filter by task status",
+          },
+          all: {
+            description: "Include completed tasks",
+          },
+        },
       },
       "tasks.get": {
         parameters: {
           id: {
-            asArgument: true
-          }
-        }
+            asArgument: true,
+          },
+        },
       },
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
           taskId: {
             asArgument: true,
-            description: "ID of the task to retrieve specification content for"
+            description: "ID of the task to retrieve specification content for",
           },
           section: {
-            description: "Specific section of the specification to retrieve"
-          }
-        }
-      }
-    }
+            description: "Specific section of the specification to retrieve",
+          },
+        },
+      },
+    },
   });
-  
+
   // Git commands customization
   customizeCategory(CommandCategory.GIT, {
     commandOptions: {
       "git.commit": {
         parameters: {
           message: {
-            alias: "m"
-          }
-        }
-      }
-    }
+            alias: "m",
+          },
+        },
+      },
+    },
   });
-  
+
   // Session commands customization
   customizeCategory(CommandCategory.SESSION, {
     aliases: ["sess"],
@@ -119,27 +119,27 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         parameters: {
           verbose: {
             alias: "v",
-            description: "Show detailed session information"
-          }
-        }
+            description: "Show detailed session information",
+          },
+        },
       },
       "session.start": {
         parameters: {
           task: {
-            alias: "t"
-          }
-        }
+            alias: "t",
+          },
+        },
       },
       "session.get": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
           sessionId: {
             asArgument: true,
-            description: "Session ID or name"
-          }
-        }
-      }
-    }
+            description: "Session ID or name",
+          },
+        },
+      },
+    },
   });
 }
 
@@ -149,7 +149,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 export function initializeCliCommands(program: Command): void {
   // Setup common customizations
   setupCommonCommandCustomizations(program);
-  
+
   // Register all commands in the program
   registerAllCommands(program);
-} 
+}

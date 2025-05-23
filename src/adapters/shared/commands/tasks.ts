@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { select, isCancel, cancel } from "@clack/prompts";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -14,8 +15,8 @@ import {
   type CommandExecutionContext,
   type CommandParameterDefinition,
 } from "../command-registry.js";
-import { 
-  getTaskStatusFromParams, 
+import {
+  getTaskStatusFromParams,
   setTaskStatusFromParams,
   getTaskSpecContentFromParams,
   normalizeTaskId,
@@ -69,6 +70,11 @@ const tasksStatusGetParams: CommandParameterMap = {
     description: "Backend identifier",
     required: false,
   },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
 };
 
 /**
@@ -86,10 +92,10 @@ const tasksStatusSetParams: CommandParameterMap = {
       TASK_STATUS.IN_PROGRESS,
       TASK_STATUS.IN_REVIEW,
       TASK_STATUS.DONE,
-      TASK_STATUS.BLOCKED
+      TASK_STATUS.BLOCKED,
     ]),
     description: "Task status",
-    required: true,
+    required: false,
   },
   repo: {
     schema: z.string(),
@@ -109,6 +115,11 @@ const tasksStatusSetParams: CommandParameterMap = {
   backend: {
     schema: z.string(),
     description: "Backend identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -145,6 +156,11 @@ const tasksSpecParams: CommandParameterMap = {
   backend: {
     schema: z.string(),
     description: "Backend identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -190,7 +206,39 @@ sharedCommandRegistry.registerCommand({
   execute: async (params, ctx: CommandExecutionContext) => {
     try {
       if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
-      if (!params.status) throw new ValidationError("Missing required parameter: status");
+
+      let status = params.status;
+
+      // If status is not provided, prompt for it interactively
+      if (!status) {
+        // Check if we're in an interactive environment
+        if (!process.stdout.isTTY) {
+          throw new ValidationError("Status parameter is required in non-interactive mode");
+        }
+
+        // Prompt for status selection
+        const selectedStatus = await select({
+          message: "Select a status:",
+          options: [
+            { value: TASK_STATUS.TODO, label: "TODO" },
+            { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
+            { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
+            { value: TASK_STATUS.DONE, label: "DONE" },
+            { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+          ],
+        });
+
+        // Handle cancellation
+        if (isCancel(selectedStatus)) {
+          cancel("Operation cancelled.");
+          return "Operation cancelled by user";
+        }
+
+        status = selectedStatus;
+      }
+
+      if (!status) throw new ValidationError("Missing required parameter: status");
+
       const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
@@ -199,13 +247,13 @@ sharedCommandRegistry.registerCommand({
       }
       await setTaskStatusFromParams({
         taskId: normalizedTaskId,
-        status: params.status,
+        status: status,
         repo: params.repo,
         workspace: params.workspace,
         session: params.session,
         backend: params.backend,
       });
-      return `Task #${normalizedTaskId} status set to ${params.status}`;
+      return `Task #${normalizedTaskId} status set to ${status}`;
     } catch (error) {
       log.error("Error setting task status", { error });
       throw error;
@@ -260,7 +308,6 @@ const tasksListParams: CommandParameterMap = {
     schema: z.boolean().default(false),
     description: "Include completed tasks",
     required: false,
-    defaultValue: false,
   },
   backend: {
     schema: z.string(),
@@ -280,6 +327,11 @@ const tasksListParams: CommandParameterMap = {
   session: {
     schema: z.string(),
     description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -311,6 +363,11 @@ const tasksGetParams: CommandParameterMap = {
   session: {
     schema: z.string(),
     description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -348,6 +405,11 @@ const tasksCreateParams: CommandParameterMap = {
   session: {
     schema: z.string(),
     description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
     required: false,
   },
 };
@@ -413,4 +475,4 @@ sharedCommandRegistry.registerCommand({
 export function registerTasksCommands() {
   // All commands are registered on import, so this is a no-op for now.
   // This function exists for consistency with other command modules.
-} 
+}

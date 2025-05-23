@@ -1,6 +1,6 @@
 /**
  * Parameter Mapper for CLI Bridge
- * 
+ *
  * Maps shared command parameters with Zod schemas to Commander.js options.
  * Handles validation, type conversions, and help text generation.
  */
@@ -45,34 +45,27 @@ export interface ParameterMapping {
 /**
  * Creates an array of Command Option objects from parameter mappings
  */
-export function createOptionsFromMappings(
-  mappings: ParameterMapping[]
-): Option[] {
-  return mappings
-    .filter(mapping => !mapping.options.asArgument)
-    .map(createOptionFromMapping);
+export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
+  return mappings.filter((mapping) => !mapping.options.asArgument).map(createOptionFromMapping);
 }
 
 /**
  * Adds arguments to a command from parameter mappings
  */
-export function addArgumentsFromMappings(
-  command: Command,
-  mappings: ParameterMapping[]
-): Command {
+export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
   mappings
-    .filter(mapping => mapping.options.asArgument)
-    .forEach(mapping => {
+    .filter((mapping) => mapping.options.asArgument)
+    .forEach((mapping) => {
       // Get schema type for proper argument definition
       const schemaType = getZodSchemaType(mapping.paramDef.schema);
-      
-      // Format the argument name 
+
+      // Format the argument name
       const argName = formatArgumentName(
         mapping.name,
         mapping.paramDef.required,
         mapping.options.variadic
       );
-      
+
       // Add the argument to the command
       command.argument(
         argName,
@@ -80,7 +73,7 @@ export function addArgumentsFromMappings(
         mapping.options.parser
       );
     });
-  
+
   return command;
 }
 
@@ -89,82 +82,71 @@ export function addArgumentsFromMappings(
  */
 function createOptionFromMapping(mapping: ParameterMapping): Option {
   const { name, paramDef, options } = mapping;
-  
+
   // Get schema type for proper option definition
   const schemaType = getZodSchemaType(paramDef.schema);
-  
+
   // Format option flag
   const flag = formatOptionFlag(name, options.alias, schemaType);
-  
+
   // Create the option
-  const option = new Option(
-    flag,
-    options.description || paramDef.description || ""
-  );
-  
+  const option = new Option(flag, options.description || paramDef.description || "");
+
   // Apply additional configuration
   if (options.hidden) {
     option.hideHelp();
   }
-  
+
   if (paramDef.defaultValue !== undefined || options.defaultValue !== undefined) {
     option.default(options.defaultValue ?? paramDef.defaultValue);
   }
-  
+
   // Add proper type handling based on schema
   addTypeHandlingToOption(option, schemaType, options.parser);
-  
+
   return option;
 }
 
 /**
  * Format a Commander option flag
  */
-function formatOptionFlag(
-  name: string,
-  alias?: string,
-  schemaType?: string
-): string {
+function formatOptionFlag(name: string, alias?: string, schemaType?: string): string {
   let flag = "";
-  
+
   // Add alias if provided
   if (alias) {
     flag += `-${alias}, `;
   }
-  
+
   // Add main flag
   flag += `--${name}`;
-  
+
   // Add value placeholder for non-boolean types
   if (schemaType !== "boolean") {
     flag += ` <${schemaType || "value"}>`;
   }
-  
+
   return flag;
 }
 
 /**
  * Format an argument name based on requirements
  */
-function formatArgumentName(
-  name: string,
-  required: boolean,
-  variadic?: boolean
-): string {
+function formatArgumentName(name: string, required: boolean, variadic?: boolean): string {
   let argName = name;
-  
+
   // Make optional arguments appear in square brackets
   if (!required) {
     argName = `[${argName}]`;
   } else {
     argName = `<${argName}>`;
   }
-  
+
   // Add ellipsis for variadic arguments
   if (variadic) {
     argName += "...";
   }
-  
+
   return argName;
 }
 
@@ -180,26 +162,26 @@ function addTypeHandlingToOption(
   if (customParser) {
     return option.argParser(customParser);
   }
-  
+
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-  case "number":
-    return option.argParser(value => {
-      const num = Number(value);
-      if (isNaN(num)) {
-        throw new Error("Option requires a number value");
-      }
-      return num;
-    });
-    
-  case "boolean":
-    return option;
-    
-  case "array":
-    return option.argParser(value => value.split(",").map(v => v.trim()));
-    
-  default:
-    return option;
+    case "number":
+      return option.argParser((value) => {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error("Option requires a number value");
+        }
+        return num;
+      });
+
+    case "boolean":
+      return option;
+
+    case "array":
+      return option.argParser((value) => value.split(",").map((v) => v.trim()));
+
+    default:
+      return option;
   }
 }
 
@@ -211,18 +193,23 @@ function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
   if (schema instanceof z.ZodString) return "string";
   if (schema instanceof z.ZodNumber) return "number";
   if (schema instanceof z.ZodBoolean) return "boolean";
-  
+
   // Handle arrays
   if (schema instanceof z.ZodArray) return "array";
-  
-  // Handle optional types (unwrap and check inner type)
+
+  // Handle optional types and nullable types (unwrap and check inner type)
   if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
     return getZodSchemaType(schema.unwrap());
   }
-  
+
+  // Handle default types (access inner type differently)
+  if (schema instanceof z.ZodDefault) {
+    return getZodSchemaType(schema._def.innerType);
+  }
+
   // Handle enums
   if (schema instanceof z.ZodEnum) return "string";
-  
+
   // Default to string for other types
   return "string";
 }
@@ -240,10 +227,10 @@ export function createParameterMappings(
     options: {
       // Apply default options
       hidden: paramDef.cliHidden,
-      
+
       // Override with custom options if available
-      ...customOptions[name]
-    }
+      ...customOptions[name],
+    },
   }));
 }
 
@@ -255,11 +242,11 @@ export function normalizeCliParameters(
   cliParameters: Record<string, any>
 ): Record<string, any> {
   const result: Record<string, any> = {};
-  
+
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
     const rawValue = cliParameters[paramName];
-    
+
     // Handle undefined values
     if (rawValue === undefined) {
       // Use default value if available
@@ -278,10 +265,12 @@ export function normalizeCliParameters(
         const parsedValue = paramDef.schema.parse(rawValue);
         result[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(`Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
-  
+
   return result;
-} 
+}

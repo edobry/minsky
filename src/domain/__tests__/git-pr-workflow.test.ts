@@ -1,10 +1,19 @@
+/**
+ * Git PR Workflow Tests
+ * @migrated Already using native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
+ */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { approveSessionFromParams } from "../session";
-import { GitService } from "../git";
-import { TaskService } from "../tasks";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors";
-import { createMock } from "../../utils/test-utils/mocking";
-import * as WorkspaceUtils from "../workspace";
+import { approveSessionFromParams } from "../session.ts";
+import { GitService } from "../git.ts";
+import { TaskService } from "../tasks.ts";
+import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors/index.ts";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../../utils/test-utils/assertions.ts";
+import * as WorkspaceUtils from "../workspace.ts";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("Session Approve Workflow", () => {
   // Create mocks for dependencies
@@ -48,23 +57,17 @@ describe("Session Approve Workflow", () => {
     getSessionByTaskId: createMock(() => Promise.resolve(null)),
   };
   
-  // Reset mocks before each test
+  // Reset mocks before each test is handled by setupTestMocks()
   beforeEach(() => {
-    // Clear mock calls
-    mockGitService.execInRepository.mockClear();
-    mockTaskService.getTask.mockClear();
-    mockTaskService.setTaskStatus.mockClear();
-    mockSessionDB.getSession.mockClear();
-    mockSessionDB.getSessionWorkdir.mockClear();
-    mockSessionDB.getSessionByTaskId.mockClear();
+    // Additional test-specific setup can go here if needed
   });
   
   test("successfully approves and merges a PR branch with task ID", async () => {
     const result = await approveSessionFromParams(
       { session: "test-session" },
       {
-        gitService: mockGitService as unknown as GitService,
-        taskService: mockTaskService as unknown as TaskService, 
+        gitService: mockGitService as any,
+        taskService: mockTaskService as any, 
         sessionDB: mockSessionDB as any,
         workspaceUtils: WorkspaceUtils,
       }
@@ -77,21 +80,19 @@ describe("Session Approve Workflow", () => {
     expect(result.mergedBy).toBe("test-user");
     expect(result.taskId).toBe("task025");
     
-    // Verify methods were called with expected parameters
-    expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
+    // Verify methods were called with expected parameters using our helpers
+    expectToHaveBeenCalledWith(mockSessionDB.getSession, "test-session");
+    expectToHaveBeenCalledWith(mockTaskService.setTaskStatus, "task025", "DONE");
     
-    // Check if the mock functions were called - simpler approach
-    expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus.mock.calls.length).toBeGreaterThan(0);
-    
-    // Verify task update was called with the right task ID
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("task025", "DONE");
+    // Verify methods were called
+    expectToHaveBeenCalled(mockGitService.execInRepository);
+    expectToHaveBeenCalled(mockTaskService.setTaskStatus);
   });
   
   test("throws ValidationError when session parameter is missing", async () => {
     await expect(approveSessionFromParams({}, {
-      gitService: mockGitService as unknown as GitService,
-      taskService: mockTaskService as unknown as TaskService,
+      gitService: mockGitService as any,
+      taskService: mockTaskService as any,
       sessionDB: mockSessionDB as any,
       workspaceUtils: WorkspaceUtils,
     })).rejects.toThrow("No session detected");
@@ -110,8 +111,8 @@ describe("Session Approve Workflow", () => {
     await expect(approveSessionFromParams(
       { session: "non-existent-session" },
       {
-        gitService: mockGitService as unknown as GitService,
-        taskService: mockTaskService as unknown as TaskService,
+        gitService: mockGitService as any,
+        taskService: mockTaskService as any,
         sessionDB: mockSessionDBWithNull as any,
         workspaceUtils: WorkspaceUtils,
       }
@@ -131,8 +132,8 @@ describe("Session Approve Workflow", () => {
     await expect(approveSessionFromParams(
       { session: "test-session" },
       {
-        gitService: mockGitServiceWithError as unknown as GitService,
-        taskService: mockTaskService as unknown as TaskService,
+        gitService: mockGitServiceWithError as any,
+        taskService: mockTaskService as any,
         sessionDB: mockSessionDB as any, 
         workspaceUtils: WorkspaceUtils,
       }

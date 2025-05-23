@@ -1,67 +1,79 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { updateSessionFromParams } from "../session.js";
-import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+/**
+ * Session Update Tests
+ * @migrated Migrated to native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
+ */
+import { describe, test, expect, beforeEach } from "bun:test";
+import { updateSessionFromParams } from "../session.ts";
+import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index.ts";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
+import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../../utils/test-utils/assertions.ts";
 
-// Mock dependencies
-const mockGitService = {
-  getSessionWorkdir: mock(() => "/mock/session/workdir"),
-  execInRepository: mock(() => ""),
-  stashChanges: mock(() => Promise.resolve()),
-  pullLatest: mock(() => Promise.resolve()),
-  mergeBranch: mock(() => Promise.resolve({ conflicts: false })),
-  push: mock(() => Promise.resolve()),
-  popStash: mock(() => Promise.resolve()),
-};
-
-const mockSessionProvider = {
-  getSession: mock(() => Promise.resolve({
-    session: "test-session",
-    repoName: "test-repo",
-    repoUrl: "https://example.com/test-repo",
-    branch: "test-branch",
-    createdAt: "2023-01-01",
-    taskId: "123"
-  })),
-};
-
-const mockGetCurrentSession = mock(() => Promise.resolve("test-session"));
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("updateSessionFromParams", () => {
+  // Mock dependencies
+  let mockGitService: any;
+  let mockSessionProvider: any;
+  let mockGetCurrentSession: any;
+
   beforeEach(() => {
-    // Reset all mocks
-    mockGitService.getSessionWorkdir.mockClear();
-    mockGitService.execInRepository.mockClear();
-    mockGitService.stashChanges.mockClear();
-    mockGitService.pullLatest.mockClear();
-    mockGitService.mergeBranch.mockClear();
-    mockGitService.push.mockClear();
-    mockGitService.popStash.mockClear();
-    mockSessionProvider.getSession.mockClear();
-    mockGetCurrentSession.mockClear();
+    // Create fresh mocks for each test
+    mockGitService = {
+      getSessionWorkdir: createMock(() => "/mock/session/workdir"),
+      execInRepository: createMock(() => ""),
+      stashChanges: createMock(() => Promise.resolve()),
+      pullLatest: createMock(() => Promise.resolve()),
+      mergeBranch: createMock(() => Promise.resolve({ conflicts: false })),
+      push: createMock(() => Promise.resolve()),
+      popStash: createMock(() => Promise.resolve()),
+    };
+
+    mockSessionProvider = {
+      getSession: createMock(() => Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "https://example.com/test-repo",
+        branch: "test-branch",
+        createdAt: "2023-01-01",
+        taskId: "123"
+      })),
+    };
+
+    mockGetCurrentSession = createMock(() => Promise.resolve("test-session"));
   });
 
   test("throws ValidationError when name is not provided", async () => {
-    await expect(updateSessionFromParams({} as any)).rejects.toBeInstanceOf(ValidationError);
+    try {
+      await updateSessionFromParams({ name: "", noStash: false, noPush: false, force: false } as any);
+      throw new Error("Should have thrown an error");
+    } catch (error: unknown) {
+      expectToBeInstanceOf(error, ValidationError);
+    }
   });
 
   test("throws ResourceNotFoundError when session does not exist", async () => {
-    mockSessionProvider.getSession.mockImplementationOnce(() => Promise.resolve(null));
+    mockSessionProvider.getSession.mockImplementation(() => Promise.resolve(null));
 
-    await expect(
-      updateSessionFromParams(
-        { name: "nonexistent-session" },
+    try {
+      await updateSessionFromParams(
+        { name: "nonexistent-session", noStash: false, noPush: false, force: false },
         {
           sessionDB: mockSessionProvider,
           gitService: mockGitService,
           getCurrentSession: mockGetCurrentSession,
         }
-      )
-    ).rejects.toBeInstanceOf(ResourceNotFoundError);
+      );
+      throw new Error("Should have thrown an error");
+    } catch (error: unknown) {
+      expectToBeInstanceOf(error, ResourceNotFoundError);
+    }
   });
 
   test("returns session information when update is successful", async () => {
     const result = await updateSessionFromParams(
-      { name: "test-session" },
+      { name: "test-session", noStash: false, noPush: false, force: false },
       {
         sessionDB: mockSessionProvider,
         gitService: mockGitService,
@@ -79,35 +91,38 @@ describe("updateSessionFromParams", () => {
       repoPath: "/mock/session/workdir",
     });
 
-    expect(mockGitService.stashChanges).toHaveBeenCalledTimes(1);
-    expect(mockGitService.pullLatest).toHaveBeenCalledTimes(1);
-    expect(mockGitService.mergeBranch).toHaveBeenCalledTimes(1);
-    expect(mockGitService.push).toHaveBeenCalledTimes(1);
-    expect(mockGitService.popStash).toHaveBeenCalledTimes(1);
+    expectToHaveBeenCalled(mockGitService.stashChanges);
+    expectToHaveBeenCalled(mockGitService.pullLatest);
+    expectToHaveBeenCalled(mockGitService.mergeBranch);
+    expectToHaveBeenCalled(mockGitService.push);
+    expectToHaveBeenCalled(mockGitService.popStash);
   });
 
   test("throws error when workspace is dirty and force is not set", async () => {
     // Mock dirty workspace
-    mockGitService.execInRepository.mockImplementationOnce(() => Promise.resolve("M file.txt"));
+    mockGitService.execInRepository.mockImplementation(() => Promise.resolve("M file.txt"));
 
-    await expect(
-      updateSessionFromParams(
-        { name: "test-session", force: false },
+    try {
+      await updateSessionFromParams(
+        { name: "test-session", force: false, noStash: false, noPush: false },
         {
           sessionDB: mockSessionProvider,
           gitService: mockGitService,
           getCurrentSession: mockGetCurrentSession,
         }
-      )
-    ).rejects.toBeInstanceOf(MinskyError);
+      );
+      throw new Error("Should have thrown an error");
+    } catch (error: unknown) {
+      expectToBeInstanceOf(error, MinskyError);
+    }
   });
 
   test("updates session when workspace is dirty and force is set", async () => {
     // Mock dirty workspace
-    mockGitService.execInRepository.mockImplementationOnce(() => Promise.resolve("M file.txt"));
+    mockGitService.execInRepository.mockImplementation(() => Promise.resolve("M file.txt"));
 
     const result = await updateSessionFromParams(
-      { name: "test-session", force: true },
+      { name: "test-session", force: true, noStash: false, noPush: false },
       {
         sessionDB: mockSessionProvider,
         gitService: mockGitService,
@@ -126,15 +141,15 @@ describe("updateSessionFromParams", () => {
     });
 
     // Verify that the update proceeded despite dirty workspace
-    expect(mockGitService.stashChanges).toHaveBeenCalledTimes(1);
-    expect(mockGitService.pullLatest).toHaveBeenCalledTimes(1);
-    expect(mockGitService.mergeBranch).toHaveBeenCalledTimes(1);
-    expect(mockGitService.push).toHaveBeenCalledTimes(1);
+    expectToHaveBeenCalled(mockGitService.stashChanges);
+    expectToHaveBeenCalled(mockGitService.pullLatest);
+    expectToHaveBeenCalled(mockGitService.mergeBranch);
+    expectToHaveBeenCalled(mockGitService.push);
   });
 
   test("skips stashing when noStash is true", async () => {
     await updateSessionFromParams(
-      { name: "test-session", noStash: true },
+      { name: "test-session", noStash: true, noPush: false, force: false },
       {
         sessionDB: mockSessionProvider,
         gitService: mockGitService,
@@ -142,16 +157,16 @@ describe("updateSessionFromParams", () => {
       }
     );
 
-    expect(mockGitService.stashChanges).toHaveBeenCalledTimes(0);
-    expect(mockGitService.popStash).toHaveBeenCalledTimes(0);
-    expect(mockGitService.pullLatest).toHaveBeenCalledTimes(1);
-    expect(mockGitService.mergeBranch).toHaveBeenCalledTimes(1);
-    expect(mockGitService.push).toHaveBeenCalledTimes(1);
+    expect(mockGitService.stashChanges.mock.calls.length).toBe(0);
+    expect(mockGitService.popStash.mock.calls.length).toBe(0);
+    expectToHaveBeenCalled(mockGitService.pullLatest);
+    expectToHaveBeenCalled(mockGitService.mergeBranch);
+    expectToHaveBeenCalled(mockGitService.push);
   });
 
   test("skips pushing when noPush is true", async () => {
     await updateSessionFromParams(
-      { name: "test-session", noPush: true },
+      { name: "test-session", noPush: true, noStash: false, force: false },
       {
         sessionDB: mockSessionProvider,
         gitService: mockGitService,
@@ -159,25 +174,28 @@ describe("updateSessionFromParams", () => {
       }
     );
 
-    expect(mockGitService.stashChanges).toHaveBeenCalledTimes(1);
-    expect(mockGitService.pullLatest).toHaveBeenCalledTimes(1);
-    expect(mockGitService.mergeBranch).toHaveBeenCalledTimes(1);
-    expect(mockGitService.push).toHaveBeenCalledTimes(0);
-    expect(mockGitService.popStash).toHaveBeenCalledTimes(1);
+    expectToHaveBeenCalled(mockGitService.stashChanges);
+    expectToHaveBeenCalled(mockGitService.pullLatest);
+    expectToHaveBeenCalled(mockGitService.mergeBranch);
+    expect(mockGitService.push.mock.calls.length).toBe(0);
+    expectToHaveBeenCalled(mockGitService.popStash);
   });
 
   test("throws error when merge conflicts are detected", async () => {
-    mockGitService.mergeBranch.mockImplementationOnce(() => Promise.resolve({ conflicts: true }));
+    mockGitService.mergeBranch.mockImplementation(() => Promise.resolve({ conflicts: true }));
 
-    await expect(
-      updateSessionFromParams(
-        { name: "test-session" },
+    try {
+      await updateSessionFromParams(
+        { name: "test-session", noStash: false, noPush: false, force: false },
         {
           sessionDB: mockSessionProvider,
           gitService: mockGitService,
           getCurrentSession: mockGetCurrentSession,
         }
-      )
-    ).rejects.toBeInstanceOf(MinskyError);
+      );
+      throw new Error("Should have thrown an error");
+    } catch (error: unknown) {
+      expectToBeInstanceOf(error, MinskyError);
+    }
   });
 }); 

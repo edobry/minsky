@@ -190,11 +190,19 @@ export class CliCommandBridge {
           // Use custom formatter if provided
           options.outputFormatter(result);
         } else {
-          // Use standard outputResult utility
-          outputResult(result, {
-            json: !!rawParameters.json,
-            formatter: this.getDefaultFormatter(commandDef),
-          });
+          // Use standard outputResult utility with JSON handling
+          if (context.format === "json") {
+            // For JSON output, bypass the default formatter and output JSON directly
+            outputResult(result, {
+              json: true,
+            });
+          } else {
+            // Use default formatter for text output
+            outputResult(result, {
+              json: false,
+              formatter: this.getDefaultFormatter(commandDef),
+            });
+          }
         }
       } catch (error) {
         // Handle any errors using the CLI error handler
@@ -363,7 +371,27 @@ export class CliCommandBridge {
   private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
     // Very simple default formatter
     return (result: any) => {
-      if (typeof result === "object" && result !== null) {
+      if (Array.isArray(result)) {
+        // Handle arrays specifically
+        if (result.length === 0) {
+          log.cli("No results found.");
+        } else {
+          result.forEach((item, index) => {
+            if (typeof item === "object" && item !== null) {
+              // For objects in arrays, try to display meaningful information
+              if (item.id && item.title) {
+                // Looks like a task or similar entity
+                log.cli(`- ${item.id}: ${item.title}${item.status ? ` [${item.status}]` : ""}`);
+              } else {
+                // Generic object display
+                log.cli(`${index + 1}. ${JSON.stringify(item)}`);
+              }
+            } else {
+              log.cli(`${index + 1}. ${item}`);
+            }
+          });
+        }
+      } else if (typeof result === "object" && result !== null) {
         // If the result has a simple shape, format it nicely
         Object.entries(result).forEach(([key, value]) => {
           if (typeof value !== "object" || value === null) {

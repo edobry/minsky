@@ -1,0 +1,3680 @@
+{
+  "timestamp": "2025-05-21T19:16:49.451Z",
+  "testFilesCount": 53,
+  "testFiles": [
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/test-utils/__tests__/enhanced-utils.test.ts",
+      "relativePath": "src/utils/test-utils/__tests__/enhanced-utils.test.ts",
+      "size": 7900,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 2,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 8,
+          "jestTest": 12,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 30,
+          "jestToBe": 16,
+          "jestToEqual": 1,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 9,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 2,
+          "jestToContain": 1,
+          "jestToThrow": 0,
+          "jestToMatch": 1,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 1,
+          "createTestDeps": 4,
+          "createTestSuite": 1,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../mocking",
+        "../dependencies",
+        "../factories"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/test-utils/__tests__/enhanced-utils.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/test-utils/__tests__/compatibility.test.ts",
+      "relativePath": "src/utils/test-utils/__tests__/compatibility.test.ts",
+      "size": 8192,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 2,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 17,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 42,
+          "jestToBe": 39,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 1,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 2,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../index"
+      ],
+      "mockDependencies": [
+        "some/module/path",
+        "another/module/path"
+      ],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/utils/test-utils/__tests__/compatibility.test.ts - low mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/test-utils/__tests__/mocking.test.ts",
+      "relativePath": "src/utils/test-utils/__tests__/mocking.test.ts",
+      "size": 1765,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 2,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 2
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 9,
+          "jestToBe": 8,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 1,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../mocking.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/test-utils/__tests__/mocking.test.ts - medium mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/__tests__/param-schemas.test.ts",
+      "relativePath": "src/utils/__tests__/param-schemas.test.ts",
+      "size": 3176,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 0,
+          "jestIt": 4,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 12,
+          "jestToBe": 10,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../param-schemas.js",
+        "zod"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/__tests__/param-schemas.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/__tests__/option-descriptions.test.ts",
+      "relativePath": "src/utils/__tests__/option-descriptions.test.ts",
+      "size": 3722,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 1,
+          "jestIt": 10,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 28,
+          "jestToBe": 3,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../option-descriptions.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/__tests__/option-descriptions.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/filter-messages.test.ts",
+      "relativePath": "src/utils/filter-messages.test.ts",
+      "size": 2348,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 4,
+          "jestTest": 9,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 13,
+          "jestToBe": 6,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 2,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./filter-messages"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/filter-messages.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/utils/logger.test.ts",
+      "relativePath": "src/utils/logger.test.ts",
+      "size": 1628,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 2,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 5,
+          "jestToBe": 5,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./logger"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/utils/logger.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/cli/utils/__tests__/shared-options.test.ts",
+      "relativePath": "src/adapters/cli/utils/__tests__/shared-options.test.ts",
+      "size": 4823,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 0,
+          "jestIt": 9,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 16,
+          "jestToBe": 0,
+          "jestToEqual": 5,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 7,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "commander",
+        "../shared-options.js"
+      ],
+      "mockDependencies": [
+        "../../../../domain/tasks.js"
+      ],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/cli/utils/__tests__/shared-options.test.ts - low mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/cli/__tests__/git-merge-pr.test.ts",
+      "relativePath": "src/adapters/cli/__tests__/git-merge-pr.test.ts",
+      "size": 2565,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 1,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 4,
+          "jestToBe": 3,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/git",
+        "../../../utils/test-utils/mocking"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/cli/__tests__/git-merge-pr.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/rules.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/rules.test.ts",
+      "size": 10991,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 5,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 6,
+          "jestTest": 15,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 40,
+          "jestToBe": 16,
+          "jestToEqual": 9,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 12,
+          "jestToContain": 0,
+          "jestToThrow": 3,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/rules.js",
+        "../../../utils/test-utils/mocking.js"
+      ],
+      "mockDependencies": [
+        "../../../domain/rules.js"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/rules.test.ts - medium mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/workspace.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/workspace.test.ts",
+      "size": 10443,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 5,
+          "jestTest": 15,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 16,
+          "jestToBe": 10,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 3,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 1,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/workspace.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/workspace.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/mcp-rules.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/mcp-rules.test.ts",
+      "size": 9241,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 40,
+          "jestToBe": 6,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 3,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 10,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../mcp/command-mapper.js",
+        "../../../adapters/mcp/rules.js",
+        "../../../domain/workspace.js",
+        "../../../domain/rules.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/mcp-rules.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/tasks.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/tasks.test.ts",
+      "size": 8121,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 4,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 5,
+          "jestTest": 12,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 24,
+          "jestToBe": 7,
+          "jestToEqual": 5,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 9,
+          "jestToContain": 0,
+          "jestToThrow": 3,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/tasks.js",
+        "../../../utils/test-utils/mocking.js",
+        "../../../schemas/tasks.js"
+      ],
+      "mockDependencies": [
+        "../../../domain/tasks.js"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/tasks.test.ts - medium mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/tasks-mcp.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/tasks-mcp.test.ts",
+      "size": 2683,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 4,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 0,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 0,
+          "jestToBe": 0,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/tasks.js",
+        "../../../utils/test-utils/mocking.js"
+      ],
+      "mockDependencies": [
+        "../../../domain/tasks.js"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/tasks-mcp.test.ts - medium mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/git.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/git.test.ts",
+      "size": 5300,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 6,
+          "jestIt": 12,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 11,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 10,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/git.js",
+        "path",
+        "fs/promises",
+        "os",
+        "fs",
+        "child_process"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/git.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/integration/session.test.ts",
+      "relativePath": "src/adapters/__tests__/integration/session.test.ts",
+      "size": 14925,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 11,
+          "mockFunction": 0,
+          "mockModule": 4,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 8,
+          "jestTest": 18,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 40,
+          "jestToBe": 13,
+          "jestToEqual": 7,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 2,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 12,
+          "jestToContain": 0,
+          "jestToThrow": 6,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../domain/session.js",
+        "../../../schemas/session.js",
+        "../../../domain/git.js",
+        "../../../domain/tasks.js",
+        "../../../domain/workspace.js",
+        "../../../utils/test-utils/mocking.js"
+      ],
+      "mockDependencies": [
+        "../../../domain/session.js",
+        "../../../domain/session.js",
+        "../../../domain/session.js",
+        "../../../domain/session.js"
+      ],
+      "classification": {
+        "mockingComplexity": "high",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/integration/session.test.ts - high mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/shared/commands/rules.test.ts",
+      "relativePath": "src/adapters/__tests__/shared/commands/rules.test.ts",
+      "size": 13293,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 6,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 41,
+          "jestToBe": 14,
+          "jestToEqual": 5,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 6,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 16,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../../adapters/shared/commands/rules.js",
+        "../../../../adapters/shared/command-registry.js",
+        "../../../../domain/workspace.js",
+        "../../../../domain/rules.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/shared/commands/rules.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/shared/commands/tasks.test.ts",
+      "relativePath": "src/adapters/__tests__/shared/commands/tasks.test.ts",
+      "size": 4004,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 3,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 14,
+          "jestToBe": 5,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 4,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 3,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../../adapters/shared/commands/tasks.js",
+        "../../../../adapters/shared/command-registry.js",
+        "../../../../domain/tasks.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/shared/commands/tasks.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/shared/commands/git.test.ts",
+      "relativePath": "src/adapters/__tests__/shared/commands/git.test.ts",
+      "size": 3906,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 3,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 13,
+          "jestToBe": 5,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 4,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 2,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../../adapters/shared/commands/git.js",
+        "../../../../adapters/shared/command-registry.js",
+        "../../../../domain/git.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/shared/commands/git.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/shared/commands/session.test.ts",
+      "relativePath": "src/adapters/__tests__/shared/commands/session.test.ts",
+      "size": 13208,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 9,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 27,
+          "jestToBe": 2,
+          "jestToEqual": 8,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 9,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 8,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../../adapters/shared/commands/session.js",
+        "../../../../adapters/shared/command-registry.js",
+        "../../../../domain/session.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/shared/commands/session.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/rules.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/rules.test.ts",
+      "size": 1217,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 5,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 5,
+          "jestToBe": 1,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 2,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../cli/rules.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/cli/rules.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/cli-rules-integration.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/cli-rules-integration.test.ts",
+      "size": 1161,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 5,
+          "jestToBe": 1,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 2,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../cli/rules.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/cli/cli-rules-integration.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/integration-example.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/integration-example.test.ts",
+      "size": 1431,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 4,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 2,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 1,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../../../adapters/cli/integration-example.js",
+        "../../../adapters/shared/command-registry.js",
+        "../../../adapters/shared/commands/git.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/cli/integration-example.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/tasks.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/tasks.test.ts",
+      "size": 556,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 1,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 1,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/cli/tasks.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/rules-helpers.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/rules-helpers.test.ts",
+      "size": 4451,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 3,
+          "mockFunction": 0,
+          "mockModule": 2,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 9,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 9,
+          "jestToBe": 3,
+          "jestToEqual": 4,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 2,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "fs",
+        "path",
+        "../../../utils/test-utils/mocking",
+        "../../cli/rules.js"
+      ],
+      "mockDependencies": [
+        "fs",
+        "fs/promises"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/cli/rules-helpers.test.ts - medium mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/session.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/session.test.ts",
+      "size": 753,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 2,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 2,
+          "jestToBe": 2,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/adapters/__tests__/cli/session.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/adapters/__tests__/cli/integration-simplified.test.ts",
+      "relativePath": "src/adapters/__tests__/cli/integration-simplified.test.ts",
+      "size": 1496,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 1,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 9,
+          "jestToBe": 6,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 3,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "commander",
+        "../../../adapters/shared/command-registry.js",
+        "../../../adapters/shared/commands/git.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "integration"
+      },
+      "summary": "src/adapters/__tests__/cli/integration-simplified.test.ts - low mocking complexity, integration test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/errors/__tests__/network-errors.test.ts",
+      "relativePath": "src/errors/__tests__/network-errors.test.ts",
+      "size": 5015,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 7,
+          "jestTest": 11,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 33,
+          "jestToBe": 21,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 10,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../network-errors.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/errors/__tests__/network-errors.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/rules.test.ts",
+      "relativePath": "src/domain/rules.test.ts",
+      "size": 14246,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 6,
+          "jestTest": 16,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 74,
+          "jestToBe": 49,
+          "jestToEqual": 4,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 3,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 14,
+          "jestToThrow": 2,
+          "jestToMatch": 0,
+          "jestRejects": 2,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./rules.js",
+        "fs",
+        "path",
+        "gray-matter",
+        "../utils/logger.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/rules.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/tasks/utils.test.ts",
+      "relativePath": "src/domain/tasks/utils.test.ts",
+      "size": 1907,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 2,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 1,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./utils"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/tasks/utils.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/tasks/__tests__/taskService.test.ts",
+      "relativePath": "src/domain/tasks/__tests__/taskService.test.ts",
+      "size": 7711,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 7,
+          "jestTest": 15,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 36,
+          "jestToBe": 12,
+          "jestToEqual": 1,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 4,
+          "jestToBeDefined": 1,
+          "jestToBeUndefined": 1,
+          "jestToHaveBeenCalled": 12,
+          "jestToHaveBeenCalledWith": 1,
+          "jestToContain": 0,
+          "jestToThrow": 3,
+          "jestToMatch": 0,
+          "jestRejects": 2,
+          "jestResolves": 1
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../taskService.js",
+        "../markdownTaskBackend.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/tasks/__tests__/taskService.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/tasks/__tests__/taskFunctions.test.ts",
+      "relativePath": "src/domain/tasks/__tests__/taskFunctions.test.ts",
+      "size": 13388,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 12,
+          "jestTest": 41,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 91,
+          "jestToBe": 52,
+          "jestToEqual": 9,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 6,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 1,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 11,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../taskFunctions.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/tasks/__tests__/taskFunctions.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/rules-format.test.ts",
+      "relativePath": "src/domain/rules-format.test.ts",
+      "size": 5483,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 5,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 24,
+          "jestToBe": 14,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 2,
+          "jestToBeUndefined": 4,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 2,
+          "jestToThrow": 2,
+          "jestToMatch": 0,
+          "jestRejects": 2,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./rules",
+        "fs",
+        "path"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/rules-format.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/workspace.test.ts",
+      "relativePath": "src/domain/workspace.test.ts",
+      "size": 21220,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 1,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 7,
+          "jestTest": 24,
+          "jestIt": 0,
+          "jestBeforeEach": 3,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 54,
+          "jestToBe": 37,
+          "jestToEqual": 12,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 3,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 1,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "path",
+        "./workspace",
+        "./session",
+        "fs",
+        "../utils/exec.js",
+        "../utils/process.js",
+        "../utils/test-utils/mocking.js",
+        "../utils/process.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/workspace.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/repo-utils.test.ts",
+      "relativePath": "src/domain/repo-utils.test.ts",
+      "size": 5355,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 40,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 5,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 13,
+          "jestToBe": 10,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 3,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./repo-utils",
+        "../utils/test-utils/mocking",
+        "./session"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "high",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/repo-utils.test.ts - high mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/tasks.specpath.test.ts",
+      "relativePath": "src/domain/tasks.specpath.test.ts",
+      "size": 0,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 0,
+          "jestTest": 0,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 0,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 0,
+          "jestToBe": 0,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "none",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/tasks.specpath.test.ts - low mocking complexity, unit test, none framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/tasks.test.ts",
+      "relativePath": "src/domain/tasks.test.ts",
+      "size": 19289,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 8,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 3,
+          "jestTest": 0,
+          "jestIt": 23,
+          "jestBeforeEach": 3,
+          "jestAfterEach": 2,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 65,
+          "jestToBe": 34,
+          "jestToEqual": 3,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 2,
+          "jestToBeDefined": 6,
+          "jestToBeUndefined": 3,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 4,
+          "jestToThrow": 5,
+          "jestToMatch": 6,
+          "jestRejects": 4,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./tasks",
+        "fs",
+        "path",
+        "./repo-utils",
+        "path"
+      ],
+      "mockDependencies": [
+        "fs",
+        "fs",
+        "fs",
+        "fs",
+        "fs",
+        "fs",
+        "fs",
+        "fs"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "integration"
+      },
+      "summary": "src/domain/tasks.test.ts - medium mocking complexity, integration test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/git-pr-workflow.test.ts",
+      "relativePath": "src/domain/__tests__/git-pr-workflow.test.ts",
+      "size": 5188,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 8,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 12,
+          "jestToBe": 4,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 1,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 2,
+          "jestToContain": 0,
+          "jestToThrow": 3,
+          "jestToMatch": 0,
+          "jestRejects": 3,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../session",
+        "../git",
+        "../tasks",
+        "../../errors",
+        "../../utils/test-utils/mocking",
+        "../workspace"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/git-pr-workflow.test.ts - medium mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/git-default-branch.test.ts",
+      "relativePath": "src/domain/__tests__/git-default-branch.test.ts",
+      "size": 2482,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 1,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 3,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 6,
+          "jestToBe": 5,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../git",
+        "../../utils/test-utils/mocking"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/git-default-branch.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts",
+      "relativePath": "src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts",
+      "size": 1582,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 4,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 1,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 1,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../git",
+        "../tasks"
+      ],
+      "mockDependencies": [
+        "child_process"
+      ],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts - medium mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/session-approve.test.ts",
+      "relativePath": "src/domain/__tests__/session-approve.test.ts",
+      "size": 9493,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 36,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 5,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 23,
+          "jestToBe": 11,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 7,
+          "jestToContain": 2,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 1,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../session",
+        "../git",
+        "../tasks",
+        "../../errors",
+        "../../utils/test-utils/mocking",
+        "../workspace"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "high",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/session-approve.test.ts - high mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/session-update.test.ts",
+      "relativePath": "src/domain/__tests__/session-update.test.ts",
+      "size": 6237,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 8,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 25,
+          "jestToBe": 0,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 4,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../session.js",
+        "../../errors/index.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/session-update.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/repository-uri.test.ts",
+      "relativePath": "src/domain/__tests__/repository-uri.test.ts",
+      "size": 6049,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 8,
+          "jestTest": 21,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 38,
+          "jestToBe": 35,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 2,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 1,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "fs/promises",
+        "path",
+        "os",
+        "fs",
+        "../uri-utils.js",
+        "../repository-uri.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/repository-uri.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/uri-utils.test.ts",
+      "relativePath": "src/domain/__tests__/uri-utils.test.ts",
+      "size": 3101,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 4,
+          "jestTest": 10,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 10,
+          "jestToBe": 4,
+          "jestToEqual": 6,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../uri-utils.js",
+        "../../errors/index.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/uri-utils.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/workspace.test.ts",
+      "relativePath": "src/domain/__tests__/workspace.test.ts",
+      "size": 1981,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 0,
+          "jestIt": 4,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 5,
+          "jestToBe": 3,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 1,
+          "jestToContain": 0,
+          "jestToThrow": 1,
+          "jestToMatch": 0,
+          "jestRejects": 1,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../workspace",
+        "fs",
+        "path"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/workspace.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/github-backend.test.ts",
+      "relativePath": "src/domain/__tests__/github-backend.test.ts",
+      "size": 4284,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 12,
+          "jestToBe": 9,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 3,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../repository/github.js",
+        "path",
+        "fs/promises",
+        "os",
+        "child_process"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/github-backend.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/repository.test.ts",
+      "relativePath": "src/domain/__tests__/repository.test.ts",
+      "size": 919,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 4,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 4,
+          "jestToBe": 4,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/repository.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/tasks.test.ts",
+      "relativePath": "src/domain/__tests__/tasks.test.ts",
+      "size": 6780,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 9,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 5,
+          "jestTest": 10,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 22,
+          "jestToBe": 11,
+          "jestToEqual": 4,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 7,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../tasks.js",
+        "../../errors/index.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "medium",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/tasks.test.ts - medium mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/__tests__/github-basic.test.ts",
+      "relativePath": "src/domain/__tests__/github-basic.test.ts",
+      "size": 1510,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 3,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 4,
+          "jestToBe": 4,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "../repository/github.js"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/__tests__/github-basic.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/git.test.ts",
+      "relativePath": "src/domain/git.test.ts",
+      "size": 1158,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 2,
+          "jestIt": 0,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 1,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./git"
+      ],
+      "mockDependencies": [
+        "child_process"
+      ],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/domain/git.test.ts - low mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/git.pr.test.ts",
+      "relativePath": "src/domain/git.pr.test.ts",
+      "size": 913,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 1,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 1,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 1,
+          "jestIt": 0,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 1,
+          "jestToBe": 1,
+          "jestToEqual": 0,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 0,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./git"
+      ],
+      "mockDependencies": [
+        "child_process"
+      ],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "medium",
+        "testType": "unit"
+      },
+      "summary": "src/domain/git.pr.test.ts - low mocking complexity, unit test, bun framework, medium migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/session/session-adapter.test.ts",
+      "relativePath": "src/domain/session/session-adapter.test.ts",
+      "size": 4684,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 1,
+          "jestTest": 0,
+          "jestIt": 8,
+          "jestBeforeEach": 1,
+          "jestAfterEach": 1,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 13,
+          "jestToBe": 6,
+          "jestToEqual": 2,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 3,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 2,
+          "jestToThrow": 0,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./session-adapter",
+        "fs",
+        "path"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/session/session-adapter.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    },
+    {
+      "path": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114/src/domain/session/session-db.test.ts",
+      "relativePath": "src/domain/session/session-db.test.ts",
+      "size": 7520,
+      "counts": {
+        "mockPatterns": {
+          "jestMock": 0,
+          "bunMock": 0,
+          "customMock": 0,
+          "mockFunction": 0,
+          "mockModule": 0,
+          "spyOn": 0
+        },
+        "frameworkFeatures": {
+          "jestDescribe": 10,
+          "jestTest": 0,
+          "jestIt": 19,
+          "jestBeforeEach": 0,
+          "jestAfterEach": 0,
+          "jestBeforeAll": 0,
+          "jestAfterAll": 0,
+          "bunImport": 1,
+          "jestImport": 0,
+          "vitestImport": 0
+        },
+        "assertionStyles": {
+          "jestExpect": 34,
+          "jestToBe": 16,
+          "jestToEqual": 3,
+          "jestToStrictEqual": 0,
+          "jestToBeNull": 9,
+          "jestToBeDefined": 0,
+          "jestToBeUndefined": 0,
+          "jestToHaveBeenCalled": 0,
+          "jestToHaveBeenCalledWith": 0,
+          "jestToContain": 0,
+          "jestToThrow": 1,
+          "jestToMatch": 0,
+          "jestRejects": 0,
+          "jestResolves": 0
+        },
+        "utilities": {
+          "testUtils": 0,
+          "mocking": 0,
+          "factories": 0,
+          "dependencies": 0,
+          "withMockedDeps": 0,
+          "createTestDeps": 0,
+          "createTestSuite": 0,
+          "withCleanup": 0
+        }
+      },
+      "imports": [
+        "bun:test",
+        "./session-db"
+      ],
+      "mockDependencies": [],
+      "classification": {
+        "mockingComplexity": "low",
+        "frameworkDependency": "bun",
+        "migrationDifficulty": "easy",
+        "testType": "unit"
+      },
+      "summary": "src/domain/session/session-db.test.ts - low mocking complexity, unit test, bun framework, easy migration"
+    }
+  ],
+  "totals": {
+    "mockPatterns": {
+      "jestMock": 14,
+      "bunMock": 0,
+      "customMock": 118,
+      "mockFunction": 0,
+      "mockModule": 23,
+      "spyOn": 2
+    },
+    "frameworkFeatures": {
+      "jestDescribe": 153,
+      "jestTest": 357,
+      "jestIt": 89,
+      "jestBeforeEach": 33,
+      "jestAfterEach": 15,
+      "jestBeforeAll": 0,
+      "jestAfterAll": 0,
+      "bunImport": 52,
+      "jestImport": 0,
+      "vitestImport": 0
+    },
+    "assertionStyles": {
+      "jestExpect": 1063,
+      "jestToBe": 529,
+      "jestToEqual": 100,
+      "jestToStrictEqual": 0,
+      "jestToBeNull": 36,
+      "jestToBeDefined": 50,
+      "jestToBeUndefined": 21,
+      "jestToHaveBeenCalled": 12,
+      "jestToHaveBeenCalledWith": 103,
+      "jestToContain": 64,
+      "jestToThrow": 29,
+      "jestToMatch": 7,
+      "jestRejects": 18,
+      "jestResolves": 1
+    },
+    "utilities": {
+      "testUtils": 11,
+      "mocking": 0,
+      "factories": 0,
+      "dependencies": 0,
+      "withMockedDeps": 1,
+      "createTestDeps": 4,
+      "createTestSuite": 1,
+      "withCleanup": 0
+    }
+  },
+  "categoryCounts": {
+    "mockingComplexity": {
+      "low": 41,
+      "medium": 9,
+      "high": 3
+    },
+    "frameworkDependency": {
+      "jest": 0,
+      "vitest": 0,
+      "bun": 52,
+      "mixed": 0,
+      "none": 1
+    },
+    "migrationDifficulty": {
+      "easy": 46,
+      "medium": 7,
+      "hard": 0
+    },
+    "testType": {
+      "unit": 42,
+      "integration": 11,
+      "e2e": 0,
+      "unknown": 0
+    }
+  },
+  "topUtilities": [
+    {
+      "name": "testUtils",
+      "count": 11
+    },
+    {
+      "name": "createTestDeps",
+      "count": 4
+    },
+    {
+      "name": "withMockedDeps",
+      "count": 1
+    },
+    {
+      "name": "createTestSuite",
+      "count": 1
+    },
+    {
+      "name": "mocking",
+      "count": 0
+    },
+    {
+      "name": "factories",
+      "count": 0
+    },
+    {
+      "name": "dependencies",
+      "count": 0
+    },
+    {
+      "name": "withCleanup",
+      "count": 0
+    }
+  ],
+  "failingPatterns": [
+    {
+      "pattern": "jest.spyOn usage",
+      "files": [
+        "src/utils/test-utils/__tests__/mocking.test.ts"
+      ]
+    }
+  ]
+}

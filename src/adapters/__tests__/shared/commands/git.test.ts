@@ -1,10 +1,17 @@
 /**
  * Shared Git Commands Tests
+ * @migrated Migrated to native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { registerGitCommands } from "../../../../adapters/shared/commands/git.js";
 import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
 import * as gitDomain from "../../../../domain/git.js";
+import { expectToHaveBeenCalled, getMockCallArg, expectToHaveLength } from "../../../../utils/test-utils/assertions.js";
+import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("Shared Git Commands", () => {
   // Set up spies for domain functions
@@ -33,9 +40,8 @@ describe("Shared Git Commands", () => {
   });
 
   afterEach(() => {
-    // Restore original functions
-    commitSpy.mockRestore();
-    pushSpy.mockRestore();
+    // Restore all mocks for clean tests
+    mock.restore();
   });
 
   test("registerGitCommands should register git commands in registry", () => {
@@ -44,7 +50,7 @@ describe("Shared Git Commands", () => {
     
     // Verify commands were registered
     const gitCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.GIT);
-    expect(gitCommands.length).toBe(2);
+    expectToHaveLength(gitCommands, 2);
     
     // Verify commit command
     const commitCommand = sharedCommandRegistry.getCommand("git.commit");
@@ -77,7 +83,8 @@ describe("Shared Git Commands", () => {
     const result = await commitCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(commitSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(commitSpy);
+    expect(getMockCallArg(commitSpy, 0, 0)).toEqual({
       message: "test commit message",
       all: true,
       repo: "/test/repo",
@@ -111,7 +118,8 @@ describe("Shared Git Commands", () => {
     const result = await pushCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(pushSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(pushSpy);
+    expect(getMockCallArg(pushSpy, 0, 0)).toEqual({
       repo: "/test/repo",
       force: true,
       remote: undefined,

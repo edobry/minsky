@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.ts";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.js";
 
 // Test to verify the helper functions work correctly
 describe("Rules CLI Helper Functions Integration", () => {
@@ -9,7 +9,7 @@ describe("Rules CLI Helper Functions Integration", () => {
     expect(commaGlobs).toEqual(["**/*.ts", "**/*.js", "*.md"]);
 
     // Test JSON array format
-    const jsonGlobs = parseGlobs("[\"**/*.ts\", \"**/*.js\", \"*.md\"]");
+    const jsonGlobs = parseGlobs('["**/*.ts", "**/*.js", "*.md"]');
     expect(jsonGlobs).toEqual(["**/*.ts", "**/*.js", "*.md"]);
 
     // Test undefined input

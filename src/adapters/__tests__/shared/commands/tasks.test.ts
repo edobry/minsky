@@ -1,10 +1,12 @@
 /**
  * Shared Tasks Commands Tests
+ * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { registerTasksCommands } from "../../../../adapters/shared/commands/tasks.js";
 import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
 import * as tasksDomain from "../../../../domain/tasks.js";
+import { expectToHaveLength, expectToHaveBeenCalled, getMockCallArg } from "../../../../utils/test-utils/assertions.js";
 
 describe("Shared Tasks Commands", () => {
   // Set up spies for domain functions
@@ -28,8 +30,7 @@ describe("Shared Tasks Commands", () => {
 
   afterEach(() => {
     // Restore original functions
-    getTaskStatusSpy.mockRestore();
-    setTaskStatusSpy.mockRestore();
+    mock.restore();
   });
 
   test("registerTasksCommands should register tasks commands in registry", () => {
@@ -38,7 +39,7 @@ describe("Shared Tasks Commands", () => {
     
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expect(tasksCommands.length).toBe(2);
+    expectToHaveLength(tasksCommands, 2);
     
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
@@ -70,7 +71,8 @@ describe("Shared Tasks Commands", () => {
     const result = await getCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(getTaskStatusSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(getTaskStatusSpy);
+    expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
       taskId: "123",
       repo: "/test/repo",
       session: undefined,
@@ -102,14 +104,16 @@ describe("Shared Tasks Commands", () => {
     const result = await setCommand!.execute(params, context);
     
     // Verify domain function was called to get previous status
-    expect(getTaskStatusSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(getTaskStatusSpy);
+    expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
       taskId: "123",
       repo: undefined,
       session: "test-session",
     });
     
     // Verify domain function was called to set status
-    expect(setTaskStatusSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(setTaskStatusSpy);
+    expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
       taskId: "123",
       status: "IN-PROGRESS",
       repo: undefined,

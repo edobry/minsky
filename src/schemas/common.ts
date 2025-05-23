@@ -35,7 +35,36 @@ export const sessionNameSchema = z.string().min(1).max(100);
  * Task ID schema
  * Validates and normalizes task IDs (with or without the # prefix)
  */
-export const taskIdSchema = z.string().regex(/^#[a-zA-Z0-9]+$/);
+export const taskIdSchema = z
+  .string()
+  .transform((val) => {
+    // Normalize the task ID to #XXX format
+    if (!val) return val;
+
+    let normalized = val.trim();
+
+    // Handle formats like "task#064" or "task#64"
+    if (normalized.toLowerCase().startsWith("task#")) {
+      normalized = normalized.substring(5);
+    }
+
+    // Remove all leading '#' characters to avoid multiple hashes
+    while (normalized.startsWith("#")) {
+      normalized = normalized.substring(1);
+    }
+
+    // Check if the result is a valid number (integer)
+    if (!/^[0-9]+$/.test(normalized) || normalized.length === 0) {
+      // Return original value to let refine validation catch it
+      return val;
+    }
+
+    // Add the '#' prefix to ensure canonical format
+    return `#${normalized}`;
+  })
+  .refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
+    message: "Task ID must be in format #123 or 123",
+  });
 
 /**
  * Schema for boolean flags with optional description

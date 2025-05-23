@@ -9,6 +9,8 @@ alwaysApply: true
 
 - **Automatically Commit and Push All Changes:** Always automatically commit and push changes to the repository immediately after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until the changes have been committed and pushed, regardless of whether there was an explicit request to do so.
 
+- **Professional Communication Style:** Use matter-of-fact, professional language when reporting progress or results. Avoid self-congratulatory language, excessive positive language, emojis, or superlatives. Focus on the work and facts rather than celebrating incremental progress.
+
 - **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
 
 - **Strict Command Verification Protocol:** For all commands, but especially CLI tools like Minsky or Git:
