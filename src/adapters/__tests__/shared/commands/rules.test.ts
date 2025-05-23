@@ -38,8 +38,8 @@ describe("Shared Rules Commands", () => {
   let mockRuleService: MockRuleService;
 
   beforeEach(() => {
-    // Mock CLI rules adapter function
-    mock.module("../../../../adapters/cli/rules.js", () => ({
+    // Mock rules helper functions with correct module path
+    mock.module("../../../../utils/rules-helpers.js", () => ({
       readContentFromFileIfExists: async (path: string) => "# Rule Content from File",
       parseGlobs: (globs: string) => globs.split(",").map(g => g.trim())
     }));
