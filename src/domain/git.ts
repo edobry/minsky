@@ -1,17 +1,12 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { exec as childExec } from "node:child_process";
-import { promisify } from "node:util";
 import type { ExecException } from "node:child_process";
-import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
+import { normalizeRepoName } from "./repo-utils";
+import { SessionDB } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
-import { MinskyError } from "../errors/index.js";
+import { MinskyError } from "../errors";
 import { log } from "../utils/logger";
-
-const execAsync = promisify(childExec);
-
-type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
+import { execAsync } from "../utils/exec";
 
 /**
  * Interface for git service operations
@@ -21,16 +16,12 @@ export interface GitServiceInterface {
   /**
    * Clone a repository and set up a session workspace
    */
-  clone(options: {
-    repoUrl: string;
-    session: string;
-    branch?: string;
-  }): Promise<{ workdir: string; session: string }>;
+  clone(options: CloneOptions): Promise<CloneResult>;
 
   /**
    * Create and checkout a new branch
    */
-  branch(options: BranchOptions): Promise<any>;
+  branch(options: BranchOptions): Promise<BranchResult>;
 
   /**
    * Execute a git command in a repository
@@ -45,27 +36,27 @@ export interface GitServiceInterface {
   /**
    * Stash changes in a repository
    */
-  stashChanges(repoPath: string): Promise<void>;
+  stashChanges(repoPath: string): Promise<StashResult>;
 
   /**
    * Pull latest changes from a remote
    */
-  pullLatest(repoPath: string, remote?: string): Promise<void>;
+  pullLatest(repoPath: string, remote?: string): Promise<PullResult>;
 
   /**
    * Merge a branch into the current branch
    */
-  mergeBranch(repoPath: string, branch: string): Promise<{ conflicts: boolean }>;
+  mergeBranch(repoPath: string, branch: string): Promise<MergeResult>;
 
   /**
    * Push changes to a remote
    */
-  push(options: { repoPath: string; remote?: string }): Promise<void>;
+  push(options: PushOptions): Promise<PushResult>;
 
   /**
    * Apply stashed changes
    */
-  popStash(repoPath: string): Promise<void>;
+  popStash(repoPath: string): Promise<StashResult>;
 
   /**
    * Get the status of a repository
@@ -134,7 +125,7 @@ export interface PullResult {
 export interface MergeResult {
   workdir: string;
   merged: boolean;
-  conflicts?: boolean;
+  conflicts: boolean;
 }
 
 export interface PushOptions {
@@ -1369,7 +1360,7 @@ export class GitService implements GitServiceInterface {
       return result;
     } catch (error) {
       // Log error but don't throw
-      console.error("Could not determine default branch, falling back to 'main'", {
+      log.error("Could not determine default branch, falling back to 'main'", {
         error: error instanceof Error ? error.message : String(error),
         repoPath,
       });
