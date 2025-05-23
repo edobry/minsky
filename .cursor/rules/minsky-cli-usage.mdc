@@ -74,6 +74,10 @@ minsky tasks list [options]
 minsky tasks get <task-id> [options]
   --json           # Output in JSON format
 
+# Get task specification content
+minsky tasks spec <task-id> [options]
+  --json           # Output in JSON format
+
 # Task status operations
 minsky tasks status
   get <task-id>    # Get the status of a task

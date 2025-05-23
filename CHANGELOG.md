@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+<<<<<<< HEAD
 - Task #114: Migrate High-Priority Tests to Native Bun Patterns
   - Created robust custom assertion helpers to bridge Jest and Bun differences
   - Implemented comprehensive ESM import compatibility fixes
@@ -67,32 +68,25 @@ _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/
   - Will explore both adding a flag to the existing `tasks get` command and creating a new dedicated subcommand
   - Will implement functionality to read full task spec content from the command line
   - Will add proper error handling and output formatting
+=======
+- Task #125: Implement CLI Bridge for Shared Command Registry
+  - Created a CLI bridge to automatically generate Commander.js commands from shared command registry entries
+  - Implemented flexible parameter mapping between Zod schemas and CLI options/arguments
+  - Added support for command customization with aliases, help text, and parameter configuration
+  - Developed category-based command organization with hierarchical structuring
+  - Migrated all CLI commands to use the shared command registry via the CLI bridge
+  - Removed manual CLI adapter implementations (2,331+ lines deleted)
+  - Added git commit and push commands to shared command registry
+  - Added tasks list, get, create, status.get, and status.set commands to shared command registry
+  - Added init command to shared command registry
+  - Updated CLI entry point to use CLI bridge exclusively
+  - Fixed duplicate session.inspect command registrations
+  - Implemented comprehensive testing and verification
+  - Updated command-organization.mdc rule to reflect CLI bridge architecture
+  - Created new cli-bridge-development.mdc rule with comprehensive development guidelines
+>>>>>>> origin/main
 
-_See: SpecStory history [2025-05-21_add-task-spec-content-reading](mdc:.specstory/history/2025-05-21_add-task-spec-content-reading.md) for task creation._
-
-- Task #120: Add --with-inspector Option to `mcp start` Command
-  - Added a new `--with-inspector` flag to the `minsky mcp start` command to launch the MCP inspector alongside the server
-  - Added an optional `--inspector-port` option to specify a custom port for the inspector
-  - Created a new inspector launcher module that handles inspector process management
-  - Implemented robust error handling to ensure MCP server continues running even if inspector fails
-  - Updated README-MCP.md with comprehensive documentation for the inspector features
-  - Added a new "Debugging with the MCP Inspector" section with usage examples
-
-_See: SpecStory history [2025-06-30_add-inspector-option-to-mcp](mdc:.specstory/history/2025-06-30_add-inspector-option-to-mcp.md) for implementation details._
-
-- Task #113: Implement Automated Test Migration Script
-  - Created a comprehensive tool for migrating Jest/Vitest tests to Bun test patterns
-  - Implemented test-analyzer.ts script to scan the codebase and identify test patterns
-  - Created detailed classification of tests by mocking complexity and migration difficulty
-  - Developed test-migration.ts script to apply transformations to test files
-  - Implemented pattern-based transformations for imports, mock functions, module mocks, and spies
-  - Added support for test verification to validate migrations work correctly
-  - Implemented backup and rollback capabilities for safer migrations
-  - Added detailed reporting in both JSON and Markdown formats
-  - Created comprehensive documentation with examples and best practices
-  - Integrated with the Core Mock Compatibility Layer from Task #111
-
-_See: SpecStory history [2023-10-17_14-25-implement-automated-test-migration-script](mdc:.specstory/history/2023-10-17_14-25-implement-automated-test-migration-script.md) for implementation details._
+_See: SpecStory history [2023-05-29_cli-bridge-implementation](mdc:.specstory/history/2023-05-29_cli-bridge-implementation.md) for implementation details._
 
 - Task #112: Implement Comprehensive Test Utility Documentation
   - Created a comprehensive test utilities documentation suite:
@@ -109,16 +103,6 @@ _See: SpecStory history [2023-10-17_14-25-implement-automated-test-migration-scr
 
 _See: SpecStory history [2023-06-30_test-utility-documentation](mdc:.specstory/history/2023-06-30_test-utility-documentation.md) for implementation details._
 
-- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
-  - Updated the `tasks get` command to fetch information for multiple tasks at once
-  - Added support for comma-separated format and multiple arguments syntax
-  - Extended task schemas to handle arrays of task IDs
-  - Improved CLI and MCP adapters to support this enhanced functionality
-  - Updated output formatting to clearly display multiple task information with separators
-  - Enhanced PR description guidelines with Direct Application Protocol for automatic improvements
-
-_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
-
 - Task #122: Improve Error Handling for MCP Server Port Conflicts
   - Created task to improve error handling for network-related errors in the MCP server
   - Will provide clearer error messages for common issues like port conflicts (EADDRINUSE)
@@ -128,17 +112,16 @@ _See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/histo
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
+- CLI bridge that auto-generates Commander.js commands from the shared command registry
+- Migrated tasks spec command to use shared command registry and CLI bridge
+- Migrated git commit and push commands to use shared command registry and CLI bridge
+- Migrated init command to use shared command registry and CLI bridge
+- Migrated remaining tasks commands (list, get, create) to use shared command registry and CLI bridge
+- Updated CLI entrypoint to use shared command registry and CLI bridge for all commands
+
+_See: SpecStory history [2023-07-05_15-45-cli-bridge-implementation](mdc:.specstory/history/2023-07-05_15-45-cli-bridge-implementation.md) for CLI bridge implementation._
+
 ### Changed
-
-- Task #118: Fixed Rule Format Errors in rules.ts
-  - Improved error handling in the `getRule` function to gracefully handle YAML parsing errors in rule frontmatter
-  - Added better debugging for rule file lookup issues
-  - Fixed issues causing "Rule not found" errors for existing rules in .cursor/rules directory
-  - Made the system more robust by extracting rule content even when frontmatter cannot be parsed properly
-  - Added detailed logging to aid in diagnosing rule parsing issues
-  - Resolved errors with specific rules: no-dynamic-imports, designing-tests, rule-creation-guidelines, testing-router, bun-test-patterns, and framework-specific-tests
-
-_See: SpecStory history [2025-08-21_fix-rule-format-errors](mdc:.specstory/history/2025-08-21_fix-rule-format-errors.md) for rule format error fixes._
 
 - Improved error handling for common network errors in the MCP server
   - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
@@ -148,14 +131,20 @@ _See: SpecStory history [2025-08-21_fix-rule-format-errors](mdc:.specstory/histo
 
 _See: SpecStory history [2025-05-21_improve-mcp-error-handling](mdc:.specstory/history/2025-05-21_improve-mcp-error-handling.md) for error handling improvements._
 
-- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
-  - Updated the `tasks get` command to fetch information for multiple tasks at once
-  - Added support for comma-separated format and multiple arguments syntax
-  - Extended task schemas to handle arrays of task IDs
-  - Improved CLI and MCP adapters to support this enhanced functionality
-  - Updated output formatting to clearly display multiple task information
+- Refactored CLI adapters to delegate to shared command registry via CLI bridge
+- Simplified command registration in CLI entrypoint
+- Fixed duplicate session command registration in shared registry
+- Removed manual CLI command implementations entirely, using only CLI bridge
 
-_See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/history/2025-06-30_multi-task-get-command.md) for implementation details._
+_See: SpecStory history [2023-07-06_10-30-cli-bridge-migration](mdc:.specstory/history/2023-07-06_10-30-cli-bridge-migration.md) for command migration._
+
+- Task #123: Enhance `tasks get` Command to Support Multiple Task IDs
+
+  - Will update the `tasks get` command to fetch information for multiple tasks at once
+  - Will support comma-separated format and multiple arguments syntax
+  - Will extend task schemas to handle arrays of task IDs
+  - Will improve CLI and MCP adapters to support this enhanced functionality
+  - Will update output formatting to clearly display multiple task information
 
 - Task #097: Standardized Option Descriptions Across CLI and MCP Adapters
   - Created centralized option descriptions module in `src/utils/option-descriptions.ts`
@@ -171,15 +160,21 @@ _See: SpecStory history [2025-06-30_multi-task-get-command](mdc:.specstory/histo
 
 _See: SpecStory history [2025-05-22_standardize-option-descriptions](mdc:.specstory/history/2025-05-22_standardize-option-descriptions.md) for implementation details._
 
-- Task #117: Fixed Session Update Command Implementation
-  - Fixed return value inconsistency in `updateSessionFromParams` function to properly return session object
-  - Implemented proper handling of the `--force` option to allow updating sessions with uncommitted changes
-  - Added `--no-stash` and `--no-push` CLI options for better control over the update process
-  - Updated CLI, shared, and MCP adapters to handle the returned session information consistently
-  - Added comprehensive tests for the session update functionality
-  - Improved error messages when workspace has uncommitted changes
+- Task #117: Fix Session Update Command Implementation
 
-_See: SpecStory history [2023-06-30_fix-session-update-command](mdc:.specstory/history/2023-06-30_fix-session-update-command.md) for implementation details._
+  - Created a task to fix issues with the `session update` command
+  - Will address parameter naming inconsistency across different interfaces
+  - Will update domain function to return session information after updates
+  - Will improve handling of `--force` option
+  - Will enhance error handling and output formatting
+
+- Task #118: Fix Rule Format Errors in rules.ts
+  - Diagnose and fix issues with rule file lookup in the rules system
+  - Ensure all existing rule files in .cursor/rules can be properly found and loaded
+  - Eliminate "Rule not found" errors when running the `minsky rules list` command
+  - Improve error handling in the rule system to provide more helpful diagnostics
+
+_See: SpecStory history [2025-06-28_fix-rule-format-errors](mdc:.specstory/history/2025-06-28_fix-rule-format-errors.md) for implementation details._
 
 - Task #111: Built Core Mock Compatibility Layer for Bun Tests
   - Created a Jest/Vitest compatibility layer to simplify migration of tests to Bun's test runner
@@ -370,7 +365,6 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
 
 - Task #104: Re-implemented Disabled Integration Tests
-
   - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
   - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
   - Implemented proper tests for the GitHub backend with dependency injection
@@ -743,15 +737,7 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Fixed "Cannot access 'MinskyError' before initialization" error that occurred with all commands
 
 - Fixed task serialization in MCP adapter to prevent double-stringification
-
   - Modified `listTasks` and `getTask` MCP command implementations in `src/adapters/mcp/tasks.ts`
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
   - Resolved the issue where tasks were not properly returned through the MCP interface
-
-- Task #119: Fix MCP Rules.list Command to Exclude Rule Content
-  - Modified the MCP adapter for the `rules.list` command to exclude the `content` field from the returned rules
-  - Made list responses more manageable by removing potentially large rule content data
-  - Maintained consistent behavior with the CLI interface where list commands only show metadata
-  - Ensured all other rule metadata (id, name, description, globs, tags) is still returned
-  - Kept the `rules.get` command behavior unchanged, still returning full rule content

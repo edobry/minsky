@@ -21,6 +21,11 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
    minsky tasks get <task-id>
    ```
 
+   You can also view the full task specification content:
+   ```bash
+   minsky tasks spec <task-id>
+   ```
+
 3. **Check the current status**:
    ```bash
    minsky tasks status get <task-id>
@@ -48,7 +53,11 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
 ### 3. Implementation Planning
 
 1. **Read the task specification**:
-   - Locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
+   - Use the Minsky CLI to view the task specification:
+     ```bash
+     minsky tasks spec <task-id>
+     ```
+   - Alternatively, locate the task spec file at `process/tasks/<task-id>-<task-name>.md`
    - Review all requirements and acceptance criteria
 
 2. **Plan your implementation**:

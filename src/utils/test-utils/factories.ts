@@ -171,29 +171,29 @@ export function createRandomFilePath(extension: string = "txt"): string {
 export function createFieldData(fieldName: string): any {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
-    case "id":
-      return createRandomId();
-    case "name":
-      return `Test ${createRandomString(5)}`;
-    case "email":
-      return `test.${createRandomString(5)}@example.com`;
-    case "date":
-    case "createdat":
-    case "updatedat":
-    case "timestamp":
-      return new Date().toISOString();
-    case "active":
-    case "enabled":
-    case "visible":
-      return Math.random() > 0.5;
-    case "count":
-    case "age":
-    case "quantity":
-      return Math.floor(Math.random() * 100);
-    case "price":
-    case "amount":
-      return parseFloat((Math.random() * 100).toFixed(2));
-    default:
-      return `Test ${fieldName} ${createRandomString(5)}`;
+  case "id":
+    return createRandomId();
+  case "name":
+    return `Test ${createRandomString(5)}`;
+  case "email":
+    return `test.${createRandomString(5)}@example.com`;
+  case "date":
+  case "createdat":
+  case "updatedat":
+  case "timestamp":
+    return new Date().toISOString();
+  case "active":
+  case "enabled":
+  case "visible":
+    return Math.random() > 0.5;
+  case "count":
+  case "age":
+  case "quantity":
+    return Math.floor(Math.random() * 100);
+  case "price":
+  case "amount":
+    return parseFloat((Math.random() * 100).toFixed(2));
+  default:
+    return `Test ${fieldName} ${createRandomString(5)}`;
   }
 } 

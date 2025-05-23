@@ -13,7 +13,7 @@ setupTestMocks();
 
 // Type guard to check if a schema has a description property
 const hasDescription = (obj: any): obj is { description: string } => {
-  return obj && typeof obj === 'object' && 'description' in obj && typeof obj.description === 'string';
+  return obj && typeof obj === "object" && "description" in obj && typeof obj.description === "string";
 };
 
 describe("Parameter Schemas", () => {

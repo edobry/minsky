@@ -33,7 +33,7 @@ async function initGitRepo(repoPath: string) {
 
 // Execute git command safely and return stdout
 function execGit(command: string, cwd: string): string {
-  return execSync(`git ${command}`, { cwd, encoding: 'utf8' });
+  return execSync(`git ${command}`, { cwd, encoding: "utf8" });
 }
 
 describe("Git Integration Tests", () => {

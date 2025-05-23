@@ -45,7 +45,7 @@ export interface CliOptionDetails {
  */
 export function paramNameToFlag(name: string): string {
   // Convert camelCase to kebab-case
-  return name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+  return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
 /**
@@ -86,14 +86,14 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
   }
   
   // Determine the placeholder text based on schema type
-  let placeholder = 'value';
+  let placeholder = "value";
   
   if (schema instanceof z.ZodString) {
-    placeholder = 'string';
+    placeholder = "string";
   } else if (schema instanceof z.ZodNumber) {
-    placeholder = 'number';
+    placeholder = "number";
   } else if (schema instanceof z.ZodEnum) {
-    placeholder = 'enum';
+    placeholder = "enum";
   } else if (schema instanceof z.ZodOptional) {
     // Recurse to check the inner type
     return addValuePlaceholder(flag, schema._def.innerType);
@@ -111,17 +111,17 @@ export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string 
  */
 export function getSchemaDescription(
   schema: z.ZodTypeAny, 
-  fallback: string = 'No description available'
+  fallback: string = "No description available"
 ): string {
   // Try to extract description from schema
   let description = fallback;
   
   // Check if we have a description in the schema
-  if ('description' in schema && typeof schema.description === 'string' && schema.description.length > 0) {
+  if ("description" in schema && typeof schema.description === "string" && schema.description.length > 0) {
     description = schema.description;
-  } else if (schema instanceof z.ZodOptional && 'description' in schema._def.innerType) {
+  } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
     const innerDesc = schema._def.innerType.description;
-    if (typeof innerDesc === 'string' && innerDesc.length > 0) {
+    if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }
   }
@@ -163,13 +163,13 @@ export function parameterToOptionFlag(
   
   let defaultValue = param.defaultValue;
   // Ensure defaultValue is compatible with Commander
-  if (defaultValue !== undefined && typeof defaultValue !== 'string' && typeof defaultValue !== 'boolean' && !Array.isArray(defaultValue)) {
+  if (defaultValue !== undefined && typeof defaultValue !== "string" && typeof defaultValue !== "boolean" && !Array.isArray(defaultValue)) {
     // If it's an object or other incompatible type, try to stringify or set to undefined
     // This is a basic attempt; more sophisticated handling might be needed based on use cases
-    defaultValue = typeof defaultValue === 'object' ? JSON.stringify(defaultValue) : String(defaultValue);
+    defaultValue = typeof defaultValue === "object" ? JSON.stringify(defaultValue) : String(defaultValue);
     // If after stringification, it's still not a primitive that commander accepts, or if it's an empty array (commander might not like empty array as default for non-array types)
-    if (typeof defaultValue !== 'string' && typeof defaultValue !== 'boolean') {
-        defaultValue = undefined; // Fallback to undefined if conversion is problematic
+    if (typeof defaultValue !== "string" && typeof defaultValue !== "boolean") {
+      defaultValue = undefined; // Fallback to undefined if conversion is problematic
     }
   } else if (defaultValue === null) {
     defaultValue = undefined;
@@ -230,7 +230,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
   
   // For each parameter, validate and convert the option
   Object.entries(parameters).forEach(([name, param]) => {
-    const optionName = paramNameToFlag(name).replace(/-/g, '');
+    const optionName = paramNameToFlag(name).replace(/-/g, "");
     const value = options[optionName];
     
     // If value is present, validate and add to result

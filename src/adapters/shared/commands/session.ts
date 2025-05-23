@@ -22,6 +22,7 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
+  inspectSessionFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
 
@@ -202,12 +203,6 @@ const sessionUpdateCommandParams: CommandParameterMap = {
   noPush: {
     schema: z.boolean(),
     description: "Skip pushing changes to remote after update",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force update",
     required: false,
     defaultValue: false,
   },
@@ -468,23 +463,19 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.update command", { params, context });
 
       try {
-        const updatedSession = await updateSessionFromParams({
+        await updateSessionFromParams({
           name: params.session, // Match expected parameter name
           task: params.task,
           repo: params.repo,
           branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
-          force: params.force,
           json: params.json,
         });
 
         return {
           success: true,
-          session: updatedSession.session,
-          branch: updatedSession.branch,
-          taskId: updatedSession.taskId,
-          repoPath: updatedSession.repoPath,
+          session: params.session || params.task,
         };
       } catch (error) {
         log.error("Failed to update session", {
@@ -565,4 +556,39 @@ export function registerSessionCommands(): void {
       }
     },
   });
-} 
+
+  // Register session inspect command
+  sharedCommandRegistry.registerCommand({
+    id: "session.inspect",
+    category: CommandCategory.SESSION,
+    name: "inspect",
+    description: "Inspect the current session (auto-detected from workspace)",
+    parameters: {
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.inspect command", { params, context });
+
+      try {
+        const session = await inspectSessionFromParams({
+          json: params.json,
+        });
+
+        return {
+          success: true,
+          session,
+        };
+      } catch (error) {
+        log.error("Failed to inspect session", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  });
+}

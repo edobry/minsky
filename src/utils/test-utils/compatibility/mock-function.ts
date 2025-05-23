@@ -374,7 +374,7 @@ export function spyOn<T extends object, M extends keyof T>(
   
   // Create a mock function that wraps the original
   const mockFn = createCompatMock((...args: any[]) => {
-    if (typeof original === 'function') {
+    if (typeof original === "function") {
       return (original as Function).apply(object, args);
     }
     return undefined;
@@ -414,9 +414,9 @@ export function autoMockModule<T extends object>(module: T): T {
   
   // Recursively replace all functions with mocks
   for (const key in mockedModule) {
-    if (typeof mockedModule[key] === 'function') {
+    if (typeof mockedModule[key] === "function") {
       mockedModule[key] = createCompatMock(mockedModule[key]);
-    } else if (typeof mockedModule[key] === 'object' && mockedModule[key] !== null) {
+    } else if (typeof mockedModule[key] === "object" && mockedModule[key] !== null) {
       mockedModule[key] = autoMockModule(mockedModule[key]);
     }
   }
