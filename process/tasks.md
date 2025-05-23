@@ -222,7 +222,7 @@
 
 - [-] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
 
-- [ ] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
+- [-] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
 - [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 

@@ -1,11 +1,18 @@
 /**
  * Option Descriptions Tests
+ * @migrated Native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
  * 
  * This file tests that option descriptions are consistent across interfaces.
  */
 
 import { describe, expect, it } from "bun:test";
 import * as descriptions from "../option-descriptions.js";
+import { expectToHaveLength } from "../test-utils/assertions.js";
+import { setupTestMocks } from "../test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 describe("Option Descriptions", () => {
   it("all exported descriptions should be non-empty strings", () => {

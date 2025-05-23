@@ -3,7 +3,8 @@ import {
   getStatusFilterMessage,
   getActiveTasksMessage,
   generateFilterMessages,
-} from "./filter-messages";
+} from "./filter-messages.js";
+import { expectToHaveLength } from "./test-utils/assertions.js";
 
 describe("Filter Messages Utility", () => {
   describe("getStatusFilterMessage", () => {
@@ -33,30 +34,30 @@ describe("Filter Messages Utility", () => {
   describe("generateFilterMessages", () => {
     test("returns status filter message when status is provided", () => {
       const messages = generateFilterMessages({ status: "IN-PROGRESS" });
-      expect(messages).toHaveLength(1);
+      expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'IN-PROGRESS'");
     });
 
     test("returns active tasks message when not showing all tasks", () => {
       const messages = generateFilterMessages({ all: false });
-      expect(messages).toHaveLength(1);
+      expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing active tasks (use --all to include completed tasks)");
     });
 
     test("returns no messages when all is true", () => {
       const messages = generateFilterMessages({ all: true });
-      expect(messages).toHaveLength(0);
+      expectToHaveLength(messages, 0);
     });
 
     test("prioritizes status filter over active tasks message", () => {
       const messages = generateFilterMessages({ status: "TODO", all: false });
-      expect(messages).toHaveLength(1);
+      expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'TODO'");
     });
 
     test("returns empty array when no filter options provided", () => {
       const messages = generateFilterMessages({});
-      expect(messages).toHaveLength(1);
+      expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing active tasks (use --all to include completed tasks)");
     });
   });

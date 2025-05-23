@@ -1,9 +1,15 @@
+/**
+ * Repository URI Tests
+ * @migrated Already using native Bun patterns
+ * @refactored Uses project utilities and proper TypeScript imports
+ */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { existsSync, mkdirSync } from "fs";
-import { UriFormat } from "../uri-utils.js";
+import { setupTestMocks } from "../../utils/test-utils/mocking.ts";
+import { UriFormat } from "../uri-utils.ts";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,
@@ -14,7 +20,10 @@ import {
   expandGitHubShorthand,
   RepositoryURIType,
   detectRepositoryURI
-} from "../repository-uri.js";
+} from "../repository-uri.ts";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 /**
  * Create a unique temporary directory for testing

@@ -77,6 +77,7 @@ _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/
   - Implemented comprehensive testing and verification
   - Updated command-organization.mdc rule to reflect CLI bridge architecture
   - Created new cli-bridge-development.mdc rule with comprehensive development guidelines
+>>>>>>> origin/main
 
 _See: SpecStory history [2023-05-29_cli-bridge-implementation](mdc:.specstory/history/2023-05-29_cli-bridge-implementation.md) for implementation details._
 

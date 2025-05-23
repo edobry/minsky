@@ -1,10 +1,16 @@
 /**
  * Compatibility Layer Tests
+ * @migrated Native Bun patterns
+ * @refactored Uses project utilities where appropriate
  * 
  * Tests for the Jest/Vitest compatibility layer for Bun.
  */
 import { describe, test, expect as bunExpect } from "bun:test";
-import { compat } from "../index";
+import { compat } from "../index.js";
+import { setupTestMocks } from "../mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 // Set up the compatibility layer for testing
 compat.setupTestCompat();
