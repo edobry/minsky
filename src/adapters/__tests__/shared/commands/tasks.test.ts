@@ -73,15 +73,14 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "123",
+      taskId: "#123",
       repo: "/test/repo",
-      session: undefined,
     });
     
     // Verify result
     expect(result).toEqual({
       success: true,
-      taskId: "123",
+      taskId: "#123",
       status: "TODO",
     });
   });
@@ -106,24 +105,28 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "123",
+      taskId: "#123",
       repo: undefined,
+      workspace: undefined,
       session: "test-session",
+      backend: undefined,
     });
     
     // Verify domain function was called to set status
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "123",
+      taskId: "#123",
       status: "IN-PROGRESS",
       repo: undefined,
+      workspace: undefined,
       session: "test-session",
+      backend: undefined,
     });
     
     // Verify result
     expect(result).toEqual({
       success: true,
-      taskId: "123",
+      taskId: "#123",
       status: "IN-PROGRESS",
       previousStatus: "TODO",
     });
