@@ -144,7 +144,7 @@ describe("Shared Session Commands", () => {
     
     // Verify commands were registered
     const sessionCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION);
-    expectToHaveLength(sessionCommands, 8);
+    expectToHaveLength(sessionCommands, 9);
     
     // Verify individual commands
     const expectedCommands = [
