@@ -435,9 +435,9 @@ const tasksCreateParams: CommandParameterMap = {
 };
 
 /**
- * Register tasks.list command
+ * Tasks commands registration parameters and definitions
  */
-sharedCommandRegistry.registerCommand({
+const tasksListRegistration = {
   id: "tasks.list",
   category: CommandCategory.TASKS,
   name: "list",
@@ -447,15 +447,12 @@ sharedCommandRegistry.registerCommand({
     const { all = false, ...rest } = params;
     return await listTasksFromParams({ all, ...rest });
   },
-});
+};
 
-/**
- * Register tasks.get command
- */
-sharedCommandRegistry.registerCommand({
+const tasksGetRegistration = {
   id: "tasks.get",
   category: CommandCategory.TASKS,
-  name: "get",
+  name: "get", 
   description: "Get a task by ID",
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
@@ -468,16 +465,13 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
-/**
- * Register tasks.create command
- */
-sharedCommandRegistry.registerCommand({
+const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task from a specification document", 
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
@@ -490,9 +484,18 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
 export function registerTasksCommands() {
+  // Register tasks.list command
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
+
+  // Register tasks.get command
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
+
+  // Register tasks.create command
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
+
   // Register tasks.status.get command
   sharedCommandRegistry.registerCommand({
     id: "tasks.status.get",

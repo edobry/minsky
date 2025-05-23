@@ -246,5 +246,5 @@
 
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
-- [+] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+- [-] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
