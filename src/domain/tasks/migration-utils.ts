@@ -7,9 +7,9 @@
 
 import { readFile, writeFile, access } from "fs/promises";
 import { join } from "path";
-import type { TaskData, TaskState } from "../../types/tasks/taskData.js";
-import { createJsonFileStorage } from "../storage/json-file-storage.js";
-import { log } from "../../utils/logger.js";
+import type { TaskData, TaskState } from "../../types/tasks/taskData";
+import { createJsonFileStorage } from "../storage/json-file-storage";
+import { log } from "../../utils/logger";
 
 /**
  * Get the user's home directory in a cross-platform way
