@@ -1,6 +1,6 @@
 ---
 description: Use this when creating a new task
-globs: 
+globs:
 alwaysApply: false
 ---
 # Task Creation Process
@@ -28,6 +28,15 @@ alwaysApply: false
 **Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
 
 > **This process is mandatory. Skipping the CLI or editing files directly is a process violation.**
+
+### Viewing Task Specifications
+
+To view an existing task specification:
+```bash
+minsky tasks spec <task-id>
+```
+
+This command displays the full content of the task specification document, allowing you to review task details without needing to locate or open the file directly.
 
 ## ⚠️ CRITICAL: Always Create Tasks in Main Workspace
 Tasks MUST always be created in the main workspace, not in session directories:
