@@ -224,7 +224,7 @@
 
 - [x] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
-- [+] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
+- [x] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
