@@ -224,25 +224,25 @@
 
 - [x] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
-- [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
+- [+] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
-- [ ] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
+- [x] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
-- [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
+- [x] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
 
-- [ ] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
+- [x] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
 
-- [-] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
+- [x] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
 
 - [x] Add "session review" Command for PR Review [#121](process/tasks/121-add-session-review-command-for-pr-review.md)
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
-- [-] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
+- [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
-- [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
+- [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
