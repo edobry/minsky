@@ -428,7 +428,7 @@ const tasksCreateParams: CommandParameterMap = {
 /**
  * Register tasks.list command
  */
-sharedCommandRegistry.registerCommand({
+const tasksListRegistration = {
   id: "tasks.list",
   category: CommandCategory.TASKS,
   name: "list",
@@ -446,12 +446,12 @@ sharedCommandRegistry.registerCommand({
       ...rest,
     });
   },
-});
+};
 
 /**
  * Register tasks.get command
  */
-sharedCommandRegistry.registerCommand({
+const tasksGetRegistration = {
   id: "tasks.get",
   category: CommandCategory.TASKS,
   name: "get",
@@ -467,12 +467,12 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
 /**
  * Register tasks.create command
  */
-sharedCommandRegistry.registerCommand({
+const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
@@ -489,9 +489,17 @@ sharedCommandRegistry.registerCommand({
       session: params.session,
     });
   },
-});
+};
 
 export function registerTasksCommands() {
-  // All commands are registered on import, so this is a no-op for now.
-  // This function exists for consistency with other command modules.
+  // Register the tasks.status.get and tasks.status.set commands (already properly registered inline above)
+
+  // Register tasks.list command
+  sharedCommandRegistry.registerCommand(tasksListRegistration);
+
+  // Register tasks.get command
+  sharedCommandRegistry.registerCommand(tasksGetRegistration);
+
+  // Register tasks.create command
+  sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 }

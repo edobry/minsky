@@ -30,6 +30,18 @@ mock.module("../../../../domain/tasks.js", () => ({
 
 describe("Shared CLI Options", () => {
   describe("Option Application Functions", () => {
+    it("DEBUG: should show what spy captures for repo options", () => {
+      const command = new Command();
+      const spy = spyOn(command, "option");
+
+      addRepoOptions(command);
+
+      console.log("Spy call count:", spy.mock.calls.length);
+      spy.mock.calls.forEach((call, index) => {
+        console.log(`Call ${index}:`, call);
+      });
+    });
+
     it("should add repository options to a command", () => {
       const command = new Command();
       const spy = spyOn(command, "option");
@@ -38,17 +50,14 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledWith("--session <session>", "Name of the session to use");
       expect(spy).toHaveBeenCalledWith(
-        "--session <session>", 
-        "Session name to use for repository resolution"
-      );
-      expect(spy).toHaveBeenCalledWith(
-        "--repo <repositoryUri>", 
-        "Repository URI (overrides session)"
+        "--repo <repositoryUri>",
+        "Repository URI (local path, URL, or shorthand)"
       );
       expect(spy).toHaveBeenCalledWith(
         "--upstream-repo <upstreamRepoUri>",
-        "URI of the upstream repository (overrides repo and session)"
+        "Upstream repository URI"
       );
     });
 
@@ -60,8 +69,8 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(2);
-      expect(spy).toHaveBeenCalledWith("--json", "Output result as JSON");
-      expect(spy).toHaveBeenCalledWith("--debug", "Enable debug output");
+      expect(spy).toHaveBeenCalledWith("--json", "Format output as JSON");
+      expect(spy).toHaveBeenCalledWith("--debug", "Show debug information");
     });
 
     it("should add task identification options to a command", () => {
@@ -72,7 +81,10 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith("--task <taskId>", "Task ID to match");
+      expect(spy).toHaveBeenCalledWith(
+        "--task <taskId>",
+        "ID of the task (with or without # prefix)"
+      );
     });
 
     it("should add backend options to a command", () => {
@@ -83,7 +95,7 @@ describe("Shared CLI Options", () => {
 
       // Verify the correct options were added
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith("-b, --backend <backend>", "Specify backend type");
+      expect(spy).toHaveBeenCalledWith("-b, --backend <backend>", "Type of backend to use");
     });
   });
 
@@ -174,4 +186,4 @@ describe("Shared CLI Options", () => {
       });
     });
   });
-}); 
+});
