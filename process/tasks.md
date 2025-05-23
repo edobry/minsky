@@ -254,17 +254,9 @@
 
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
 
-  - Fix all failing tests and system stability issues after CLI bridge implementation merge.
-
 - [x] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
 
-  - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
-  - **Current issues:**
-  - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
-  - - Some type inference issues with the new scenario helpers
-  - - Minor type safety improvements needed
-
-- [+] Fix Session Get Command Output Format [#132](process/tasks/132-fix-session-get-command-output-format.md)
+- [x] Fix Session Get Command Output Format [#132](process/tasks/132-fix-session-get-command-output-format.md)
 
 - [ ] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
 
