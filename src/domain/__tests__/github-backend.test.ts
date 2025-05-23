@@ -1,31 +1,35 @@
 /**
- * NOTE: These tests are temporarily disabled due to issues with mocking.
+ * GitHub Backend Tests
+ * @migrated Already using native Bun patterns  
+ * @refactored Uses project utilities and proper TypeScript imports
  * 
- * The GitHub backend tests require sophisticated mocking of:
+ * NOTE: These tests use sophisticated mocking for GitHub backend functionality including:
  * - fs/promises (for file operations)
- * - child_process exec (for git commands)
+ * - child_process exec (for git commands)  
  * - SessionDB (for session management)
  * - GitService (for git operations)
- * 
- * This test suite will be reimplemented after improving the test utilities.
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { GitHubBackend } from "../repository/github.js";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { GitHubBackend } from "../repository/github.ts";
 import { join } from "path";
 import { mkdtemp, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
 
-// Mock the SessionDB dependencies
+// Set up automatic mock cleanup
+setupTestMocks();
+
+// Mock the SessionDB dependencies using our utilities
 const mockSessionDB = {
-  listSessions: mock(() => Promise.resolve([
+  listSessions: createMock(() => Promise.resolve([
     { 
       session: "test-session", 
       repoName: "github/test-repo", 
       repoUrl: "https://github.com/github/test-repo.git"
     }
   ])),
-  getSession: mock((sessionName: string) => Promise.resolve({
+  getSession: createMock((sessionName: string) => Promise.resolve({
     session: sessionName,
     repoName: "github/test-repo",
     repoUrl: "https://github.com/github/test-repo.git",
@@ -33,11 +37,11 @@ const mockSessionDB = {
     taskId: "123",
     createdAt: new Date().toISOString()
   })),
-  addSession: mock(() => Promise.resolve()),
-  updateSession: mock(() => Promise.resolve()),
-  deleteSession: mock(() => Promise.resolve(true)),
-  getRepoPath: mock(() => "/mock/repo/path"),
-  getSessionWorkdir: mock(() => "/mock/session/workdir")
+  addSession: createMock(() => Promise.resolve()),
+  updateSession: createMock(() => Promise.resolve()),
+  deleteSession: createMock(() => Promise.resolve(true)),
+  getRepoPath: createMock(() => "/mock/repo/path"),
+  getSessionWorkdir: createMock(() => "/mock/session/workdir")
 };
 
 // Create temporary directory for testing
@@ -95,8 +99,7 @@ describe("GitHub Repository Backend", () => {
     // Restore original HOME
     process.env.HOME = originalHome;
     
-    // Reset mocks
-    mock.restore();
+    // Mock cleanup is handled by setupTestMocks()
   });
   
   test("constructor creates repository backend with correct settings", () => {

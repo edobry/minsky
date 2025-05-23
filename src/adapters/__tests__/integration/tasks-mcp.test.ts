@@ -1,23 +1,25 @@
 /**
- * Tests for MCP task commands integration
+ * MCP Task Commands Integration Tests
+ * @migrated Already using native Bun patterns
+ * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
   type Task,
   TASK_STATUS,
-} from "../../../domain/tasks.js";
+} from "../../../domain/tasks.ts";
 import {
   createMock,
   mockModule,
   setupTestMocks,
-} from "../../../utils/test-utils/mocking.js";
+} from "../../../utils/test-utils/mocking.ts";
 import type { 
   TaskListParams, 
   TaskGetParams,
   TaskStatusGetParams,
   TaskStatusSetParams,
   TaskCreateParams,
-} from "../../../schemas/tasks.js";
+} from "../../../schemas/tasks.ts";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -29,7 +31,7 @@ const mockDeleteTaskFromParams = createMock();
 const mockGetTaskInfoFromParams = createMock();
 
 // Mock the domain tasks module
-mockModule("../../../domain/tasks.js", () => {
+mockModule("../../../domain/tasks.ts", () => {
   return {
     filterTasksFromParams: mockFilterTasksFromParams,
     updateTaskFromParams: mockUpdateTaskFromParams,
@@ -88,6 +90,7 @@ describe("Extended Task Management Domain Methods", () => {
   ];
 
   beforeEach(() => {
+    // Mock cleanup is handled by setupTestMocks()
     // Reset mock implementations
     mockFilterTasksFromParams.mockReset();
     mockUpdateTaskFromParams.mockReset();

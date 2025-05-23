@@ -28,7 +28,8 @@
           {
             "group": ["./commands/*", "../commands/*"],
             "message": "Command modules should not be imported by other modules; use domain modules instead"
-          }
+          },
+          { "group": ["./*.ts", "../*.ts", "./*.js", "../*.js"], "message": "Use extensionless imports for local files (Bun-native style)" }
         ]
       }
     ],
@@ -73,7 +74,8 @@
     ],
     "max-lines": "off",
     "no-restricted-globals": "off",
-    "import/extensions": "off",
+    "import/extensions": ["error", "ignorePackages", { "ts": "never", "js": "never" }],
+    "import/no-unresolved": ["off", { "ignore": [".ts"] }],
     "no-useless-escape": "off",
     "@typescript-eslint/ban-types": "off"
   },

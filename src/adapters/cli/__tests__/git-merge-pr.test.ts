@@ -1,3 +1,7 @@
+/**
+ * Git Merge PR Tests
+ * @migrated Migrated to native Bun patterns
+ */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { GitService } from "../../../domain/git";
 import { createMock, setupTestMocks } from "../../../utils/test-utils/mocking";
@@ -17,7 +21,7 @@ describe("GitService Default Branch Detection", () => {
   beforeEach(() => {
     // Use project's test utilities for mocking
     originalExecInRepository = GitService.prototype.execInRepository;
-    GitService.prototype.execInRepository = createMock(() => Promise.resolve(""));
+    GitService.prototype.execInRepository = createMock(() => Promise.resolve("")) as unknown as (workdir: string, command: string) => Promise<string>;
     execMock = GitService.prototype.execInRepository;
   });
   
@@ -27,7 +31,7 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should attempt to detect default branch when merging PRs", async () => {
-    // Create a GitService instance
+    // Arrange
     const gitService = new GitService();
     
     // First mock call will be for the symbolic-ref command to detect default branch
@@ -38,18 +42,17 @@ describe("GitService Default Branch Detection", () => {
       return Promise.resolve("");
     });
     
-    // We'll test by calling methods on gitService directly 
-    // that would trigger the default branch detection
+    // Act
     await gitService.fetchDefaultBranch("/test/repo");
     
-    // Verify the symbolic-ref command was called
+    // Assert
     expect(execMock.mock.calls.length).toBeGreaterThan(0);
     expect(execMock.mock.calls[0][0]).toBe("/test/repo");
     expect(execMock.mock.calls[0][1]).toBe("git symbolic-ref refs/remotes/origin/HEAD --short");
   });
 
   test("should handle errors when detecting default branch", async () => {
-    // Create a GitService instance
+    // Arrange
     const gitService = new GitService();
     
     // Mock symbolic-ref to throw an error
@@ -60,10 +63,10 @@ describe("GitService Default Branch Detection", () => {
       return Promise.resolve("");
     });
     
-    // This should handle the error and fall back
+    // Act
     const result = await gitService.fetchDefaultBranch("/test/repo");
     
-    // Should fall back to main
+    // Assert
     expect(result).toBe("main");
   });
 }); 

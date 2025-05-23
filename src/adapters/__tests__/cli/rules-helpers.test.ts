@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { promises as fs, existsSync } from "fs";
 import * as path from "path";
-import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking";
-import { readContentFromFileIfExists, parseGlobs } from "../../cli/rules.js";
+import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.js";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -116,13 +116,13 @@ describe("Rules CLI Helper Functions", () => {
     });
 
     test("parses JSON array string format", () => {
-      const result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", \"*.md\"]");
+      const result = parseGlobs('["**/*.ts", "**/*.tsx", "*.md"]');
       expect(result).toEqual(["**/*.ts", "**/*.tsx", "*.md"]);
     });
 
     test("falls back to comma handling if JSON parsing fails", () => {
-      const result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", malformed");
-      expect(result).toEqual(["[\"**/*.ts\"", "\"**/*.tsx\"", "malformed"]);
+      const result = parseGlobs('["**/*.ts", "**/*.tsx", malformed');
+      expect(result).toEqual(['["**/*.ts"', '"**/*.tsx"', "malformed"]);
     });
 
     test("returns undefined for empty string", () => {

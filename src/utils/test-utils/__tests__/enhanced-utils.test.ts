@@ -2,7 +2,7 @@
  * Tests for enhanced test utilities
  * This file demonstrates how to use the new test utilities effectively
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   createMock,
   createPartialMock,
@@ -11,22 +11,22 @@ import {
   createSpyOn,
   createTestSuite,
   withCleanup
-} from "../mocking";
+} from "../mocking.js";
 import {
   createTestDeps,
   createTaskTestDeps,
   createSessionTestDeps,
   createGitTestDeps,
   withMockedDeps
-} from "../dependencies";
+} from "../dependencies.js";
 import {
   createTaskData,
   createSessionData,
   createRepositoryData,
   createTaskDataArray,
   createRandomId
-} from "../factories";
-import type { TaskData } from "../../../types/tasks/taskData";
+} from "../factories.js";
+import type { TaskData } from "../../../types/tasks/taskData.js";
 
 // Create a test suite for managed setup/teardown
 const { beforeEachTest, afterEachTest } = createTestSuite();

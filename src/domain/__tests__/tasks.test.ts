@@ -1,7 +1,8 @@
 /**
  * Tests for interface-agnostic task functions
+ * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, beforeEach, mock, jest } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   listTasksFromParams,
   getTaskFromParams,
@@ -11,6 +12,14 @@ import {
   TASK_STATUS,
 } from "../tasks.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
+import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
+import { 
+  createMock,
+  setupTestMocks 
+} from "../../utils/test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 // Mock dependencies
 const mockTask: Task = {
@@ -20,42 +29,35 @@ const mockTask: Task = {
   description: "This is a test task",
 };
 
+// Create a default implementation for getTask that works for all tests
+const defaultGetTaskMock = (id: string) => Promise.resolve(id === "#123" ? mockTask : null);
+
 const mockTaskService = {
-  listTasks: jest.fn(() => Promise.resolve([mockTask])),
-  getTask: jest.fn((id: string) => Promise.resolve(id === "#123" ? mockTask : null)),
-  getTaskStatus: jest.fn((id: string) => Promise.resolve(id === "#123" ? TASK_STATUS.TODO : null)),
-  setTaskStatus: jest.fn(() => Promise.resolve()),
+  listTasks: createMock(() => Promise.resolve([mockTask])),
+  getTask: createMock(defaultGetTaskMock),
+  getTaskStatus: createMock((id: string) => Promise.resolve(id === "#123" ? TASK_STATUS.TODO : null)),
+  setTaskStatus: createMock(() => Promise.resolve()),
   backends: [] as any,
   currentBackend: {} as any,
-  getWorkspacePath: jest.fn(() => "/mock/workspace/path"),
-  createTask: jest.fn((specPath: string, options?: any) =>
+  getWorkspacePath: createMock(() => "/mock/workspace/path"),
+  createTask: createMock((specPath: string, options?: any) =>
     Promise.resolve({ ...mockTask, id: "#new" })
   ),
 };
 
-const mockResolveRepoPath = jest.fn(() => Promise.resolve("/mock/repo/path"));
-const mockResolveWorkspacePath = jest.fn(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = jest.fn(() => mockTaskService as any);
+const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
+const mockResolveWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
+const mockCreateTaskService = createMock(() => mockTaskService as any);
 
+// Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveWorkspacePath: mockResolveWorkspacePath,
   createTaskService: mockCreateTaskService,
-};
+} as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe("interface-agnostic task functions", () => {
-  beforeEach(() => {
-    // Reset mocks between tests
-    mockTaskService.listTasks.mockClear();
-    mockTaskService.getTask.mockClear();
-    mockTaskService.getTaskStatus.mockClear();
-    mockTaskService.setTaskStatus.mockClear();
-    mockTaskService.getWorkspacePath.mockClear();
-    mockTaskService.createTask.mockClear();
-    mockResolveRepoPath.mockClear();
-    mockResolveWorkspacePath.mockClear();
-    mockCreateTaskService.mockClear();
-  });
+  // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
 
   describe("listTasksFromParams", () => {
     test("should list tasks with valid parameters", async () => {
@@ -80,7 +82,7 @@ describe("interface-agnostic task functions", () => {
     });
 
     test("should filter out DONE tasks when all is false", async () => {
-      mockTaskService.listTasks.mockImplementationOnce(() =>
+      mockTaskService.listTasks.mockImplementation(() =>
         Promise.resolve([
           { ...mockTask, status: TASK_STATUS.TODO },
           { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
@@ -119,7 +121,7 @@ describe("interface-agnostic task functions", () => {
         await getTaskFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
-        expect(e instanceof ResourceNotFoundError).toBe(true);
+        expectToBeInstanceOf(e, ResourceNotFoundError);
       }
     });
 
@@ -138,7 +140,7 @@ describe("interface-agnostic task functions", () => {
     test("should handle task IDs without leading zeros", async () => {
       // Modify mock implementation to return task with ID '123' for both '#123' and '#23'
       // This simulates the updated MarkdownTaskBackend.getTask behavior
-      mockTaskService.getTask.mockImplementationOnce((id) =>
+      mockTaskService.getTask.mockImplementation((id) =>
         Promise.resolve(
           parseInt(id.replace(/^#/, ""), 10) === 23 ? { ...mockTask, id: "#023" } : null
         )
@@ -179,13 +181,16 @@ describe("interface-agnostic task functions", () => {
         await getTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
-        expect(e instanceof ResourceNotFoundError).toBe(true);
+        expectToBeInstanceOf(e, ResourceNotFoundError);
       }
     });
   });
 
   describe("setTaskStatusFromParams", () => {
     test("should set task status with valid parameters", async () => {
+      // Reset getTask mock to its default implementation for this test
+      mockTaskService.getTask.mockImplementation(defaultGetTaskMock);
+      
       const params = {
         taskId: "#123",
         status: TASK_STATUS.IN_PROGRESS,
@@ -208,7 +213,7 @@ describe("interface-agnostic task functions", () => {
         await setTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
-        expect(e instanceof ValidationError).toBe(true);
+        expectToBeInstanceOf(e, ValidationError);
       }
     });
   });

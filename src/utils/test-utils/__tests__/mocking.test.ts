@@ -3,6 +3,7 @@
  */
 import { describe, test, expect, mock } from "bun:test";
 import { createMock, mockModule, createSpyOn } from "../mocking.js";
+import { expectToMatch } from "../assertions.js";
 
 describe("Mocking Utilities", () => {
   test("createMock creates a proper mock function", () => {
@@ -10,8 +11,7 @@ describe("Mocking Utilities", () => {
     const mockFn = createMock((arg: string) => `Hello, ${arg}!`);
     
     // Should work as a function
-    // @ts-ignore - TypeScript doesn't know mock is callable
-    expect(mockFn("World")).toBe("Hello, World!");
+    expect((mockFn as any)("World")).toBe("Hello, World!");
     
     // Should track calls
     expect(mockFn.mock.calls.length).toBe(1);
@@ -22,8 +22,7 @@ describe("Mocking Utilities", () => {
   test("createMock without implementation returns a mock that returns undefined", () => {
     const mockFn = createMock();
     
-    // @ts-ignore - TypeScript doesn't know mock is callable
-    expect(mockFn()).toBeUndefined();
+    expect((mockFn as any)()).toBeUndefined();
     expect(mockFn.mock.calls.length).toBe(1);
   });
   
@@ -55,6 +54,9 @@ describe("Mocking Utilities", () => {
       createSpyOn(obj, "name");
     } catch (e) {
       hasThrown = true;
+      if (e instanceof Error) {
+        expectToMatch(e.message, /Cannot spy on name because it is not a function/);
+      }
     }
     
     expect(hasThrown).toBe(true);

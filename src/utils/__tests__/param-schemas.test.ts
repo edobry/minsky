@@ -1,6 +1,15 @@
+/**
+ * Parameter Schemas Tests
+ * @migrated Native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
+ */
 import { describe, expect, it } from "bun:test";
 import * as schemas from "../param-schemas.js";
 import { z } from "zod";
+import { setupTestMocks } from "../test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 // Type guard to check if a schema has a description property
 const hasDescription = (obj: any): obj is { description: string } => {

@@ -222,7 +222,7 @@
 
 - [-] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
 
-- [ ] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
+- [x] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
 - [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
@@ -252,3 +252,7 @@
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
 - [+] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
+- [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+
+- [+] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+  - Fix all failing tests and system stability issues after CLI bridge implementation merge.
