@@ -2,7 +2,6 @@
  * Shared Rules Commands Tests
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { createMock, mockModule, setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 import { registerRulesCommands } from "../../../../adapters/shared/commands/rules.js";
 import {
   sharedCommandRegistry,
@@ -35,7 +34,7 @@ describe("Shared Rules Commands", () => {
 
   beforeEach(() => {
     // Mock CLI rules adapter - we'll handle this at test level
-    mockReadContentFromFileIfExists = createMock().mockImplementation((path) => {
+    mockReadContentFromFileIfExists = spyOn(null, "readContentFromFileIfExists").mockImplementation((path) => {
       return "# Rule Content from File";
     });
 
