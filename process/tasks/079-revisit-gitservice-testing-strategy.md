@@ -91,6 +91,73 @@ Significant improvements have been made through task #114 (test migration):
 - **2025-05-16**: Task created due to problematic GitService.getStatus test
 - **2025-05-21**: Git tests migrated to native Bun patterns (task #114)
 - **2025-05-21**: Session started, task specification updated with current state analysis
+- **2025-05-21**: Created comprehensive test coverage matrix (Step 1 completed)
+- **2025-05-21**: Fixed all linter errors in GitService:
+  - Removed .js extensions from local imports (Bun-native style)
+  - Updated GitServiceInterface return types to match GitService implementation
+  - Made conflicts property non-optional in MergeResult interface
+  - Replaced console.error with log.error for consistent logging
+  - All original tests continue to pass (6/6 passing)
+
+### Test Coverage Matrix (Current State Analysis)
+
+#### Core GitService Methods (`git.test.ts`)
+| Method | Coverage Status | Test Quality | Notes |
+|--------|----------------|-------------|--------|
+| `constructor()` | ✅ Basic | ⚠️ Simple | Instance creation only |
+| `getStatus()` | ✅ Basic | ⚠️ Mocked | Returns mock data, no real behavior testing |
+| `getSessionWorkdir()` | ✅ Basic | ✅ Good | Path construction logic tested |
+| `execInRepository()` | ✅ Basic | ⚠️ Simple | Happy path + basic error propagation |
+
+#### Interface Methods (GitServiceInterface) - **MISSING COMPREHENSIVE TESTS**
+| Method | Coverage Status | Priority | Complexity |
+|--------|----------------|----------|------------|
+| `clone()` | ❌ None | 🔴 Critical | High - Complex options, error handling |
+| `branch()` | ❌ None | 🔴 Critical | Medium - Session setup, git operations |
+| `stashChanges()` | ❌ None | 🟡 Medium | Medium - State management |
+| `pullLatest()` | ❌ None | 🟡 Medium | Medium - Remote operations |
+| `mergeBranch()` | ❌ None | 🔴 Critical | High - Conflict detection |
+| `push()` | ❌ None | 🟡 Medium | Medium - Remote operations |
+| `popStash()` | ❌ None | 🟡 Medium | Medium - State management |
+
+#### PR Workflow Methods - **PARTIALLY COVERED**
+| Method | Coverage Status | Test Location | Notes |
+|--------|----------------|---------------|--------|
+| `pr()` | ❌ None | - | Main entry point, no direct tests |
+| `prWithDependencies()` | ✅ Indirect | `git-pr-workflow.test.ts` | Via integration testing |
+| `preparePr()` | ❌ None | - | Complex workflow method |
+| `mergePr()` | ❌ None | - | Critical for PR completion |
+
+#### Additional Methods - **UNDERTESTED**
+| Method | Coverage Status | Priority | Notes |
+|--------|----------------|----------|--------|
+| `stageAll()` | ❌ None | 🟡 Medium | Staging operations |
+| `stageModified()` | ❌ None | 🟡 Medium | Selective staging |
+| `commit()` | ❌ None | 🔴 Critical | Core git operation |
+| `fetchDefaultBranch()` | ❌ None | 🟡 Medium | Repository introspection |
+
+#### Utility/Helper Functions - **MISSING TESTS**
+| Function | Coverage Status | Priority | Notes |
+|----------|----------------|----------|--------|
+| `createPullRequestFromParams()` | ❌ None | 🔴 Critical | Parameter parsing + execution |
+| `commitChangesFromParams()` | ❌ None | 🔴 Critical | Parameter parsing + execution |
+| `cloneFromParams()` | ❌ None | 🔴 Critical | Parameter parsing + execution |
+| `branchFromParams()` | ❌ None | 🟡 Medium | Parameter parsing + execution |
+| `pushFromParams()` | ❌ None | 🟡 Medium | Parameter parsing + execution |
+
+#### Summary Statistics
+- **Total Methods Identified**: 20+ public methods/functions
+- **Currently Tested**: 4 methods (basic coverage)
+- **Critical Untested**: 8 methods (clone, branch, mergeBranch, pr, commit, etc.)
+- **Medium Priority Untested**: 8 methods (stash operations, staging, etc.)
+- **Coverage Gap**: ~80% of GitService functionality lacks comprehensive testing
+
+#### Key Findings
+1. **Current tests focus on basic operations** - getStatus, getSessionWorkdir, execInRepository
+2. **Complex workflows completely untested** - clone, pr, mergeBranch workflows
+3. **Error scenarios minimally covered** - only basic execInRepository error propagation
+4. **DI patterns available but unused** - PrDependencies interface exists but not leveraged in main tests
+5. **Integration tests exist but limited** - git-pr-workflow.test.ts shows good patterns but narrow scope
 
 ## Related Tasks and Files
 - **Task #114**: Migrate high-priority tests to native Bun patterns (COMPLETED)
