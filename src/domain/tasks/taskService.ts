@@ -6,7 +6,7 @@
 import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
-// import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 
@@ -60,10 +60,10 @@ export class TaskService {
           name: "markdown",
           workspacePath,
         }),
-        // createJsonFileTaskBackend({
-        //   name: "json-file",
-        //   workspacePath,
-        // }),
+        createJsonFileTaskBackend({
+          name: "json-file",
+          workspacePath,
+        }),
       ];
     }
 

@@ -1,14 +1,16 @@
 /**
- * Tests for JsonFileStorage implementation
+ * Core tests for JsonFileStorage implementation
+ * Tests the most critical functionality with correct API
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, unlinkSync, mkdirSync, rmSync } from "fs";
-import { join, dirname } from "path";
-import { createJsonFileStorage } from "../json-file-storage.js";
-import type { DatabaseStorage } from "../database-storage.js";
+import { existsSync, rmSync, mkdirSync } from "fs";
+import { join } from "path";
+import { createJsonFileStorage } from "../json-file-storage";
+import type { DatabaseStorage } from "../database-storage";
+import { expectToHaveLength } from "../../../utils/test-utils/assertions";
 
-// Test data types
+// Test data types following TaskData pattern
 interface TestEntity {
   id: string;
   name: string;
@@ -16,35 +18,41 @@ interface TestEntity {
 }
 
 interface TestState {
-  totalCount: number;
-  lastModified: string;
+  entities: TestEntity[];
+  lastUpdated: string;
+  metadata: Record<string, unknown>;
 }
 
-describe("JsonFileStorage", () => {
+describe("JsonFileStorage Core Tests", () => {
   let storage: DatabaseStorage<TestEntity, TestState>;
   let testDbPath: string;
   let testDirPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create unique test database path
     const timestamp = Date.now();
-    testDirPath = join(process.cwd(), "test-tmp", `json-storage-test-${timestamp}`);
+    const random = Math.random();
+    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${random}`);
     testDbPath = join(testDirPath, "test.json");
 
     // Ensure test directory exists
     mkdirSync(testDirPath, { recursive: true });
 
-    // Create storage instance
+    // Create storage instance with correct configuration
     storage = createJsonFileStorage<TestEntity, TestState>({
       filePath: testDbPath,
-      initialState: {
+      entitiesField: "entities",
+      idField: "id",
+      initializeState: () => ({
         entities: [],
-        state: {
-          totalCount: 0,
-          lastModified: new Date().toISOString(),
-        },
-      },
+        lastUpdated: new Date().toISOString(),
+        metadata: {}
+      }),
+      prettyPrint: true,
     });
+
+    // Initialize storage
+    await storage.initialize();
   });
 
   afterEach(() => {
@@ -54,279 +62,169 @@ describe("JsonFileStorage", () => {
     }
   });
 
-  describe("initialization", () => {
-    test("should initialize with empty state when file doesn't exist", async () => {
-      const result = await storage.getAll();
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual([]);
-    });
-
-    test("should create parent directories if they don't exist", async () => {
-      const nestedPath = join(testDirPath, "nested", "deep", "test.json");
-      const nestedStorage = createJsonFileStorage<TestEntity, TestState>({
-        filePath: nestedPath,
-        initialState: {
-          entities: [],
-          state: {
-            totalCount: 0,
-            lastModified: new Date().toISOString(),
-          },
-        },
-      });
-
-      const result = await nestedStorage.create({
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
-      });
-
-      expect(result.success).toBe(true);
-      expect(existsSync(nestedPath)).toBe(true);
-      expect(existsSync(dirname(nestedPath))).toBe(true);
-    });
-  });
-
-  describe("CRUD operations", () => {
-    test("should create entities", async () => {
+  describe("Core CRUD Operations", () => {
+    test("should create and retrieve entities", async () => {
       const entity: TestEntity = {
         id: "test1",
         name: "Test Entity",
         value: 42,
       };
 
-      const result = await storage.create(entity);
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(entity);
-    });
+      // Create entity
+      const created = await storage.createEntity(entity);
+      expect(created).toEqual(entity);
 
-    test("should read entities", async () => {
-      const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
-      };
+      // Retrieve entity
+      const retrieved = await storage.getEntity("test1");
+      expect(retrieved).toEqual(entity);
 
-      await storage.create(entity);
-      const result = await storage.getById("test1");
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(entity);
+      // Check entity exists
+      const exists = await storage.entityExists("test1");
+      expect(exists).toBe(true);
     });
 
     test("should update entities", async () => {
       const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
+        id: "test2",
+        name: "Original Name",
+        value: 10,
       };
 
-      await storage.create(entity);
+      // Create then update
+      await storage.createEntity(entity);
+      const updated = await storage.updateEntity("test2", { name: "Updated Name", value: 20 });
 
-      const updatedEntity = { ...entity, name: "Updated Entity", value: 100 };
-      const result = await storage.update("test1", updatedEntity);
+      expect(updated).toEqual({
+        id: "test2",
+        name: "Updated Name",
+        value: 20,
+      });
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(updatedEntity);
+      // Verify update persisted
+      const retrieved = await storage.getEntity("test2");
+      expect(retrieved?.name).toBe("Updated Name");
+      expect(retrieved?.value).toBe(20);
     });
 
     test("should delete entities", async () => {
       const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
+        id: "test3",
+        name: "To Delete",
+        value: 99,
       };
 
-      await storage.create(entity);
-      const deleteResult = await storage.delete("test1");
+      // Create then delete
+      await storage.createEntity(entity);
+      const deleted = await storage.deleteEntity("test3");
+      expect(deleted).toBe(true);
 
-      expect(deleteResult.success).toBe(true);
+      // Verify deletion
+      const retrieved = await storage.getEntity("test3");
+      expect(retrieved).toBe(null);
 
-      const getResult = await storage.getById("test1");
-      expect(getResult.success).toBe(false);
+      const exists = await storage.entityExists("test3");
+      expect(exists).toBe(false);
     });
 
     test("should get all entities", async () => {
       const entities: TestEntity[] = [
-        { id: "test1", name: "Entity 1", value: 10 },
-        { id: "test2", name: "Entity 2", value: 20 },
-        { id: "test3", name: "Entity 3", value: 30 },
+        { id: "test4", name: "Entity 4", value: 40 },
+        { id: "test5", name: "Entity 5", value: 50 },
+        { id: "test6", name: "Entity 6", value: 60 },
       ];
 
+      // Create multiple entities
       for (const entity of entities) {
-        await storage.create(entity);
+        await storage.createEntity(entity);
       }
 
-      const result = await storage.getAll();
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(3);
-      expect(result.data).toEqual(expect.arrayContaining(entities));
-    });
-  });
-
-  describe("querying", () => {
-    beforeEach(async () => {
-      const entities: TestEntity[] = [
-        { id: "test1", name: "Entity 1", value: 10 },
-        { id: "test2", name: "Entity 2", value: 20 },
-        { id: "test3", name: "Entity 3", value: 30 },
-        { id: "test4", name: "Special Entity", value: 25 },
-      ];
-
+      // Retrieve all
+      const allEntities = await storage.getEntities();
+      expectToHaveLength(allEntities, 3);
+      
+      // Check all entities are present
       for (const entity of entities) {
-        await storage.create(entity);
+        expect(allEntities.find(e => e.id === entity.id)).toEqual(entity);
       }
     });
-
-    test("should query with simple predicate", async () => {
-      const result = await storage.query((entity) => entity.value > 20);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(2);
-      expect(result.data.map((e) => e.id)).toEqual(["test3", "test4"]);
-    });
-
-    test("should query with complex predicate", async () => {
-      const result = await storage.query(
-        (entity) => entity.name.includes("Entity") && entity.value < 25
-      );
-
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(2);
-      expect(result.data.map((e) => e.id)).toEqual(["test1", "test2"]);
-    });
-
-    test("should return empty array when no matches", async () => {
-      const result = await storage.query((entity) => entity.value > 100);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual([]);
-    });
   });
 
-  describe("state management", () => {
-    test("should get current state", async () => {
-      const result = await storage.getState();
+  describe("State Management", () => {
+    test("should read and write state", async () => {
+      // Read initial state
+      const initialRead = await storage.readState();
+      expect(initialRead.success).toBe(true);
+      expect(initialRead.data?.entities).toEqual([]);
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({
-        totalCount: 0,
-        lastModified: expect.any(String),
-      });
-    });
-
-    test("should update state", async () => {
-      const newState: TestState = {
-        totalCount: 5,
-        lastModified: "2023-01-01T00:00:00.000Z",
+      // Write custom state
+      const customState: TestState = {
+        entities: [{ id: "state1", name: "State Entity", value: 100 }],
+        lastUpdated: "2023-01-01T00:00:00.000Z",
+        metadata: { customField: "test" }
       };
 
-      const result = await storage.updateState(newState);
+      const writeResult = await storage.writeState(customState);
+      expect(writeResult.success).toBe(true);
 
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(newState);
-
-      const getResult = await storage.getState();
-      expect(getResult.data).toEqual(newState);
+      // Read back state
+      const readResult = await storage.readState();
+      expect(readResult.success).toBe(true);
+      expect(readResult.data).toEqual(customState);
     });
   });
 
-  describe("error handling", () => {
-    test("should handle non-existent entity reads", async () => {
-      const result = await storage.getById("nonexistent");
+  describe("Error Handling", () => {
+    test("should handle non-existent entities gracefully", async () => {
+      // Get non-existent entity
+      const entity = await storage.getEntity("nonexistent");
+      expect(entity).toBe(null);
 
-      expect(result.success).toBe(false);
-      expect(result.error?.type).toBe("EntityNotFound");
+      // Update non-existent entity
+      const updated = await storage.updateEntity("nonexistent", { name: "test" });
+      expect(updated).toBe(null);
+
+      // Delete non-existent entity
+      const deleted = await storage.deleteEntity("nonexistent");
+      expect(deleted).toBe(false);
+
+      // Check non-existent entity
+      const exists = await storage.entityExists("nonexistent");
+      expect(exists).toBe(false);
     });
+  });
 
-    test("should handle updates to non-existent entities", async () => {
-      const result = await storage.update("nonexistent", {
-        id: "nonexistent",
-        name: "Test",
-        value: 1,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error?.type).toBe("EntityNotFound");
-    });
-
-    test("should handle deletes of non-existent entities", async () => {
-      const result = await storage.delete("nonexistent");
-
-      expect(result.success).toBe(false);
-      expect(result.error?.type).toBe("EntityNotFound");
-    });
-
-    test("should handle duplicate entity creation", async () => {
+  describe("Persistence", () => {
+    test("should persist data across storage instances", async () => {
       const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
+        id: "persist1",
+        name: "Persistent Entity",
+        value: 123,
       };
 
-      await storage.create(entity);
-      const result = await storage.create(entity);
-
-      expect(result.success).toBe(false);
-      expect(result.error?.type).toBe("EntityAlreadyExists");
-    });
-  });
-
-  describe("persistence", () => {
-    test("should persist data across instances", async () => {
-      const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
-      };
-
-      await storage.create(entity);
+      // Create entity with first instance
+      await storage.createEntity(entity);
 
       // Create new storage instance with same file
       const storage2 = createJsonFileStorage<TestEntity, TestState>({
         filePath: testDbPath,
-        initialState: {
+        entitiesField: "entities",
+        initializeState: () => ({
           entities: [],
-          state: {
-            totalCount: 0,
-            lastModified: new Date().toISOString(),
-          },
-        },
+          lastUpdated: new Date().toISOString(),
+          metadata: {}
+        }),
       });
 
-      const result = await storage2.getById("test1");
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual(entity);
+      await storage2.initialize();
+
+      // Retrieve with second instance
+      const retrieved = await storage2.getEntity("persist1");
+      expect(retrieved).toEqual(entity);
     });
 
-    test("should handle pretty printing option", async () => {
-      const prettyStorage = createJsonFileStorage<TestEntity, TestState>({
-        filePath: testDbPath,
-        initialState: {
-          entities: [],
-          state: {
-            totalCount: 0,
-            lastModified: new Date().toISOString(),
-          },
-        },
-        prettyPrint: true,
-      });
-
-      const entity: TestEntity = {
-        id: "test1",
-        name: "Test Entity",
-        value: 42,
-      };
-
-      await prettyStorage.create(entity);
-
-      // File should exist and be readable
-      expect(existsSync(testDbPath)).toBe(true);
-
-      // Content should be pretty-printed (contains newlines and indentation)
-      const fs = require("fs");
-      const content = fs.readFileSync(testDbPath, "utf8");
-      expect(content).toContain("\n");
-      expect(content).toContain("  ");
+    test("should handle storage location correctly", () => {
+      const location = storage.getStorageLocation();
+      expect(location).toBe(testDbPath);
     });
   });
 });

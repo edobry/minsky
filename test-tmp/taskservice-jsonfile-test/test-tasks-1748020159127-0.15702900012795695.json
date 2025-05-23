@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "id": "#128",
+      "title": "Persistence Test",
+      "description": "Test persistence.",
+      "status": "IN-PROGRESS",
+      "specPath": "process/tasks/128-persistence-test.md"
+    }
+  ],
+  "lastUpdated": "2025-05-23T17:09:19.128Z",
+  "metadata": {}
+}
