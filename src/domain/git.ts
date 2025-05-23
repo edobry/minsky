@@ -514,6 +514,34 @@ export class GitService implements GitServiceInterface {
     };
   }
 
+  /**
+   * Testable version of branch with dependency injection
+   */
+  async branchWithDependencies(
+    options: BranchOptions,
+    deps: PrDependencies
+  ): Promise<BranchResult> {
+    log.debug("Getting session for branch", { session: options.session });
+
+    const record = await deps.getSession(options.session);
+    if (!record) {
+      throw new Error(`Session '${options.session}' not found.`);
+    }
+
+    // Make sure to use the normalized repo name for consistency
+    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+    log.debug("Branch: got repoName", { repoName });
+
+    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    log.debug("Branch: calculated workdir", { workdir });
+
+    await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    return {
+      workdir,
+      branch: options.branch,
+    };
+  }
+
   async pr(options: PrOptions): Promise<PrResult> {
     await this.ensureBaseDir();
 
@@ -1420,6 +1448,79 @@ export class GitService implements GitServiceInterface {
   }
 
   /**
+   * Testable version of push with dependency injection
+   */
+  async pushWithDependencies(
+    options: PushOptions,
+    deps: PrDependencies
+  ): Promise<PushResult> {
+    let workdir: string;
+    let branch: string;
+    const remote = options.remote || "origin";
+
+    // 1. Resolve workdir
+    if (options.session) {
+      const record = await deps.getSession(options.session);
+      if (!record) {
+        throw new Error(`Session '${options.session}' not found.`);
+      }
+      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
+      workdir = deps.getSessionWorkdir(repoName, options.session);
+      branch = options.session; // Session branch is named after the session
+    } else if (options.repoPath) {
+      workdir = options.repoPath;
+      // Get current branch from repo
+      const { stdout: branchOut } = await deps.execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      branch = branchOut.trim();
+    } else {
+      // Try to infer from current directory
+      workdir = process.cwd();
+      // Get current branch from cwd
+      const { stdout: branchOut } = await deps.execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      branch = branchOut.trim();
+    }
+
+    // 2. Validate remote exists
+    const { stdout: remotesOut } = await deps.execAsync(`git -C ${workdir} remote`);
+    const remotes = remotesOut
+      .split("\n")
+      .map((r) => r.trim())
+      .filter(Boolean);
+    if (!remotes.includes(remote)) {
+      throw new Error(`Remote '${remote}' does not exist in repository at ${workdir}`);
+    }
+
+    // 3. Build push command
+    let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
+    if (options.force) {
+      pushCmd += " --force";
+    }
+
+    // 4. Execute push
+    try {
+      await deps.execAsync(pushCmd);
+      return { workdir, pushed: true };
+    } catch (err: any) {
+      // Provide helpful error messages for common issues
+      if (err.stderr && err.stderr.includes("[rejected]")) {
+        throw new Error(
+          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history."
+        );
+      }
+      if (err.stderr && err.stderr.includes("no upstream")) {
+        throw new Error(
+          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
+        );
+      }
+      throw new Error(err.stderr || err.message || String(err));
+    }
+  }
+
+  /**
    * Determine the task ID associated with the current operation
    */
   private async determineTaskId(
@@ -1648,6 +1749,34 @@ export class GitService implements GitServiceInterface {
       const defaultBranch = await this.execInRepository(repoPath, defaultBranchCmd);
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
       const result = defaultBranch.trim().replace(/^origin\//, "");
+      return result;
+    } catch (error) {
+      // Log error but don't throw
+      log.error("Could not determine default branch, falling back to 'main'", {
+        error: error instanceof Error ? error.message : String(error),
+        repoPath,
+      });
+      // Fall back to main
+      return "main";
+    }
+  }
+
+  /**
+   * Testable version of fetchDefaultBranch with dependency injection
+   */
+  async fetchDefaultBranchWithDependencies(
+    repoPath: string,
+    deps: {
+      execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+    }
+  ): Promise<string> {
+    try {
+      // Try to get the default branch from the remote's HEAD ref
+      const { stdout } = await deps.execAsync(
+        `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD --short`
+      );
+      // Format is usually "origin/main", so we need to remove the "origin/" prefix
+      const result = stdout.trim().replace(/^origin\//, "");
       return result;
     } catch (error) {
       // Log error but don't throw
