@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { promises as fs, existsSync } from "fs";
 import * as path from "path";
 import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking";
-import { readContentFromFileIfExists, parseGlobs } from "../../cli/rules.js";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.ts";
 
 // Set up automatic mock cleanup
 setupTestMocks();

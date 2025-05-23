@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { readContentFromFileIfExists, parseGlobs } from "../../cli/rules.js";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.ts";
 
 // Test to verify the helper functions work correctly
 describe("Rules CLI Helper Functions Integration", () => {
