@@ -774,3 +774,14 @@ _See: SpecStory history [2023-11-05_15-30-enhance-test-utilities](mdc:.specstory
   - Changed the return value structure to avoid JSON stringification conflicts
   - Ensured proper type safety with TypeScript for returned task data
   - Resolved the issue where tasks were not properly returned through the MCP interface
+
+- Task #131: Fix TypeScript Issues in DI Helpers
+  - Replaced explicit 'any' types with 'unknown' for better type safety in test dependency interfaces
+  - Fixed interface method names to match actual domain interfaces (GitServiceInterface, WorkspaceUtilsInterface)
+  - Updated mock implementations to use direct functions instead of createMock wrappers for better type inference
+  - Fixed unused parameter warnings by prefixing with underscore
+  - Updated integration test to use withMockedDeps instead of mockImplementation for better compatibility
+  - Removed unused createMock import to clean up dependencies
+  - Resolved all TypeScript linter warnings in dependencies.ts while maintaining full test functionality
+
+_See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/history/2025-01-XX_fix-typescript-di-helpers.md) for implementation details._
