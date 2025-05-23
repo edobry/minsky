@@ -19,7 +19,7 @@ const arrayContaining = (arr: any[]) => ({
 
 const objectContaining = (obj: Record<string, any>) => ({
   asymmetricMatch: (actual: Record<string, any>) => 
-    typeof actual === 'object' && 
+    typeof actual === "object" && 
     Object.entries(obj).every(([key, value]) => 
       key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))
     )

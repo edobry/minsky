@@ -152,12 +152,12 @@ export async function executeMcpCommand(
     const ensuredError = ensureError(error);
 
     const formattedMcpErrorResponse = {
-        message: ensuredError.message || "An unexpected error occurred during MCP command execution.",
-        type: (ensuredError.constructor && ensuredError.constructor.name !== "Error" && ensuredError.constructor.name !== "Object") 
-              ? ensuredError.constructor.name 
-              : "MCP_EXECUTION_ERROR",
-        stack: request.debug ? ensuredError.stack : undefined,
-        details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
+      message: ensuredError.message || "An unexpected error occurred during MCP command execution.",
+      type: (ensuredError.constructor && ensuredError.constructor.name !== "Error" && ensuredError.constructor.name !== "Object") 
+        ? ensuredError.constructor.name 
+        : "MCP_EXECUTION_ERROR",
+      stack: request.debug ? ensuredError.stack : undefined,
+      details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
     };
 
     // Optional: Log the error server-side using a dedicated MCP error logger if available

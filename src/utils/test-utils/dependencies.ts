@@ -314,7 +314,7 @@ export function withMockedDeps<T extends Record<string, any>, R>(
     const k = key as keyof T;
     const override = mockOverrides[k];
     
-    if (typeof override === 'object' && override !== null && typeof tempDeps[k] === 'object' && tempDeps[k] !== null) {
+    if (typeof override === "object" && override !== null && typeof tempDeps[k] === "object" && tempDeps[k] !== null) {
       // For object properties, merge with original instead of replacing
       tempDeps[k] = {
         ...tempDeps[k],

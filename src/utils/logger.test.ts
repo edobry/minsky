@@ -12,7 +12,7 @@ describe("Logger", () => {
     delete process.env.MINSKY_LOG_MODE;
     
     // Restore original TTY value
-    Object.defineProperty(process.stdout, 'isTTY', {
+    Object.defineProperty(process.stdout, "isTTY", {
       value: originalStdoutIsTTY,
       configurable: true,
     });
@@ -36,14 +36,14 @@ describe("Logger", () => {
 
     test("should default based on TTY when env var is not set", () => {
       // Set TTY to true
-      Object.defineProperty(process.stdout, 'isTTY', {
+      Object.defineProperty(process.stdout, "isTTY", {
         value: true,
         configurable: true,
       });
       expect(getLogMode()).toBe(LogMode.HUMAN);
 
       // Set TTY to false
-      Object.defineProperty(process.stdout, 'isTTY', {
+      Object.defineProperty(process.stdout, "isTTY", {
         value: false,
         configurable: true,
       });

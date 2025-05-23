@@ -51,7 +51,7 @@ abstract class AsymmetricMatcherBase implements AsymmetricMatcher {
  */
 class AnythingMatcher extends AsymmetricMatcherBase {
   constructor() {
-    super('Anything');
+    super("Anything");
   }
   
   asymmetricMatch(other: unknown): boolean {
@@ -66,7 +66,7 @@ class AnyMatcher extends AsymmetricMatcherBase {
   private readonly expectedType: any;
   
   constructor(expectedType: any) {
-    super('Any');
+    super("Any");
     this.expectedType = expectedType;
   }
   
@@ -77,25 +77,25 @@ class AnyMatcher extends AsymmetricMatcherBase {
     
     // Handle primitive type matching with typeof
     if (this.expectedType === String) {
-      return typeof other === 'string';
+      return typeof other === "string";
     }
     if (this.expectedType === Number) {
-      return typeof other === 'number';
+      return typeof other === "number";
     }
     if (this.expectedType === Boolean) {
-      return typeof other === 'boolean';
+      return typeof other === "boolean";
     }
     if (this.expectedType === BigInt) {
-      return typeof other === 'bigint';
+      return typeof other === "bigint";
     }
     if (this.expectedType === Symbol) {
-      return typeof other === 'symbol';
+      return typeof other === "symbol";
     }
     if (this.expectedType === Function) {
-      return typeof other === 'function';
+      return typeof other === "function";
     }
     if (this.expectedType === Object) {
-      return typeof other === 'object' && other !== null;
+      return typeof other === "object" && other !== null;
     }
     
     // For Array, use Array.isArray
@@ -104,7 +104,7 @@ class AnyMatcher extends AsymmetricMatcherBase {
     }
     
     // For all other constructors, use instanceof
-    if (typeof this.expectedType === 'function') {
+    if (typeof this.expectedType === "function") {
       return other instanceof this.expectedType;
     }
     
@@ -128,12 +128,12 @@ class StringContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedSubstring: string;
   
   constructor(expectedSubstring: string) {
-    super('StringContaining');
+    super("StringContaining");
     this.expectedSubstring = expectedSubstring;
   }
   
   asymmetricMatch(other: unknown): boolean {
-    if (typeof other !== 'string') {
+    if (typeof other !== "string") {
       return false;
     }
     
@@ -156,12 +156,12 @@ class StringMatchingMatcher extends AsymmetricMatcherBase {
   private readonly expectedPattern: RegExp;
   
   constructor(expectedPattern: RegExp | string) {
-    super('StringMatching');
+    super("StringMatching");
     this.expectedPattern = new RegExp(expectedPattern);
   }
   
   asymmetricMatch(other: unknown): boolean {
-    if (typeof other !== 'string') {
+    if (typeof other !== "string") {
       return false;
     }
     
@@ -184,12 +184,12 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedObject: Record<string, any>;
   
   constructor(expectedObject: Record<string, any>) {
-    super('ObjectContaining');
+    super("ObjectContaining");
     this.expectedObject = expectedObject;
   }
   
   asymmetricMatch(other: unknown): boolean {
-    if (typeof other !== 'object' || other === null) {
+    if (typeof other !== "object" || other === null) {
       return false;
     }
     
@@ -256,7 +256,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
     }
     
     // Handle regular objects
-    if (typeof expected === 'object' && typeof actual === 'object') {
+    if (typeof expected === "object" && typeof actual === "object") {
       const expectedKeys = Object.keys(expected);
       const actualKeys = Object.keys(actual);
       
@@ -297,7 +297,7 @@ class ArrayContainingMatcher extends AsymmetricMatcherBase {
   private readonly expectedItems: any[];
   
   constructor(expectedItems: any[]) {
-    super('ArrayContaining');
+    super("ArrayContaining");
     this.expectedItems = expectedItems;
   }
   
@@ -309,7 +309,7 @@ class ArrayContainingMatcher extends AsymmetricMatcherBase {
     return this.expectedItems.every(expected => {
       return other.some(actual => {
         // Handle nested asymmetric matchers
-        if (expected && typeof expected === 'object' && 'asymmetricMatch' in expected) {
+        if (expected && typeof expected === "object" && "asymmetricMatch" in expected) {
           return (expected as AsymmetricMatcher).asymmetricMatch(actual);
         }
         
@@ -404,15 +404,15 @@ export function registerAsymmetricMatchers(expectObj: any): void {
  */
 export function isAsymmetricMatcher(obj: any): obj is AsymmetricMatcher {
   return obj !== null && 
-    typeof obj === 'object' && 
-    typeof obj.asymmetricMatch === 'function';
+    typeof obj === "object" && 
+    typeof obj.asymmetricMatch === "function";
 }
 
 // Export a function to extend the global expect with asymmetric matchers
 export function setupAsymmetricMatchers(): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const bun = require('bun:test');
+    const bun = require("bun:test");
     
     // Add matchers to expect
     registerAsymmetricMatchers(bun.expect);
@@ -438,10 +438,10 @@ export function setupAsymmetricMatchers(): void {
       };
     } else {
       // If no equals method was found, just log a warning
-      console.warn('Could not find expect.equals method to override for matcher support.');
+      console.warn("Could not find expect.equals method to override for matcher support.");
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    console.warn('Failed to set up asymmetric matchers:', error);
+    console.warn("Failed to set up asymmetric matchers:", error);
   }
 } 

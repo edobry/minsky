@@ -268,14 +268,14 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
       return header.padEnd(columnWidths[col]);
     }).join(" | ");
     
-    output += chalk.bold(headerRow) + "\n";
+    output += `${chalk.bold(headerRow)  }\n`;
     
     // Create separator row
     const separatorRow = this.columns.map(col => {
       return "-".repeat(columnWidths[col]);
     }).join("-|-");
     
-    output += separatorRow + "\n";
+    output += `${separatorRow  }\n`;
     
     // Create data rows
     rows.forEach(row => {
@@ -284,7 +284,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
         return value.padEnd(columnWidths[col]);
       }).join(" | ");
       
-      output += dataRow + "\n";
+      output += `${dataRow  }\n`;
     });
     
     return output;

@@ -130,21 +130,21 @@ export class SharedErrorHandler {
    */
   static getErrorPrefix(error: unknown): string {
     if (error instanceof ValidationError) {
-      return 'Validation error';
+      return "Validation error";
     } else if (error instanceof ResourceNotFoundError) {
-      return 'Not found';
+      return "Not found";
     } else if (error instanceof ServiceUnavailableError) {
-      return 'Service unavailable';
+      return "Service unavailable";
     } else if (error instanceof FileSystemError) {
-      return 'File system error';
+      return "File system error";
     } else if (error instanceof ConfigurationError) {
-      return 'Configuration error';
+      return "Configuration error";
     } else if (error instanceof GitOperationError) {
-      return 'Git operation failed';
+      return "Git operation failed";
     } else if (error instanceof MinskyError) {
-      return 'Error';
+      return "Error";
     }
-    return 'Unexpected error';
+    return "Unexpected error";
   }
 
   /**
@@ -293,12 +293,12 @@ export const mcpErrorHandler = new McpErrorHandler();
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-    case 'cli':
-      return cliErrorHandler;
-    case 'mcp':
-      return mcpErrorHandler;
-    default:
-      // Default to CLI error handler
-      return cliErrorHandler;
+  case "cli":
+    return cliErrorHandler;
+  case "mcp":
+    return mcpErrorHandler;
+  default:
+    // Default to CLI error handler
+    return cliErrorHandler;
   }
 } 
