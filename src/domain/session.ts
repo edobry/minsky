@@ -319,7 +319,7 @@ export class SessionDB implements SessionProviderInterface {
       const parts = normalizedRepoName.split("/");
       if (parts.length > 1) {
         // Keep "local" as is, but normalize the rest
-        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+        normalizedRepoName = `${parts[0]  }-${  parts.slice(1).join("-")}`;
       }
     }
 
@@ -609,7 +609,7 @@ export async function startSessionFromParams(
       const parts = repoName.split("/");
       if (parts.length > 1) {
         // Keep "local" as is, but normalize the rest
-        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+        normalizedRepoName = `${parts[0]  }-${  parts.slice(1).join("-")}`;
       }
     } else {
       // For other repository types, normalize as usual
@@ -621,13 +621,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -1129,7 +1129,7 @@ export async function approveSessionFromParams(
     // First, check out the base branch
     await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranch}`);
     // Fetch latest changes
-    await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin`);
+    await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
     // Perform the fast-forward merge
     await deps.gitService.execInRepository(
       sessionWorkdir,
@@ -1138,11 +1138,11 @@ export async function approveSessionFromParams(
 
     // Get commit hash and date
     const commitHash = (
-      await deps.gitService.execInRepository(sessionWorkdir, `git rev-parse HEAD`)
+      await deps.gitService.execInRepository(sessionWorkdir, "git rev-parse HEAD")
     ).trim();
     const mergeDate = new Date().toISOString();
     const mergedBy = (
-      await deps.gitService.execInRepository(sessionWorkdir, `git config user.name`)
+      await deps.gitService.execInRepository(sessionWorkdir, "git config user.name")
     ).trim();
 
     // Push the changes

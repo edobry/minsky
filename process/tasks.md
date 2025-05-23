@@ -96,9 +96,9 @@
 
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 
-- [x] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
+- [ ] Add Git Commands to MCP Server [#051](process/tasks/051-add-git-commands-to-mcp-server.md)
 
-- [x] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
+- [ ] Add Remaining Task Management Commands to MCP [#052](process/tasks/052-add-remaining-task-management-commands-to-mcp.md)
 
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
@@ -142,7 +142,7 @@
 
 - [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
-- [x] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
@@ -220,34 +220,28 @@
 
 - [x] Implement Comprehensive Test Utility Documentation [#112](process/tasks/112-implement-comprehensive-test-utility-documentation.md)
 
-- [x] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
+- [-] Implement Automated Test Migration Script [#113](process/tasks/113-implement-automated-test-migration-script.md)
 
-- [+] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
+- [ ] Migrate High-Priority Tests to Native Bun Patterns [#114](process/tasks/114-migrate-high-priority-tests-to-native-bun-patterns.md)
 
 - [ ] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
 - [ ] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
-- [x] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
+- [ ] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
-- [x] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
+- [ ] Fix rule format errors in rules.ts [#118](process/tasks/118-fix-rule-format-errors-in-rules-ts.md)
 
-- [x] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
+- [ ] Fix MCP Rules.list Command to Exclude Rule Content [#119](process/tasks/119-fix-mcp-rules-list-command-to-exclude-rule-content.md)
 
-- [x] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
+- [-] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
 
 - [x] Add "session review" Command for PR Review [#121](process/tasks/121-add-session-review-command-for-pr-review.md)
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
-- [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
+- [-] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
-- [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
+- [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
-
-- [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
-
-- [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
-
-- [ ] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)

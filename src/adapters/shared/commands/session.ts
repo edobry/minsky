@@ -22,20 +22,9 @@ import {
   updateSessionFromParams,
   approveSessionFromParams,
   sessionPrFromParams,
-  sessionReviewFromParams,
+  inspectSessionFromParams,
 } from "../../../domain/session.js";
 import { log } from "../../../utils/logger.js";
-import {
-  REPO_DESCRIPTION,
-  SESSION_DESCRIPTION,
-  TASK_ID_DESCRIPTION,
-  JSON_DESCRIPTION,
-  GIT_BRANCH_DESCRIPTION,
-  NO_STATUS_UPDATE_DESCRIPTION,
-  SESSION_QUIET_DESCRIPTION,
-  FORCE_DESCRIPTION,
-  DEBUG_DESCRIPTION
-} from "../../../utils/option-descriptions.js";
 
 /**
  * Parameters for the session list command
@@ -43,12 +32,12 @@ import {
 const sessionListCommandParams: CommandParameterMap = {
   repo: {
     schema: z.string(),
-    description: REPO_DESCRIPTION,
+    description: "Repository path",
     required: false,
   },
   json: {
     schema: z.boolean(),
-    description: JSON_DESCRIPTION,
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -60,17 +49,17 @@ const sessionListCommandParams: CommandParameterMap = {
 const sessionGetCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
-    description: SESSION_DESCRIPTION,
+    description: "Session name",
     required: true,
   },
   repo: {
     schema: z.string(),
-    description: REPO_DESCRIPTION,
+    description: "Repository path",
     required: false,
   },
   json: {
     schema: z.boolean(),
-    description: JSON_DESCRIPTION,
+    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -217,12 +206,6 @@ const sessionUpdateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  force: {
-    schema: z.boolean(),
-    description: "Force update",
-    required: false,
-    defaultValue: false,
-  },
 };
 
 /**
@@ -296,43 +279,6 @@ const sessionPrCommandParams: CommandParameterMap = {
   debug: {
     schema: z.boolean(),
     description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-};
-
-/**
- * Parameters for the session review command
- */
-const sessionReviewCommandParams: CommandParameterMap = {
-  session: {
-    schema: z.string(),
-    description: "Session name to review",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  output: {
-    schema: z.string(),
-    description: "Output file path to save the review",
-    required: false,
-  },
-  prBranch: {
-    schema: z.string(),
-    description: "PR branch name (defaults to 'pr/<session>')",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
     required: false,
     defaultValue: false,
   },
@@ -517,23 +463,19 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.update command", { params, context });
 
       try {
-        const updatedSession = await updateSessionFromParams({
+        await updateSessionFromParams({
           name: params.session, // Match expected parameter name
           task: params.task,
           repo: params.repo,
           branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
-          force: params.force,
           json: params.json,
         });
 
         return {
           success: true,
-          session: updatedSession.session,
-          branch: updatedSession.branch,
-          taskId: updatedSession.taskId,
-          repoPath: updatedSession.repoPath,
+          session: params.session || params.task,
         };
       } catch (error) {
         log.error("Failed to update session", {
@@ -615,37 +557,38 @@ export function registerSessionCommands(): void {
     },
   });
 
-  // Register session review command
+  // Register session inspect command
   sharedCommandRegistry.registerCommand({
-    id: "session.review",
+    id: "session.inspect",
     category: CommandCategory.SESSION,
-    name: "review",
-    description: "Review a session's PR, showing task spec, PR description, and changes",
-    parameters: sessionReviewCommandParams,
+    name: "inspect",
+    description: "Inspect the current session (auto-detected from workspace)",
+    parameters: {
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
+    },
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing session.review command", { params, context });
+      log.debug("Executing session.inspect command", { params, context });
 
       try {
-        const result = await sessionReviewFromParams({
-          session: params.session,
-          task: params.task,
-          repo: params.repo,
+        const session = await inspectSessionFromParams({
           json: params.json,
-          output: params.output,
         });
 
         return {
           success: true,
-          ...result,
+          session,
         };
       } catch (error) {
-        log.error("Failed to review session", {
+        log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
-          task: params.task,
         });
         throw error;
       }
     },
   });
-} 
+}

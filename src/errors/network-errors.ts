@@ -58,8 +58,8 @@ export class NetworkPermissionError extends NetworkError {
    */
   getSuggestions(): string[] {
     return [
-      `Use a port number above 1024: minsky mcp start --sse --port 8080`,
-      `Run the command with elevated permissions (not recommended)`,
+      "Use a port number above 1024: minsky mcp start --sse --port 8080",
+      "Run the command with elevated permissions (not recommended)",
     ];
   }
 }
@@ -84,18 +84,18 @@ export function createNetworkError(
   const errorCode = (originalError as any).code || "";
 
   switch (errorCode) {
-    case "EADDRINUSE":
-      return new PortInUseError(port, host, originalError);
-    case "EACCES":
-      return new NetworkPermissionError(port, host, originalError);
-    default:
-      return new NetworkError(
-        `Network error: ${originalError.message}`,
-        errorCode,
-        port,
-        host,
-        originalError
-      );
+  case "EADDRINUSE":
+    return new PortInUseError(port, host, originalError);
+  case "EACCES":
+    return new NetworkPermissionError(port, host, originalError);
+  default:
+    return new NetworkError(
+      `Network error: ${originalError.message}`,
+      errorCode,
+      port,
+      host,
+      originalError
+    );
   }
 }
 

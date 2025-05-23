@@ -2,256 +2,351 @@
  * CLI Bridge
  *
  * This module bridges the shared command registry with the Commander.js CLI,
- * allowing shared commands to be exposed as CLI commands.
+ * enabling automatic generation of CLI commands from shared command definitions.
  */
 
 import { Command } from "commander";
 import {
   sharedCommandRegistry,
+  CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
   type CommandExecutionContext,
-  CommandCategory,
-  SharedCommandRegistry,
   type SharedCommand,
-  type CommandParameterDefinition,
 } from "../command-registry.js";
-import { addOptionsToCommand, parseOptionsToParameters } from "../schema-bridge.js";
 import { getErrorHandler } from "../error-handling.js";
-import { addOutputOptions } from "../../cli/utils/shared-options.js";
-import type { OutputOptions } from "../../cli/utils/shared-options.js";
+import { ensureError } from "../../../errors/index.js";
+import { handleCliError, outputResult } from "../../cli/utils/index.js";
 import { log } from "../../../utils/logger.js";
+import {
+  type ParameterMapping,
+  type ParameterMappingOptions,
+  createParameterMappings,
+  createOptionsFromMappings,
+  addArgumentsFromMappings,
+  normalizeCliParameters,
+} from "./parameter-mapper.js";
 
 /**
- * CLI-specific execution context.
+ * CLI-specific execution context
  */
 export interface CliExecutionContext extends CommandExecutionContext {
   interface: "cli";
-  // Commander.js command object if needed for specific CLI interactions
-  commanderCommand?: Command;
+  cliSpecificData?: {
+    command?: Command;
+    rawArgs?: string[];
+  };
 }
 
 /**
- * Create Commander option flags string from parameter definition
+ * Options for customizing a CLI command
  */
-function createCliOptionFlags(
-  paramName: string,
-  paramDef: CommandParameterDefinition
-): string {
-  const shortFlag = paramName.length === 1 
-    ? `-${paramName}` 
-    : "";
-  
-  const longFlag = `--${paramName}`;
-  
-  // Combine flags (short first if available)
-  const flags = shortFlag 
-    ? `${shortFlag}, ${longFlag}` 
-    : longFlag;
-  
-  // Add value placeholder for non-boolean parameters
-  return paramDef.schema.constructor.name !== "ZodBoolean"
-    ? `${flags} <value>`
-    : flags;
+export interface CliCommandOptions {
+  /** Whether to automatically use first required parameter as command argument */
+  useFirstRequiredParamAsArgument?: boolean;
+  /** Custom parameter mapping options */
+  parameters?: Record<string, ParameterMappingOptions>;
+  /** Custom help text */
+  helpText?: string;
+  /** Command aliases */
+  aliases?: string[];
+  /** Whether to hide the command from help */
+  hidden?: boolean;
+  /** Whether to force the use of options instead of arguments */
+  forceOptions?: boolean;
+  /** Custom examples to show in help */
+  examples?: string[];
+  /** Custom output formatter */
+  outputFormatter?: (result: any) => void;
 }
 
 /**
- * Creates a Commander.js command from a shared command definition.
- *
- * @param commandDef The shared command definition.
- * @param rootCommand The root Commander command to attach this command to (optional).
- * @returns A configured Commander.js command.
+ * Options for creating a category command
  */
-export function createCliCommand(
-  commandDef: CommandDefinition<any, any>,
-  rootCommand?: Command
-): Command {
-  const cliCmd = rootCommand
-    ? rootCommand.command(commandDef.name)
-    : new Command(commandDef.name);
+export interface CategoryCommandOptions {
+  /** Override category name */
+  name?: string;
+  /** Override category description */
+  description?: string;
+  /** Command aliases */
+  aliases?: string[];
+  /** Custom options for specific commands */
+  commandOptions?: Record<string, CliCommandOptions>;
+  /** Whether to use category name as command prefix */
+  usePrefix?: boolean;
+}
 
-  cliCmd.description(commandDef.description);
-
-  // Add shared parameters as CLI options
-  addOptionsToCommand(cliCmd, commandDef.parameters);
-
-  // Add global output options (e.g., --json, --debug)
-  addOutputOptions(cliCmd);
-
-  cliCmd.action(async (options: Record<string, unknown> & OutputOptions, cmd: Command) => {
-    const errorHandler = getErrorHandler("cli");
-    try {
-      // Prepare execution context
+/**
+ * Main CLI bridge class
+ * 
+ * Handles conversion of shared commands to Commander.js commands
+ */
+export class CliCommandBridge {
+  private customizations: Map<string, CliCommandOptions> = new Map();
+  private categoryCustomizations: Map<CommandCategory, CategoryCommandOptions> = new Map();
+  
+  /**
+   * Register command customization options
+   */
+  registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
+    this.customizations.set(commandId, options);
+  }
+  
+  /**
+   * Register category customization options
+   */
+  registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
+    this.categoryCustomizations.set(category, options);
+  }
+  
+  /**
+   * Get combined command options (defaults + customizations)
+   */
+  private getCommandOptions(commandId: string): CliCommandOptions {
+    const defaults: CliCommandOptions = {
+      useFirstRequiredParamAsArgument: true,
+      parameters: {},
+      hidden: false,
+      forceOptions: false,
+    };
+    
+    return {
+      ...defaults,
+      ...this.customizations.get(commandId),
+    };
+  }
+  
+  /**
+   * Generate a CLI command from a shared command definition
+   */
+  generateCommand(commandId: string): Command | null {
+    const commandDef = sharedCommandRegistry.getCommand(commandId);
+    if (!commandDef) {
+      return null;
+    }
+    
+    const options = this.getCommandOptions(commandId);
+    
+    // Create the basic command
+    const command = new Command(commandDef.name)
+      .description(commandDef.description);
+    
+    // Add aliases if specified
+    if (options.aliases?.length) {
+      command.aliases(options.aliases);
+    }
+    
+    // Hide from help if specified
+    if (options.hidden) {
+      // Alternative approach: use a special prefix that can be filtered out
+      command.description(`[HIDDEN] ${command.description()}`);
+    }
+    
+    // Create parameter mappings
+    const mappings = this.createCommandParameterMappings(commandDef, options);
+    
+    // Add arguments to the command
+    addArgumentsFromMappings(command, mappings);
+    
+    // Add options to the command
+    createOptionsFromMappings(mappings).forEach(option => {
+      command.addOption(option);
+    });
+    
+    // Add action handler
+    command.action(async (...args) => {
+      // Last argument is always the Command instance in Commander.js
+      const commandInstance = args[args.length - 1] as Command;
+      // Previous arguments are positional arguments
+      const positionalArgs = args.slice(0, args.length - 1);
+      
+      try {
+        // Create combined parameters from options and arguments
+        const rawParameters = this.extractRawParameters(
+          commandDef.parameters,
+          commandInstance.opts(),
+          positionalArgs,
+          mappings
+        );
+        
+        // Create execution context
       const context: CliExecutionContext = {
         interface: "cli",
-        debug: !!options.debug,
-        format: options.format as string,
-        commanderCommand: cmd,
-      };
-
-      // Parse and validate options against the command's Zod schemas
-      const parsedParams = parseOptionsToParameters(
-        options,
-        commandDef.parameters
-      );
-
-      // Merge with global options if necessary (some might be handled by `parseOptionsToParameters` if defined in commandDef)
-      // For this example, assuming global options like debug/format are directly on `options`
-      // and specific command params are in `parsedParams`.
-
-      const result = await commandDef.execute(parsedParams, context);
-
-      // Handle output (actual output formatting will be done by the command's domain logic or response formatters)
-      // For now, just log the result if not undefined
-      if (result !== undefined) {
-        // Output will be handled by specific response formatters or domain logic
-        // This is a placeholder
-        if (context.format === "json") {
-          console.log(JSON.stringify(result, null, 2));
-        } else {
-          // Attempt a simple string conversion or rely on a text formatter.
-          // In a real scenario, a shared response formatter would be used here.
-          console.log(result);
-        }
-      }
-    } catch (error) {
-      errorHandler.handleError(error, { debug: !!options.debug });
-    }
-  });
-
-  return cliCmd;
-}
-
-/**
- * Create a CLI command from a shared command
- */
-function createCliCommandFromShared(parent: Command, sharedCommand: SharedCommand): Command {
-  const { name, description, parameters, execute } = sharedCommand;
-  
-  // Create command
-  const command = new Command(name);
-  command.description(description);
-  
-  // Add options from command parameters
-  for (const [paramName, paramDef] of Object.entries(parameters)) {
-    try {
-      // Skip parameters that should not be exposed to CLI
-      if (paramDef.cliHidden) {
-        continue;
-      }
-      
-      const optionFlags = createCliOptionFlags(paramName, paramDef);
-      const optionDescription = paramDef.description || "";
-      
-      // Add option
-      if (paramDef.required) {
-        command.requiredOption(optionFlags, optionDescription);
-      } else {
-        const option = command.option(optionFlags, optionDescription);
+          debug: !!rawParameters.debug,
+          format: rawParameters.json ? "json" : "text",
+          cliSpecificData: {
+            command: commandInstance,
+            rawArgs: commandInstance.args,
+          },
+        };
         
-        // Set default value if provided
-        if (paramDef.defaultValue !== undefined) {
-          option.default(paramDef.defaultValue);
+        // Normalize parameters
+        const normalizedParams = normalizeCliParameters(
+          commandDef.parameters,
+          rawParameters
+        );
+        
+        // Execute the command with parameters and context
+        const result = await commandDef.execute(normalizedParams, context);
+        
+        // Handle output
+        if (options.outputFormatter) {
+          // Use custom formatter if provided
+          options.outputFormatter(result);
+        } else {
+          // Use standard outputResult utility
+          outputResult(result, {
+            json: !!rawParameters.json,
+            formatter: this.getDefaultFormatter(commandDef),
+          });
         }
-      }
-    } catch (error) {
-      // Handle duplicate options gracefully
-      log.warn(`Skipping duplicate option ${paramName} in command ${name}:`, error);
-    }
-  }
-  
-  // Set action handler
-  command.action(async (options) => {
-    try {
-      // Execute the command with options
-      const result = await execute(options, { interface: "cli" });
-      
-      // Output the result
-      console.log(JSON.stringify(result, null, 2));
-    } catch (error) {
-      console.error("Command execution failed:", error);
-      process.exit(1);
-    }
-  });
-  
-  // Add command to parent
-  parent.addCommand(command);
-  
-  return command;
-}
-
-/**
- * Create a command group for a category
- */
-function createCommandGroup(
-  parent: Command, 
-  category: CommandCategory, 
-  registry: SharedCommandRegistry
-): Command {
-  // Create category command if this is a subcategory
-  let categoryCommand: Command;
-
-  // Convert category to command name (lowercase)
-  const categoryName = category.toLowerCase();
-  
-  try {
-    // Create new command for this category
-    categoryCommand = new Command(categoryName);
-    categoryCommand.description(`${category} commands`);
-    
-    // Add to parent
-    parent.addCommand(categoryCommand);
-  } catch (error) {
-    // If command already exists, use existing one
-    log.warn(`Command group ${categoryName} already exists, reusing:`, error);
-    categoryCommand = parent.commands.find(cmd => cmd.name() === categoryName) || parent;
-  }
-  
-  return categoryCommand;
-}
-
-/**
- * Register commands from a specific category to CLI
- */
-export function registerCategorizedCliCommands(
-  program: Command,
-  categories: CommandCategory[] = Object.values(CommandCategory),
-  useSubcommands = false
-): void {
-  log.debug(`Registering CLI commands for categories: ${categories.join(", ")}`);
-  
-  for (const category of categories) {
-    // Get commands in category
-    const commands = sharedCommandRegistry.getCommandsByCategory(category);
-    
-    if (commands.length === 0) {
-      log.debug(`No commands found in category ${category}`);
-      continue;
-    }
-    
-    // Determine parent command (either program or category subcommand)
-    const parent = useSubcommands 
-      ? createCommandGroup(program, category, sharedCommandRegistry)
-      : program;
-    
-    // Register each command
-    for (const command of commands) {
-      try {
-        createCliCommandFromShared(parent, command);
       } catch (error) {
-        log.error(`Failed to register command ${command.name}:`, error);
+        // Handle any errors using the CLI error handler
+        handleCliError(error);
+      }
+    });
+    
+    return command;
+  }
+  
+  /**
+   * Generate CLI commands for all commands in a category
+   */
+  generateCategoryCommand(category: CommandCategory): Command | null {
+    const commands = sharedCommandRegistry.getCommandsByCategory(category);
+    if (commands.length === 0) {
+      return null;
+    }
+    
+    const customOptions = this.categoryCustomizations.get(category) || {};
+    
+    // Create the base category command
+    const categoryName = customOptions.name || category.toLowerCase();
+    const categoryCommand = new Command(categoryName)
+      .description(customOptions.description || `${category} commands`);
+    
+    // Add aliases if specified
+    if (customOptions.aliases?.length) {
+      categoryCommand.aliases(customOptions.aliases);
+    }
+    
+    // Add all commands in this category as subcommands
+    commands.forEach(commandDef => {
+      const commandOptions = customOptions.commandOptions?.[commandDef.id];
+      if (commandOptions) {
+        this.registerCommandCustomization(commandDef.id, commandOptions);
+      }
+      
+      const subcommand = this.generateCommand(commandDef.id);
+      if (subcommand) {
+        categoryCommand.addCommand(subcommand);
+      }
+    });
+    
+    return categoryCommand;
+  }
+  
+  /**
+   * Generate CLI commands for all categories
+   */
+  generateAllCategoryCommands(program: Command): void {
+    // Get unique categories from all commands
+    const categories = new Set<CommandCategory>();
+    sharedCommandRegistry.getAllCommands().forEach(cmd => {
+      categories.add(cmd.category);
+    });
+    
+    // Generate commands for each category
+    categories.forEach(category => {
+      const categoryCommand = this.generateCategoryCommand(category);
+      if (categoryCommand) {
+        program.addCommand(categoryCommand);
+      }
+    });
+  }
+  
+  /**
+   * Create parameter mappings for a command
+   */
+  private createCommandParameterMappings(
+    commandDef: SharedCommand,
+    options: CliCommandOptions
+  ): ParameterMapping[] {
+    const mappings = createParameterMappings(
+      commandDef.parameters,
+      options.parameters || {}
+    );
+    
+    // If automatic argument generation is enabled
+    if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
+      // Find the first required parameter to use as an argument
+      const firstRequiredIndex = mappings.findIndex(
+        mapping => mapping.paramDef.required
+      );
+      
+      if (firstRequiredIndex >= 0 && mappings[firstRequiredIndex]) {
+        // Mark it as an argument
+        mappings[firstRequiredIndex].options.asArgument = true;
       }
     }
+    
+    return mappings;
   }
-}
+  
+  /**
+   * Extract raw parameters from CLI options and arguments
+   */
+  private extractRawParameters(
+    parameters: CommandParameterMap,
+    options: Record<string, any>,
+    positionalArgs: any[],
+    mappings: ParameterMapping[]
+  ): Record<string, any> {
+    const result = { ...options };
+    
+    // Map positional arguments to parameter names
+    const argumentMappings = mappings
+      .filter(mapping => mapping.options.asArgument)
+      .sort((a, b) => {
+        // Required arguments come first
+        if (a.paramDef.required && !b.paramDef.required) return -1;
+        if (!a.paramDef.required && b.paramDef.required) return 1;
+        return 0;
+      });
+    
+    // Assign positional arguments to their corresponding parameters
+    argumentMappings.forEach((mapping, index) => {
+      if (index < positionalArgs.length) {
+        result[mapping.name] = positionalArgs[index];
+      }
+    });
+    
+    return result;
+  }
+  
+  /**
+   * Get a default formatter for command results
+   */
+  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+    // Very simple default formatter
+    return (result: any) => {
+      if (typeof result === "object" && result !== null) {
+        // If the result has a simple shape, format it nicely
+        Object.entries(result).forEach(([key, value]) => {
+          if (typeof value !== "object" || value === null) {
+            log.cli(`${key}: ${value}`);
+          }
+        });
+      } else if (result !== undefined) {
+        // Just print the result as is
+        log.cli(String(result));
+      }
+    };
+  }
+} 
 
 /**
- * Register all commands to CLI
+ * Default exported instance for the CLI bridge
+ * This singleton is used by the CLI to generate commands from the shared registry
  */
-export function registerAllCliCommands(program: Command, useSubcommands = false): void {
-  registerCategorizedCliCommands(
-    program,
-    Object.values(CommandCategory),
-    useSubcommands
-  );
-} 
+export const cliBridge = new CliCommandBridge(); 

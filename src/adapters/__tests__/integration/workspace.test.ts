@@ -11,7 +11,7 @@ import {
 // Simple mock for execAsync that includes full path for proper matching
 const mockGitRootExecAsync = (stdout: string) => {
   return async (command: string, options?: any) => {
-    if (command.includes('git rev-parse --show-toplevel')) {
+    if (command.includes("git rev-parse --show-toplevel")) {
       return { stdout, stderr: "" };
     }
     return { stdout: "", stderr: "" };
@@ -27,7 +27,7 @@ describe("Workspace Domain Methods", () => {
       
       // Override environment variables for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       try {
         // Act
@@ -74,7 +74,7 @@ describe("Workspace Domain Methods", () => {
       
       // Override environment variables for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       try {
         // Act
@@ -98,7 +98,7 @@ describe("Workspace Domain Methods", () => {
       
       // Set up environment for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       // Create mock sessionDB
       const sessionDbMock = {
@@ -146,7 +146,7 @@ describe("Workspace Domain Methods", () => {
       
       // Set up environment for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       // Create mock sessionDB that returns null
       const sessionDbMock = {
@@ -172,7 +172,7 @@ describe("Workspace Domain Methods", () => {
       
       // Set up environment for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       const sessionDbMock = {
         getSession: async (sessionName: string) => ({
@@ -207,7 +207,7 @@ describe("Workspace Domain Methods", () => {
       
       // Set up environment for testing
       const originalHome = process.env.HOME;
-      process.env.HOME = '/Users/test';
+      process.env.HOME = "/Users/test";
       
       // Create mock sessionDB
       const sessionDbMock = {

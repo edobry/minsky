@@ -352,7 +352,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
       }
 
       // For methods that don't exist, create a mock function
-      if (typeof prop === 'string') {
+      if (typeof prop === "string") {
         const mockFn = createMock();
         target[prop] = mockFn;
         return mockFn;
@@ -418,7 +418,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
 ): ReturnType<typeof mock> {
   const original = obj[method];
   
-  if (typeof original !== 'function') {
+  if (typeof original !== "function") {
     throw new Error(`Cannot spy on ${String(method)} because it is not a function`);
   }
   

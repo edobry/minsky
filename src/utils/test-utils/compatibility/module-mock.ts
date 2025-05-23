@@ -57,10 +57,10 @@ function createAutoMock(modulePath: string, actualModule: any): any {
     if (Object.prototype.hasOwnProperty.call(actualModule, key)) {
       const value = actualModule[key];
       
-      if (typeof value === 'function') {
+      if (typeof value === "function") {
         // Mock functions
         mockExports[key] = createCompatMock(value);
-      } else if (typeof value === 'object' && value !== null) {
+      } else if (typeof value === "object" && value !== null) {
         // Recursively mock nested objects
         mockExports[key] = createAutoMock(`${modulePath}.${key}`, value);
       } else {

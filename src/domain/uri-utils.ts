@@ -2,19 +2,19 @@
  * URI utilities for repository and session resolution.
  * Provides functions for normalizing, validating, and converting repository URIs.
  */
-import { existsSync } from 'fs';
-import { basename } from 'path';
-import { MinskyError, ValidationError } from '../errors/index.js';
+import { existsSync } from "fs";
+import { basename } from "path";
+import { MinskyError, ValidationError } from "../errors/index.js";
 
 /**
  * Supported repository URI formats
  */
 export enum UriFormat {
-  HTTPS = 'https',
-  SSH = 'ssh',
-  FILE = 'file',
-  PATH = 'path',
-  SHORTHAND = 'shorthand',
+  HTTPS = "https",
+  SSH = "ssh",
+  FILE = "file",
+  PATH = "path",
+  SHORTHAND = "shorthand",
 }
 
 /**
@@ -85,7 +85,7 @@ export function normalizeRepositoryUri(
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): RepositoryUri {
   if (!uri) {
-    throw new ValidationError('Repository URI cannot be empty');
+    throw new ValidationError("Repository URI cannot be empty");
   }
 
   const {
@@ -96,11 +96,11 @@ export function normalizeRepositoryUri(
   // Default to unknown format, we'll determine it below
   let format = UriFormat.PATH;
   let normalizedUri = uri.trim();
-  let normalizedName = '';
+  let normalizedName = "";
   let isLocal = false;
   
   // 1. Handle HTTPS URLs
-  if (normalizedUri.startsWith('https://')) {
+  if (normalizedUri.startsWith("https://")) {
     format = UriFormat.HTTPS;
     // Extract org/repo from the URL
     const match = normalizedUri.match(/https:\/\/[^\/]+\/([^\/]+)\/([^\/]+?)(\.git)?$/);
@@ -109,13 +109,13 @@ export function normalizeRepositoryUri(
     }
     
     const org = match[1];
-    const repo = match[2].replace(/\.git$/, '');
+    const repo = match[2].replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
-    normalizedUri = normalizedUri.replace(/\.git$/, '');
+    normalizedUri = normalizedUri.replace(/\.git$/, "");
   }
   // 2. Handle SSH URLs
-  else if (normalizedUri.includes('@') && normalizedUri.includes(':')) {
+  else if (normalizedUri.includes("@") && normalizedUri.includes(":")) {
     format = UriFormat.SSH;
     // Extract org/repo from the URL
     const match = normalizedUri.match(/[^@]+@[^:]+:([^\/]+)\/([^\/]+?)(\.git)?$/);
@@ -124,17 +124,17 @@ export function normalizeRepositoryUri(
     }
     
     const org = match[1];
-    const repo = match[2].replace(/\.git$/, '');
+    const repo = match[2].replace(/\.git$/, "");
     normalizedName = `${org}/${repo}`;
     // Remove .git suffix for consistency
-    normalizedUri = normalizedUri.replace(/\.git$/, '');
+    normalizedUri = normalizedUri.replace(/\.git$/, "");
   }
   // 3. Handle local file:// URIs
-  else if (normalizedUri.startsWith('file://')) {
+  else if (normalizedUri.startsWith("file://")) {
     format = UriFormat.FILE;
     isLocal = true;
     // Extract local path
-    const path = normalizedUri.replace(/^file:\/\//, '');
+    const path = normalizedUri.replace(/^file:\/\//, "");
     // For local repos, use local/<basename> as the name
     normalizedName = `local/${basename(path)}`;
     
@@ -144,7 +144,7 @@ export function normalizeRepositoryUri(
     }
   }
   // 4. Handle plain filesystem paths
-  else if (normalizedUri.startsWith('/') || normalizedUri.match(/^[A-Z]:\\/i)) {
+  else if (normalizedUri.startsWith("/") || normalizedUri.match(/^[A-Z]:\\/i)) {
     format = UriFormat.PATH;
     isLocal = true;
     // For local repos, use local/<basename> as the name
@@ -226,10 +226,10 @@ export function convertRepositoryUri(
   // Local repositories can only be converted between PATH and FILE formats
   if (normalized.isLocal) {
     if (targetFormat === UriFormat.PATH) {
-      return normalized.uri.replace(/^file:\/\//, '');
+      return normalized.uri.replace(/^file:\/\//, "");
     }
     if (targetFormat === UriFormat.FILE) {
-      return normalized.uri.startsWith('file://')
+      return normalized.uri.startsWith("file://")
         ? normalized.uri
         : `file://${normalized.uri}`;
     }
@@ -239,19 +239,19 @@ export function convertRepositoryUri(
   }
   
   // GitHub repositories can be converted between formats
-  const [org, repo] = normalized.name.split('/');
+  const [org, repo] = normalized.name.split("/");
   
   switch (targetFormat) {
-    case UriFormat.HTTPS:
-      return `https://github.com/${org}/${repo}`;
-    case UriFormat.SSH:
-      return `git@github.com:${org}/${repo}.git`;
-    case UriFormat.SHORTHAND:
-      return `${org}/${repo}`;
-    default:
-      throw new ValidationError(
-        `Cannot convert remote repository to ${targetFormat} format`
-      );
+  case UriFormat.HTTPS:
+    return `https://github.com/${org}/${repo}`;
+  case UriFormat.SSH:
+    return `git@github.com:${org}/${repo}.git`;
+  case UriFormat.SHORTHAND:
+    return `${org}/${repo}`;
+  default:
+    throw new ValidationError(
+      `Cannot convert remote repository to ${targetFormat} format`
+    );
   }
 }
 
@@ -264,7 +264,7 @@ export function convertRepositoryUri(
  */
 export function extractRepositoryInfo(url: string): { owner: string; repo: string } {
   const normalized = normalizeRepositoryUri(url);
-  const [owner, repo] = normalized.name.split('/');
+  const [owner, repo] = normalized.name.split("/");
   
   if (!owner || !repo) {
     throw new ValidationError(`Could not extract owner/repo from URL: ${url}`);
@@ -283,8 +283,8 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
   try {
     // This will be implemented with actual Git detection code
     // For now, provide a placeholder implementation
-    const { execAsync } = await import('../utils/exec.js');
-    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd });
+    const { execAsync } = await import("../utils/exec.js");
+    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
     return stdout.trim();
   } catch (error) {
     // Not in a Git repository

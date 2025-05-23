@@ -259,7 +259,7 @@ export class GitService implements GitServiceInterface {
       const parts = repoName.split("/");
       if (parts.length > 1) {
         // Use "local-" prefix plus remaining parts normalized
-        normalizedRepoName = parts[0] + "-" + parts.slice(1).join("-");
+        normalizedRepoName = `${parts[0]  }-${  parts.slice(1).join("-")}`;
       }
     } else {
       // For other repository types, replace any slashes with dashes
@@ -1232,7 +1232,7 @@ export class GitService implements GitServiceInterface {
     const prBranchName = options.branchName || sourceBranch;
     const prBranch = `pr/${prBranchName}`;
 
-    log.debug(`Creating PR branch using git branch as basis`, {
+    log.debug("Creating PR branch using git branch as basis", {
       sourceBranch,
       prBranch,
       usedProvidedBranchName: Boolean(options.branchName),
