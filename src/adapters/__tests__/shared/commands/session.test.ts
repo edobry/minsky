@@ -1,10 +1,17 @@
 /**
  * Shared Session Commands Tests
+ * @migrated Migrated to native Bun patterns
+ * @refactored Uses project utilities instead of raw Bun APIs
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { registerSessionCommands } from "../../../../adapters/shared/commands/session.js";
 import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
 import * as sessionDomain from "../../../../domain/session.js";
+import { expectToHaveBeenCalled, getMockCallArg, expectToHaveLength } from "../../../../utils/test-utils/assertions.js";
+import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 // Custom matcher helper functions
 const arrayContaining = (arr: any[]) => ({
@@ -90,7 +97,15 @@ describe("Shared Session Commands", () => {
     );
     
     updateSessionSpy = spyOn(sessionDomain, "updateSessionFromParams").mockImplementation(() => 
-      Promise.resolve()
+      Promise.resolve({
+        session: "test-session",
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/repo",
+        branch: "test-branch",
+        createdAt: new Date().toISOString(),
+        taskId: "123",
+        repoPath: "/mock/session/workdir"
+      })
     );
     
     approveSessionSpy = spyOn(sessionDomain, "approveSessionFromParams").mockImplementation(() => 
@@ -119,15 +134,8 @@ describe("Shared Session Commands", () => {
   });
 
   afterEach(() => {
-    // Restore original functions
-    getSessionSpy.mockRestore();
-    listSessionsSpy.mockRestore();
-    startSessionSpy.mockRestore();
-    deleteSessionSpy.mockRestore();
-    getSessionDirSpy.mockRestore();
-    updateSessionSpy.mockRestore();
-    approveSessionSpy.mockRestore();
-    sessionPrSpy.mockRestore();
+    // Restore all mocks for clean tests
+    mock.restore();
   });
 
   test("registerSessionCommands should register session commands in registry", () => {
@@ -136,7 +144,7 @@ describe("Shared Session Commands", () => {
     
     // Verify commands were registered
     const sessionCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION);
-    expect(sessionCommands.length).toBe(8);
+    expectToHaveLength(sessionCommands, 8);
     
     // Verify individual commands
     const expectedCommands = [
@@ -174,7 +182,8 @@ describe("Shared Session Commands", () => {
     const result = await listCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(listSessionsSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(listSessionsSpy);
+    expect(getMockCallArg(listSessionsSpy, 0, 0)).toEqual({
       repo: "/test/repo",
       json: true
     });
@@ -213,7 +222,8 @@ describe("Shared Session Commands", () => {
     const result = await getCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(getSessionSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(getSessionSpy);
+    expect(getMockCallArg(getSessionSpy, 0, 0)).toEqual({
       name: "test-session",
       repo: "/test/repo",
       json: true
@@ -251,7 +261,8 @@ describe("Shared Session Commands", () => {
     const result = await startCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(startSessionSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(startSessionSpy);
+    expect(getMockCallArg(startSessionSpy, 0, 0)).toEqual({
       task: "123",
       branch: "feature-branch",
       repo: "/test/repo",
@@ -290,7 +301,8 @@ describe("Shared Session Commands", () => {
     const result = await dirCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(getSessionDirSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(getSessionDirSpy);
+    expect(getMockCallArg(getSessionDirSpy, 0, 0)).toEqual({
       name: "test-session",
       task: "123",
       repo: "/test/repo",
@@ -323,7 +335,8 @@ describe("Shared Session Commands", () => {
     const result = await deleteCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(deleteSessionSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(deleteSessionSpy);
+    expect(getMockCallArg(deleteSessionSpy, 0, 0)).toEqual({
       name: "test-session",
       repo: "/test/repo",
       force: true,
@@ -359,7 +372,8 @@ describe("Shared Session Commands", () => {
     const result = await updateCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(updateSessionSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(updateSessionSpy);
+    expect(getMockCallArg(updateSessionSpy, 0, 0)).toEqual({
       name: "test-session",
       task: "123",
       repo: "/test/repo",
@@ -395,7 +409,8 @@ describe("Shared Session Commands", () => {
     const result = await approveCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(approveSessionSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(approveSessionSpy);
+    expect(getMockCallArg(approveSessionSpy, 0, 0)).toEqual({
       session: "test-session",
       task: "123",
       repo: "/test/repo",
@@ -437,7 +452,8 @@ describe("Shared Session Commands", () => {
     const result = await prCommand!.execute(params, context);
     
     // Verify domain function was called with correct params
-    expect(sessionPrSpy).toHaveBeenCalledWith({
+    expectToHaveBeenCalled(sessionPrSpy);
+    expect(getMockCallArg(sessionPrSpy, 0, 0)).toEqual({
       title: "Test PR",
       body: "Test PR body",
       session: "test-session",

@@ -117,13 +117,13 @@ This task should be executed AFTER the "Test Inventory and Classification" task,
 Based on the migration analysis, the task scope is extended to include strategic additional migrations:
 
 ### Phase 2A: Refactoring (Highest ROI)
-- [ ] Refactor 6 already-migrated files to use project utilities:
-  - [ ] `src/adapters/__tests__/shared/commands/tasks.test.ts`
-  - [ ] `src/adapters/__tests__/shared/commands/git.test.ts`
-  - [ ] `src/adapters/__tests__/shared/commands/session.test.ts`
-  - [ ] `src/utils/__tests__/param-schemas.test.ts`
-  - [ ] `src/utils/__tests__/option-descriptions.test.ts`
-  - [ ] `src/utils/test-utils/__tests__/compatibility.test.ts`
+- [x] Refactor 6 already-migrated files to use project utilities:
+  - [x] `src/adapters/__tests__/shared/commands/tasks.test.ts` (already well-refactored)
+  - [x] `src/adapters/__tests__/shared/commands/git.test.ts` (added expectToHaveLength, setupTestMocks)
+  - [x] `src/adapters/__tests__/shared/commands/session.test.ts` (added expectToHaveLength, setupTestMocks)
+  - [x] `src/utils/__tests__/param-schemas.test.ts` (added setupTestMocks, proper annotations)
+  - [x] `src/utils/__tests__/option-descriptions.test.ts` (added setupTestMocks, proper annotations)
+  - [x] `src/utils/test-utils/__tests__/compatibility.test.ts` (added setupTestMocks, proper annotations)
 
 ### Phase 2B: Quick Wins (High ROI)
 - [x] Migrate 3 easy files for momentum:

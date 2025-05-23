@@ -157,12 +157,15 @@ Create helper utilities for:
     - [x] `src/domain/__tests__/git-default-branch.test.ts` (found already migrated)
     - [x] `src/domain/__tests__/gitServiceTaskStatusUpdate.test.ts` (migrated Jest patterns)
     - [x] `src/domain/session/session-adapter.test.ts` (found already migrated)
+26. [x] Completed Phase 2A: Refactoring (Highest ROI)
+    - [x] Refactored 6 already-migrated files to use project utilities consistently
+    - [x] Added `expectToHaveLength` and `setupTestMocks` where appropriate
+    - [x] Ensured all files use proper migration annotations
 
 ## Next Steps
 
 1. [ ] Phase 2C: Migrate high business value tests (3 core workflow files)
-2. [ ] Phase 2A: Refactor already-migrated tests to use project utilities
-3. [ ] Phase 2D: Complete infrastructure tests (optional)
+2. [ ] Phase 2D: Complete infrastructure tests (optional)
 
 ## Migration Patterns Established
 
