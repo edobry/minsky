@@ -10,7 +10,7 @@ import type { TaskData } from "../../../types/tasks/taskData.js";
 
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
-  const dbPath = join(testDir, "test-tasks.json");
+  const dbPath = join(testDir, `test-tasks-${Date.now()}-${Math.random()}.json`);
   const workspacePath = join(testDir, "workspace");
   let backend: JsonFileTaskBackend;
 

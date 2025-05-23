@@ -143,13 +143,23 @@ export class JsonFileTaskBackend implements TaskBackend {
     const lines = content.split('\n');
     let title = '';
     let description = '';
+    let id = '';
     let inDescription = false;
     
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('# ')) {
-        // Extract title, removing task ID if present
-        title = trimmed.slice(2).replace(/^Task\s+#?\d+:\s*/, '').trim();
+        const headerText = trimmed.slice(2);
+        
+        // Try to extract task ID and title from header like "Task #123: Title"
+        const taskMatch = headerText.match(/^Task\s+#?(\d+):\s*(.+)$/);
+        if (taskMatch && taskMatch[1] && taskMatch[2]) {
+          id = `#${taskMatch[1]}`;
+          title = taskMatch[2].trim();
+        } else {
+          // Fallback: use entire header as title
+          title = headerText.trim();
+        }
       } else if (trimmed === '## Context' || trimmed === '## Description') {
         inDescription = true;
       } else if (trimmed.startsWith('## ') && inDescription) {
@@ -160,6 +170,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
     
     return {
+      id,
       title,
       description: description.trim(),
       metadata: {}
