@@ -6,6 +6,7 @@
 import type { TaskData, TaskState, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
 import type { TaskBackend } from "./taskBackend.js";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend.js";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend.js";
 import { log } from "../../utils/logger.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 
@@ -47,7 +48,7 @@ export class TaskService {
   private readonly currentBackend: TaskBackend;
 
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = "markdown", customBackends } = options;
+    const { workspacePath = process.cwd(), backend = "json-file", customBackends } = options;
 
     // Initialize with provided backends or create defaults
     if (customBackends && customBackends.length > 0) {
@@ -55,6 +56,10 @@ export class TaskService {
     } else {
       // Create default backends
       this.backends = [
+        createJsonFileTaskBackend({ 
+          name: "json-file", 
+          workspacePath 
+        }),
         createMarkdownTaskBackend({ 
           name: "markdown", 
           workspacePath 

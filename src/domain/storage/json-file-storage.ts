@@ -1,0 +1,364 @@
+/**
+ * JsonFileStorage Implementation
+ *
+ * This module implements the DatabaseStorage interface for JSON files.
+ * It provides a generic storage mechanism for any data type that can be
+ * serialized to JSON.
+ */
+
+import { join, dirname } from "path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import type {
+  DatabaseReadResult,
+  DatabaseWriteResult,
+  DatabaseQueryOptions,
+} from "./database-storage.js";
+import type { DatabaseStorage } from "./database-storage.js";
+
+/**
+ * Configuration options for JsonFileStorage
+ */
+export interface JsonFileStorageOptions<S> {
+  /**
+   * Path to the JSON file
+   */
+  filePath: string;
+
+  /**
+   * Function to initialize empty state
+   */
+  initializeState: () => S;
+
+  /**
+   * Entity ID field name (default: "id")
+   */
+  idField?: string;
+
+  /**
+   * Name of the array property in the state that contains entities
+   */
+  entitiesField: string;
+
+  /**
+   * Pretty print JSON (default: true)
+   */
+  prettyPrint?: boolean;
+}
+
+/**
+ * JSON file storage implementation of DatabaseStorage
+ */
+export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
+  private readonly filePath: string;
+  private readonly initializeState: () => S;
+  private readonly idField: string;
+  private readonly entitiesField: string;
+  private readonly prettyPrint: boolean;
+
+  /**
+   * Create a new JsonFileStorage instance
+   * @param options Configuration options
+   */
+  constructor(options: JsonFileStorageOptions<S>) {
+    this.filePath = options.filePath;
+    this.initializeState = options.initializeState;
+    this.idField = options.idField || "id";
+    this.entitiesField = options.entitiesField;
+    this.prettyPrint = options.prettyPrint !== false;
+  }
+
+  /**
+   * Read the entire database state
+   * @returns Promise resolving to the database state
+   */
+  async readState(): Promise<DatabaseReadResult<S>> {
+    try {
+      if (!existsSync(this.filePath)) {
+        // Return initialized state if file doesn't exist
+        const state = this.initializeState();
+        return { success: true, data: state };
+      }
+
+      const data = readFileSync(this.filePath, "utf8");
+      const state = JSON.parse(data) as S;
+      return { success: true, data: state };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      console.error(`Error reading database file: ${typedError.message}`);
+      return {
+        success: false,
+        error: typedError,
+      };
+    }
+  }
+
+  /**
+   * Write the entire database state
+   * @param state The state to write
+   * @returns Promise resolving to the result of the write operation
+   */
+  async writeState(state: S): Promise<DatabaseWriteResult> {
+    try {
+      // Ensure directory exists
+      this.ensureDirectory();
+
+      // Serialize state to JSON
+      const json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
+
+      // Write to file
+      writeFileSync(this.filePath, json, "utf8");
+
+      return {
+        success: true,
+        bytesWritten: json.length,
+      };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      console.error(`Error writing database file: ${typedError.message}`);
+      return {
+        success: false,
+        error: typedError,
+      };
+    }
+  }
+
+  /**
+   * Get a single entity by ID
+   * @param id Entity identifier
+   * @param options Query options
+   * @returns Promise resolving to the entity or null if not found
+   */
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null> {
+    const result = await this.readState();
+    if (!result.success || !result.data) {
+      return null;
+    }
+
+    const state = result.data;
+    const entities = this.getEntitiesFromState(state);
+    const entity = entities.find((e) => (e as any)[this.idField] === id);
+
+    return entity || null;
+  }
+
+  /**
+   * Get all entities that match the query options
+   * @param options Query options
+   * @returns Promise resolving to array of entities
+   */
+  async getEntities(options?: DatabaseQueryOptions): Promise<T[]> {
+    const result = await this.readState();
+    if (!result.success || !result.data) {
+      return [];
+    }
+
+    const state = result.data;
+    const entities = this.getEntitiesFromState(state);
+
+    if (!options) {
+      return entities;
+    }
+
+    // Filter entities based on query options
+    return entities.filter((entity) => {
+      for (const [key, value] of Object.entries(options)) {
+        if ((entity as any)[key] !== value) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Create a new entity in the database
+   * @param entity The entity to create
+   * @returns Promise resolving to the created entity
+   */
+  async createEntity(entity: T): Promise<T> {
+    const result = await this.readState();
+    if (!result.success || !result.data) {
+      throw new Error("Failed to read database state");
+    }
+
+    const state = result.data;
+    const entities = this.getEntitiesFromState(state);
+
+    // Check if entity with this ID already exists
+    const id = (entity as any)[this.idField];
+    if (id && entities.some((e) => (e as any)[this.idField] === id)) {
+      throw new Error(`Entity with ID ${id} already exists`);
+    }
+
+    // Add entity to collection
+    entities.push(entity);
+
+    // Update state with new entities collection
+    this.setEntitiesInState(state, entities);
+
+    // Write updated state
+    const writeResult = await this.writeState(state);
+    if (!writeResult.success) {
+      throw writeResult.error || new Error("Failed to write database state");
+    }
+
+    return entity;
+  }
+
+  /**
+   * Update an existing entity
+   * @param id Entity identifier
+   * @param updates Partial entity with updates
+   * @returns Promise resolving to the updated entity or null if not found
+   */
+  async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
+    const result = await this.readState();
+    if (!result.success || !result.data) {
+      throw new Error("Failed to read database state");
+    }
+
+    const state = result.data;
+    const entities = this.getEntitiesFromState(state);
+
+    // Find entity index
+    const index = entities.findIndex((e) => (e as any)[this.idField] === id);
+    if (index === -1) {
+      return null;
+    }
+
+    // Update entity
+    const updatedEntity = { ...entities[index], ...updates } as T;
+    entities[index] = updatedEntity;
+
+    // Update state with modified entities collection
+    this.setEntitiesInState(state, entities);
+
+    // Write updated state
+    const writeResult = await this.writeState(state);
+    if (!writeResult.success) {
+      throw writeResult.error || new Error("Failed to write database state");
+    }
+
+    return updatedEntity;
+  }
+
+  /**
+   * Delete an entity by ID
+   * @param id Entity identifier
+   * @returns Promise resolving to true if deleted, false if not found
+   */
+  async deleteEntity(id: string): Promise<boolean> {
+    const result = await this.readState();
+    if (!result.success || !result.data) {
+      throw new Error("Failed to read database state");
+    }
+
+    const state = result.data;
+    const entities = this.getEntitiesFromState(state);
+
+    // Find entity index
+    const index = entities.findIndex((e) => (e as any)[this.idField] === id);
+    if (index === -1) {
+      return false;
+    }
+
+    // Remove entity
+    entities.splice(index, 1);
+
+    // Update state with modified entities collection
+    this.setEntitiesInState(state, entities);
+
+    // Write updated state
+    const writeResult = await this.writeState(state);
+    if (!writeResult.success) {
+      throw writeResult.error || new Error("Failed to write database state");
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if an entity exists
+   * @param id Entity identifier
+   * @returns Promise resolving to true if exists, false otherwise
+   */
+  async entityExists(id: string): Promise<boolean> {
+    const entity = await this.getEntity(id);
+    return entity !== null;
+  }
+
+  /**
+   * Get the storage file path
+   * @returns The file path
+   */
+  getStorageLocation(): string {
+    return this.filePath;
+  }
+
+  /**
+   * Initialize the storage (create file if it doesn't exist)
+   * @returns Promise resolving to true if successful
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      // Ensure directory exists
+      this.ensureDirectory();
+
+      // If file doesn't exist, create it with initial state
+      if (!existsSync(this.filePath)) {
+        const state = this.initializeState();
+        const writeResult = await this.writeState(state);
+        return writeResult.success;
+      }
+
+      return true;
+    } catch (error) {
+      console.error(
+        `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Helper method to ensure directory exists
+   * @private
+   */
+  private ensureDirectory(): void {
+    const dir = dirname(this.filePath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  /**
+   * Helper method to get entities array from state
+   * @param state Database state
+   * @returns Array of entities
+   * @private
+   */
+  private getEntitiesFromState(state: S): T[] {
+    return (state as any)[this.entitiesField] || [];
+  }
+
+  /**
+   * Helper method to set entities array in state
+   * @param state Database state
+   * @param entities Array of entities
+   * @private
+   */
+  private setEntitiesInState(state: S, entities: T[]): void {
+    (state as any)[this.entitiesField] = entities;
+  }
+}
+
+/**
+ * Create a new JsonFileStorage instance
+ * @param options Configuration options
+ * @returns JsonFileStorage instance
+ */
+export function createJsonFileStorage<T, S>(
+  options: JsonFileStorageOptions<S>
+): DatabaseStorage<T, S> {
+  return new JsonFileStorage<T, S>(options);
+} 

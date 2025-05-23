@@ -245,3 +245,10 @@
 - [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+- [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+
+- [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
+
+- [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
+
+- [+] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
