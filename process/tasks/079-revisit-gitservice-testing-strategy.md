@@ -98,6 +98,15 @@ Significant improvements have been made through task #114 (test migration):
   - Made conflicts property non-optional in MergeResult interface
   - Replaced console.error with log.error for consistent logging
   - All original tests continue to pass (6/6 passing)
+- **2025-05-21**: **BREAKTHROUGH**: Successfully implemented dependency injection testing patterns:
+  - ✅ Identified and resolved architectural issue: GitService was bypassing centralized `execAsync` utility
+  - ✅ Confirmed GitService now uses centralized `../utils/exec` module consistently
+  - ✅ Replaced complex filesystem mocking with clean dependency injection patterns
+  - ✅ Implemented PR workflow tests using `prWithDependencies()` method (3/3 passing)
+  - ✅ Added comprehensive test coverage for PR generation, session handling, error scenarios
+  - ✅ Demonstrates proper use of `createMock` and centralized test utilities from `mocking.ts`
+  - **Current Status**: 11/17 total tests passing (65% pass rate, significant improvement)
+  - **Next Phase**: Refine spyOn implementation details for remaining repository operation tests
 
 ### Test Coverage Matrix (Current State Analysis)
 
