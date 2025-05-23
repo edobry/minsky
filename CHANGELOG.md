@@ -11,6 +11,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task #114: Migrate High-Priority Tests to Native Bun Patterns
+  - Created robust custom assertion helpers to bridge Jest and Bun differences
+  - Implemented comprehensive ESM import compatibility fixes
+  - Developed test-migration examples and documentation
+  - Created detailed migration criteria and verification steps
+  - Created prioritized test migration backlog
+  - Compiled a migration pattern library with common transformations
+  - Built extensive documentation for assertion method differences
+  - Successfully migrated core tests to native Bun patterns:
+    - Enhanced utility tests (enhanced-utils.test.ts)
+    - Mocking utility tests (mocking.test.ts)
+    - Filter messages utility tests (filter-messages.test.ts)
+    - Core domain task tests (tasks.test.ts)
+    - Git service tests (git.test.ts)
+    - Git PR service tests (git.pr.test.ts)
+    - Session database tests (session-db.test.ts)
+    - Rules command tests (rules.test.ts)
+    - Tasks command tests (tasks.test.ts)
+    - Git command tests (git.test.ts)
+    - Session command tests (session.test.ts)
+    - Git merge PR tests (git-merge-pr.test.ts)
+    - Parameter schemas tests (param-schemas.test.ts)
+    - Option descriptions tests (option-descriptions.test.ts)
+    - Compatibility layer tests (compatibility.test.ts)
+    - Integration tasks tests (integration/tasks.test.ts)
+    - Integration git tests (integration/git.test.ts)
+    - Integration rules tests (integration/rules.test.ts)
+    - Integration workspace tests (integration/workspace.test.ts)
+  - Phase 2A: Refactored all migrated tests to use project utilities consistently:
+    - Replaced raw Bun APIs with custom assertion helpers (expectToHaveLength, etc.)
+    - Added setupTestMocks() for automatic mock cleanup
+    - Ensured consistent use of .js extensions and migration annotations
+    - Improved test maintainability and consistency across the codebase
+  - Phase 2B: Completed additional quick wins migrations:
+    - Git default branch detection tests (git-default-branch.test.ts)
+    - Git service task status update tests (gitServiceTaskStatusUpdate.test.ts)
+    - Session adapter tests (session-adapter.test.ts)
+  - Established new testing patterns to improve maintainability:
+    - Direct Method Mocking pattern for complex dependencies
+    - Centralized test utility usage for consistent patterns
+    - Enhanced error handling with proper TypeScript types
+    - Explicit cleanup of all mocks between tests
+  - Added new custom assertion helpers:
+    - Created expectToNotBeNull for not.toBeNull assertions
+    - Enhanced property existence checking with expectToHaveProperty
+    - Improved array length verification with expectToHaveLength
+  - Completed migration of 23 high-priority tests across all layers of the application
+  - Created comprehensive migration analysis for remaining 16 test files with ROI prioritization
+
+_See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/history/2025-06-30_migrate-high-priority-tests.md) for implementation details._
+
 - Task #125: Implement CLI Bridge for Shared Command Registry
   - Created a CLI bridge to automatically generate Commander.js commands from shared command registry entries
   - Implemented flexible parameter mapping between Zod schemas and CLI options/arguments
@@ -306,6 +357,7 @@ _See: SpecStory history [2025-05-18_git-approve-command](.specstory/history/2025
 - Created a new `resource-management-protocol` rule to provide comprehensive guidance on using project-specific tools for resource management instead of direct file editing.
 
 - Task #104: Re-implemented Disabled Integration Tests
+
   - Re-implemented `workspace.test.ts` integration tests using proper dependency injection for mocking
   - Re-implemented `git.test.ts` tests with improved isolation and test environment setup
   - Implemented proper tests for the GitHub backend with dependency injection

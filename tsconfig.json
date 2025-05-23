@@ -7,6 +7,7 @@
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
+    "allowImportingTsExtensions": true,
 
     // Bundler mode
     "moduleResolution": "NodeNext",

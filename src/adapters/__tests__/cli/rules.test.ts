@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { readContentFromFileIfExists, parseGlobs } from "../../cli/rules.js";
+import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers.ts";
 
 describe("Rules CLI Core Functionality", () => {
   describe("readContentFromFileIfExists function", () => {
@@ -17,7 +17,7 @@ describe("Rules CLI Core Functionality", () => {
     });
 
     test("handles JSON array glob patterns", () => {
-      const result = parseGlobs("[\"**/*.ts\", \"**/*.tsx\", \"*.md\"]");
+      const result = parseGlobs('["**/*.ts", "**/*.tsx", "*.md"]');
       expect(result).toEqual(["**/*.ts", "**/*.tsx", "*.md"]);
     });
 

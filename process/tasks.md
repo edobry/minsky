@@ -245,3 +245,6 @@
 - [ ] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
+
+- [+] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+  - Fix all failing tests and system stability issues after CLI bridge implementation merge.
