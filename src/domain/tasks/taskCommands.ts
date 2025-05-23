@@ -23,7 +23,7 @@ export const TASK_STATUS = {
   DONE: "DONE",
 } as const;
 
-export type TaskStatus = typeof TASK_STATUS[keyof typeof TASK_STATUS];
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
 
 // Import schemas
 import {
@@ -48,14 +48,19 @@ import type {
 export const taskSpecContentParamsSchema = z
   .object({
     taskId: z.string().min(1).describe("ID of the task to retrieve specification content for"),
-    section: z.string().optional().describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
+    section: z
+      .string()
+      .optional()
+      .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
     backend: z.string().optional().describe("Specify task backend (markdown, github)"),
   })
-  .merge(z.object({
-    repo: z.string().optional().describe("Repository path"),
-    session: z.string().optional().describe("Session identifier"),
-    workspace: z.string().optional().describe("Workspace path"),
-  }));
+  .merge(
+    z.object({
+      repo: z.string().optional().describe("Repository path"),
+      session: z.string().optional().describe("Session identifier"),
+      workspace: z.string().optional().describe("Workspace path"),
+    })
+  );
 
 // Type for task spec content parameters
 export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;
@@ -180,7 +185,7 @@ export async function getTaskFromParams(
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task #${validParams.taskId} not found`,
+        `Task ${validParams.taskId} not found`,
         "task",
         validParams.taskId
       );
@@ -249,7 +254,7 @@ export async function getTaskStatusFromParams(
 
     if (!status) {
       throw new ResourceNotFoundError(
-        `Task #${validParams.taskId} not found or has no status`,
+        `Task ${validParams.taskId} not found or has no status`,
         "task",
         validParams.taskId
       );
@@ -320,7 +325,7 @@ export async function setTaskStatusFromParams(
     const task = await taskService.getTask(validParams.taskId);
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task #${validParams.taskId} not found`,
+        `Task ${validParams.taskId} not found`,
         "task",
         validParams.taskId
       );
@@ -438,7 +443,7 @@ export async function getTaskSpecContentFromParams(
     const task = await taskService.getTask(validParams.taskId);
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task #${validParams.taskId} not found`,
+        `Task ${validParams.taskId} not found`,
         "task",
         validParams.taskId
       );
@@ -448,7 +453,7 @@ export async function getTaskSpecContentFromParams(
     const specPath = task.specPath;
     if (!specPath) {
       throw new ResourceNotFoundError(
-        `Task #${validParams.taskId} has no specification file`,
+        `Task ${validParams.taskId} has no specification file`,
         "task",
         validParams.taskId
       );
@@ -483,4 +488,4 @@ export async function getTaskSpecContentFromParams(
     }
     throw error;
   }
-} 
+}

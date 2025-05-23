@@ -175,26 +175,21 @@ const tasksStatusGetRegistration = {
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, ctx: CommandExecutionContext) => {
-    try {
-      const normalizedTaskId = normalizeTaskId(params.taskId);
-      if (!normalizedTaskId) {
-        throw new ValidationError(
-          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-        );
-      }
-      const status = await getTaskStatusFromParams({
-        ...params,
-        taskId: normalizedTaskId,
-      });
-      return {
-        success: true,
-        taskId: normalizedTaskId,
-        status: status,
-      };
-    } catch (error) {
-      log.error("Error getting task status", { error });
-      throw error;
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
     }
+    const status = await getTaskStatusFromParams({
+      ...params,
+      taskId: normalizedTaskId,
+    });
+    return {
+      success: true,
+      taskId: normalizedTaskId,
+      status: status,
+    };
   },
 };
 
@@ -208,76 +203,73 @@ const tasksStatusSetRegistration = {
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, ctx: CommandExecutionContext) => {
-    try {
-      if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
-      let status = params.status;
-
-      // If status is not provided, prompt for it interactively
-      if (!status) {
-        // Check if we're in an interactive environment
-        if (!process.stdout.isTTY) {
-          throw new ValidationError("Status parameter is required in non-interactive mode");
-        }
-
-        // Prompt for status selection
-        const selectedStatus = await select({
-          message: "Select a status:",
-          options: [
-            { value: TASK_STATUS.TODO, label: "TODO" },
-            { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-            { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-            { value: TASK_STATUS.DONE, label: "DONE" },
-            { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-          ],
-        });
-
-        // Handle cancellation
-        if (isCancel(selectedStatus)) {
-          cancel("Operation cancelled.");
-          return "Operation cancelled by user";
-        }
-
-        status = selectedStatus;
-      }
-
-      if (!status) throw new ValidationError("Missing required parameter: status");
-
-      const normalizedTaskId = normalizeTaskId(params.taskId);
-      if (!normalizedTaskId) {
-        throw new ValidationError(
-          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-        );
-      }
-
-      // Get previous status
-      const previousStatus = await getTaskStatusFromParams({
-        taskId: normalizedTaskId,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-        backend: params.backend,
-      });
-
-      await setTaskStatusFromParams({
-        taskId: normalizedTaskId,
-        status: status,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-        backend: params.backend,
-      });
-
-      return {
-        success: true,
-        taskId: normalizedTaskId,
-        status: status,
-        previousStatus: previousStatus,
-      };
-    } catch (error) {
-      log.error("Error setting task status", { error });
-      throw error;
+    // Normalize and validate task ID first
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
     }
+
+    // Verify the task exists before prompting for status and get current status
+    // This will throw ResourceNotFoundError if task doesn't exist
+    const previousStatus = await getTaskStatusFromParams({
+      taskId: normalizedTaskId,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+      backend: params.backend,
+    });
+
+    let status = params.status;
+
+    // If status is not provided, prompt for it interactively
+    if (!status) {
+      // Check if we're in an interactive environment
+      if (!process.stdout.isTTY) {
+        throw new ValidationError("Status parameter is required in non-interactive mode");
+      }
+
+      // Prompt for status selection
+      const selectedStatus = await select({
+        message: "Select a status:",
+        options: [
+          { value: TASK_STATUS.TODO, label: "TODO" },
+          { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
+          { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
+          { value: TASK_STATUS.DONE, label: "DONE" },
+          { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+        ],
+      });
+
+      // Handle cancellation
+      if (isCancel(selectedStatus)) {
+        cancel("Operation cancelled.");
+        return "Operation cancelled by user";
+      }
+
+      status = selectedStatus;
+    }
+
+    if (!status) throw new ValidationError("Missing required parameter: status");
+
+    await setTaskStatusFromParams({
+      taskId: normalizedTaskId,
+      status: status,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+      backend: params.backend,
+    });
+
+    return {
+      success: true,
+      taskId: normalizedTaskId,
+      status: status,
+      previousStatus: previousStatus,
+    };
   },
 };
 
@@ -474,7 +466,7 @@ const tasksListRegistration = {
 const tasksGetRegistration = {
   id: "tasks.get",
   category: CommandCategory.TASKS,
-  name: "get", 
+  name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
@@ -496,7 +488,7 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document", 
+  description: "Create a new task from a specification document",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
