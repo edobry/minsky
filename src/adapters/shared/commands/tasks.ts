@@ -293,7 +293,6 @@ const tasksListParams: CommandParameterMap = {
     schema: z.boolean().default(false),
     description: "Include completed tasks",
     required: false,
-    defaultValue: false,
   },
   backend: {
     schema: z.string(),
