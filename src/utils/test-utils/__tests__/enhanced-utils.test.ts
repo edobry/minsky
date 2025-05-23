@@ -225,34 +225,44 @@ describe("Enhanced Test Utilities", () => {
   describe("Integration Example", () => {
     test("should demonstrate a complex test scenario", async () => {
       // 1. Create test dependencies
-      const deps = createTestDeps();
+      const originalDeps = createTestDeps();
       
-      // 2. Override specific behaviors for this test
-      deps.taskService.getTask.mockImplementation(async (id) => {
-        // Return different tasks based on ID
-        if (id === "#123") {
-          return createTaskData({ id: "#123", title: "Important Task" });
+      // 2. Use withMockedDeps to override specific behaviors for this test
+      const result = await withMockedDeps(
+        originalDeps,
+        {
+          taskService: {
+            getTask: async (id: string) => {
+              // Return different tasks based on ID
+              if (id === "#123") {
+                return createTaskData({ id: "#123", title: "Important Task" });
+              }
+              return null;
+            }
+          },
+          sessionDB: {
+            getSession: async (name: string) => {
+              if (name === "task#123") {
+                return createSessionData({ taskId: "123", session: name });
+              }
+              return null;
+            }
+          }
+        },
+        async (deps) => {
+          // 3. Execute code under test with mocked dependencies
+          const task = await deps.taskService.getTask("#123");
+          const session = task ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`) : null;
+          
+          return { task, session };
         }
-        return null;
-      });
+      );
       
-      // 3. Setup session data
-      deps.sessionDB.getSession.mockImplementation(async (name) => {
-        if (name === "task#123") {
-          return createSessionData({ taskId: "123", session: name });
-        }
-        return null;
-      });
-      
-      // 4. Execute code under test
-      const task = await deps.taskService.getTask("#123");
-      const session = task ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`) : null;
-      
-      // 5. Verify results
-      expect(task).toBeDefined();
-      expect(task?.title).toBe("Important Task");
-      expect(session).toBeDefined();
-      expect(session?.taskId).toBe("123");
+      // 4. Verify results
+      expect(result.task).toBeDefined();
+      expect(result.task?.title).toBe("Important Task");
+      expect(result.session).toBeDefined();
+      expect(result.session?.taskId).toBe("123");
     });
   });
 }); 
