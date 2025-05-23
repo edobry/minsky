@@ -119,6 +119,7 @@ export function mockModule(modulePath: string, factory: () => any): void {
 /**
  * Sets up test mocks with automatic cleanup in afterEach hook.
  * Ensures mocks are properly restored after each test to prevent test pollution.
+ * Also cleans up shared state like command registries.
  *
  * This function should be called at the top level of your test file,
  * outside of any describe/it blocks, to ensure proper cleanup.
@@ -142,7 +143,28 @@ export function setupTestMocks(): void {
   // Cleanup all mocks after each test
   afterEach(() => {
     mock.restore(); // Use mock.restore() as it's documented to handle mock.module
+    
+    // Clean up shared state that persists between tests
+    resetSharedState();
   });
+}
+
+/**
+ * Resets shared state that can leak between tests.
+ * This includes singletons like command registries that accumulate state.
+ */
+function resetSharedState(): void {
+  try {
+    // Reset the shared command registry if it exists
+    // Use dynamic import to avoid circular dependencies
+    const registryModule = require("../../adapters/shared/command-registry");
+    if (registryModule?.sharedCommandRegistry?.commands) {
+      (registryModule.sharedCommandRegistry as any).commands = new Map();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist or can't be loaded
+    // This ensures tests can run even if the command registry isn't available
+  }
 }
 
 /**
