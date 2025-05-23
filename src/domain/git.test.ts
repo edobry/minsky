@@ -404,6 +404,240 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       expect(result.conflicts).toBe(false);
     });
 
+    test("should handle staging operations with proper command execution", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          expect(command.includes("git -C /test/repo add")).toBe(true);
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      // Test stageAll
+      await gitService.stageAllWithDependencies("/test/repo", mockDeps);
+      expectToHaveBeenCalled(mockDeps.execAsync);
+
+      // Reset and test stageModified
+      mockDeps.execAsync.mockReset();
+      await gitService.stageModifiedWithDependencies("/test/repo", mockDeps);
+      expectToHaveBeenCalled(mockDeps.execAsync);
+    });
+
+    test("should verify staging commands are correct", async () => {
+      let capturedCommand = "";
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          capturedCommand = command;
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      // Test stageAll uses add -A
+      await gitService.stageAllWithDependencies("/test/repo", mockDeps);
+      expect(capturedCommand).toBe("git -C /test/repo add -A");
+
+      // Test stageModified uses add .
+      await gitService.stageModifiedWithDependencies("/test/repo", mockDeps);
+      expect(capturedCommand).toBe("git -C /test/repo add .");
+    });
+
+    test("should handle pullLatest with updates detected", async () => {
+      let callCount = 0;
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("rev-parse --abbrev-ref HEAD")) {
+            return { stdout: "main", stderr: "" };
+          }
+          if (command.includes("rev-parse HEAD")) {
+            callCount++;
+            // First call returns old hash, second call returns new hash
+            const hash = callCount === 1 ? "old-commit-hash" : "new-commit-hash";
+            return { stdout: hash, stderr: "" };
+          }
+          if (command.includes("pull origin main")) {
+            return { stdout: "Fast-forward\n file.txt | 1 +", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.updated).toBe(true);
+    });
+
+    test("should handle pullLatest with no updates", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("rev-parse --abbrev-ref HEAD")) {
+            return { stdout: "main", stderr: "" };
+          }
+          if (command.includes("rev-parse HEAD")) {
+            return { stdout: "same-commit-hash", stderr: "" };
+          }
+          if (command.includes("pull origin main")) {
+            return { stdout: "Already up to date.", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
+
+      expect(result.workdir).toBe("/test/repo");
+      expect(result.updated).toBe(false);
+    });
+
+    test("should handle pullLatest with custom remote", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("rev-parse --abbrev-ref HEAD")) {
+            return { stdout: "feature", stderr: "" };
+          }
+          if (command.includes("rev-parse HEAD")) {
+            return { stdout: "test-hash", stderr: "" };
+          }
+          if (command.includes("pull upstream feature")) {
+            expect(command).toContain("upstream"); // Verify custom remote is used
+            return { stdout: "Updated", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any
+      };
+
+      const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "upstream");
+
+      expect(result.workdir).toBe("/test/repo");
+    });
+
+    test("should handle clone operations with filesystem validation", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("git clone")) {
+            return { stdout: "Cloning into '/test/workdir'...\nDone.", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any,
+        mkdir: createMock(async () => {}) as any,
+        readdir: createMock(async () => {
+          throw new Error("ENOENT: no such file or directory"); // Directory doesn't exist
+        }) as any,
+        access: createMock(async () => {}) as any, // .git directory exists
+      };
+
+      const result = await gitService.cloneWithDependencies({
+        repoUrl: "https://github.com/user/repo.git",
+        session: "test-session"
+      }, mockDeps);
+
+      expect(result.session).toBe("test-session");
+      expect(result.workdir).toContain("test-session");
+      expectToHaveBeenCalled(mockDeps.execAsync);
+      expectToHaveBeenCalled(mockDeps.mkdir);
+    });
+
+    test("should handle clone with empty repository URL validation", async () => {
+      const mockDeps = {
+        execAsync: createMock() as any,
+        mkdir: createMock() as any,
+        readdir: createMock() as any,
+        access: createMock() as any,
+      };
+
+      await expect(gitService.cloneWithDependencies({
+        repoUrl: "",
+        session: "test-session"
+      }, mockDeps)).rejects.toThrow("Repository URL is required for cloning");
+    });
+
+    test("should handle clone with existing non-empty directory", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("git clone")) {
+            return { stdout: "Cloning...", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any,
+        mkdir: createMock() as any,
+        readdir: createMock(async () => ["existing-file.txt"]) as any, // Directory exists and not empty
+        access: createMock() as any,
+      };
+
+      // Should still proceed with clone despite warning about non-empty directory
+      const result = await gitService.cloneWithDependencies({
+        repoUrl: "https://github.com/user/repo.git",
+        session: "test-session"
+      }, mockDeps);
+
+      expect(result.session).toBe("test-session");
+      expectToHaveBeenCalled(mockDeps.readdir);
+    });
+
+    test("should handle clone failure during git command execution", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("git clone")) {
+            throw new Error("fatal: repository 'https://github.com/user/nonexistent.git' not found");
+          }
+          return { stdout: "", stderr: "" };
+        }) as any,
+        mkdir: createMock() as any,
+        readdir: createMock(async () => {
+          throw new Error("ENOENT");
+        }) as any,
+        access: createMock() as any,
+      };
+
+      await expect(gitService.cloneWithDependencies({
+        repoUrl: "https://github.com/user/nonexistent.git",
+        session: "test-session"
+      }, mockDeps)).rejects.toThrow("Failed to clone git repository");
+    });
+
+    test("should handle clone success verification failure", async () => {
+      const mockDeps = {
+        execAsync: createMock(async (command: string) => {
+          if (command.includes("git clone")) {
+            return { stdout: "Cloning...", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        }) as any,
+        mkdir: createMock() as any,
+        readdir: createMock(async () => {
+          throw new Error("ENOENT");
+        }) as any,
+        access: createMock(async () => {
+          throw new Error("ENOENT: .git directory not found"); // Clone verification fails
+        }) as any,
+      };
+
+      await expect(gitService.cloneWithDependencies({
+        repoUrl: "https://github.com/user/repo.git",
+        session: "test-session"
+      }, mockDeps)).rejects.toThrow("Git repository was not properly cloned: .git directory not found");
+    });
+
+    test("should handle clone with local repository normalization", async () => {
+      const mockDeps = {
+        execAsync: createMock(async () => ({ stdout: "Cloning...", stderr: "" })) as any,
+        mkdir: createMock() as any,
+        readdir: createMock(async () => {
+          throw new Error("ENOENT");
+        }) as any,
+        access: createMock() as any,
+      };
+
+      const result = await gitService.cloneWithDependencies({
+        repoUrl: "local/path/to/repo",
+        session: "test-session"
+      }, mockDeps);
+
+      // Should normalize local path correctly (normalizeRepoName returns "local/repo" for "local/path/to/repo")
+      // After further normalization for directory structure, becomes "local-repo"
+      expect(result.workdir).toContain("local-repo");
+      expect(result.session).toBe("test-session");
+    });
+
     test("should handle error scenarios with proper error propagation", async () => {
       const mockDeps = {
         execAsync: createMock(async () => {
@@ -413,6 +647,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       await expect(gitService.stashChangesWithDependencies("/test/repo", mockDeps)).rejects.toThrow("Failed to stash changes");
       await expect(gitService.mergeBranchWithDependencies("/test/repo", "feature", mockDeps)).rejects.toThrow("Failed to merge branch");
+      await expect(gitService.pullLatestWithDependencies("/test/repo", mockDeps)).rejects.toThrow("Failed to pull latest changes");
     });
   });
 
@@ -431,11 +666,16 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       // 3. Module mocking in Bun doesn't intercept these imports in test context
       
       // Solution: Use dependency injection patterns like prWithDependencies()
-      // ✅ IMPLEMENTED: Added *WithDependencies variants for critical methods:
-      // - commitWithDependencies()
-      // - stashChangesWithDependencies()
-      // - popStashWithDependencies()
-      // - mergeBranchWithDependencies()
+      // ✅ IMPLEMENTED: Added comprehensive *WithDependencies variants for critical methods:
+      // - commitWithDependencies() (BasicGitDependencies)
+      // - stashChangesWithDependencies() (BasicGitDependencies)  
+      // - popStashWithDependencies() (BasicGitDependencies)
+      // - mergeBranchWithDependencies() (BasicGitDependencies)
+      // - stageAllWithDependencies() (BasicGitDependencies)
+      // - stageModifiedWithDependencies() (BasicGitDependencies)
+      // - pullLatestWithDependencies() (BasicGitDependencies)
+      // - cloneWithDependencies() (ExtendedGitDependencies)
+      // Multi-tier dependency injection architecture established!
     });
   });
 });

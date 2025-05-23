@@ -82,6 +82,15 @@ export interface BasicGitDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
 }
 
+/**
+ * Extended dependencies for complex git operations that need filesystem access
+ */
+export interface ExtendedGitDependencies extends BasicGitDependencies {
+  mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  readdir: (path: string) => Promise<string[]>;
+  access: (path: string) => Promise<void>;
+}
+
 export interface CloneOptions {
   repoUrl: string;
   session?: string;
@@ -323,6 +332,133 @@ export class GitService implements GitServiceInterface {
         // List files in the directory to help debug
         try {
           const dirContents = await fs.readdir(workdir);
+          log.debug("Clone directory contents", {
+            workdir,
+            fileCount: dirContents.length,
+            firstFewFiles: dirContents.slice(0, 5),
+          });
+        } catch (err) {
+          log.warn("Could not read clone directory", {
+            workdir,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } catch (accessErr) {
+        log.error(".git directory not found after clone", {
+          workdir,
+          error: accessErr instanceof Error ? accessErr.message : String(accessErr),
+        });
+        throw new MinskyError("Git repository was not properly cloned: .git directory not found");
+      }
+
+      return {
+        workdir,
+        session,
+      };
+    } catch (error) {
+      log.error("Error during git clone", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        repoUrl: options.repoUrl,
+        workdir,
+      });
+      throw new MinskyError(
+        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Testable version of clone with dependency injection
+   */
+  async cloneWithDependencies(
+    options: CloneOptions,
+    deps: ExtendedGitDependencies
+  ): Promise<CloneResult> {
+    log.debug("GitService.cloneWithDependencies called with options", {
+      repoUrl: options.repoUrl,
+      session: options.session,
+      destination: options.destination,
+      branch: options.branch,
+    });
+
+    const session = options.session || this.generateSessionId();
+    log.debug("Using session name", { session, wasProvided: !!options.session });
+
+    // Get the repository name from the URL
+    const repoName = normalizeRepoName(options.repoUrl);
+    log.debug("Repository name determined", { repoName });
+
+    // For compatibility with other code, ensure consistent normalization
+    let normalizedRepoName = repoName;
+
+    // Special handling for local repositories to match SessionDB's normalization
+    if (repoName.startsWith("local/")) {
+      const parts = repoName.split("/");
+      if (parts.length > 1) {
+        normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
+      }
+    } else {
+      normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
+    }
+
+    log.debug("Normalized repo name for directory structure", {
+      originalRepoName: repoName,
+      normalizedRepoName,
+    });
+
+    const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
+    await deps.mkdir(sessionsDir, { recursive: true });
+    log.debug("Sessions directory created", { sessionsDir });
+
+    const workdir = this.getSessionWorkdir(normalizedRepoName, session);
+    log.debug("Computed workdir path", { workdir });
+
+    try {
+      // Validate repo URL
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
+        log.error("Invalid repository URL", { repoUrl: options.repoUrl });
+        throw new MinskyError("Repository URL is required for cloning");
+      }
+
+      // Check if destination already exists and is not empty
+      try {
+        const dirContents = await deps.readdir(workdir);
+        if (dirContents.length > 0) {
+          log.warn("Destination directory is not empty", { workdir, contents: dirContents });
+        }
+      } catch (err) {
+        // Directory doesn't exist or can't be read - this is expected
+        log.debug("Destination directory doesn't exist or is empty", { workdir });
+      }
+
+      // Clone the repository with verbose logging
+      log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
+      const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
+      try {
+        const { stdout, stderr } = await deps.execAsync(cloneCmd);
+        log.debug("git clone succeeded", {
+          stdout: stdout.trim().substring(0, 200),
+          stderr: stderr.trim().substring(0, 200),
+        });
+      } catch (cloneErr) {
+        log.error("git clone command failed", {
+          error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
+          command: cloneCmd,
+        });
+        throw cloneErr;
+      }
+
+      // Verify the clone was successful by checking for .git directory
+      log.debug("Verifying clone success");
+      try {
+        const gitDir = join(workdir, ".git");
+        await deps.access(gitDir);
+        log.debug(".git directory exists, clone was successful", { gitDir });
+
+        // List files in the directory to help debug
+        try {
+          const dirContents = await deps.readdir(workdir);
           log.debug("Clone directory contents", {
             workdir,
             fileCount: dirContents.length,
@@ -954,9 +1090,23 @@ export class GitService implements GitServiceInterface {
     await execAsync(`git -C ${workdir} add -A`);
   }
 
+  /**
+   * Testable version of stageAll with dependency injection
+   */
+  async stageAllWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<void> {
+    await deps.execAsync(`git -C ${workdir} add -A`);
+  }
+
   async stageModified(repoPath?: string): Promise<void> {
     const workdir = repoPath || process.cwd();
     await execAsync(`git -C ${workdir} add .`);
+  }
+
+  /**
+   * Testable version of stageModified with dependency injection
+   */
+  async stageModifiedWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<void> {
+    await deps.execAsync(`git -C ${workdir} add .`);
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
@@ -1085,6 +1235,33 @@ export class GitService implements GitServiceInterface {
 
       // Get new commit hash
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Return whether any changes were pulled
+      return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
+    } catch (err) {
+      throw new Error(
+        `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  /**
+   * Testable version of pullLatest with dependency injection
+   */
+  async pullLatestWithDependencies(workdir: string, deps: BasicGitDependencies, remote: string = "origin"): Promise<PullResult> {
+    try {
+      // Get current branch
+      const { stdout: branch } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
+      const currentBranch = branch.trim();
+
+      // Get current commit hash
+      const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+
+      // Pull latest changes
+      await deps.execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+
+      // Get new commit hash
+      const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
       // Return whether any changes were pulled
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
