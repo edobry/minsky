@@ -147,6 +147,16 @@ _See: SpecStory history [2023-07-05_15-45-cli-bridge-implementation](mdc:.specst
 
 ### Changed
 
+- **Task #133: Fix CLI Flag Naming Inconsistency for Task Identification**
+  - Standardized CLI flag naming for task identification across all Minsky commands
+  - Changed git PR command parameter from `taskId` to `task` for consistency with session commands
+  - Updated both CLI and MCP adapters to use `--task` flag consistently
+  - Maintained domain layer compatibility with taskId parameter mapping
+  - All task-related commands now use consistent `--task` flag naming
+  - No breaking changes to functionality, only improved user experience through consistent interface
+
+_See: SpecStory history [2025-05-23_fix-cli-flag-naming-inconsistency](mdc:.specstory/history/2025-05-23_fix-cli-flag-naming-inconsistency.md) for implementation details._
+
 - Improved error handling for common network errors in the MCP server
   - Added specialized error classes for network errors (`NetworkError`, `PortInUseError`, `NetworkPermissionError`)
   - Implemented user-friendly error messages with suggested actions for port conflicts
