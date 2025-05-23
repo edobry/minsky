@@ -52,6 +52,29 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): v
 }
 
 /**
+ * Custom matcher to replicate Jest's toHaveBeenCalledWith functionality
+ * @param mockFn The mock function to check
+ * @param expectedArgs The expected arguments
+ */
+export function expectToHaveBeenCalledWith(mockFn: { mock?: { calls: any[][] } }, ...expectedArgs: any[]): void {
+  expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
+  
+  const found = mockFn.mock?.calls.some(call => {
+    if (call.length !== expectedArgs.length) return false;
+    return call.every((arg, index) => {
+      try {
+        expect(arg).toEqual(expectedArgs[index]);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  });
+  
+  expect(found).toBeTruthy();
+}
+
+/**
  * Get a specific call argument from a mock function
  * @param mockFn The mock function
  * @param callIndex The call index (defaults to 0)
