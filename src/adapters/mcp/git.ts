@@ -111,13 +111,14 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
-      taskId: z.string().optional().describe(TASK_ID_DESCRIPTION),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
       noStatusUpdate: z.boolean().optional().describe(NO_STATUS_UPDATE_DESCRIPTION),
     }),
     async (args) => {
       const params = {
         ...args,
+        taskId: args.task, // Map task parameter to taskId for domain function
         json: true, // Always use JSON format for MCP
       };
 
