@@ -253,7 +253,7 @@ sharedCommandRegistry.registerCommand({
         session: params.session,
         backend: params.backend,
       });
-      return `Task #${normalizedTaskId} status set to ${status}`;
+      return `Task ${normalizedTaskId} status set to ${status}`;
     } catch (error) {
       log.error("Error setting task status", { error });
       throw error;
