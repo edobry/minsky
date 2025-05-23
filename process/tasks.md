@@ -142,7 +142,7 @@
 
 - [x] Fix Adapter Integration Test Failures [#073](process/tasks/073-fix-adapter-integration-test-failures.md)
 
-- [ ] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
+- [x] Implement Auto-Dependency Installation for Session Workspaces [#074](process/tasks/074-implement-auto-dependency-installation-for-session-workspaces.md)
 
 - [x] Fix Minsky Session Delete Command Cleanup [#075](process/tasks/075-fix-minsky-session-delete-command-cleanup.md)
 
@@ -255,7 +255,7 @@
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
 
-- [ ] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+- [+] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
   - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
   - **Current issues:**
   - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
