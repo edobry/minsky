@@ -541,3 +541,9 @@ export function withCleanup(cleanupFn: () => void | Promise<void>): void {
   }
   currentTestContext.registerCleanup(cleanupFn);
 }
+
+/**
+ * Creates a spy on an object method.
+ * This is a wrapper around createSpyOn for Jest-like compatibility.
+ */
+export const spyOn = createSpyOn;
