@@ -49,33 +49,33 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   try {
     if (options.json) {
       // JSON output
-      console.log(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(result, null, 2));
     } else if (options.formatter) {
       // Custom formatter
       options.formatter(result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        console.log(result);
+        log.cli(result);
       } else if (typeof result === "object" && result !== null) {
         if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
-              console.log(item);
+              log.cli(item);
             } else {
-              console.log(JSON.stringify(item, null, 2));
+              log.cli(JSON.stringify(item, null, 2));
             }
           });
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          log.cli(JSON.stringify(result, null, 2));
         }
       } else {
-        console.log(result);
+        log.cli(String(result));
       }
     }
   } catch (error) {
-    console.error("Failed to format output:", error);
-    console.log(String(result));
+    log.cliError("Failed to format output:", error);
+    log.cli(String(result));
   }
 }
 
@@ -87,13 +87,13 @@ export function handleCliError(error: unknown, options: { debug?: boolean } = {}
   
   if (options.debug) {
     // Detailed error in debug mode
-    console.error("Command execution failed:", err);
+    log.cliError("Command execution failed:", err);
     if (err.stack) {
-      console.error(err.stack);
+      log.cliError(err.stack);
     }
   } else {
     // Simple error in regular mode
-    console.error(`Error: ${err.message}`);
+    log.cliError(`Error: ${err.message}`);
   }
   
   // Set appropriate exit code based on error type

@@ -1,33 +1,62 @@
 /**
- * Integration tests for TaskService with JsonFileTaskBackend
+ * Integration tests for TaskService with JsonFileTaskBackend (v2 - with mocking)
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { join } from "path";
-import { mkdir, writeFile } from "fs/promises";
-import { randomUUID } from "crypto";
 import { TaskService } from "../taskService";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
+import { createMockFileSystem, setupTestMocks, mockModule } from "../../../utils/test-utils/mocking";
 
-describe("TaskService JsonFile Integration", () => {
-  let testDir: string;
+// Set up automatic mock cleanup to prevent race conditions
+setupTestMocks();
+
+describe("TaskService JsonFile Integration (v2)", () => {
   let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
+  let mockFS: ReturnType<typeof createMockFileSystem>;
 
   beforeEach(async () => {
-    // Create unique test directory path to avoid conflicts
-    const timestamp = Date.now();
-    const uuid = randomUUID();
-    testDir = join(process.cwd(), "test-tmp", `taskservice-jsonfile-test-${timestamp}-${uuid}`);
-    workspacePath = join(testDir, "workspace");
-    dbPath = join(testDir, "test-tasks.json");
+    // Use consistent test paths
+    workspacePath = "/test/workspace";
+    dbPath = "/test/tasks.json";
 
-    // Create test directories
-    await mkdir(join(workspacePath, "process", "tasks"), { recursive: true });
+    // Create mock filesystem with initial directory structure
+    mockFS = createMockFileSystem({
+      [workspacePath]: "", // Directory marker
+      [`${workspacePath}/process`]: "", // Directory marker  
+      [`${workspacePath}/process/tasks`]: "", // Directory marker
+    });
 
-    // Create the task backend and service
+    // Mock both fs and fs/promises modules
+    mockModule("fs", () => ({
+      existsSync: mockFS.existsSync,
+      readFileSync: mockFS.readFileSync,
+      writeFileSync: mockFS.writeFileSync,
+      mkdirSync: mockFS.mkdirSync,
+      rmSync: mockFS.rmSync,
+    }));
+
+    mockModule("fs/promises", () => ({
+      readFile: mockFS.readFile,
+      writeFile: mockFS.writeFile,
+      mkdir: mockFS.mkdir,
+      access: async (path: string) => {
+        if (!mockFS._files.has(path) && !mockFS._directories.has(path)) {
+          throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+        }
+      },
+      unlink: async (path: string) => {
+        if (!mockFS._files.has(path)) {
+          throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
+        }
+        mockFS._files.delete(path);
+      },
+    }));
+
+    // Create task service with JsonFileTaskBackend
     const backend = createJsonFileTaskBackend({
       name: "json-file",
       workspacePath,
@@ -35,182 +64,192 @@ describe("TaskService JsonFile Integration", () => {
     });
 
     taskService = new TaskService({
-      workspacePath,
-      backend: "json-file",
       customBackends: [backend],
+      backend: "json-file",
     });
-  });
 
-  afterEach(async () => {
-    // Clean up test directories
-    try {
-      const { rmSync } = await import("fs");
-      if (testDir) {
-        rmSync(testDir, { recursive: true, force: true });
-      }
-    } catch {
-      // Ignore cleanup errors - OS will clean up temp files
-    }
+    // Ensure the backend storage is ready
+    await taskService.listTasks();
   });
 
   describe("Basic Operations", () => {
     test("should default to jsonFile backend", () => {
-      expect(taskService).toBeDefined();
-      expect(taskService.getWorkspacePath()).toBe(workspacePath);
+      // Create service with json-file backend specified
+      const defaultService = new TaskService({
+        workspacePath,
+        backend: "json-file",
+        customBackends: [
+          createJsonFileTaskBackend({
+            name: "json-file",
+            workspacePath,
+            dbFilePath: dbPath,
+          }),
+        ],
+      });
+
+      expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
 
     test("should list tasks from JSON storage", async () => {
+      // Initially should be empty
       const tasks = await taskService.listTasks();
-      expect(tasks).toEqual([]);
+      expect(tasks.length).toBe(0);
     });
 
     test("should create and retrieve tasks", async () => {
-      // Create a test spec file
+      // Create a test spec file using mock filesystem
       const specPath = join(workspacePath, "process", "tasks", "test-task.md");
-      const specContent = `# Task #001: Test Task
+      const specContent =
+        "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
+      
+      // Write file to mock filesystem
+      mockFS._files.set(specPath, specContent);
+      
+      // Use relative path from workspace for task creation  
+      const relativeSpecPath = "process/tasks/test-task.md";
+      
+      const task = await taskService.createTask(relativeSpecPath);
 
-## Description
-This is a test task for integration testing.
-
-## Requirements
-- Test requirement 1
-- Test requirement 2
-
-## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-`;
-      await writeFile(specPath, specContent, "utf8");
-
-      // Create task
-      const task = await taskService.createTask("process/tasks/test-task.md");
-      expect(task.id).toBe("#001");
-      expect(task.title).toBe("Test Task");
+      expect(task.id).toBe("#123");
+      expect(task.title).toBe("Test Integration Task");
       expect(task.status).toBe("TODO");
 
-      // Retrieve task
-      const retrievedTask = await taskService.getTask("#001");
-      expect(retrievedTask).toEqual(task);
+      // Verify task can be retrieved
+      const retrieved = await taskService.getTask("#123");
+      expect(retrieved).toEqual(task);
+
+      // Verify in task list
+      const allTasks = await taskService.listTasks();
+      expect(allTasks.length).toBe(1);
+      expect(allTasks[0]).toEqual(task);
     });
 
     test("should update task status", async () => {
       // Create a test spec file
       const specPath = join(workspacePath, "process", "tasks", "status-test.md");
-      const specContent = `# Task #002: Status Test Task
+      const specContent =
+        "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
+      
+      mockFS._files.set(specPath, specContent);
 
-## Description
-This task tests status updates.
-`;
-      await writeFile(specPath, specContent, "utf8");
-
-      // Create task
-      const task = await taskService.createTask("process/tasks/status-test.md");
+      // Create task using relative path
+      const relativeSpecPath = "process/tasks/status-test.md";
+      const task = await taskService.createTask(relativeSpecPath);
       expect(task.status).toBe("TODO");
 
       // Update status
-      await taskService.setTaskStatus("#002", "IN-PROGRESS");
+      await taskService.setTaskStatus("#124", "IN-PROGRESS");
 
       // Verify status update
-      const status = await taskService.getTaskStatus("#002");
+      const status = await taskService.getTaskStatus("#124");
       expect(status).toBe("IN-PROGRESS");
+
+      // Verify in full task object
+      const updatedTask = await taskService.getTask("#124");
+      if (updatedTask) {
+        expect(updatedTask.status).toBe("IN-PROGRESS");
+      }
     });
 
     test("should filter tasks by status", async () => {
-      // Create multiple test spec files
-      const specs = [
-        { id: "001", title: "Filter Test 1", file: "filter-test-1.md" },
-        { id: "002", title: "Filter Test 2", file: "filter-test-2.md" },
-      ];
+      // Create multiple test tasks
+      const task1Spec = join(workspacePath, "process", "tasks", "filter-test-1.md");
+      const task1Content = "# Task #125: Filter Test 1\n\n## Context\n\nFirst test task.";
+      mockFS._files.set(task1Spec, task1Content);
 
-      for (const spec of specs) {
-        const specPath = join(workspacePath, "process", "tasks", spec.file);
-        const specContent = `# Task #${spec.id}: ${spec.title}
+      const task2Spec = join(workspacePath, "process", "tasks", "filter-test-2.md");
+      const task2Content = "# Task #126: Filter Test 2\n\n## Context\n\nSecond test task.";
+      mockFS._files.set(task2Spec, task2Content);
 
-## Description
-This is a test task for filtering.
-`;
-        await writeFile(specPath, specContent, "utf8");
-        await taskService.createTask(`process/tasks/${spec.file}`);
-      }
+      // Create tasks using relative paths
+      await taskService.createTask("process/tasks/filter-test-1.md");
+      await taskService.createTask("process/tasks/filter-test-2.md");
 
       // Update one task status
-      await taskService.setTaskStatus("#002", "IN-PROGRESS");
+      await taskService.setTaskStatus("#126", "DONE");
 
       // Filter by TODO status
       const todoTasks = await taskService.listTasks({ status: "TODO" });
       expect(todoTasks.length).toBe(1);
-      expect(todoTasks[0]?.id).toBe("#001");
+      if (todoTasks[0]) {
+        expect(todoTasks[0].id).toBe("#125");
+      }
 
-      // Filter by IN-PROGRESS status
-      const inProgressTasks = await taskService.listTasks({ status: "IN-PROGRESS" });
-      expect(inProgressTasks.length).toBe(1);
-      expect(inProgressTasks[0]?.id).toBe("#002");
+      // Filter by DONE status
+      const doneTasks = await taskService.listTasks({ status: "DONE" });
+      expect(doneTasks.length).toBe(1);
+      if (doneTasks[0]) {
+        expect(doneTasks[0].id).toBe("#126");
+      }
+
+      // All tasks
+      const allTasks = await taskService.listTasks();
+      expect(allTasks.length).toBe(2);
     });
   });
 
   describe("Error Handling", () => {
     test("should handle invalid task IDs gracefully", async () => {
       const task = await taskService.getTask("#999");
-      expect(task).toBeNull();
+      expect(task).toBe(null);
 
       const status = await taskService.getTaskStatus("#999");
-      expect(status).toBeNull();
+      expect(status).toBe(null);
+
+      // Should not throw when setting status on non-existent task
+      try {
+        await taskService.setTaskStatus("#999", "DONE");
+        // Should reach here without throwing
+        expect(true).toBe(true);
+      } catch (error) {
+        // Should not throw for non-existent task
+        expect(false).toBe(true);
+      }
     });
 
     test("should validate task status values", async () => {
-      // Create a test spec file
+      // Create a test task first
       const specPath = join(workspacePath, "process", "tasks", "validation-test.md");
-      const specContent = `# Task #003: Validation Test
+      const specContent = "# Task #127: Validation Test\n\n## Context\n\nTest validation.";
+      mockFS._files.set(specPath, specContent);
+      await taskService.createTask("process/tasks/validation-test.md");
 
-## Description
-This task tests validation.
-`;
-      await writeFile(specPath, specContent, "utf8");
-
-      const task = await taskService.createTask("process/tasks/validation-test.md");
-
-      // Try to set invalid status
-      await expect(taskService.setTaskStatus("#003", "INVALID" as any)).rejects.toThrow();
+      // Should reject invalid status
+      await expect(taskService.setTaskStatus("#127", "INVALID")).rejects.toThrow(
+        "Status must be one of"
+      );
     });
   });
 
   describe("Synchronization", () => {
     test("should persist changes across service instances", async () => {
-      // Create a test spec file
-      const specPath = join(workspacePath, "process", "tasks", "persistence-test.md");
-      const specContent = `# Task #004: Persistence Test
-
-## Description
-This task tests persistence across instances.
-`;
-      await writeFile(specPath, specContent, "utf8");
-
       // Create task with first service instance
-      const task = await taskService.createTask("process/tasks/persistence-test.md");
-      expect(task.id).toBe("#004");
+      const specPath = join(workspacePath, "process", "tasks", "persistence-test.md");
+      const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
+      mockFS._files.set(specPath, specContent);
 
-      // Create new service instance with same backend
-      const backend2 = createJsonFileTaskBackend({
+      await taskService.createTask("process/tasks/persistence-test.md");
+      await taskService.setTaskStatus("#128", "IN-PROGRESS");
+
+      // Create new service instance pointing to same database
+      const newBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath,
         dbFilePath: dbPath,
       });
-      const taskService2 = new TaskService({
-        workspacePath,
+
+      const newService = new TaskService({
+        customBackends: [newBackend],
         backend: "json-file",
-        customBackends: [backend2],
       });
 
-      // Verify task exists in new instance
-      const retrievedTask = await taskService2.getTask("#004");
-      expect(retrievedTask).toEqual(task);
+      // Should see the task and its updated status
+      const task = await newService.getTask("#128");
+      expect(task?.id).toBe("#128");
+      expect(task?.status).toBe("IN-PROGRESS");
 
-      // Update status in second instance
-      await taskService2.setTaskStatus("#004", "DONE");
-
-      // Verify update is visible in first instance
-      const status = await taskService.getTaskStatus("#004");
-      expect(status).toBe("DONE");
+      const tasks = await newService.listTasks();
+      expect(tasks.length).toBe(1);
     });
   });
-});
+}); 

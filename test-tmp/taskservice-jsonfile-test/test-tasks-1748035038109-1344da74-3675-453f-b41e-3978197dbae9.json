@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "id": "#124",
+      "title": "Status Test Task",
+      "description": "Test task status updates.",
+      "status": "IN-PROGRESS",
+      "specPath": "process/tasks/124-status-test-task.md"
+    }
+  ],
+  "lastUpdated": "2025-05-23T21:17:18.110Z",
+  "metadata": {}
+}

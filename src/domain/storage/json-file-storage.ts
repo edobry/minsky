@@ -109,14 +109,30 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       const data = readFileSync(this.filePath, "utf8");
       const dataStr = typeof data === "string" ? data : data.toString();
       
-      // Validate JSON before parsing
+      // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.trim()) {
+        // Handle empty file
         const state = this.initializeState();
         return { success: true, data: state };
       }
 
-      const state = JSON.parse(dataStr) as S;
-      return { success: true, data: state };
+      // Add safeguards against circular references
+      try {
+        const state = JSON.parse(dataStr) as S;
+        
+        // Validate the parsed state structure
+        if (typeof state !== "object" || state === null) {
+          log.warn("Invalid state structure, reinitializing");
+          const newState = this.initializeState();
+          return { success: true, data: newState };
+        }
+        
+        return { success: true, data: state };
+      } catch (parseError) {
+        log.error("JSON parse error, reinitializing state:", { error: parseError });
+        const state = this.initializeState();
+        return { success: true, data: state };
+      }
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);

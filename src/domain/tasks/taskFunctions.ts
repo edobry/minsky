@@ -100,15 +100,8 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
       const specPath = task.specPath || "#";
       const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
 
-      if (!task.description) return taskLine;
-
-      // Format description as indented list items
-      const description = task.description
-        .split("\n")
-        .map((line) => `  - ${line}`)
-        .join("\n");
-
-      return `${taskLine}\n${description}`;
+      // Always return only the task line - descriptions should remain in spec files
+      return taskLine;
     })
     .join("\n\n");
 }

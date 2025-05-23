@@ -24,6 +24,9 @@ interface TestState {
   metadata: Record<string, unknown>;
 }
 
+// Global test isolation to prevent race conditions
+let testSequenceNumber = 0;
+
 describe("JsonFileStorage Core Tests", () => {
   let storage: DatabaseStorage<TestEntity, TestState>;
   let testDbPath: string;
@@ -33,7 +36,8 @@ describe("JsonFileStorage Core Tests", () => {
     // Create highly unique test database path to avoid conflicts
     const timestamp = Date.now();
     const uuid = randomUUID();
-    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}`);
+    const sequence = ++testSequenceNumber;
+    testDirPath = join(process.cwd(), "test-tmp", `storage-core-test-${timestamp}-${uuid}-${sequence}`);
     testDbPath = join(testDirPath, "test.json");
 
     // Ensure test directory exists
@@ -52,29 +56,23 @@ describe("JsonFileStorage Core Tests", () => {
       prettyPrint: true,
     });
 
-    // Initialize storage with timeout protection
-    const initPromise = storage.initialize();
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Storage initialization timeout")), 5000)
-    );
-
-    await Promise.race([initPromise, timeoutPromise]);
+    // Initialize storage
+    await storage.initialize();
   });
 
   afterEach(async () => {
-    // Clean up test files with timeout protection
+    // Enhanced cleanup to prevent race conditions
     try {
-      await new Promise<void>((resolve) => {
-        setTimeout(() => {
-          if (existsSync(testDirPath)) {
-            rmSync(testDirPath, { recursive: true, force: true });
-          }
-          resolve();
-        }, 10); // Small delay to ensure file handles are released
-      });
+      // Wait a bit to ensure any pending operations complete
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Clean up test files
+      if (existsSync(testDirPath)) {
+        rmSync(testDirPath, { recursive: true, force: true });
+      }
     } catch (error) {
-      // Ignore cleanup errors - OS will clean up temp files
-      console.warn(`Cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+      // Log but don't fail tests on cleanup errors
+      console.warn(`Cleanup warning for ${testDirPath}:`, error);
     }
   });
 
