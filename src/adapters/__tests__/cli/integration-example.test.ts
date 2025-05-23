@@ -3,18 +3,18 @@
  */
 import { describe, test, expect, beforeEach, spyOn } from "bun:test";
 import createIntegratedCliProgram from "../../../adapters/cli/integration-example.js";
-import { sharedCommandRegistry } from "../../../adapters/shared/command-registry.js";
+import { createSharedCommandRegistry, sharedCommandRegistry } from "../../../adapters/shared/command-registry.js";
 import * as gitCommands from "../../../adapters/shared/commands/git.js";
 
 describe("Shared Command CLI Integration", () => {
   let registerGitSpy: ReturnType<typeof spyOn>;
   
   beforeEach(() => {
+    // Clear the global registry to prevent registration conflicts
+    sharedCommandRegistry.clear();
+    
     // Set up spy
     registerGitSpy = spyOn(gitCommands, "registerGitCommands");
-    
-    // Clear the registry
-    (sharedCommandRegistry as any).commands = new Map();
   });
 
   test("createIntegratedCliProgram should create a CLI program with shared commands", () => {

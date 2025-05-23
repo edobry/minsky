@@ -152,12 +152,14 @@ export class SharedCommandRegistry implements CommandRegistry {
    * Register a command in the registry
    * 
    * @param commandDef Command definition
-   * @throws {MinskyError} If command with same ID is already registered
+   * @param options Registration options
+   * @throws {MinskyError} If command with same ID is already registered and allowOverwrite is false
    */
   registerCommand<T extends CommandParameterMap, R>(
-    commandDef: CommandDefinition<T, R>
+    commandDef: CommandDefinition<T, R>,
+    options: { allowOverwrite?: boolean } = {}
   ): void {
-    if (this.commands.has(commandDef.id)) {
+    if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
     
@@ -193,9 +195,40 @@ export class SharedCommandRegistry implements CommandRegistry {
   getAllCommands(): SharedCommand[] {
     return Array.from(this.commands.values());
   }
+
+  /**
+   * Check if a command is already registered
+   * 
+   * @param id Command identifier
+   * @returns True if command is registered, false otherwise
+   */
+  hasCommand(id: string): boolean {
+    return this.commands.has(id);
+  }
+
+  /**
+   * Clear all registered commands
+   * 
+   * @deprecated Use a fresh registry instance instead of clearing state
+   */
+  clear(): void {
+    this.commands.clear();
+  }
 }
 
 /**
- * Global singleton instance of the shared command registry
+ * Create a new instance of the shared command registry
+ * 
+ * This function should be used instead of a global singleton to ensure
+ * proper isolation in tests and better dependency management.
  */
-export const sharedCommandRegistry = new SharedCommandRegistry(); 
+export function createSharedCommandRegistry(): SharedCommandRegistry {
+  return new SharedCommandRegistry();
+}
+
+/**
+ * Default instance for backwards compatibility
+ * 
+ * @deprecated Use createSharedCommandRegistry() and dependency injection instead
+ */
+export const sharedCommandRegistry = createSharedCommandRegistry(); 

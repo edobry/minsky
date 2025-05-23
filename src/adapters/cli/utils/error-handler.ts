@@ -136,7 +136,7 @@ export function outputResult<T>(
       log.agent("Command result", { result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      console.log(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(result, null, 2));
     }
   } else if (options.formatter) {
     options.formatter(result);
