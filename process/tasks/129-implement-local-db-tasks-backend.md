@@ -45,12 +45,17 @@ We need a more robust backend similar to the SessionDB, which already uses a loc
   - Fix TypeScript type issues with regex matches
   - Resolve module import issues
 
-### Phase 3: Integration and Testing
+### Phase 3: Integration and Testing ✅ LINTER ISSUES RESOLVED
+- [x] **Fix remaining linter issues**
+  - ✅ **OS module import**: Replaced with cross-platform home directory function using process.env
+  - ✅ **Bun test API compatibility**: Fixed test imports, methods, and array access patterns
+  - ✅ **Session workspace compatibility**: All imports and operations now work correctly in session context
 - [ ] **Update TaskService** to support JsonFileTaskBackend
   - Add backend registration and selection
   - Ensure seamless switching between backends
 - [ ] **Create comprehensive tests**
-  - Unit tests for DatabaseStorage and JsonFileStorage
+  - ✅ Basic JsonFileTaskBackend test suite (12 tests passing)
+  - Unit tests for DatabaseStorage and JsonFileStorage  
   - Integration tests for JsonFileTaskBackend
   - Migration utility tests
 - [ ] **Update CLI commands** to work with new backend
@@ -81,16 +86,17 @@ The migration utilities support:
 
 ### 🔄 **Current Progress:**
 - Storage layer: 100% complete
-- Migration utilities: 100% complete (minor linter fixes needed)
-- JsonFileTaskBackend: 0% complete
+- Migration utilities: 100% complete ✅
+- JsonFileTaskBackend: 100% complete ✅
+- Testing: Basic test suite complete ✅ (12 tests passing)
 - Integration: 0% complete
-- Testing: 0% complete
+- Linter compatibility: 100% resolved ✅
 
-### 🎯 **Next Steps:**
-1. Fix linter errors in migration utilities
-2. Implement JsonFileTaskBackend using the storage abstraction
-3. Create basic tests to verify functionality
-4. Integrate with existing TaskService
+### �� **Next Steps:**
+1. ✅ Fix OS module import and bun:test compatibility issues - COMPLETED
+2. Integrate JsonFileTaskBackend with existing TaskService
+3. Create comprehensive tests to verify functionality  
+4. Update CLI commands and documentation
 
 ## Acceptance Criteria
 
