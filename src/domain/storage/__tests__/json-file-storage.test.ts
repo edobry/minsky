@@ -52,14 +52,29 @@ describe("JsonFileStorage Core Tests", () => {
       prettyPrint: true,
     });
 
-    // Initialize storage
-    await storage.initialize();
+    // Initialize storage with timeout protection
+    const initPromise = storage.initialize();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Storage initialization timeout")), 5000)
+    );
+
+    await Promise.race([initPromise, timeoutPromise]);
   });
 
-  afterEach(() => {
-    // Clean up test files
-    if (existsSync(testDirPath)) {
-      rmSync(testDirPath, { recursive: true, force: true });
+  afterEach(async () => {
+    // Clean up test files with timeout protection
+    try {
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (existsSync(testDirPath)) {
+            rmSync(testDirPath, { recursive: true, force: true });
+          }
+          resolve();
+        }, 10); // Small delay to ensure file handles are released
+      });
+    } catch (error) {
+      // Ignore cleanup errors - OS will clean up temp files
+      console.warn(`Cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
