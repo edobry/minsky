@@ -396,8 +396,7 @@ export class CliCommandBridge {
         if (commandDef.id === "session.get" && result.session) {
           this.formatSessionDetails(result.session);
         } else if (commandDef.id === "session.dir" && result.directory) {
-          log.cli(`${result.success ? "success: true" : ""}`);
-          log.cli(`directory: ${result.directory}`);
+          log.cli(`${result.directory}`);
         } else if (commandDef.id === "session.list" && result.sessions) {
           // Handle session list results
           if (Array.isArray(result.sessions) && result.sessions.length > 0) {
@@ -410,6 +409,11 @@ export class CliCommandBridge {
         } else {
           // Generic object handling - show all simple properties and handle complex ones
           Object.entries(result).forEach(([key, value]) => {
+            // Skip internal metadata properties that are not useful for users
+            if (key === "success") {
+              return;
+            }
+
             if (typeof value !== "object" || value === null) {
               log.cli(`${key}: ${value}`);
             } else if (Array.isArray(value)) {
@@ -417,7 +421,6 @@ export class CliCommandBridge {
             } else {
               // For complex objects, try to show a meaningful summary
               if (key === "session" && value && typeof value === "object") {
-                log.cli(`${key}:`);
                 this.formatSessionDetails(value as Record<string, unknown>);
               } else {
                 log.cli(`${key}: ${JSON.stringify(value)}`);
@@ -437,7 +440,7 @@ export class CliCommandBridge {
    */
   private formatSessionDetails(session: Record<string, unknown>): void {
     if (!session) return;
-    
+
     // Display session information in a user-friendly format
     if (session.session) log.cli(`Session: ${session.session}`);
     if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
@@ -456,11 +459,11 @@ export class CliCommandBridge {
    */
   private formatSessionSummary(session: Record<string, unknown>): void {
     if (!session) return;
-    
+
     const sessionName = session.session || "unknown";
     const taskId = session.taskId ? ` (${session.taskId})` : "";
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
-    
+
     log.cli(`${sessionName}${taskId}${repoName}`);
   }
 }
