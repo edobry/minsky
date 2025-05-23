@@ -165,6 +165,68 @@ function resetSharedState(): void {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
+
+  try {
+    // Reset CLI bridge state if it exists
+    const cliBridgeModule = require("../../adapters/shared/bridges/cli-bridge");
+    if (cliBridgeModule?.cliBridge) {
+      // Reset any cached command state in the CLI bridge
+      const bridge = cliBridgeModule.cliBridge;
+      if (bridge.customizations) {
+        bridge.customizations.clear();
+      }
+      if (bridge.categoryCustomizations) {
+        bridge.categoryCustomizations.clear();
+      }
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset error handler state if it exists
+    const errorHandlerModule = require("../../adapters/shared/error-handling");
+    if (errorHandlerModule?.cliErrorHandler) {
+      // Reset any cached error state
+      // Note: Most error handlers are stateless, but included for completeness
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset global invocation counter from mock compatibility layer
+    const compatModule = require("./compatibility/mock-function");
+    if (compatModule?.resetAllMocks) {
+      compatModule.resetAllMocks();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset Jest-like globals if they exist
+    const jestCompatModule = require("./compatibility/index");
+    if (jestCompatModule?.jest?.resetModules) {
+      jestCompatModule.jest.resetModules();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset any global test state
+    if (typeof global !== 'undefined') {
+      // Reset date functions if they were mocked
+      const testUtilsModule = require("../test-utils");
+      if (testUtilsModule?.mockDateFunctions && global.Date !== Date) {
+        // If Date was mocked, restore it
+        // Note: This is defensive - proper tests should restore their own mocks
+      }
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
 }
 
 /**
