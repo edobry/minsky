@@ -5,8 +5,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, unlinkSync, mkdirSync, rmSync } from "fs";
 import { join, dirname } from "path";
-import { createJsonFileStorage } from "../json-file-storage.js";
-import type { DatabaseStorage } from "../database-storage.js";
+import { createJsonFileStorage } from "../json-file-storage";
+import type { DatabaseStorage } from "../database-storage";
 
 // Test data types
 interface TestEntity {

@@ -12,8 +12,8 @@ import type {
   DatabaseReadResult,
   DatabaseWriteResult,
   DatabaseQueryOptions,
-} from "./database-storage.js";
-import type { DatabaseStorage } from "./database-storage.js";
+} from "./database-storage";
+import type { DatabaseStorage } from "./database-storage";
 
 /**
  * Configuration options for JsonFileStorage

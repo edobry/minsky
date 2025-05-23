@@ -7,12 +7,12 @@
  */
 
 import { join, dirname } from "path";
-import type { TaskData, TaskState, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
-import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData.js";
-import type { TaskBackend } from "./taskBackend.js";
-import { createJsonFileStorage } from "../storage/json-file-storage.js";
-import type { DatabaseStorage } from "../storage/database-storage.js";
-import { log } from "../../utils/logger.js";
+import type { TaskData, TaskState, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
+import type { TaskBackend } from "./taskBackend";
+import { createJsonFileStorage } from "../storage/json-file-storage";
+import type { DatabaseStorage } from "../storage/database-storage";
+import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
 
 /**
