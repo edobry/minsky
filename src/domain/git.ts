@@ -75,18 +75,14 @@ export interface PrTestDependencies {
 // PrDependencies now extends the proper interface
 export interface PrDependencies extends PrTestDependencies {}
 
-/**
- * Basic dependencies for simple git operations that don't need session management
- */
+// Add BasicGitDependencies interface for simple operations
 export interface BasicGitDependencies {
   execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
 }
 
-/**
- * Extended dependencies for complex git operations that need filesystem access
- */
+// Add ExtendedGitDependencies interface for filesystem operations  
 export interface ExtendedGitDependencies extends BasicGitDependencies {
-  mkdir: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  mkdir: (path: string, options?: any) => Promise<void>;
   readdir: (path: string) => Promise<string[]>;
   access: (path: string) => Promise<void>;
 }
@@ -1126,13 +1122,17 @@ export class GitService implements GitServiceInterface {
    * Testable version of commit with dependency injection
    */
   async commitWithDependencies(
-    message: string, 
-    workdir: string, 
-    deps: BasicGitDependencies, 
+    message: string,
+    workdir: string,
+    deps: {
+      execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+    },
     amend: boolean = false
   ): Promise<string> {
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await deps.execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
+    const { stdout } = await deps.execAsync(
+      `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+    );
 
     // Extract commit hash from git output
     const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
@@ -1140,6 +1140,51 @@ export class GitService implements GitServiceInterface {
       throw new Error("Failed to extract commit hash from git output");
     }
     return match[1];
+  }
+
+  /**
+   * Testable version of stashChanges with dependency injection
+   */
+  async stashChangesWithDependencies(
+    workdir: string,
+    deps: BasicGitDependencies
+  ): Promise<StashResult> {
+    try {
+      // Check if there are changes to stash
+      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+      if (!status.trim()) {
+        // No changes to stash
+        return { workdir, stashed: false };
+      }
+
+      // Stash changes
+      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(
+        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  /**
+   * Testable version of popStash with dependency injection
+   */
+  async popStashWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
+    try {
+      // Check if there's a stash to pop
+      const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
+      if (!stashList.trim()) {
+        // No stash to pop
+        return { workdir, stashed: false };
+      }
+
+      // Pop the stash
+      await deps.execAsync(`git -C ${workdir} stash pop`);
+      return { workdir, stashed: true };
+    } catch (err) {
+      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Add methods for session update command
@@ -1162,28 +1207,6 @@ export class GitService implements GitServiceInterface {
     }
   }
 
-  /**
-   * Testable version of stashChanges with dependency injection
-   */
-  async stashChangesWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
-    try {
-      // Check if there are changes to stash
-      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
-      if (!status.trim()) {
-        // No changes to stash
-        return { workdir, stashed: false };
-      }
-
-      // Stash changes
-      await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
-      return { workdir, stashed: true };
-    } catch (err) {
-      throw new Error(
-        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
-  }
-
   async popStash(workdir: string): Promise<StashResult> {
     try {
       // Check if there's a stash to pop
@@ -1195,26 +1218,6 @@ export class GitService implements GitServiceInterface {
 
       // Pop the stash
       await execAsync(`git -C ${workdir} stash pop`);
-      return { workdir, stashed: true };
-    } catch (err) {
-      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /**
-   * Testable version of popStash with dependency injection
-   */
-  async popStashWithDependencies(workdir: string, deps: BasicGitDependencies): Promise<StashResult> {
-    try {
-      // Check if there's a stash to pop
-      const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
-      if (!stashList.trim()) {
-        // No stash to pop
-        return { workdir, stashed: false };
-      }
-
-      // Pop the stash
-      await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
@@ -1248,7 +1251,11 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of pullLatest with dependency injection
    */
-  async pullLatestWithDependencies(workdir: string, deps: BasicGitDependencies, remote: string = "origin"): Promise<PullResult> {
+  async pullLatestWithDependencies(
+    workdir: string,
+    deps: BasicGitDependencies,
+    remote: string = "origin"
+  ): Promise<PullResult> {
     try {
       // Get current branch
       const { stdout: branch } = await deps.execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
@@ -1306,7 +1313,11 @@ export class GitService implements GitServiceInterface {
   /**
    * Testable version of mergeBranch with dependency injection
    */
-  async mergeBranchWithDependencies(workdir: string, branch: string, deps: BasicGitDependencies): Promise<MergeResult> {
+  async mergeBranchWithDependencies(
+    workdir: string,
+    branch: string,
+    deps: BasicGitDependencies
+  ): Promise<MergeResult> {
     try {
       // Get current commit hash
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
