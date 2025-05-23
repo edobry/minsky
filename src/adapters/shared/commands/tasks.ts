@@ -166,9 +166,9 @@ const tasksSpecParams: CommandParameterMap = {
 };
 
 /**
- * Retrieves a task's status
+ * Task status get command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksStatusGetRegistration = {
   id: "tasks.status.get",
   category: CommandCategory.TASKS,
   name: "status get",
@@ -196,12 +196,12 @@ sharedCommandRegistry.registerCommand({
       throw error;
     }
   },
-});
+};
 
 /**
- * Sets a task's status
+ * Task status set command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksStatusSetRegistration = {
   id: "tasks.status.set",
   category: CommandCategory.TASKS,
   name: "status set",
@@ -279,12 +279,12 @@ sharedCommandRegistry.registerCommand({
       throw error;
     }
   },
-});
+};
 
 /**
- * Gets a task's specification content
+ * Task spec command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksSpecRegistration = {
   id: "tasks.spec",
   category: CommandCategory.TASKS,
   name: "spec",
@@ -308,7 +308,7 @@ sharedCommandRegistry.registerCommand({
       throw error;
     }
   },
-});
+};
 
 /**
  * Parameters for tasks list command
@@ -497,114 +497,11 @@ export function registerTasksCommands() {
   sharedCommandRegistry.registerCommand(tasksCreateRegistration);
 
   // Register tasks.status.get command
-  sharedCommandRegistry.registerCommand({
-    id: "tasks.status.get",
-    category: CommandCategory.TASKS,
-    name: "status get",
-    description: "Get the status of a task",
-    parameters: tasksStatusGetParams,
-    execute: async (params, ctx: CommandExecutionContext) => {
-      try {
-        const normalizedTaskId = normalizeTaskId(params.taskId);
-        if (!normalizedTaskId) {
-          throw new ValidationError(
-            `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-          );
-        }
-        const status = await getTaskStatusFromParams({
-          ...params,
-          taskId: normalizedTaskId,
-        });
-        return {
-          success: true,
-          taskId: normalizedTaskId,
-          status: status,
-        };
-      } catch (error) {
-        log.error("Error getting task status", { error });
-        throw error;
-      }
-    },
-  });
+  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
 
   // Register tasks.status.set command
-  sharedCommandRegistry.registerCommand({
-    id: "tasks.status.set",
-    category: CommandCategory.TASKS,
-    name: "status set",
-    description: "Set the status of a task",
-    parameters: tasksStatusSetParams,
-    execute: async (params, ctx: CommandExecutionContext) => {
-      try {
-        if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
 
-        let status = params.status;
-
-        // If status is not provided, prompt for it interactively
-        if (!status) {
-          // Check if we're in an interactive environment
-          if (!process.stdout.isTTY) {
-            throw new ValidationError("Status parameter is required in non-interactive mode");
-          }
-
-          // Prompt for status selection
-          const selectedStatus = await select({
-            message: "Select a status:",
-            options: [
-              { value: TASK_STATUS.TODO, label: "TODO" },
-              { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-              { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-              { value: TASK_STATUS.DONE, label: "DONE" },
-              { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-            ],
-          });
-
-          // Handle cancellation
-          if (isCancel(selectedStatus)) {
-            cancel("Operation cancelled.");
-            return "Operation cancelled by user";
-          }
-
-          status = selectedStatus;
-        }
-
-        if (!status) throw new ValidationError("Missing required parameter: status");
-
-        const normalizedTaskId = normalizeTaskId(params.taskId);
-        if (!normalizedTaskId) {
-          throw new ValidationError(
-            `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-          );
-        }
-
-        // Get previous status
-        const previousStatus = await getTaskStatusFromParams({
-          taskId: normalizedTaskId,
-          repo: params.repo,
-          workspace: params.workspace,
-          session: params.session,
-          backend: params.backend,
-        });
-
-        await setTaskStatusFromParams({
-          taskId: normalizedTaskId,
-          status: status,
-          repo: params.repo,
-          workspace: params.workspace,
-          session: params.session,
-          backend: params.backend,
-        });
-
-        return {
-          success: true,
-          taskId: normalizedTaskId,
-          status: status,
-          previousStatus: previousStatus,
-        };
-      } catch (error) {
-        log.error("Error setting task status", { error });
-        throw error;
-      }
-    },
-  });
+  // Register tasks.spec command
+  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
 }
