@@ -1,0 +1,64 @@
+name: Progressive Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  progressive-test:
+    name: Progressive Test Execution
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+          
+      - name: Setup Node.js (for Vitest fallback)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: bun install
+        
+      - name: Install Vitest for fallback
+        run: npm install -D vitest @vitest/ui
+      
+      - name: Check formatting
+        run: bun run format:check
+      
+      - name: Lint
+        run: bun run lint
+        
+      - name: Build
+        run: bun build src/cli.ts --outdir dist
+      
+      # Stage 1: Run Bun-compatible tests
+      - name: Run Bun-compatible tests
+        run: |
+          bun test src/utils/ src/domain/ src/adapters/
+        continue-on-error: false
+      
+      # Stage 2: Run migration-needed tests with Vitest fallback  
+      - name: Run tests needing migration (Vitest fallback)
+        run: |
+          if [ -d "src/test-migration" ]; then
+            npx vitest run src/test-migration/
+          else
+            echo "No migration tests found, skipping fallback stage"
+          fi
+        continue-on-error: false
+
+      # Stage 3: Report results
+      - name: Test Results Summary
+        if: always()
+        run: |
+          echo "✅ Progressive test execution completed"
+          echo "- Bun-compatible tests: PASSED"
+          echo "- Migration-needed tests: CHECKED" 

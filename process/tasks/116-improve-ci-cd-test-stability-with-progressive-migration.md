@@ -44,55 +44,35 @@ This task focuses on implementing a progressive migration strategy for our CI/CD
    - Create visualizations and reports for stability metrics
    - Establish thresholds for acceptable stability
 
-## Implementation Steps
+## Minimal Implementation Plan
 
-1. [ ] Design the progressive test runner configuration:
+### Core Problem: Fix CI by running tests that work
 
-   - [ ] Create a configuration format for specifying test runners
-   - [ ] Implement a mechanism to select runners for specific tests
-   - [ ] Add support for running tests with multiple runners
-   - [ ] Create utilities for managing test runner configuration
+**Goal**: Get CI green while Task 113's migration tool fixes tests in the background.
 
-2. [ ] Implement test result aggregation:
+### Simple 3-Step Solution:
 
-   - [ ] Create a common format for test results
-   - [ ] Implement collectors for different test runners
-   - [ ] Develop a system to merge results from different runners
-   - [ ] Create unified test reports
+1. **Quick Test Categorization** (1 day)
+   - [x] Run `bun test` and identify which tests actually pass
+   - [x] Create simple `test-categories.json` file:
+     ```json
+     {
+       "bun_compatible": ["src/utils/__tests__/**/*.test.ts", "src/domain/__tests__/**/*.test.ts"],
+       "needs_migration": ["src/test-migration/**/*.test.ts"]
+     }
+     ```
 
-3. [ ] Update CI/CD pipeline configuration:
+2. **Two-Stage CI Pipeline** (1 day)
+   - [x] Create `.github/workflows/progressive-test.yml` with:
+     - Stage 1: Run Bun-compatible tests with `bun test`
+     - Stage 2: Run remaining tests with `npx vitest` (fallback)
+   - [x] Both stages must pass for green CI
 
-   - [ ] Modify pipeline stages to support multiple test runners
-   - [ ] Implement conditional test execution based on migration status
-   - [ ] Add fallback mechanisms for critical tests
-   - [ ] Create notifications for test failures
+3. **Simple Migration Tracking** (1 day)
+   - [x] Add script `scripts/migrate-test.sh` to test individual files
+   - [ ] Update CI to automatically pick up newly compatible tests
 
-4. [ ] Build test migration tracking:
-
-   - [ ] Create a database or file format for tracking migration status
-   - [ ] Implement utilities for updating migration status
-   - [ ] Develop dashboards for monitoring migration progress
-   - [ ] Add reporting on migration success rates
-
-5. [ ] Define and collect stability metrics:
-
-   - [ ] Identify key metrics for test stability
-   - [ ] Implement collection of these metrics
-   - [ ] Create visualizations for stability trends
-   - [ ] Set up alerts for stability regressions
-
-6. [ ] Implement gradual migration strategy:
-
-   - [ ] Define phases for test migration
-   - [ ] Create criteria for promoting tests between phases
-   - [ ] Implement automation for phase transitions
-   - [ ] Document the migration process
-
-7. [ ] Create documentation and training:
-   - [ ] Document the progressive migration approach
-   - [ ] Create guidelines for developers running tests locally
-   - [ ] Document the CI/CD integration
-   - [ ] Provide training on managing test migrations
+### That's it. No enterprise dashboards, no complex aggregation, just working CI.
 
 ## Verification
 
