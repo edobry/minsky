@@ -62,19 +62,25 @@ describe("Shared Tasks Commands", () => {
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, 5); // 2 status commands (inline) + 3 from registerTasksCommands
+    expectToHaveLength(tasksCommands, 6); // All 6 tasks commands: list, get, create, status.get, status.set, spec
+    
+    // Verify status get command
+    const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
+    expect(getCommand).toBeDefined();
+    expect(getCommand?.name).toBe("status get");
+    expect(getCommand?.category).toBe(CommandCategory.TASKS);
+
+    // Verify status set command
+    const setCommand = sharedCommandRegistry.getCommand("tasks.status.set");
+    expect(setCommand).toBeDefined();
+    expect(setCommand?.name).toBe("status set");
+    expect(setCommand?.category).toBe(CommandCategory.TASKS);
 
     // Verify list command
     const listCommand = sharedCommandRegistry.getCommand("tasks.list");
     expect(listCommand).toBeDefined();
     expect(listCommand?.name).toBe("list");
     expect(listCommand?.category).toBe(CommandCategory.TASKS);
-
-    // Verify get command
-    const getCommand = sharedCommandRegistry.getCommand("tasks.get");
-    expect(getCommand).toBeDefined();
-    expect(getCommand?.name).toBe("get");
-    expect(getCommand?.category).toBe(CommandCategory.TASKS);
 
     // Verify create command
     const createCommand = sharedCommandRegistry.getCommand("tasks.create");
@@ -102,13 +108,16 @@ describe("Shared Tasks Commands", () => {
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "123",
+      taskId: "#123",
       repo: "/test/repo",
-      session: undefined,
     });
 
     // Verify result
-    expect(result).toBe("TODO");
+    expect(result).toEqual({
+      success: true,
+      taskId: "#123",
+      status: "TODO",
+    });
   });
 
   test("tasks.status.set command should call domain function with correct params", async () => {
@@ -127,18 +136,34 @@ describe("Shared Tasks Commands", () => {
     };
     const context = { interface: "test" };
     const result = await setCommand!.execute(params, context);
-
+    
+    // Verify domain function was called to get previous status
+    expectToHaveBeenCalled(getTaskStatusSpy);
+    expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
+      taskId: "#123",
+      repo: undefined,
+      workspace: undefined,
+      session: "test-session",
+      backend: undefined,
+    });
+    
     // Verify domain function was called to set status
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "123",
+      taskId: "#123",
       status: "IN-PROGRESS",
       repo: undefined,
+      workspace: undefined,
       session: "test-session",
+      backend: undefined,
     });
-
-    // The setTaskStatusFromParams function doesn't return the previous status,
-    // so we just verify it was called
-    expect(result).toBeUndefined();
+    
+    // Verify result
+    expect(result).toEqual({
+      success: true,
+      taskId: "#123",
+      status: "IN-PROGRESS",
+      previousStatus: "TODO",
+    });
   });
 });

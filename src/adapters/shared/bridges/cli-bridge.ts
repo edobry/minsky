@@ -13,11 +13,11 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
   type SharedCommand,
-} from "../command-registry.js";
-import { getErrorHandler } from "../error-handling.js";
-import { ensureError } from "../../../errors/index.js";
-import { handleCliError, outputResult } from "../../cli/utils/index.js";
-import { log } from "../../../utils/logger.js";
+} from "../command-registry";
+import { getErrorHandler } from "../error-handling";
+import { ensureError } from "../../../errors/index";
+import { handleCliError, outputResult } from "../../cli/utils/index";
+import { log } from "../../../utils/logger";
 import {
   type ParameterMapping,
   type ParameterMappingOptions,
@@ -25,7 +25,7 @@ import {
   createOptionsFromMappings,
   addArgumentsFromMappings,
   normalizeCliParameters,
-} from "./parameter-mapper.js";
+} from "./parameter-mapper";
 
 /**
  * CLI-specific execution context
@@ -411,3 +411,37 @@ export class CliCommandBridge {
  * This singleton is used by the CLI to generate commands from the shared registry
  */
 export const cliBridge = new CliCommandBridge();
+
+/**
+ * Register categorized CLI commands to a Commander.js program
+ * 
+ * @param program The Commander.js program to add commands to
+ * @param categories Array of command categories to register
+ * @param createSubcommands Whether to create category subcommands
+ */
+export function registerCategorizedCliCommands(
+  program: Command,
+  categories: CommandCategory[],
+  createSubcommands: boolean = true
+): void {
+  if (createSubcommands) {
+    // Create category-based subcommands
+    categories.forEach((category) => {
+      const categoryCommand = cliBridge.generateCategoryCommand(category);
+      if (categoryCommand) {
+        program.addCommand(categoryCommand);
+      }
+    });
+  } else {
+    // Add all commands directly to the program
+    categories.forEach((category) => {
+      const commands = sharedCommandRegistry.getCommandsByCategory(category);
+      commands.forEach((commandDef) => {
+        const command = cliBridge.generateCommand(commandDef.id);
+        if (command) {
+          program.addCommand(command);
+        }
+      });
+    });
+  }
+}

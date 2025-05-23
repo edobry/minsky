@@ -244,16 +244,6 @@
 
 - [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
-- [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
-
-- [-] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
-
-- [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
-
-- [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
-
-- [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
-
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
 
 - [x] Add Task Specification Content Reading Capability [#126](process/tasks/126-add-task-specification-content-reading-capability.md)
@@ -262,10 +252,10 @@
 
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
-- [+] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
+- [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
 
-- [ ] Fix TypeScript Issues in DI Helpers [#131](/Users/edobry/Projects/minsky/process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+- [ ] Fix TypeScript Issues in DI Helpers [#131](process/tasks/131-fix-typescript-issues-in-di-helpers.md)
   - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
   - **Current issues:**
   - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`

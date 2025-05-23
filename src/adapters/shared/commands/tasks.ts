@@ -166,9 +166,9 @@ const tasksSpecParams: CommandParameterMap = {
 };
 
 /**
- * Retrieves a task's status
+ * Task status get command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksStatusGetRegistration = {
   id: "tasks.status.get",
   category: CommandCategory.TASKS,
   name: "status get",
@@ -186,18 +186,22 @@ sharedCommandRegistry.registerCommand({
         ...params,
         taskId: normalizedTaskId,
       });
-      return status;
+      return {
+        success: true,
+        taskId: normalizedTaskId,
+        status: status,
+      };
     } catch (error) {
       log.error("Error getting task status", { error });
       throw error;
     }
   },
-});
+};
 
 /**
- * Sets a task's status
+ * Task status set command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksStatusSetRegistration = {
   id: "tasks.status.set",
   category: CommandCategory.TASKS,
   name: "status set",
@@ -245,6 +249,16 @@ sharedCommandRegistry.registerCommand({
           `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
+
+      // Get previous status
+      const previousStatus = await getTaskStatusFromParams({
+        taskId: normalizedTaskId,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+        backend: params.backend,
+      });
+
       await setTaskStatusFromParams({
         taskId: normalizedTaskId,
         status: status,
@@ -253,18 +267,24 @@ sharedCommandRegistry.registerCommand({
         session: params.session,
         backend: params.backend,
       });
-      return `Task ${normalizedTaskId} status set to ${status}`;
+
+      return {
+        success: true,
+        taskId: normalizedTaskId,
+        status: status,
+        previousStatus: previousStatus,
+      };
     } catch (error) {
       log.error("Error setting task status", { error });
       throw error;
     }
   },
-});
+};
 
 /**
- * Gets a task's specification content
+ * Task spec command definition
  */
-sharedCommandRegistry.registerCommand({
+const tasksSpecRegistration = {
   id: "tasks.spec",
   category: CommandCategory.TASKS,
   name: "spec",
@@ -288,7 +308,7 @@ sharedCommandRegistry.registerCommand({
       throw error;
     }
   },
-});
+};
 
 /**
  * Parameters for tasks list command
@@ -426,7 +446,7 @@ const tasksCreateParams: CommandParameterMap = {
 };
 
 /**
- * Register tasks.list command
+ * Tasks commands registration parameters and definitions
  */
 const tasksListRegistration = {
   id: "tasks.list",
@@ -454,7 +474,7 @@ const tasksListRegistration = {
 const tasksGetRegistration = {
   id: "tasks.get",
   category: CommandCategory.TASKS,
-  name: "get",
+  name: "get", 
   description: "Get a task by ID",
   parameters: tasksGetParams,
   execute: async (params, ctx) => {
@@ -476,7 +496,7 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task from a specification document", 
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
@@ -492,8 +512,6 @@ const tasksCreateRegistration = {
 };
 
 export function registerTasksCommands() {
-  // Register the tasks.status.get and tasks.status.set commands (already properly registered inline above)
-
   // Register tasks.list command
   sharedCommandRegistry.registerCommand(tasksListRegistration);
 
@@ -502,4 +520,13 @@ export function registerTasksCommands() {
 
   // Register tasks.create command
   sharedCommandRegistry.registerCommand(tasksCreateRegistration);
+
+  // Register tasks.status.get command
+  sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
+
+  // Register tasks.status.set command
+  sharedCommandRegistry.registerCommand(tasksStatusSetRegistration);
+
+  // Register tasks.spec command
+  sharedCommandRegistry.registerCommand(tasksSpecRegistration);
 }

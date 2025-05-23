@@ -144,7 +144,7 @@ describe("Shared Session Commands", () => {
     
     // Verify commands were registered
     const sessionCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION);
-    expectToHaveLength(sessionCommands, 8);
+    expectToHaveLength(sessionCommands, 9);
     
     // Verify individual commands
     const expectedCommands = [
@@ -189,19 +189,13 @@ describe("Shared Session Commands", () => {
     });
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      sessions: arrayContaining([
-        objectContaining({
-          session: "test-session-1",
-          repoName: "test-repo-1"
-        }),
-        objectContaining({
-          session: "test-session-2",
-          repoName: "test-repo-2"
-        })
-      ])
-    });
+    expect(result.success).toBe(true);
+    expect(Array.isArray(result.sessions)).toBe(true);
+    expect(result.sessions.length).toBe(2);
+    expect(result.sessions[0].session).toBe("test-session-1");
+    expect(result.sessions[0].repoName).toBe("test-repo-1");
+    expect(result.sessions[1].session).toBe("test-session-2");
+    expect(result.sessions[1].repoName).toBe("test-repo-2");
   });
 
   test("session.get command should call domain function with correct params", async () => {
@@ -230,13 +224,9 @@ describe("Shared Session Commands", () => {
     });
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      session: objectContaining({
-        session: "test-session",
-        taskId: "123"
-      })
-    });
+    expect(result.success).toBe(true);
+    expect(result.session.session).toBe("test-session");
+    expect(result.session.taskId).toBe("123");
   });
 
   test("session.start command should call domain function with correct params", async () => {
@@ -273,13 +263,9 @@ describe("Shared Session Commands", () => {
     });
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      session: objectContaining({
-        session: "new-session",
-        taskId: "789"
-      })
-    });
+    expect(result.success).toBe(true);
+    expect(result.session.session).toBe("new-session");
+    expect(result.session.taskId).toBe("789");
   });
 
   test("session.dir command should call domain function with correct params", async () => {

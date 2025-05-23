@@ -119,6 +119,7 @@ export function mockModule(modulePath: string, factory: () => any): void {
 /**
  * Sets up test mocks with automatic cleanup in afterEach hook.
  * Ensures mocks are properly restored after each test to prevent test pollution.
+ * Also cleans up shared state like command registries.
  *
  * This function should be called at the top level of your test file,
  * outside of any describe/it blocks, to ensure proper cleanup.
@@ -142,7 +143,90 @@ export function setupTestMocks(): void {
   // Cleanup all mocks after each test
   afterEach(() => {
     mock.restore(); // Use mock.restore() as it's documented to handle mock.module
+    
+    // Clean up shared state that persists between tests
+    resetSharedState();
   });
+}
+
+/**
+ * Resets shared state that can leak between tests.
+ * This includes singletons like command registries that accumulate state.
+ */
+function resetSharedState(): void {
+  try {
+    // Reset the shared command registry if it exists
+    // Use dynamic import to avoid circular dependencies
+    const registryModule = require("../../adapters/shared/command-registry");
+    if (registryModule?.sharedCommandRegistry?.commands) {
+      (registryModule.sharedCommandRegistry as any).commands = new Map();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist or can't be loaded
+    // This ensures tests can run even if the command registry isn't available
+  }
+
+  try {
+    // Reset CLI bridge state if it exists
+    const cliBridgeModule = require("../../adapters/shared/bridges/cli-bridge");
+    if (cliBridgeModule?.cliBridge) {
+      // Reset any cached command state in the CLI bridge
+      const bridge = cliBridgeModule.cliBridge;
+      if (bridge.customizations) {
+        bridge.customizations.clear();
+      }
+      if (bridge.categoryCustomizations) {
+        bridge.categoryCustomizations.clear();
+      }
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset error handler state if it exists
+    const errorHandlerModule = require("../../adapters/shared/error-handling");
+    if (errorHandlerModule?.cliErrorHandler) {
+      // Reset any cached error state
+      // Note: Most error handlers are stateless, but included for completeness
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset global invocation counter from mock compatibility layer
+    const compatModule = require("./compatibility/mock-function");
+    if (compatModule?.resetAllMocks) {
+      compatModule.resetAllMocks();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset Jest-like globals if they exist
+    const jestCompatModule = require("./compatibility/index");
+    if (jestCompatModule?.jest?.resetModules) {
+      jestCompatModule.jest.resetModules();
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
+
+  try {
+    // Reset any global test state
+    if (typeof global !== 'undefined') {
+      // Reset date functions if they were mocked
+      const testUtilsModule = require("../test-utils");
+      if (testUtilsModule?.mockDateFunctions && global.Date !== Date) {
+        // If Date was mocked, restore it
+        // Note: This is defensive - proper tests should restore their own mocks
+      }
+    }
+  } catch (error) {
+    // Ignore errors if the module doesn't exist
+  }
 }
 
 /**

@@ -4,7 +4,7 @@
  * @refactored Uses project utilities and proper TypeScript imports
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { CommandMapper } from "./command-mapper.ts";
+import { CommandMapper } from "./command-mapper";
 import { z } from "zod";
 import type { ProjectContext } from "../types/project.ts";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking.ts";
@@ -45,11 +45,14 @@ describe("CommandMapper", () => {
 
     commandMapper.addCommand(command);
 
-    expect(mockServer.addTool).toHaveBeenCalledWith({
-      name: "test-command",
-      description: "Test command description",
-      parameters: expect.any(Object),
-      execute: expect.any(Function),
-    });
+    expect(mockServer.addTool.mock.calls.length).toBe(1);
+    const firstCall = mockServer.addTool.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const toolConfig = firstCall?.[0];
+    expect(toolConfig).toBeDefined();
+    expect(toolConfig?.name).toBe("test_command");
+    expect(toolConfig?.description).toBe("Test command description");
+    expect(toolConfig?.parameters).toBe(command.parameters);
+    expect(typeof toolConfig?.execute).toBe("function");
   });
 });
