@@ -38,9 +38,9 @@ describe("Package Manager Utilities", () => {
   });
 
   describe("detectPackageManager", () => {
-    test("detects bun from bun.lockb", () => {
+    test("detects bun from bun.lock", () => {
       existsSyncMock.mockImplementation((filepath) => {
-        if (filepath.toString().includes("bun.lockb")) return true;
+        if (filepath.toString().includes("bun.lock")) return true;
         return false;
       });
 

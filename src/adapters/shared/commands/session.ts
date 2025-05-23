@@ -118,6 +118,11 @@ const sessionStartCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  packageManager: {
+    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
+    description: "Override the detected package manager",
+    required: false,
+  },
 };
 
 /**
@@ -392,6 +397,7 @@ export function registerSessionCommands(): void {
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
           skipInstall: params.skipInstall,
+          packageManager: params.packageManager,
         });
 
         return {
