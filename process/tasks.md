@@ -264,3 +264,10 @@
 
 - [+] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
   - Fix all failing tests and system stability issues after CLI bridge implementation merge.
+
+- [ ] Fix TypeScript Issues in DI Helpers [#131](/Users/edobry/Projects/minsky/process/tasks/131-fix-typescript-issues-in-di-helpers.md)
+  - Task 115 successfully delivered practical DI testing patterns, but left some TypeScript linter errors due to iteration limits. These should be cleaned up for a better developer experience.
+  - **Current issues:**
+  - - TypeScript linter errors in `src/utils/test-utils/dependencies.ts`
+  - - Some type inference issues with the new scenario helpers
+  - - Minor type safety improvements needed
