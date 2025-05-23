@@ -8,6 +8,7 @@
 
 import { join, dirname } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { log } from "../../utils/logger";
 import type {
   DatabaseReadResult,
   DatabaseWriteResult,
@@ -45,6 +46,36 @@ export interface JsonFileStorageOptions<S> {
   prettyPrint?: boolean;
 }
 
+// Simple file lock implementation to prevent concurrent access
+class FileOperationLock {
+  private static locks = new Map<string, Promise<void>>();
+
+  static async withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+    // Wait for any existing operation on this file
+    const existingLock = this.locks.get(filePath);
+    if (existingLock) {
+      await existingLock;
+    }
+
+    // Create a new lock for this operation
+    let resolve: () => void;
+    const lockPromise = new Promise<void>((res) => {
+      resolve = res;
+    });
+
+    this.locks.set(filePath, lockPromise);
+
+    try {
+      const result = await operation();
+      return result;
+    } finally {
+      // Always release the lock
+      this.locks.delete(filePath);
+      resolve!();
+    }
+  }
+}
+
 /**
  * JSON file storage implementation of DatabaseStorage
  */
@@ -72,24 +103,34 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to the database state
    */
   async readState(): Promise<DatabaseReadResult<S>> {
-    try {
-      if (!existsSync(this.filePath)) {
-        // Return initialized state if file doesn't exist
-        const state = this.initializeState();
-        return { success: true, data: state };
-      }
+    return FileOperationLock.withLock(this.filePath, async () => {
+      try {
+        if (!existsSync(this.filePath)) {
+          // Return initialized state if file doesn't exist
+          const state = this.initializeState();
+          return { success: true, data: state };
+        }
 
-      const data = readFileSync(this.filePath, "utf8");
-      const state = JSON.parse(data) as S;
-      return { success: true, data: state };
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Error reading database file: ${typedError.message}`);
-      return {
-        success: false,
-        error: typedError,
-      };
-    }
+        const data = readFileSync(this.filePath, "utf8");
+        const dataStr = typeof data === "string" ? data : data.toString();
+        
+        // Validate JSON before parsing
+        if (!dataStr.trim()) {
+          const state = this.initializeState();
+          return { success: true, data: state };
+        }
+
+        const state = JSON.parse(dataStr) as S;
+        return { success: true, data: state };
+      } catch (error) {
+        const typedError = error instanceof Error ? error : new Error(String(error));
+        log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);
+        return {
+          success: false,
+          error: typedError,
+        };
+      }
+    });
   }
 
   /**
@@ -98,28 +139,43 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to the result of the write operation
    */
   async writeState(state: S): Promise<DatabaseWriteResult> {
-    try {
-      // Ensure directory exists
-      this.ensureDirectory();
+    return FileOperationLock.withLock(this.filePath, async () => {
+      try {
+        // Ensure directory exists
+        this.ensureDirectory();
 
-      // Serialize state to JSON
-      const json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
+        // Validate state before serialization to prevent circular references
+        if (state === null || state === undefined) {
+          throw new Error("Cannot serialize null or undefined state");
+        }
 
-      // Write to file
-      writeFileSync(this.filePath, json, "utf8");
+        // Serialize state to JSON with error handling for circular references
+        let json: string;
+        try {
+          json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
+        } catch (serializationError) {
+          if (serializationError instanceof Error && serializationError.message.includes("circular")) {
+            throw new Error("Cannot serialize state: circular reference detected");
+          }
+          throw serializationError;
+        }
 
-      return {
-        success: true,
-        bytesWritten: json.length,
-      };
-    } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Error writing database file: ${typedError.message}`);
-      return {
-        success: false,
-        error: typedError,
-      };
-    }
+        // Write to file
+        writeFileSync(this.filePath, json, "utf8");
+
+        return {
+          success: true,
+          bytesWritten: json.length,
+        };
+      } catch (error) {
+        const typedError = error instanceof Error ? error : new Error(String(error));
+        log.error(`Error writing database file ${this.filePath}: ${typedError.message}`);
+        return {
+          success: false,
+          error: typedError,
+        };
+      }
+    });
   }
 
   /**
@@ -177,11 +233,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async createEntity(entity: T): Promise<T> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
-      throw new Error("Failed to read database state");
+    if (!result.success) {
+      throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
     }
 
-    const state = result.data;
+    const state = result.data || this.initializeState();
     const entities = this.getEntitiesFromState(state);
 
     // Check if entity with this ID already exists
@@ -213,11 +269,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
-      throw new Error("Failed to read database state");
+    if (!result.success) {
+      throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
     }
 
-    const state = result.data;
+    const state = result.data || this.initializeState();
     const entities = this.getEntitiesFromState(state);
 
     // Find entity index
@@ -249,11 +305,11 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async deleteEntity(id: string): Promise<boolean> {
     const result = await this.readState();
-    if (!result.success || !result.data) {
-      throw new Error("Failed to read database state");
+    if (!result.success) {
+      throw new Error(`Failed to read database state: ${result.error?.message || "Unknown error"}`);
     }
 
-    const state = result.data;
+    const state = result.data || this.initializeState();
     const entities = this.getEntitiesFromState(state);
 
     // Find entity index
@@ -313,7 +369,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      console.error(
+      log.error(
         `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
@@ -361,5 +417,4 @@ export function createJsonFileStorage<T, S>(
   options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
   return new JsonFileStorage<T, S>(options);
-} 
- 
+}

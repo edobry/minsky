@@ -11,12 +11,19 @@ import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
 
 describe("JsonFileTaskBackend", () => {
-  const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
-  const dbPath = join(testDir, `test-tasks-${Date.now()}-${randomUUID()}.json`);
-  const workspacePath = join(testDir, "workspace");
+  let testDir: string;
+  let dbPath: string;
+  let workspacePath: string;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
+    // Create unique test directory path to avoid conflicts
+    const timestamp = Date.now();
+    const uuid = randomUUID();
+    testDir = join(process.cwd(), "test-tmp", `json-backend-test-${timestamp}-${uuid}`);
+    dbPath = join(testDir, `test-tasks-${timestamp}-${uuid}.json`);
+    workspacePath = join(testDir, "workspace");
+
     // Create test directories
     await mkdir(testDir, { recursive: true });
     await mkdir(workspacePath, { recursive: true });
@@ -31,12 +38,14 @@ describe("JsonFileTaskBackend", () => {
   });
 
   afterEach(async () => {
-    // Clean up test directories - simplified approach
+    // Clean up test directories
     try {
-      // Let the OS clean up test files, or implement manual cleanup if needed
-      // This avoids the fs.rm compatibility issue
+      const { rmSync } = await import("fs");
+      if (testDir) {
+        rmSync(testDir, { recursive: true, force: true });
+      }
     } catch {
-      // Ignore cleanup errors
+      // Ignore cleanup errors - OS will clean up temp files
     }
   });
 
