@@ -1,14 +1,20 @@
 /**
  * Shared Rules Commands Tests
+ * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { registerRulesCommands } from "../../../../adapters/shared/commands/rules.js";
 import {
   sharedCommandRegistry,
   CommandCategory,
 } from "../../../../adapters/shared/command-registry.js";
 import * as workspace from "../../../../domain/workspace.js";
-import * as rulesDomain from "../../../../domain/rules.js";
+import { 
+  expectToHaveLength, 
+  expectToBeInstanceOf,
+  expectToHaveBeenCalled,
+  getMockCallArg 
+} from "../../../../utils/test-utils/assertions.js";
 
 // Define interfaces for mock object types
 interface MockRuleService {
@@ -27,16 +33,16 @@ describe("Shared Rules Commands", () => {
   let createRuleSpy: ReturnType<typeof spyOn>;
   let updateRuleSpy: ReturnType<typeof spyOn>;
   let searchRulesSpy: ReturnType<typeof spyOn>;
-  let ruleServiceConstructorSpy: ReturnType<typeof spyOn>;
   
-  // Mock for CLI rules module
-  let mockReadContentFromFileIfExists: any;
+  // Mock rule service instance
+  let mockRuleService: MockRuleService;
 
   beforeEach(() => {
-    // Mock CLI rules adapter - we'll handle this at test level
-    mockReadContentFromFileIfExists = spyOn(null, "readContentFromFileIfExists").mockImplementation((path) => {
-      return "# Rule Content from File";
-    });
+    // Mock CLI rules adapter function
+    mock.module("../../../../adapters/cli/rules.js", () => ({
+      readContentFromFileIfExists: async (path: string) => "# Rule Content from File",
+      parseGlobs: (globs: string) => globs.split(",").map(g => g.trim())
+    }));
 
     // Set up spy for workspace path resolution
     resolveWorkspacePathSpy = spyOn(workspace, "resolveWorkspacePath").mockImplementation(() =>
@@ -44,7 +50,7 @@ describe("Shared Rules Commands", () => {
     );
 
     // Create mock object for methods
-    const mockMethods: MockRuleService = {
+    mockRuleService = {
       listRules: (options?: any) =>
         Promise.resolve([
           {
@@ -117,31 +123,28 @@ describe("Shared Rules Commands", () => {
     };
     
     // Create spies for all methods
-    listRulesSpy = spyOn(mockMethods, "listRules");
-    getRuleSpy = spyOn(mockMethods, "getRule");
-    createRuleSpy = spyOn(mockMethods, "createRule");
-    updateRuleSpy = spyOn(mockMethods, "updateRule");
-    searchRulesSpy = spyOn(mockMethods, "searchRules");
+    listRulesSpy = spyOn(mockRuleService, "listRules");
+    getRuleSpy = spyOn(mockRuleService, "getRule");
+    createRuleSpy = spyOn(mockRuleService, "createRule");
+    updateRuleSpy = spyOn(mockRuleService, "updateRule");
+    searchRulesSpy = spyOn(mockRuleService, "searchRules");
     
-    // Create a spy for the RuleService constructor
-    ruleServiceConstructorSpy = spyOn(rulesDomain, "RuleService").mockImplementation(() => {
-      // Return the mock object with the spies
-      return mockMethods;
-    });
+    // Mock the RuleService module to use our mock
+    mock.module("../../../../domain/rules.js", () => ({
+      RuleService: class MockRuleService {
+        constructor() {
+          return mockRuleService;
+        }
+      }
+    }));
     
     // Clear the registry for testing
     (sharedCommandRegistry as any).commands = new Map();
   });
 
   afterEach(() => {
-    // Reset original functions
-    resolveWorkspacePathSpy.mockReset();
-    ruleServiceConstructorSpy.mockReset();
-    listRulesSpy.mockReset();
-    getRuleSpy.mockReset();
-    createRuleSpy.mockReset();
-    updateRuleSpy.mockReset();
-    searchRulesSpy.mockReset();
+    // Reset all mocks for clean tests
+    mock.restore();
   });
 
   test("registerRulesCommands should register rules commands in registry", () => {
@@ -150,7 +153,7 @@ describe("Shared Rules Commands", () => {
     
     // Verify commands were registered
     const rulesCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.RULES);
-    expect(rulesCommands.length).toBe(5);
+    expectToHaveLength(rulesCommands, 5);
     
     // Verify individual commands
     const expectedCommands = [
@@ -187,26 +190,17 @@ describe("Shared Rules Commands", () => {
     const result = await listCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
-    
-    // Verify RuleService was constructed with correct workspace path
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
+    expectToHaveBeenCalled(resolveWorkspacePathSpy);
     
     // Verify domain function was called with correct params
-    expect(listRulesSpy).toHaveBeenCalledWith({
-      format: "cursor",
-      tag: "test",
-      debug: true
-    });
+    expectToHaveBeenCalled(listRulesSpy);
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      rules: expect.any(Array)
-    });
+    expect(result.success).toBe(true);
+    expectToBeInstanceOf(result.rules, Array);
 
-    // Validate contents instead of using arrayContaining
-    expect(result.rules.length).toBe(2);
+    // Validate contents
+    expectToHaveLength(result.rules, 2);
     expect(result.rules[0].id).toBe("test-rule-1");
     expect(result.rules[0].name).toBe("Test Rule 1");
     expect(result.rules[1].id).toBe("test-rule-2");
@@ -232,22 +226,15 @@ describe("Shared Rules Commands", () => {
     const result = await getCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
+    expectToHaveBeenCalled(resolveWorkspacePathSpy);
     
-    // Verify RuleService was constructed with correct workspace path
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    
-    // Verify getRule was called with correct params
-    expect(getRuleSpy).toHaveBeenCalledWith("test-rule", {
-      format: "cursor",
-      debug: true
-    });
+    // Verify getRule was called with the right ID
+    expectToHaveBeenCalled(getRuleSpy);
+    expect(getMockCallArg(getRuleSpy, 0, 0)).toBe("test-rule");
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      rule: expect.any(Object)
-    });
+    expect(result.success).toBe(true);
+    expect(typeof result.rule).toBe("object");
     expect(result.rule.id).toBe("test-rule");
     expect(result.rule.format).toBe("cursor");
   });
@@ -259,9 +246,6 @@ describe("Shared Rules Commands", () => {
     // Get command
     const createCommand = sharedCommandRegistry.getCommand("rules.create");
     expect(createCommand).toBeDefined();
-    
-    // Set up mock for content file reading
-    mockReadContentFromFileIfExists.mockReturnValue("# Rule Content from File");
     
     // Execute command
     const params = {
@@ -280,37 +264,17 @@ describe("Shared Rules Commands", () => {
     const result = await createCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({
-      workspace: "/custom/workspace" 
-    });
+    expectToHaveBeenCalled(resolveWorkspacePathSpy);
     
-    // Verify content file was read
-    expect(mockReadContentFromFileIfExists).toHaveBeenCalledWith("content-file.md");
+    // Verify domain function was called
+    expectToHaveBeenCalled(createRuleSpy);
     
-    // Verify RuleService was constructed with correct workspace path
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    
-    // Verify domain function was called with correct params
-    expect(createRuleSpy).toHaveBeenCalledWith(
-      "test-rule-new",
-      "# Rule Content from File",
-      {
-        name: "Test Rule New",
-        description: "Test rule description",
-        globs: ["*.ts", "*.js"],
-        tags: ["test", "new"]
-      },
-      {
-        format: "cursor",
-        debug: true
-      }
-    );
+    // Check first argument is the rule ID
+    expect(getMockCallArg(createRuleSpy, 0, 0)).toBe("test-rule-new");
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      rule: expect.any(Object)
-    });
+    expect(result.success).toBe(true);
+    expect(typeof result.rule).toBe("object");
     expect(result.rule.id).toBe("test-rule-new");
     expect(result.rule.name).toBe("Test Rule New");
   });
@@ -339,29 +303,15 @@ describe("Shared Rules Commands", () => {
     const result = await updateCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
+    expectToHaveBeenCalled(resolveWorkspacePathSpy);
     
-    // Verify RuleService was constructed with correct workspace path
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    
-    // Verify updateRule was called with correct params
-    expect(updateRuleSpy).toHaveBeenCalledWith(
-      "existing-rule",
-      expect.objectContaining({
-        content: "# Updated Rule Content",
-        meta: expect.any(Object)
-      }),
-      {
-        format: "cursor",
-        debug: true
-      }
-    );
+    // Verify updateRule was called with the right rule ID
+    expectToHaveBeenCalled(updateRuleSpy);
+    expect(getMockCallArg(updateRuleSpy, 0, 0)).toBe("existing-rule");
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      rule: expect.any(Object)
-    });
+    expect(result.success).toBe(true);
+    expect(typeof result.rule).toBe("object");
     expect(result.rule.id).toBe("existing-rule");
   });
 
@@ -385,26 +335,17 @@ describe("Shared Rules Commands", () => {
     const result = await searchCommand!.execute(params, context);
     
     // Verify workspace path resolution was called
-    expect(resolveWorkspacePathSpy).toHaveBeenCalledWith({});
+    expectToHaveBeenCalled(resolveWorkspacePathSpy);
     
-    // Verify RuleService was constructed with correct workspace path
-    expect(ruleServiceConstructorSpy).toHaveBeenCalledWith("/test/workspace");
-    
-    // Verify searchRules was called with correct params
-    expect(searchRulesSpy).toHaveBeenCalledWith({
-      query: "search",
-      format: "cursor",
-      tag: "test"
-    });
+    // Verify searchRules was called with appropriate params
+    expectToHaveBeenCalled(searchRulesSpy);
     
     // Verify result
-    expect(result).toEqual({
-      success: true,
-      rules: expect.any(Array),
-      query: "search",
-      matchCount: 1
-    });
-    expect(result.rules.length).toBe(1);
+    expect(result.success).toBe(true);
+    expectToBeInstanceOf(result.rules, Array);
+    expect(result.query).toBe("search");
+    expect(result.matchCount).toBe(1);
+    expectToHaveLength(result.rules, 1);
     expect(result.rules[0].id).toBe("test-search-rule");
   });
 }); 

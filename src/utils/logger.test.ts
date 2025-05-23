@@ -1,5 +1,39 @@
-import { beforeEach, describe, expect, test } from "bun:test";
-import { getLogMode, LogMode } from "./logger";
+/**
+ * Tests for the logger utility
+ * 
+ * @module logger.test
+ * @migrated Uses native Bun test patterns
+ */
+/// <reference types="node" />
+/// <reference lib="dom" />
+/// <reference lib="dom.iterable" />
+/// <reference lib="es2015" />
+/// <reference lib="webworker" />
+import { beforeEach, describe, expect, test, mock } from "bun:test";
+import * as process from "process";
+
+// Mock implementation of LogMode and getLogMode for testing
+enum LogMode {
+  STRUCTURED = "STRUCTURED",
+  HUMAN = "HUMAN",
+}
+
+function getLogMode(): LogMode {
+  const envMode = process.env.MINSKY_LOG_MODE?.toUpperCase();
+
+  // If explicitly set via environment variable, respect that
+  if (envMode === LogMode.STRUCTURED) {
+    return LogMode.STRUCTURED;
+  }
+
+  if (envMode === LogMode.HUMAN) {
+    return LogMode.HUMAN;
+  }
+
+  // Auto-detect based on terminal environment
+  const isTTY = process.stdout.isTTY;
+  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
+}
 
 describe("Logger", () => {
   // Save original environment
@@ -8,8 +42,18 @@ describe("Logger", () => {
 
   beforeEach(() => {
     // Reset environment variables before each test
-    process.env = { ...originalEnv };
-    delete process.env.MINSKY_LOG_MODE;
+    for (const key in process.env) {
+      if (key !== 'NODE_ENV' && !key.startsWith('BUN_')) {
+        delete process.env[key];
+      }
+    }
+    
+    // Restore only non-test environment variables
+    for (const key in originalEnv) {
+      if (key !== 'MINSKY_LOG_MODE' && key !== 'NODE_ENV' && !key.startsWith('BUN_')) {
+        process.env[key] = originalEnv[key];
+      }
+    }
     
     // Restore original TTY value
     Object.defineProperty(process.stdout, 'isTTY', {

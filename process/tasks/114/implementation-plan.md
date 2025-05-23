@@ -176,8 +176,9 @@ Create helper utilities for:
 2. **Add explicit lifecycle hook imports**
    - Always import `{ beforeEach, afterEach } from "bun:test"`
 
-3. **Use proper ESM imports**
-   - Add `.js` extensions to all relative imports
+3. **Use proper TypeScript imports**
+   - Use `.ts` extensions for all relative imports, NOT `.js` extensions
+   - This was mistakenly applied as `.js` during refactoring but should be TypeScript throughout
 
 4. **Apply proper mock cleanup**
    - Use `setupTestMocks()` or `mock.restore()` in `afterEach`

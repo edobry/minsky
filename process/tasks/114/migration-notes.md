@@ -2,6 +2,10 @@
 
 This file tracks the progress and patterns identified during the migration of high-priority tests to native Bun patterns.
 
+## Important Corrections
+
+**⚠️ TypeScript Extensions Policy**: Use `.ts` extensions everywhere in imports, **NOT** `.js` extensions. This was mistakenly applied during some refactoring work but should be corrected to use TypeScript throughout as discussed.
+
 ## Setup Progress
 
 ### Environment Setup (Completed)

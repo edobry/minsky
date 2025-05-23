@@ -44,6 +44,25 @@ export function expectToNotBeNull(value: any): void {
 }
 
 /**
+ * Custom matcher to replicate Jest's toHaveBeenCalled functionality
+ * @param mockFn The mock function to check
+ */
+export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): void {
+  expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
+}
+
+/**
+ * Get a specific call argument from a mock function
+ * @param mockFn The mock function
+ * @param callIndex The call index (defaults to 0)
+ * @param argIndex The argument index (defaults to 0)
+ * @returns The argument at the specified position
+ */
+export function getMockCallArg(mockFn: { mock?: { calls: any[][] } }, callIndex = 0, argIndex = 0): any {
+  return mockFn.mock?.calls[callIndex]?.[argIndex];
+}
+
+/**
  * Custom matcher to replicate Jest's toHaveProperty functionality
  * @param object The object to test
  * @param propertyPath The path to the property (can be nested using dot notation)
@@ -108,3 +127,4 @@ export function withEnhancedAssertions<T extends (...args: any[]) => any>(testFn
     return testFn.apply(this, args);
   } as any;
 } 
+ 

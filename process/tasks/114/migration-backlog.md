@@ -19,6 +19,10 @@ These tests are foundational and support other tests, making them critical to mi
    - **Rationale**: Tests frequently used utility with simple patterns
    - **Difficulty**: Easy, Low mocking complexity
 
+4. `src/utils/logger.test.ts`
+   - **Rationale**: Tests critical logging functionality
+   - **Difficulty**: Easy, Low mocking complexity
+
 ## Priority 2: Core Domain Tests (Critical Functionality)
 
 These tests cover critical business logic and domain functionality:
@@ -110,4 +114,4 @@ The tests will be migrated in the priority order listed above, with the followin
 4. Then Priority 4 (Additional Utility) tests
 5. Finally, migrate Priority 5 (Integration) tests
 
-This order ensures that the most foundational and commonly used tests are migrated first, which will inform patterns for the remaining tests. 
+This order ensures that the most foundational and commonly used tests are migrated first, which will inform patterns for the remaining tests.

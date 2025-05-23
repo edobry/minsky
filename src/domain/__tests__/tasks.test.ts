@@ -58,7 +58,7 @@ const mockDeps = {
 
 describe("interface-agnostic task functions", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
-  
+
   describe("listTasksFromParams", () => {
     test("should list tasks with valid parameters", async () => {
       const params = {
