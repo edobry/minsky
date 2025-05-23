@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "id": "#123",
+      "title": "Test Integration Task",
+      "description": "This is a test task for integration testing.",
+      "status": "TODO",
+      "specPath": "process/tasks/123-test-integration-task.md"
+    }
+  ],
+  "lastUpdated": "2025-05-23T17:10:05.866Z",
+  "metadata": {}
+}

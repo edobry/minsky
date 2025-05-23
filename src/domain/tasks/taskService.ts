@@ -3,18 +3,19 @@
  * Orchestrates task operations while separating pure functions from side effects
  */
 
-import type { TaskData, TaskState, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
-import type { TaskBackend } from "./taskBackend.js";
-import { createMarkdownTaskBackend } from "./markdownTaskBackend.js";
-import { log } from "../../utils/logger.js";
-import { normalizeTaskId } from "./taskFunctions.js";
+import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskBackend } from "./taskBackend";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { log } from "../../utils/logger";
+import { normalizeTaskId } from "./taskFunctions";
 
 /**
  * Options for the TaskService
  */
 export interface TaskServiceOptions {
   /** Path to the workspace root */
-  workspacePath?: string; 
+  workspacePath?: string;
   /** Name of the backend to use */
   backend?: string;
   /** Custom backends to use instead of defaults */
@@ -55,18 +56,22 @@ export class TaskService {
     } else {
       // Create default backends
       this.backends = [
-        createMarkdownTaskBackend({ 
-          name: "markdown", 
-          workspacePath 
-        })
+        createMarkdownTaskBackend({
+          name: "markdown",
+          workspacePath,
+        }),
+        createJsonFileTaskBackend({
+          name: "json-file",
+          workspacePath,
+        }),
       ];
     }
 
     // Set current backend
-    const selectedBackend = this.backends.find(b => b.name === backend);
+    const selectedBackend = this.backends.find((b) => b.name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map(b => b.name).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
@@ -89,7 +94,7 @@ export class TaskService {
 
     // Apply filters if provided
     if (options?.status) {
-      tasks = tasks.filter(task => task.status === options.status);
+      tasks = tasks.filter((task) => task.status === options.status);
     }
 
     return tasks;
@@ -103,26 +108,26 @@ export class TaskService {
   async getTask(id: string): Promise<TaskData | null> {
     // Get all tasks
     const tasks = await this.listTasks();
-    
+
     // Find the requested task
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) return null;
-    
+
     // First try exact match
-    const exactMatch = tasks.find(task => task.id === normalizedId);
+    const exactMatch = tasks.find((task) => task.id === normalizedId);
     if (exactMatch) {
       return exactMatch;
     }
-    
+
     // If no exact match, try numeric comparison
     const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
     if (isNaN(numericId)) return null;
-    
-    const numericMatch = tasks.find(task => {
+
+    const numericMatch = tasks.find((task) => {
       const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
       return !isNaN(taskNumericId) && taskNumericId === numericId;
     });
-    
+
     return numericMatch || null;
   }
 
@@ -147,31 +152,29 @@ export class TaskService {
     if (!["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE"].includes(status)) {
       throw new Error("Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE");
     }
-    
+
     // First check if the task exists
     const task = await this.getTask(id);
     if (!task) {
       // Return silently if task doesn't exist
       return;
     }
-    
+
     // Get all tasks
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
       throw new Error(`Failed to read tasks data: ${result.error?.message}`);
     }
-    
+
     // Parse tasks
     const tasks = this.currentBackend.parseTasks(result.content);
-    
+
     // Update the task status in the array
-    const updatedTasks = tasks.map(t => 
-      t.id === task.id ? { ...t, status } : t
-    );
-    
+    const updatedTasks = tasks.map((t) => (t.id === task.id ? { ...t, status } : t));
+
     // Format the updated tasks
     const updatedContent = this.currentBackend.formatTasks(updatedTasks);
-    
+
     // Save the changes
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
@@ -199,10 +202,10 @@ export class TaskService {
     if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
-    
+
     // Parse the spec
     const spec = this.currentBackend.parseTaskSpec(specResult.content);
-    
+
     // Generate task ID if not provided
     let taskId: string;
     if (spec.id) {
@@ -220,51 +223,54 @@ export class TaskService {
         return id > max ? id : max;
       }, 0);
       taskId = `#${String(maxId + 1).padStart(3, "0")}`;
-      
+
       // Update the spec with the new ID
       spec.id = taskId;
-      
+
       // Format and save the updated spec
       const updatedSpecContent = this.currentBackend.formatTaskSpec(spec);
       const specPath = this.currentBackend.getTaskSpecPath(taskId, spec.title);
-      
-      const saveSpecResult = await this.currentBackend.saveTaskSpecData(specPath, updatedSpecContent);
+
+      const saveSpecResult = await this.currentBackend.saveTaskSpecData(
+        specPath,
+        updatedSpecContent
+      );
       if (!saveSpecResult.success) {
         throw new Error(`Failed to save updated spec file: ${saveSpecResult.error?.message}`);
       }
     }
-    
+
     // Create the task object
     const newTask: TaskData = {
       id: taskId,
       title: spec.title,
       description: spec.description,
       status: "TODO",
-      specPath: this.currentBackend.getTaskSpecPath(taskId, spec.title)
+      specPath: this.currentBackend.getTaskSpecPath(taskId, spec.title),
     };
-    
+
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
     let tasks: TaskData[] = [];
     if (tasksResult.success && tasksResult.content) {
       tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
-    
+
     // Add or replace the task
-    const existingIndex = tasks.findIndex(t => t.id === newTask.id);
+    const existingIndex = tasks.findIndex((t) => t.id === newTask.id);
     if (existingIndex >= 0) {
       tasks[existingIndex] = newTask;
     } else {
       tasks.push(newTask);
     }
-    
+
     // Format and save the updated tasks
     const updatedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
       throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
     }
-    
+
     return newTask;
   }
 
@@ -287,12 +293,12 @@ export class TaskService {
       if (!result.success || !result.content) {
         continue;
       }
-      
+
       // Parse tasks
       const tasks = backend.parseTasks(result.content);
-      
+
       // Check if task exists in this backend
-      const taskExists = tasks.some(task => task.id === normalizedId);
+      const taskExists = tasks.some((task) => task.id === normalizedId);
       if (taskExists) {
         return backend;
       }
@@ -325,19 +331,22 @@ export class TaskService {
     if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
-    
+
     // Parse the spec
     const spec = this.currentBackend.parseTaskSpec(specResult.content);
-    
+
     // Update the metadata
     spec.metadata = {
       ...spec.metadata,
       ...metadata,
     };
-    
+
     // Format and save the updated spec
     const updatedSpecContent = this.currentBackend.formatTaskSpec(spec);
-    const saveSpecResult = await this.currentBackend.saveTaskSpecData(task.specPath, updatedSpecContent);
+    const saveSpecResult = await this.currentBackend.saveTaskSpecData(
+      task.specPath,
+      updatedSpecContent
+    );
     if (!saveSpecResult.success) {
       throw new Error(`Failed to save updated spec file: ${saveSpecResult.error?.message}`);
     }
@@ -348,7 +357,9 @@ export class TaskService {
    * @param id Task ID
    * @returns Promise resolving to object with spec content and path
    */
-  async getTaskSpecContent(id: string): Promise<{ content: string; specPath: string; task: TaskData }> {
+  async getTaskSpecContent(
+    id: string
+  ): Promise<{ content: string; specPath: string; task: TaskData }> {
     // First verify the task exists
     const task = await this.getTask(id);
     if (!task) {
@@ -369,7 +380,7 @@ export class TaskService {
     return {
       content: specResult.content,
       specPath: task.specPath,
-      task
+      task,
     };
   }
 }
@@ -381,4 +392,4 @@ export class TaskService {
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
   return new TaskService(options);
-} 
+}

@@ -155,7 +155,14 @@ minsky session update --remote upstream
 
 ### Tasks Management
 
-Minsky supports robust, extensible task management with multiple backends (default: Markdown checklist in `process/tasks.md`).
+Minsky supports robust, extensible task management with multiple backends.
+
+#### Available Backends
+
+1. **Markdown Backend (default)**: Traditional checklist in `process/tasks.md`
+2. **JSON File Backend**: Centralized JSON database for enhanced synchronization
+
+#### Basic Usage
 
 ```bash
 # List all tasks in the current repo (or specify with --repo or --session)
@@ -177,11 +184,36 @@ minsky tasks status set --repo /path/to/repo #001 DONE
 minsky tasks status set --repo /path/to/repo #001
 ```
 
+#### Backend-Specific Usage
+
+```bash
+# Use specific backend explicitly
+minsky tasks list --backend markdown    # Traditional tasks.md
+minsky tasks list --backend json-file   # Centralized JSON database
+
+# JSON backend provides enhanced synchronization across sessions
+minsky tasks status set #001 DONE --backend json-file
+```
+
+#### JSON Task Backend
+
+The JSON Task Backend offers several advantages over the traditional markdown approach:
+
+- **Cross-Session Synchronization**: Changes visible across all sessions immediately
+- **Enhanced Performance**: Faster querying and filtering for large task sets
+- **Future-Proof Architecture**: Easy migration path to SQL databases
+- **Type Safety**: Full TypeScript support with validation
+- **Centralized Storage**: Single source of truth stored in user data directory
+
+**Migration**: For projects wanting to migrate from markdown to JSON backend, see [docs/JSON-TASK-BACKEND-MIGRATION.md](./docs/JSON-TASK-BACKEND-MIGRATION.md) for a comprehensive migration guide.
+
+**Architecture**: For technical details about the JSON backend implementation, see [docs/JSON-TASK-BACKEND.md](./docs/JSON-TASK-BACKEND.md).
+
 **Options:**
 
 - `--repo <repoPath>`: Path to a git repository (overrides session)
 - `--session <session>`: Session name to use for repo resolution
-- `--backend <backend>`: Task backend to use (default: markdown, future: github)
+- `--backend <backend>`: Task backend to use (markdown, json-file)
 - `--status <status>`: Filter tasks by status (for `list`)
 - `--task <taskId>`: Task ID to associate with session (for `session start`)
 - `--json`: Output tasks as JSON
@@ -190,9 +222,10 @@ minsky tasks status set --repo /path/to/repo #001
 
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
-- Extensible: future support for GitHub Issues and other backends
+- Extensible: supports multiple backends (markdown, json-file, future: github)
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
 - Interactive status selection when no status is provided to `tasks status set`
+- Cross-session synchronization with JSON backend
 
 ## Task Workspace Detection
 

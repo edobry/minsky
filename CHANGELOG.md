@@ -77,6 +77,38 @@ _See: SpecStory history [2025-06-30_migrate-high-priority-tests](mdc:.specstory/
   - Implemented comprehensive testing and verification
   - Updated command-organization.mdc rule to reflect CLI bridge architecture
   - Created new cli-bridge-development.mdc rule with comprehensive development guidelines
+- **Task #129: Local DB Tasks Backend Implementation**
+  - DatabaseStorage abstraction layer for generic storage operations
+    - Type-safe interface with generic support for entity and state types
+    - CRUD operations with comprehensive error handling
+    - Query capabilities and batch operations
+    - Future-proof design for multiple backend implementations
+  - JsonFileStorage implementation for JSON file-based storage
+    - Thread-safe atomic file operations
+    - Configurable file paths and state initialization
+    - Error recovery and validation mechanisms
+    - Efficient JSON serialization with pretty-printing support
+  - JsonFileTaskBackend implementation using DatabaseStorage abstraction
+    - Full TaskBackend interface compliance
+    - Centralized storage at configurable location (default: .minsky/tasks.json)
+    - Backward compatibility with markdown task parsing
+    - Enhanced database-specific operations for task management
+  - Migration utilities for seamless format transitions
+    - Bidirectional conversion between markdown tasks.md and JSON database
+    - Automatic backup creation during migration operations
+    - Conflict resolution and duplicate task handling
+    - Format comparison utilities to detect synchronization issues
+    - Support for multiple markdown task formats
+  - Comprehensive test suite for JsonFileTaskBackend
+    - Storage operation tests (CRUD)
+    - TaskBackend interface compliance verification
+    - Markdown compatibility testing
+    - Error handling validation
+  - Complete documentation for JSON Task Backend system
+    - Architecture overview and component descriptions
+    - Usage examples and integration guides
+    - Migration procedures and troubleshooting
+    - Performance considerations and future enhancement plans
 
 _See: SpecStory history [2023-05-29_cli-bridge-implementation](mdc:.specstory/history/2023-05-29_cli-bridge-implementation.md) for implementation details._
 
@@ -493,6 +525,14 @@ _See: SpecStory history [2025-05-17_add-git-approve-command](mdc:.specstory/hist
 _See: SpecStory history [2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods](mdc:.specstory/history/2025-05-17_20-55-migrate-cli-adapter-tests-to-domain-methods.md) for test migration work._
 
 ### Fixed
+
+- Fixed session command issues after merge
+
+  - Restored missing `--task` parameter to `session get` command for backward compatibility
+  - Added missing `skipInstall` parameter to `session start` command execution
+  - Added missing `force` parameter to `session update` command execution
+  - Fixed parameter mismatches between shared command registry and domain schemas
+  - Ensured all session commands properly support both `--session` and `--task` options
 
 - Fixed inconsistent option parsing between command modules
 

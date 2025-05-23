@@ -50,7 +50,12 @@ const sessionGetCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
     description: "Session name",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
   },
   repo: {
     schema: z.string(),
@@ -104,6 +109,12 @@ const sessionStartCommandParams: CommandParameterMap = {
   noStatusUpdate: {
     schema: z.boolean(),
     description: "Skip updating task status when starting a session with a task",
+    required: false,
+    defaultValue: false,
+  },
+  skipInstall: {
+    schema: z.boolean(),
+    description: "Skip automatic dependency installation",
     required: false,
     defaultValue: false,
   },
@@ -195,7 +206,7 @@ const sessionUpdateCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   noStash: {
-    schema: z.boolean(), 
+    schema: z.boolean(),
     description: "Skip stashing local changes",
     required: false,
     defaultValue: false,
@@ -203,6 +214,12 @@ const sessionUpdateCommandParams: CommandParameterMap = {
   noPush: {
     schema: z.boolean(),
     description: "Skip pushing changes to remote after update",
+    required: false,
+    defaultValue: false,
+  },
+  force: {
+    schema: z.boolean(),
+    description: "Force update even if the session workspace is dirty",
     required: false,
     defaultValue: false,
   },
@@ -329,13 +346,15 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await getSessionFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.session,
+          task: params.task,
           repo: params.repo,
           json: params.json,
         });
 
         if (!session) {
-          throw new Error(`Session '${params.session}' not found`);
+          const identifier = params.session || `task #${params.task}`;
+          throw new Error(`Session '${identifier}' not found`);
         }
 
         return {
@@ -346,6 +365,7 @@ export function registerSessionCommands(): void {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
+          task: params.task,
         });
         throw error;
       }
@@ -371,6 +391,7 @@ export function registerSessionCommands(): void {
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
+          skipInstall: params.skipInstall,
         });
 
         return {
@@ -470,6 +491,7 @@ export function registerSessionCommands(): void {
           branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
+          force: params.force,
           json: params.json,
         });
 

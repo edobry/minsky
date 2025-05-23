@@ -4,25 +4,32 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { registerTasksCommands } from "../../../../adapters/shared/commands/tasks.js";
-import { sharedCommandRegistry, CommandCategory } from "../../../../adapters/shared/command-registry.js";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+} from "../../../../adapters/shared/command-registry.js";
 import * as tasksDomain from "../../../../domain/tasks.js";
-import { expectToHaveLength, expectToHaveBeenCalled, getMockCallArg } from "../../../../utils/test-utils/assertions.js";
+import {
+  expectToHaveLength,
+  expectToHaveBeenCalled,
+  getMockCallArg,
+} from "../../../../utils/test-utils/assertions.js";
 
 describe("Shared Tasks Commands", () => {
   // Set up spies for domain functions
   let getTaskStatusSpy: ReturnType<typeof spyOn>;
   let setTaskStatusSpy: ReturnType<typeof spyOn>;
-  
+
   beforeEach(() => {
     // Set up spies
-    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams").mockImplementation(() => 
+    getTaskStatusSpy = spyOn(tasksDomain, "getTaskStatusFromParams").mockImplementation(() =>
       Promise.resolve("TODO")
     );
-    
-    setTaskStatusSpy = spyOn(tasksDomain, "setTaskStatusFromParams").mockImplementation(() => 
+
+    setTaskStatusSpy = spyOn(tasksDomain, "setTaskStatusFromParams").mockImplementation(() =>
       Promise.resolve()
     );
-    
+
     // Clear the registry (this is a hacky way to do it since there's no clear method,
     // but it works for testing)
     (sharedCommandRegistry as any).commands = new Map();
@@ -33,10 +40,26 @@ describe("Shared Tasks Commands", () => {
     mock.restore();
   });
 
+  test("DEBUG: check what commands are in registry", () => {
+    console.log("All commands in registry:");
+    const allCommands = sharedCommandRegistry.getAllCommands();
+    console.log("Total commands:", allCommands.length);
+    allCommands.forEach((cmd) => {
+      console.log(`- ${cmd.id} (${cmd.category})`);
+    });
+
+    console.log("\nTasks category commands:");
+    const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
+    console.log("Tasks commands count:", tasksCommands.length);
+    tasksCommands.forEach((cmd) => {
+      console.log(`- ${cmd.id} (${cmd.name})`);
+    });
+  });
+
   test("registerTasksCommands should register tasks commands in registry", () => {
     // Register commands
     registerTasksCommands();
-    
+
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
     expectToHaveLength(tasksCommands, 6); // All 6 tasks commands: list, get, create, status.get, status.set, spec
@@ -46,22 +69,34 @@ describe("Shared Tasks Commands", () => {
     expect(getCommand).toBeDefined();
     expect(getCommand?.name).toBe("status get");
     expect(getCommand?.category).toBe(CommandCategory.TASKS);
-    
+
     // Verify status set command
     const setCommand = sharedCommandRegistry.getCommand("tasks.status.set");
     expect(setCommand).toBeDefined();
     expect(setCommand?.name).toBe("status set");
     expect(setCommand?.category).toBe(CommandCategory.TASKS);
+
+    // Verify list command
+    const listCommand = sharedCommandRegistry.getCommand("tasks.list");
+    expect(listCommand).toBeDefined();
+    expect(listCommand?.name).toBe("list");
+    expect(listCommand?.category).toBe(CommandCategory.TASKS);
+
+    // Verify create command
+    const createCommand = sharedCommandRegistry.getCommand("tasks.create");
+    expect(createCommand).toBeDefined();
+    expect(createCommand?.name).toBe("create");
+    expect(createCommand?.category).toBe(CommandCategory.TASKS);
   });
 
   test("tasks.status.get command should call domain function with correct params", async () => {
-    // Register commands
-    registerTasksCommands();
-    
+    // The status commands are registered inline when the module loads, not by registerTasksCommands
+    // So we don't need to call registerTasksCommands() for these
+
     // Get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
     expect(getCommand).toBeDefined();
-    
+
     // Execute command
     const params = {
       taskId: "123",
@@ -69,14 +104,14 @@ describe("Shared Tasks Commands", () => {
     };
     const context = { interface: "test" };
     const result = await getCommand!.execute(params, context);
-    
+
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
       taskId: "#123",
       repo: "/test/repo",
     });
-    
+
     // Verify result
     expect(result).toEqual({
       success: true,
@@ -86,13 +121,13 @@ describe("Shared Tasks Commands", () => {
   });
 
   test("tasks.status.set command should call domain function with correct params", async () => {
-    // Register commands
-    registerTasksCommands();
-    
+    // The status commands are registered inline when the module loads, not by registerTasksCommands
+    // So we don't need to call registerTasksCommands() for these
+
     // Get command
     const setCommand = sharedCommandRegistry.getCommand("tasks.status.set");
     expect(setCommand).toBeDefined();
-    
+
     // Execute command
     const params = {
       taskId: "123",
@@ -131,4 +166,4 @@ describe("Shared Tasks Commands", () => {
       previousStatus: "TODO",
     });
   });
-}); 
+});
