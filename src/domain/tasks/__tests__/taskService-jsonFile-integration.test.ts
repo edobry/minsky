@@ -2,46 +2,59 @@
  * Integration tests for TaskService with JsonFileTaskBackend
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { join, dirname } from "path";
-import { mkdir, writeFile } from "fs/promises";
-import { rmSync, existsSync } from "fs";
-import { randomUUID } from "crypto";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { join } from "path";
 import { TaskService } from "../taskService";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
+import { createMockFileSystem, setupTestMocks, mockModule } from "../../../utils/test-utils/mocking";
 
-// Enhanced global test isolation to prevent race conditions
-let testSequenceNumber = 0;
-
-// Create a process-unique identifier to prevent cross-process conflicts
-const processId = Math.floor(Math.random() * 100000);
-const startTime = Date.now();
+// Set up automatic mock cleanup to prevent race conditions
+setupTestMocks();
 
 describe("TaskService JsonFile Integration", () => {
-  const testDir = join(process.cwd(), "test-tmp", "taskservice-jsonfile-test");
   let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
+  let mockFS: ReturnType<typeof createMockFileSystem>;
 
   beforeEach(async () => {
-    // Create highly unique paths to avoid conflicts across processes and tests
-    const timestamp = Date.now();
-    const uuid = randomUUID();
-    const sequence = ++testSequenceNumber;
-    
-    // Use enhanced unique identifier to prevent cross-process conflicts
-    const uniqueId = `${processId}-${startTime}-${timestamp}-${uuid}-${sequence}`;
-    dbPath = join(testDir, `test-tasks-${uniqueId}.json`);
-    workspacePath = join(testDir, `workspace-${uniqueId}`);
+    // Use consistent test paths (no need for uniqueness with mocks)
+    workspacePath = "/test/workspace";
+    dbPath = "/test/tasks.json";
 
-    // Create test directories with enhanced error handling
-    await mkdir(testDir, { recursive: true });
-    await mkdir(workspacePath, { recursive: true });
-    await mkdir(join(workspacePath, "process", "tasks"), { recursive: true });
+    // Create mock filesystem with initial directory structure
+    mockFS = createMockFileSystem({
+      [workspacePath]: "", // Directory marker
+      [`${workspacePath}/process`]: "", // Directory marker  
+      [`${workspacePath}/process/tasks`]: "", // Directory marker
+    });
 
-    // Add a small delay to ensure directory creation is complete
-    await new Promise(resolve => setTimeout(resolve, 10));
+    // Mock both fs and fs/promises modules
+    mockModule("fs", () => ({
+      existsSync: mockFS.existsSync,
+      readFileSync: mockFS.readFileSync,
+      writeFileSync: mockFS.writeFileSync,
+      mkdirSync: mockFS.mkdirSync,
+      rmSync: mockFS.rmSync,
+    }));
+
+    mockModule("fs/promises", () => ({
+      readFile: mockFS.readFile,
+      writeFile: mockFS.writeFile,
+      mkdir: mockFS.mkdir,
+      access: async (path: string) => {
+        if (!mockFS.existsSync(path)) {
+          throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+        }
+      },
+      unlink: async (path: string) => {
+        if (!mockFS._files.has(path)) {
+          throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
+        }
+        mockFS._files.delete(path);
+      },
+    }));
 
     // Create task service with JsonFileTaskBackend
     const backend = createJsonFileTaskBackend({
@@ -57,56 +70,6 @@ describe("TaskService JsonFile Integration", () => {
 
     // Ensure the backend storage is ready by doing a simple operation
     await taskService.listTasks();
-  });
-
-  afterEach(async () => {
-    // Enhanced cleanup to prevent race conditions
-    try {
-      // Wait longer to ensure any pending operations complete
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Close any open file handles by nullifying service reference
-      taskService = null as any;
-      
-      // Wait a bit more for file handles to be released
-      await new Promise(resolve => setTimeout(resolve, 25));
-      
-      // Clean up test directories with better error handling
-      if (existsSync(workspacePath)) {
-        try {
-          rmSync(workspacePath, { recursive: true, force: true });
-        } catch (cleanupError) {
-          // Try alternative cleanup approach with more retries
-          try {
-            await new Promise(resolve => setTimeout(resolve, 50));
-            rmSync(workspacePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 25 });
-          } catch (retryError) {
-            // Final attempt with individual file cleanup
-            try {
-              await new Promise(resolve => setTimeout(resolve, 100));
-              rmSync(workspacePath, { recursive: true, force: true });
-            } catch (finalError) {
-              // Ignore cleanup errors to prevent test failures
-            }
-          }
-        }
-      }
-      if (existsSync(dbPath)) {
-        try {
-          rmSync(dbPath, { force: true });
-        } catch (dbCleanupError) {
-          // Retry DB cleanup
-          try {
-            await new Promise(resolve => setTimeout(resolve, 25));
-            rmSync(dbPath, { force: true, maxRetries: 3, retryDelay: 10 });
-          } catch (retryError) {
-            // Ignore DB cleanup errors
-          }
-        }
-      }
-    } catch (error) {
-      // Ignore all cleanup errors to prevent test failures
-    }
   });
 
   describe("Basic Operations", () => {
@@ -135,35 +98,16 @@ describe("TaskService JsonFile Integration", () => {
     });
 
     test("should create and retrieve tasks", async () => {
-      // Create a test spec file
+      // Create a test spec file using mock filesystem
       const specPath = join(workspacePath, "process", "tasks", "test-task.md");
       const specContent =
         "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
       
-      // Ensure directory structure exists first
-      const specDir = dirname(specPath);
-      await mkdir(specDir, { recursive: true });
+      // Write file to mock filesystem
+      mockFS.writeFileSync(specPath, specContent);
       
-      // Ensure file is written and persisted
-      await writeFile(specPath, specContent, "utf8");
-      
-      // Add delay to ensure file system has persisted the file
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Add verification that the file was actually written
-      const verifyFileExists = existsSync(specPath);
-      if (!verifyFileExists) {
-        throw new Error(`Test file not found at expected path: ${specPath}`);
-      }
-
       // Use relative path from workspace for task creation  
       const relativeSpecPath = "process/tasks/test-task.md";
-      
-      // Verify the workspace path is correct
-      const expectedFullPath = join(workspacePath, relativeSpecPath);
-      if (!existsSync(expectedFullPath)) {
-        throw new Error(`File missing at resolved path: ${expectedFullPath}, workspace: ${workspacePath}`);
-      }
       
       const task = await taskService.createTask(relativeSpecPath);
 
