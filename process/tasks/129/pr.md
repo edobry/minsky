@@ -40,9 +40,41 @@ The design deliberately separates concerns between storage operations (DatabaseS
 - **Markdown compatibility**: JsonFileTaskBackend can parse existing markdown task formats for seamless migration
 
 ### TaskService Integration
-- **Default backend switch**: JsonFileTaskBackend ("json-file") is now the default backend
 - **Multi-backend support**: TaskService supports both "json-file" and "markdown" backends simultaneously
+- **Configurable backend selection**: Users can choose backend via `--backend` flag
 - **Backward compatibility**: Existing CLI commands continue to work without changes
+
+## CLI Usage Examples
+
+### Basic Task Operations with JSON Backend
+
+    # List tasks using JSON backend (when configured as default)
+    minsky tasks list
+    
+    # Explicitly specify JSON backend
+    minsky tasks list --backend json-file
+    
+    # Create and manage tasks (same commands work with both backends)
+    minsky tasks create process/tasks/new-feature.md
+    minsky tasks status set #123 IN-PROGRESS
+    minsky tasks status get #123
+
+### Backend Switching
+
+    # Use markdown backend explicitly
+    minsky tasks list --backend markdown
+    
+    # Set task status with specific backend
+    minsky tasks status set #123 DONE --backend json-file
+
+### Cross-Session Verification
+
+    # In Session A
+    minsky tasks status set #123 IN-PROGRESS --backend json-file
+    
+    # In Session B (immediately visible)
+    minsky tasks status get #123 --backend json-file
+    # Output: IN-PROGRESS
 
 ## Code Examples
 
@@ -51,25 +83,32 @@ The design deliberately separates concerns between storage operations (DatabaseS
 <pre><code class="language-typescript">
 // Generic storage interface
 interface DatabaseStorage&lt;T, S&gt; {
-  initialize(): Promise&lt;void&gt;;
+  initialize(): Promise&lt;boolean&gt;;
   getEntities(): Promise&lt;T[]&gt;;
   createEntity(entity: T): Promise&lt;T&gt;;
   updateEntity(id: string, updates: Partial&lt;T&gt;): Promise&lt;T | null&gt;;
   deleteEntity(id: string): Promise&lt;boolean&gt;;
+  readState(): Promise&lt;DatabaseReadResult&lt;S&gt;&gt;;
+  writeState(state: S): Promise&lt;DatabaseWriteResult&gt;;
 }
 
 // Usage with TaskData
 const storage = createJsonFileStorage&lt;TaskData, TaskState&gt;({
   filePath: "~/.local/state/minsky/tasks.json",
   entitiesField: "tasks",
-  idField: "id"
+  idField: "id",
+  initializeState: () => ({
+    tasks: [],
+    lastUpdated: new Date().toISOString(),
+    metadata: {}
+  })
 });
 </code></pre>
 
 ### TaskService Backend Configuration
 
 <pre><code class="language-typescript">
-// Default configuration (uses JsonFileTaskBackend)
+// Default configuration (markdown backend for backward compatibility)
 const taskService = new TaskService();
 
 // Explicit backend selection
@@ -84,7 +123,12 @@ const customBackend = createJsonFileTaskBackend({
   workspacePath: process.cwd(),
   dbFilePath: "/custom/path/tasks.json"
 });
-</pre>
+
+const taskService = new TaskService({
+  customBackends: [customBackend],
+  backend: "json-file"
+});
+</code></pre>
 
 ### Migration Example
 
@@ -105,50 +149,61 @@ if (result.success) {
 ## Breaking Changes
 None. All changes maintain complete backward compatibility:
 
-- Existing `tasks.md` files continue to work with the markdown backend
+- Existing `tasks.md` files continue to work with the markdown backend (which remains the default)
 - All CLI commands function identically with both backends
 - TaskService API remains unchanged
 - Migration is opt-in and non-destructive
 
 ## Data Migrations
-- **Automatic backend selection**: New installations default to JSON backend; existing installations continue using markdown until manually migrated
+- **Gradual adoption**: New installations can opt into JSON backend; existing installations continue using markdown until manually migrated
 - **Migration utilities**: Provide safe, backup-protected conversion between formats
 - **Format detection**: JsonFileTaskBackend can parse both JSON and markdown formats for smooth transitions
+- **Rollback support**: Migration utilities support bidirectional conversion for easy rollback
 
 ## Ancillary Changes
 - **Enhanced error handling**: Improved error recovery and logging throughout the storage layer
 - **Test infrastructure improvements**: Added unique database paths per test to prevent cross-test contamination
-- **TypeScript compliance**: Resolved all linter issues including OS module imports and readFile type casting
+- **TypeScript compliance**: Resolved all linter issues including import styles and type safety
 - **Session workspace compatibility**: All components work correctly in session-based development environments
+- **File restoration process**: Addressed missing implementation files issue through careful git history analysis
 
 ## Testing
-Comprehensive test coverage with 20 passing tests across multiple test suites:
+Comprehensive test coverage with **28 passing tests** across multiple test suites, providing both direct storage testing and integration verification:
+
+### JsonFileStorage Core Tests (8 tests) - NEW
+Direct testing of the storage abstraction layer:
+- **Core CRUD Operations**: Entity creation, retrieval, updates, and deletion
+- **State Management**: Direct state read/write operations with custom state objects
+- **Error Handling**: Graceful handling of non-existent entities across all operations
+- **Persistence**: Cross-instance data persistence and storage location management
 
 ### JsonFileTaskBackend Tests (12 tests)
-- Storage operations: initialize, store/retrieve, update, delete
-- TaskBackend interface compliance: getTasksData, saveTasksData, parseTasks, formatTasks
-- Task specification operations: reading, parsing, and saving spec files
-- Markdown compatibility: parsing existing markdown task formats
-- Helper methods: path generation, workspace management
+- **Storage operations**: Initialize, store/retrieve, update, delete tasks
+- **TaskBackend interface compliance**: getTasksData, saveTasksData, parseTasks, formatTasks
+- **Task specification operations**: Reading, parsing, and saving spec files
+- **Markdown compatibility**: Parsing existing markdown task formats
+- **Helper methods**: Path generation, workspace management
 
 ### TaskService Integration Tests (8 tests)
-- Basic operations: backend selection, task listing, creation, retrieval
-- Status management: updating and filtering tasks by status
-- Error handling: invalid task IDs, status validation
-- Cross-instance persistence: ensuring changes persist across service instances
-- Test isolation: unique database files prevent cross-test interference
+- **Basic operations**: Backend selection, task listing, creation, retrieval
+- **Status management**: Updating and filtering tasks by status
+- **Error handling**: Invalid task IDs, status validation
+- **Cross-instance persistence**: Ensuring changes persist across service instances
+- **Backend switching**: Verification that both backends work correctly
 
-### Test Infrastructure
-- **Isolation**: Each test uses a unique database file path to prevent contamination
-- **Cleanup**: Simplified cleanup approach avoiding file system compatibility issues
-- **Coverage**: All major code paths including error conditions and edge cases
-- **Integration**: End-to-end testing of TaskService + JsonFileTaskBackend workflows
+### Test Infrastructure & Quality
+- **Complete isolation**: Each test uses unique database file paths to prevent contamination
+- **Proper cleanup**: Robust test teardown avoiding cross-test interference
+- **API correctness**: All tests use correct DatabaseStorage interface methods
+- **Project standards**: Uses centralized test utilities (expectToHaveLength) for consistency
+- **Real-world scenarios**: Integration tests cover actual CLI usage patterns
 
 ## Performance Benefits
 - **Faster parsing**: JSON parsing significantly faster than markdown processing
 - **Direct queries**: Object access eliminates text-based search operations
 - **Reduced I/O**: Centralized storage reduces file system operations
 - **Concurrent access**: Thread-safe atomic operations support multiple sessions
+- **Cross-session sync**: Immediate visibility of changes across all sessions and workspaces
 
 ## Future Extensibility
 The generic `DatabaseStorage` interface enables transparent upgrades:
@@ -161,7 +216,8 @@ All business logic in JsonFileTaskBackend and TaskService remains unchanged when
 
 ## Implementation Statistics
 - **4 new core modules**: DatabaseStorage, JsonFileStorage, JsonFileTaskBackend, Migration utilities
-- **380+ lines of documentation**: Comprehensive implementation guide in `docs/JSON-TASK-BACKEND.md`
-- **20 passing tests**: Complete test coverage across all functionality
+- **380+ lines of documentation**: Comprehensive implementation guide and migration documentation
+- **28 passing tests**: Complete test coverage across all functionality layers
 - **Zero breaking changes**: Full backward compatibility maintained
-- **Future-ready architecture**: Supports transparent database upgrades 
+- **Future-ready architecture**: Supports transparent database upgrades
+- **Production ready**: Comprehensive error handling and data integrity safeguards
