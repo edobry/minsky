@@ -42,16 +42,16 @@ export function detectPackageManager(repoPath: string): PackageManager {
  */
 export function getInstallCommand(packageManager: PackageManager): string | undefined {
   switch (packageManager) {
-    case "bun":
-      return "bun install";
-    case "npm":
-      return "npm install";
-    case "yarn":
-      return "yarn";
-    case "pnpm":
-      return "pnpm install";
-    default:
-      return undefined;
+  case "bun":
+    return "bun install";
+  case "npm":
+    return "npm install";
+  case "yarn":
+    return "yarn";
+  case "pnpm":
+    return "pnpm install";
+  default:
+    return undefined;
   }
 }
 
