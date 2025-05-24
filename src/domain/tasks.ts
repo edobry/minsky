@@ -356,7 +356,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       title = titleWithoutIdMatch[1];
     } else {
       throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
