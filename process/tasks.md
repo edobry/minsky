@@ -226,7 +226,7 @@
 
 - [x] Implement Dependency Injection Test Patterns [#115](process/tasks/115-implement-dependency-injection-test-patterns.md)
 
-- [+] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
+- [x] Improve CI/CD Test Stability with Progressive Migration [#116](process/tasks/116-improve-ci-cd-test-stability-with-progressive-migration.md)
 
 - [x] Fix Session Update Command Implementation [#117](process/tasks/117-fix-session-update-command-implementation.md)
 
@@ -264,4 +264,4 @@
 
 - [x] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
-- [ ] Fix All Linter Warnings [#136](/Users/edobry/Projects/minsky/process/tasks/136-fix-all-linter-warnings.md)
+- [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
