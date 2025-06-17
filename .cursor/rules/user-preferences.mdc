@@ -7,6 +7,11 @@ alwaysApply: true
 
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
 
+- **Take Action on Identified Issues:** When I identify any problem, bug, UX issue, or improvement opportunity during the course of work, I must immediately either:
+  1. **Fix it directly** if it's within the current scope and can be addressed quickly, OR
+  2. **Create a task** to track the issue for future resolution
+  - Never just describe or discuss problems without taking concrete action. Always follow through with implementation or proper tracking.
+
 - **Automatically Commit and Push All Changes:** Always automatically commit and push changes to the repository immediately after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until the changes have been committed and pushed, regardless of whether there was an explicit request to do so.
 
 - **Professional Communication Style:** Use matter-of-fact, professional language when reporting progress or results. Avoid self-congratulatory language, excessive positive language, emojis, superlatives, or marketing/promotional language (e.g., "EXCEEDED ALL TARGETS", "AMAZING RESULTS"). Focus on the work and facts rather than celebrating incremental progress. Never declare targets "exceeded" or use misleading language that suggests completion when work remains. Report objective metrics and current status without editorial commentary.

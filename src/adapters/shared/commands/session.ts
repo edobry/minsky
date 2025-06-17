@@ -74,14 +74,19 @@ const sessionGetCommandParams: CommandParameterMap = {
  * Parameters for the session start command
  */
 const sessionStartCommandParams: CommandParameterMap = {
-  task: {
+  name: {
     schema: z.string().min(1),
-    description: "Task ID to associate with the session",
+    description: "Name for the new session",
     required: true,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID to associate with the session",
+    required: false,
   },
   branch: {
     schema: z.string(),
-    description: "Branch name to create (defaults to task ID)",
+    description: "Branch name to create (defaults to session name)",
     required: false,
   },
   repo: {
@@ -91,7 +96,7 @@ const sessionStartCommandParams: CommandParameterMap = {
   },
   session: {
     schema: z.string(),
-    description: "Custom session name (defaults to task ID)",
+    description: "Custom session name (defaults to name argument)",
     required: false,
   },
   json: {
@@ -389,10 +394,11 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await startSessionFromParams({
+          name: params.name,
           task: params.task,
           branch: params.branch,
           repo: params.repo,
-          name: params.session, // Match expected parameter name
+          session: params.session,
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
@@ -407,6 +413,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -426,7 +433,7 @@ export function registerSessionCommands(): void {
 
       try {
         const directory = await getSessionDirFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.session,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -459,7 +466,7 @@ export function registerSessionCommands(): void {
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.session,
           force: params.force,
           repo: params.repo,
           json: params.json,
@@ -491,7 +498,7 @@ export function registerSessionCommands(): void {
 
       try {
         await updateSessionFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.session,
           task: params.task,
           repo: params.repo,
           branch: params.branch,
