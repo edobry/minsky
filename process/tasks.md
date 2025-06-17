@@ -1,4 +1,4 @@
-- [x] Update session start command to support task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
+- [+] Update session start command to support task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
 
 - [x] Store session repos under per-repo directories and add repoName to session DB [#002](process/tasks/002-store-session-repos-under-per-repo-directories-and-add-reponame-to-session-db.md)
 
