@@ -6,6 +6,7 @@
  */
 import { mock, afterEach } from "bun:test";
 import { createCompatMock } from "./mock-function";
+import { log } from "../../logger";
 
 // Store original modules for restoration
 const originalModules = new Map<string, any>();
@@ -127,7 +128,7 @@ export function mockModule(
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
   } catch (error) {
-    console.error(`Error mocking module ${modulePath}:`, error);
+    log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
   }
 }
