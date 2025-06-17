@@ -15,7 +15,15 @@
 - **Significant progress**: Reduced ESLint problems from 2,158 to 1,713 (445 problems resolved - 21% reduction)
 - **Fixed console statement errors** in source files:
   - src/domain/session/session-db-io.ts (3 console.error → log.error, 1 type fix)
-- Current status: 918 errors, 1,035 warnings
+  - src/utils/tempdir.ts (3 console statements → log.debug/log.error/log.warn)
+  - src/utils/test-helpers.ts (8 console statements → log.debug)
+  - src/domain/repository.ts (1 console.warn → log.warn, fixed imports)
+  - src/domain/session.ts (4 console.error → log.error, partial progress)
+  - src/scripts/test-analyzer.ts (11 console statements → log.cli/log.cliError)
+  - src/utils/test-helpers.ts (3 console.error → log.error)
+  - src/utils/test-utils.ts (1 console.warn → log.warn)
+- **Latest progress**: Reduced from 1,373 to 1,327 problems (46 more issues fixed)
+- Current status: 329 errors, 998 warnings
 
 ### Next Steps
 - Continue fixing console statement errors in remaining actual source files (205 remaining).
