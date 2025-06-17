@@ -192,12 +192,12 @@ export const mockFS = {
  */
 export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
   if (!result || result.status === null) {
-    console.error("Command execution failed or was killed");
+    log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
   }
 
   if (result.status !== 0) {
-    console.error(`Command failed with status ${result.status}`);
-    console.error(`Stderr: ${result.stderr}`);
+    log.error(`Command failed with status ${result.status}`);
+    log.error(`Stderr: ${result.stderr}`);
   }
 }
