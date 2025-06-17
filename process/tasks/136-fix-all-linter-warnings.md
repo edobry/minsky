@@ -13,17 +13,20 @@
   - process/tasks/127/debug-jsonrpc-format.js
   - process/tasks/127/debug-method-registration.js
 - **Significant progress**: Reduced ESLint problems from 2,158 to 1,713 (445 problems resolved - 21% reduction)
+- **Fixed console statement errors** in source files:
+  - src/domain/session/session-db-io.ts (3 console.error → log.error, 1 type fix)
 - Current status: 918 errors, 1,035 warnings
 
 ### Next Steps
-- Continue fixing console statement errors in remaining actual source files (not debug scripts).
-- After console issues, address `no-explicit-any` and `no-unused-vars` errors.
+- Continue fixing console statement errors in remaining actual source files (205 remaining).
+- Skip test-migration files due to module system conflicts (CommonJS vs ES modules).
+- After console issues, address `no-explicit-any` (474) and `no-unused-vars` (278) errors.
 - Focus on core source files in src/ directory.
 
 ### Notes
 - All changes are being made in the session workspace using absolute paths.
 - Debug scripts were temporary files that weren't part of the core codebase.
-- Remaining console statement issues are in actual test files and source files.
+- Some test-migration files have module system conflicts that make fixes complex.
 - Progress is being tracked and committed after each logical group of fixes.
 
 ## Summary
