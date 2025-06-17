@@ -77,7 +77,7 @@ const sessionStartCommandParams: CommandParameterMap = {
   name: {
     schema: z.string().min(1),
     description: "Name for the new session",
-    required: true,
+    required: false,
   },
   task: {
     schema: z.string(),
@@ -96,7 +96,7 @@ const sessionStartCommandParams: CommandParameterMap = {
   },
   session: {
     schema: z.string(),
-    description: "Custom session name (defaults to name argument)",
+    description: "Deprecated: use name parameter instead",
     required: false,
   },
   json: {
@@ -391,6 +391,11 @@ export function registerSessionCommands(): void {
     parameters: sessionStartCommandParams,
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.start command", { params, context });
+
+      // Validate that either name or task is provided
+      if (!params.name && !params.task) {
+        throw new Error("Either session name or task ID must be provided");
+      }
 
       try {
         const session = await startSessionFromParams({

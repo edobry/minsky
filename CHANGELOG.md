@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Task #140: Fix dependency installation error in session startup**
+  - Fixed null reference error when calling .toString() on execSync result during dependency installation
+  - Added proper null handling using optional chaining and fallback empty string for quiet mode
+  - Resolved session startup failure that occurred when stdio: "ignore" was used with execSync
+  - All session startup operations now complete successfully without dependency installation errors
+
+_See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.specstory/history/2025-01-26_fix-dependency-installation-error.md) for session startup fix._
+
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115
   - Confirmed 544/544 tests passing with 0 failures in existing CI workflow using Bun
