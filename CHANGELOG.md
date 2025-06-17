@@ -329,34 +329,12 @@ _See: SpecStory history [2023-05-17_add-remaining-task-commands-to-mcp](mdc:.spe
   - Maintained separation between branch naming (from git) and commit messages (from title parameter)
   - Enhanced documentation to clarify PR branch naming behavior
 
-- Task #094: Implement Google Tasks Backend
-  - Will implement a Google Tasks backend for the Minsky task management system
-  - Will provide integration with Google's task management API
-  - Will support authentication with Google OAuth2
-  - Will map between Minsky task statuses and Google Tasks
-  - Will extend TaskService to support Google Tasks as a backend option
+- Task #093: Implement Consistent CLI Error Handling Across All Commands
 
-_See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/history/2025-06-02_add-google-tasks-backend.md) for task creation._
-
-- Task #086: Formalized Core Minsky Concepts and Relationships
-  - Created comprehensive documentation of core concepts in `src/domain/concepts.md`
-  - Added migration guide in `src/domain/migration-guide.md`
-  - Updated JSDoc comments in domain files to use consistent terminology
-  - Added core concepts overview to README.md
-  - Defined clear terminology for Repository, Session, and Workspace
-  - Documented URI handling and auto-detection rules
-
-_See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
-
-- Task #093: Implement consistent CLI error handling across all commands
-  - Created a centralized error handling utility in `src/adapters/cli/utils/error-handler.ts`
-  - Added type-specific error handling for different error categories (validation, resource not found, etc.)
-  - Implemented consistent output formatting with the new `outputResult` utility
-  - Added debug mode detection to show detailed error information only when needed
-  - Refactored session, tasks, git, and init commands to use the centralized error handler
-  - Improved user experience by providing clear, concise error messages
-
-_See: SpecStory history [2025-06-18_implement-consistent-cli-error-handling](mdc:.specstory/history/2025-06-18_implement-consistent-cli-error-handling.md) for error handling implementation._
+  - Created task to standardize error handling across all CLI commands
+  - Will implement consistent error message formatting
+  - Will add proper error codes and categories
+  - Will improve error logging and debugging information
 
 - Task #092: Add session pr command and improve git prepare-pr interface
 
