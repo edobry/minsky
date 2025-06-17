@@ -272,6 +272,8 @@
 
 - [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
-- [+] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
+- [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
 - [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
+
+- [ ] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)

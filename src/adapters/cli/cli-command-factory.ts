@@ -264,11 +264,10 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         },
       },
       "session.start": {
-        useFirstRequiredParamAsArgument: true,
         parameters: {
           name: {
             asArgument: true,
-            description: "Session name",
+            description: "Session name (optional)",
           },
           task: {
             alias: "t",
