@@ -267,3 +267,5 @@
 - [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
 - [ ] Implement Todoist Backend Integration [#137](process/tasks/137-implement-todoist-backend-integration.md)
+
+- [ ] Add GitHub Issues Support as Task Backend [#138](/Users/edobry/Projects/minsky/process/tasks/138-add-github-issues-support-as-task-backend.md)

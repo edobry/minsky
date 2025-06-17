@@ -90,14 +90,14 @@ export async function batchCommand(files: string, options: BatchOptions): Promis
     const testFiles = globSync(files);
 
     if (testFiles.length === 0) {
-      console.error(`No files found matching pattern: ${files}`);
+      log.cliError(`No files found matching pattern: ${files}`);
       process.exit(1);
     }
 
-    console.log(`Found ${testFiles.length} files to process in batch mode`);
-    console.log(`Safety level: ${config.safetyLevel}`);
-    console.log(`Verification: ${options.verify ? "enabled" : "disabled"}`);
-    console.log(`Rollback: ${options.rollback ? "enabled" : "disabled"}`);
+    log.cli(`Found ${testFiles.length} files to process in batch mode`);
+    log.cli(`Safety level: ${config.safetyLevel}`);
+    log.cli(`Verification: ${options.verify ? "enabled" : "disabled"}`);
+    log.cli(`Rollback: ${options.rollback ? "enabled" : "disabled"}`);
 
     // Ensure output directory exists
     const outputDir = options.output || config.outputDir;
@@ -137,12 +137,12 @@ export async function batchCommand(files: string, options: BatchOptions): Promis
 
     // Process files in batches
     const batchSize = Math.min(config.maxConcurrent, testFiles.length);
-    console.log(`Processing files in batches of ${batchSize}`);
+    log.cli(`Processing files in batches of ${batchSize}`);
 
     // Process each file
     for (let i = 0; i < testFiles.length; i += batchSize) {
       const batch = testFiles.slice(i, i + batchSize);
-      console.log(
+      log.cli(
         `Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(testFiles.length / batchSize)}`
       );
 
