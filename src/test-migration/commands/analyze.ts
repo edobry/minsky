@@ -52,7 +52,7 @@ export async function analyzeCommand(files: string, options: AnalyzeOptions): Pr
     // Analyze each file
     for (const file of testFiles) {
       if (options.verbose) {
-        console.log(`Analyzing ${file}...`);
+        log.cli(`Analyzing ${file}...`);
       }
 
       const analysis = await analyzer.analyzeFile(file);
@@ -64,7 +64,7 @@ export async function analyzeCommand(files: string, options: AnalyzeOptions): Pr
       });
 
       if (options.verbose) {
-        console.log(`Found ${analysis.patterns.length} patterns in ${file}`);
+        log.cli(`Found ${analysis.patterns.length} patterns in ${file}`);
       }
     }
 
@@ -86,13 +86,13 @@ export async function analyzeCommand(files: string, options: AnalyzeOptions): Pr
     if (options.output) {
       const outputPath = path.resolve(options.output);
       fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
-      console.log(`Analysis results written to ${outputPath}`);
+      log.cli(`Analysis results written to ${outputPath}`);
     } else {
       // Output to console
-      console.log(JSON.stringify(output, null, 2));
+      log.cli(JSON.stringify(output, null, 2));
     }
   } catch (error) {
-    console.error("Error analyzing files:", error);
+    log.cliError("Error analyzing files:", error);
     process.exit(1);
   }
 }

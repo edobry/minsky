@@ -13,6 +13,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import { log } from "./src/utils/logger";
 
 // Suspicious patterns to detect
 const PLACEHOLDER_PATTERNS = [
@@ -28,12 +29,13 @@ const PLACEHOLDER_PATTERNS = [
 
 async function scanFile(filePath: string): Promise<{ file: string; issues: string[] }> {
   const content = await fs.readFile(filePath, "utf-8");
-  const lines = content.split("\n");
+  const contentStr = content.toString();
+  const lines = contentStr.split("\n");
   const issues: string[] = [];
 
   // Check for suspicious patterns
   for (const pattern of PLACEHOLDER_PATTERNS) {
-    const matches = content.match(pattern);
+    const matches = contentStr.match(pattern);
     if (matches) {
       for (const match of matches) {
         // Find the line number for the match
@@ -44,8 +46,8 @@ async function scanFile(filePath: string): Promise<{ file: string; issues: strin
   }
 
   // Check if there are test blocks with no assertions
-  const testBlocksCount = (content.match(/test\s*\(/g) || []).length;
-  const assertionsCount = (content.match(/expect\s*\(/g) || []).length;
+  const testBlocksCount = (contentStr.match(/test\s*\(/g) || []).length;
+  const assertionsCount = (contentStr.match(/expect\s*\(/g) || []).length;
 
   if (testBlocksCount > 0 && assertionsCount === 0) {
     issues.push(`Found ${testBlocksCount} test blocks but no assertions`);
@@ -93,26 +95,26 @@ async function main() {
     if (result.issues.length > 0) {
       hasIssues = true;
       totalIssues += result.issues.length;
-      console.log(`\n${result.file}:`);
+      log.cli(`\n${result.file}:`);
       for (const issue of result.issues) {
-        console.log(`  - ${issue}`);
+        log.cli(`  - ${issue}`);
       }
     }
   }
 
-  console.log("\n------------------------------");
+  log.cli("\n------------------------------");
   if (hasIssues) {
-    console.log(
+    log.cli(
       `❌ Found ${totalIssues} potential placeholder test issues in ${testFiles.length} test files`
     );
-    process.exit(1);
+    Bun.exit(1);
   } else {
-    console.log(`✅ No placeholder test issues found in ${testFiles.length} test files`);
-    process.exit(0);
+    log.cli(`✅ No placeholder test issues found in ${testFiles.length} test files`);
+    Bun.exit(0);
   }
 }
 
 main().catch((error) => {
-  console.error("Error scanning for placeholder tests:", error);
-  process.exit(1);
+  log.cliError("Error scanning for placeholder tests:", error);
+  Bun.exit(1);
 });

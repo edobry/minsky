@@ -1,7 +1,7 @@
 import { FastMCP } from "fastmcp";
-import { log } from "../utils/logger.js";
-import type { ProjectContext } from "../types/project.js";
-import { createProjectContextFromCwd } from "../types/project.js";
+import { log } from "../utils/logger";
+import type { ProjectContext } from "../types/project";
+import { createProjectContextFromCwd } from "../types/project";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -199,9 +199,9 @@ export class MinskyMCPServer {
       try {
         // Get the tool names
         const methods = [];
-        // @ts-ignore - Accessing a private property for debugging
+        // @ts-expect-error - Accessing a private property for debugging
         if (this.server._tools) {
-          // @ts-ignore
+          // @ts-expect-error - Accessing private _tools property for debugging
           methods.push(...Object.keys(this.server._tools));
         }
         log.debug("MCP Server registered methods", {

@@ -93,6 +93,18 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "tasks.status.set": {
+        parameters: {
+          taskId: {
+            asArgument: true,
+            description: "ID of the task to update",
+          },
+          status: {
+            asArgument: true,
+            description: "New status for the task (optional, will prompt if omitted)",
+          },
+        },
+      },
     },
   });
 

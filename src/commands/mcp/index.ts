@@ -1,25 +1,25 @@
 import { Command } from "commander";
-import { MinskyMCPServer } from "../../mcp/server.js";
-import { CommandMapper } from "../../mcp/command-mapper.js";
-import { log } from "../../utils/logger.js";
+import { MinskyMCPServer } from "../../mcp/server";
+import { CommandMapper } from "../../mcp/command-mapper";
+import { log } from "../../utils/logger";
 import {
   isNetworkError,
   createNetworkError,
   formatNetworkErrorMessage,
 } from "../../errors/network-errors.js";
-import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
-import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher.js";
-import { createProjectContext } from "../../types/project.js";
+import { SharedErrorHandler } from "../../adapters/shared/error-handling";
+import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
+import { createProjectContext } from "../../types/project";
 import fs from "fs";
 import path from "path";
 
 // Import adapter-based tool registrations
-import { registerSessionTools } from "../../adapters/mcp/session.js";
-import { registerTaskTools } from "../../adapters/mcp/tasks.js";
-import { registerGitTools } from "../../adapters/mcp/git.js";
-import { registerInitTools } from "../../adapters/mcp/init.js";
-import { registerRulesTools } from "../../adapters/mcp/rules.js";
-import { registerDebugTools } from "../../adapters/mcp/debug.js";
+import { registerSessionTools } from "../../adapters/mcp/session";
+import { registerTaskTools } from "../../adapters/mcp/tasks";
+import { registerGitTools } from "../../adapters/mcp/git";
+import { registerInitTools } from "../../adapters/mcp/init";
+import { registerRulesTools } from "../../adapters/mcp/rules";
+import { registerDebugTools } from "../../adapters/mcp/debug";
 
 /**
  * Create the MCP command
