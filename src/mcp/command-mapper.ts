@@ -1,7 +1,7 @@
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { log } from "../utils/logger.js";
-import type { ProjectContext } from "../types/project.js";
+import { log } from "../utils/logger";
+import type { ProjectContext } from "../types/project";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
@@ -60,7 +60,7 @@ export class CommandMapper {
 
     // Log the normalization if it changed the method name
     if (normalized !== methodName) {
-      log.debug(`Normalized method name for compatibility`, {
+      log.debug("Normalized method name for compatibility", {
         original: methodName,
         normalized,
       });
@@ -83,7 +83,7 @@ export class CommandMapper {
     const normalizedName = this.normalizeMethodName(command.name);
 
     // Log the addition of the tool to help with debugging
-    log.debug(`Registering MCP tool`, {
+    log.debug("Registering MCP tool", {
       methodName: normalizedName,
       originalName: command.name,
       description: command.description,
@@ -120,7 +120,7 @@ export class CommandMapper {
           }
 
           // Log that we're executing the command (helpful for debugging)
-          log.debug(`Executing MCP command`, {
+          log.debug("Executing MCP command", {
             methodName: normalizedName,
             args,
           });
@@ -152,7 +152,7 @@ export class CommandMapper {
 
       // Don't register the same name twice
       if (underscoreName !== normalizedName) {
-        log.debug(`Also registering underscore alias for dot notation`, {
+        log.debug("Also registering underscore alias for dot notation", {
           originalName: normalizedName,
           underscoreName,
         });
@@ -167,7 +167,7 @@ export class CommandMapper {
           parameters: command.parameters || z.object({}),
           execute: async (args) => {
             try {
-              log.debug(`Executing MCP command via underscore alias`, {
+              log.debug("Executing MCP command via underscore alias", {
                 methodName: underscoreName,
                 originalName: normalizedName,
                 args,

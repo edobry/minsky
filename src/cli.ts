@@ -3,10 +3,11 @@
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index.js";
-import { cliBridge } from "./adapters/shared/bridges/cli-bridge.js";
-import { CommandCategory } from "./adapters/shared/command-registry.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
-import { setupCommonCommandCustomizations } from "./adapters/cli/cli-command-factory.js";
+import {
+  setupCommonCommandCustomizations,
+  registerAllCommands,
+} from "./adapters/cli/cli-command-factory.js";
 
 /**
  * Root CLI command
@@ -25,21 +26,8 @@ export async function createCli(): Promise<Command> {
   // Register all shared commands
   registerAllSharedCommands();
 
-  // Add top-level commands via CLI bridge
-  const tasksCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.TASKS);
-  if (tasksCategoryCommand) cli.addCommand(tasksCategoryCommand);
-
-  const gitCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.GIT);
-  if (gitCategoryCommand) cli.addCommand(gitCategoryCommand);
-
-  const sessionCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.SESSION);
-  if (sessionCategoryCommand) cli.addCommand(sessionCategoryCommand);
-
-  const rulesCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.RULES);
-  if (rulesCategoryCommand) cli.addCommand(rulesCategoryCommand);
-
-  const initCategoryCommand = cliBridge.generateCategoryCommand(CommandCategory.INIT);
-  if (initCategoryCommand) cli.addCommand(initCategoryCommand);
+  // Register all commands via CLI command factory (which applies customizations)
+  registerAllCommands(cli);
 
   // Add MCP command (this is not yet migrated to shared commands)
   cli.addCommand(await createMCPCommand());

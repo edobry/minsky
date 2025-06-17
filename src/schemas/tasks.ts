@@ -2,7 +2,7 @@
  * Schema definitions for task-related parameters and types
  */
 import { z } from "zod";
-import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common.js";
+import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common";
 
 /**
  * Valid task statuses

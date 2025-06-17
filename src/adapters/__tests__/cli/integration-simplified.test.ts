@@ -7,7 +7,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
 } from "../../../adapters/shared/command-registry.js";
-import { registerGitCommands } from "../../../adapters/shared/commands/git.js";
+import { registerGitCommands } from "../../../adapters/shared/commands/git";
 
 describe("Shared Command CLI Integration", () => {
   beforeEach(() => {
