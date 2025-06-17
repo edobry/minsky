@@ -52,7 +52,7 @@ export const taskSpecContentParamsSchema = z
       .string()
       .optional()
       .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
-    backend: z.string().optional().describe("Specify task backend (markdown, github)"),
+    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
   })
   .merge(
     z.object({
