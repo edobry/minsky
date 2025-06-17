@@ -16,7 +16,7 @@
 
 - [x] Add `git commit` command to stage and commit changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [+] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
 
 - [x] Fix `git pr` command and add proper tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
@@ -264,4 +264,4 @@
 
 - [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
-- [ ] Implement Todoist Backend Integration [#137](/Users/edobry/Projects/minsky/process/tasks/137-implement-todoist-backend-integration.md)
+- [ ] Implement Todoist Backend Integration [#137](process/tasks/137-implement-todoist-backend-integration.md)
