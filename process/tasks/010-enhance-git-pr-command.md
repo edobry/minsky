@@ -1,5 +1,7 @@
 # Task #010: Enhance `git pr` Command to Create GitHub PRs and Update Task Status
 
+> **OBSOLETE**: This task has been superseded by architectural changes introduced in tasks #092 (Add Session PR Command) and #025 (Add PR Merging Commands for Session Workflow). The functionality described here has been reimplemented with a different architecture that better aligns with the session-first workflow.
+
 ## Context
 
 Currently, the `minsky git pr` command generates a markdown document containing commit history and file changes for the current or specified branch. However, it only outputs this information to the console and doesn't actually create a GitHub PR. Additionally, it doesn't update the task status to reflect that the work is now in review.
