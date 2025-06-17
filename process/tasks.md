@@ -182,7 +182,7 @@
 
 - [x] Implement Consistent CLI Error Handling Across All Commands [#093](process/tasks/093-implement-consistent-cli-error-handling-across-all-commands.md)
 
-- [ ] Implement Google Tasks Backend [#094](process/tasks/094-implement-google-tasks-backend.md)
+- [+] Implement Google Tasks Backend [#094](process/tasks/094-implement-google-tasks-backend.md)
 
 - [x] Fix git prepare-pr Branch Naming Issues [#095](process/tasks/095-fix-git-prepare-pr-branch-naming-issues.md)
 
@@ -265,3 +265,5 @@
 - [x] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
 - [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
+
+- [ ] Implement Todoist Backend Integration [#137](/Users/edobry/Projects/minsky/process/tasks/137-implement-todoist-backend-integration.md)
