@@ -4,6 +4,7 @@
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
 import { join, resolve, dirname, basename } from "path";
 import { spawnSync } from "child_process";
+import { log } from "./logger";
 import type {
   SpawnSyncOptions,
   SpawnSyncReturns,
@@ -17,7 +18,7 @@ const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
 export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
-  console.log(`[MOCK] Creating directory ${path}`);
+  log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
@@ -32,12 +33,12 @@ export function mockMkdirSync(path: string, options?: { recursive?: boolean }): 
 
 export function mockExistsSync(path: string): boolean {
   const exists = virtualFS.has(path);
-  console.log(`[MOCK] Checking if ${path} exists: ${exists}`);
+  log.debug(`[MOCK] Checking if ${path} exists: ${exists}`);
   return exists;
 }
 
 export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
-  console.log(`[MOCK] Removing ${path}`);
+  log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
   if (options?.recursive) {
@@ -51,7 +52,7 @@ export function mockRmSync(path: string, options?: { recursive?: boolean; force?
 }
 
 export function mockWriteFileSync(path: string, data: string, options?: WriteFileOptions): void {
-  console.log(`[MOCK] Writing to file ${path}`);
+  log.debug(`[MOCK] Writing to file ${path}`);
   virtualFS.set(path, { isDirectory: false, content: data });
 
   // Ensure the directory exists
@@ -62,7 +63,7 @@ export function mockWriteFileSync(path: string, data: string, options?: WriteFil
 }
 
 export function mockReadFileSync(path: string, options?: { encoding?: BufferEncoding }): string {
-  console.log(`[MOCK] Reading file ${path}`);
+  log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
   if (!file || file.isDirectory) {
     throw new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -130,7 +131,7 @@ export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
   const processDir = join(basePath, "process");
   const tasksDir = join(processDir, "tasks");
 
-  console.log(`[MOCK] Setting up test environment in: ${basePath}`);
+  log.debug(`[MOCK] Setting up test environment in: ${basePath}`);
 
   return {
     minskyDir,
@@ -145,7 +146,7 @@ export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
  * Cleans up a test directory - stubbed for testing
  */
 export function cleanupTestDir(path: string): void {
-  console.log(`[MOCK] Cleaning up directory: ${path}`);
+  log.debug(`[MOCK] Cleaning up directory: ${path}`);
   // No actual cleanup needed in tests
 }
 

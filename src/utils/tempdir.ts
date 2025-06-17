@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { log } from "./logger";
 
 /**
  * Robust temp directory creation utility.
@@ -27,19 +28,19 @@ export function createRobustTempDir(
       }
       const tempDir = fs.mkdtempSync(path.join(base, prefix));
       if (process.env.DEBUG_TEST_UTILS) {
-        console.log(`[DEBUG] createRobustTempDir: ${tempDir}`);
+        log.debug(`[DEBUG] createRobustTempDir: ${tempDir}`);
       }
       if (!fs.existsSync(tempDir)) {
         throw new Error(`[UTIL FAILURE] Temp dir was not created: ${tempDir}`);
       }
       return tempDir;
     } catch (err) {
-      console.error(`[ERROR] Failed to create temp dir at ${base} with prefix ${prefix}:`, err);
+      log.error(`[ERROR] Failed to create temp dir at ${base} with prefix ${prefix}:`, err as Error);
       // Try next location
     }
   }
   if (opts?.softFail) {
-    console.warn(
+    log.warn(
       `[WARN] All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`
     );
     return null;
