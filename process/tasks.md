@@ -248,6 +248,8 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
+- [ ] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency.md)
+
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
 - [x] System Stability Post-CLI Bridge [#130](process/tasks/130-system-stability-post-cli-bridge.md)
