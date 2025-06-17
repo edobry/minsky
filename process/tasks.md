@@ -276,4 +276,4 @@
 
 - [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
 
-- [ ] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
+- [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
