@@ -264,9 +264,15 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         },
       },
       "session.start": {
+        useFirstRequiredParamAsArgument: true,
         parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name",
+          },
           task: {
             alias: "t",
+            description: "Task ID to associate with the session",
           },
         },
       },
