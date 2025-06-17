@@ -32,6 +32,10 @@
           {
             "group": ["./*.ts", "../*.ts", "./*.js", "../*.js"],
             "message": "Use extensionless imports for local files (Bun-native style)"
+          },
+          {
+            "group": ["**/cli-bridge", "**/cli-bridge.js", "**/cli-bridge.ts"],
+            "message": "Use CLI Command Factory instead of direct CLI bridge access. Import from cli-command-factory.ts instead."
           }
         ]
       }
