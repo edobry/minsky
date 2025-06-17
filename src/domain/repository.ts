@@ -2,13 +2,14 @@
  * Repository backend interface for Minsky.
  * Defines the contract for different repository backends (local, remote, GitHub).
  */
-import { normalizeRepoName } from "./repo-utils.js";
-import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import type { RepositoryUri } from "./uri-utils.js";
-import { SessionDB } from "./session.js";
+import { normalizeRepoName } from "./repo-utils";
+import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils";
+import type { RepositoryUri } from "./uri-utils";
+import { SessionDB } from "./session";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
 import { existsSync } from "fs";
+import { log } from "../utils/logger.js";
 
 /**
  * Repository backend types supported by the system.
@@ -546,7 +547,7 @@ export async function resolveRepoPath(options: {
   session?: string;
   repo?: string;
 }): Promise<string> {
-  console.warn("resolveRepoPath is deprecated. Use resolveRepository instead.");
+  log.warn("resolveRepoPath is deprecated. Use resolveRepository instead.");
 
   try {
     const repository = await resolveRepository({
