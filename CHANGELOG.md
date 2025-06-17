@@ -446,6 +446,15 @@ _See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specs
 
 ### Changed
 
+- Task #049: Performed comprehensive analysis of session-scoped MCP server requirements
+  - Analyzed current architecture and future direction (non-filesystem workspaces)
+  - Evaluated multiple implementation approaches (proxy, session-specific, instances, virtual FS)
+  - Selected MCP File Operation Proxy approach for architectural alignment
+  - Integrated with existing analysis from alternative session-specific tools approach
+  - Updated specification with abstraction layer design and architecture decision records
+
+_See: SpecStory history [2025-06-18_session-scoped-mcp-analysis](mdc:.specstory/history/2025-06-18_session-scoped-mcp-analysis.md) for MCP server workspace isolation analysis._
+
 - Refactored CLI command implementations to use shared option utilities
 - Improved error handling with centralized utilities
 
@@ -803,3 +812,12 @@ _See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/hi
   - All session-related tests continue to pass (74 tests)
 
 _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._
+
+- Task #049: Performed comprehensive analysis of session-scoped MCP server requirements
+  - Analyzed current architecture and future direction (non-filesystem workspaces)
+  - Evaluated multiple implementation approaches (proxy, session-specific, instances, virtual FS)
+  - Selected MCP File Operation Proxy approach for architectural alignment
+  - Integrated with existing analysis from alternative session-specific tools approach
+  - Updated specification with abstraction layer design and architecture decision records
+
+_See: SpecStory history [2025-06-18_session-scoped-mcp-analysis](mdc:.specstory/history/2025-06-18_session-scoped-mcp-analysis.md) for MCP server workspace isolation analysis._
