@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "../json-file-storage";
 import type { DatabaseStorage } from "../database-storage";
 import { expectToHaveLength } from "../../../utils/test-utils/assertions";
+import { log } from "../../../utils/logger";
 
 // Test data types following TaskData pattern
 interface TestEntity {
@@ -76,7 +77,7 @@ describe("JsonFileStorage Core Tests", () => {
       }
     } catch (error) {
       // Log but don't fail tests on cleanup errors
-      console.warn(`Cleanup warning for ${testDirPath}:`, error);
+      log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
     }
   });
 
