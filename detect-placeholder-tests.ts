@@ -13,6 +13,7 @@
 
 import * as fs from "fs/promises";
 import * as path from "path";
+import { log } from "./src/utils/logger";
 
 // Suspicious patterns to detect
 const PLACEHOLDER_PATTERNS = [
@@ -27,7 +28,7 @@ const PLACEHOLDER_PATTERNS = [
 ];
 
 async function scanFile(filePath: string): Promise<{ file: string; issues: string[] }> {
-  const content = await fs.readFile(filePath, "utf-8");
+  const content = await fs.readFile(filePath, "utf-8") as string;
   const lines = content.split("\n");
   const issues: string[] = [];
 
@@ -93,26 +94,26 @@ async function main() {
     if (result.issues.length > 0) {
       hasIssues = true;
       totalIssues += result.issues.length;
-      console.log(`\n${result.file}:`);
+      log.cli(`\n${result.file}:`);
       for (const issue of result.issues) {
-        console.log(`  - ${issue}`);
+        log.cli(`  - ${issue}`);
       }
     }
   }
 
-  console.log("\n------------------------------");
+  log.cli("\n------------------------------");
   if (hasIssues) {
-    console.log(
+    log.cli(
       `❌ Found ${totalIssues} potential placeholder test issues in ${testFiles.length} test files`
     );
-    process.exit(1);
+    (process as any).exit(1);
   } else {
-    console.log(`✅ No placeholder test issues found in ${testFiles.length} test files`);
-    process.exit(0);
+    log.cli(`✅ No placeholder test issues found in ${testFiles.length} test files`);
+    (process as any).exit(0);
   }
 }
 
 main().catch((error) => {
-  console.error("Error scanning for placeholder tests:", error);
-  process.exit(1);
+  log.error("Error scanning for placeholder tests:", error);
+  (process as any).exit(1);
 });
