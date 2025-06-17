@@ -277,3 +277,5 @@
 - [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
 
 - [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
+
+- [ ] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](/Users/edobry/Projects/minsky/process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
