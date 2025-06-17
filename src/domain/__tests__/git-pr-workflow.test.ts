@@ -126,7 +126,7 @@ describe("Session Approve Workflow", () => {
           workspaceUtils: WorkspaceUtils,
         }
       )
-    ).rejects.toThrow('Session "non-existent-session" not found');
+    ).rejects.toThrow("Session \"non-existent-session\" not found");
   });
 
   test("throws MinskyError when git command fails", async () => {

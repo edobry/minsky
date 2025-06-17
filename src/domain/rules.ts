@@ -13,7 +13,7 @@ function customMatterStringify(content: string, data: any): string {
   const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: '"', // Use double quotes when necessary
+    quotingType: "\"", // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 

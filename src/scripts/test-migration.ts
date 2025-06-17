@@ -100,12 +100,12 @@ const transformations: Transformation[] = [
   {
     name: "Replace Jest imports with Bun",
     pattern: /import\s+(.+)\s+from\s+['"]jest['"]/g,
-    replacement: `import $1 from 'bun:test'`,
+    replacement: "import $1 from 'bun:test'",
   },
   {
     name: "Replace Vitest imports with Bun",
     pattern: /import\s+(.+)\s+from\s+['"]vitest['"]/g,
-    replacement: `import $1 from 'bun:test'`,
+    replacement: "import $1 from 'bun:test'",
   },
 
   // Mock function transformations
@@ -181,7 +181,7 @@ async function runCommand(command: string): Promise<{ stdout: string; stderr: st
 async function runTest(testFile: string): Promise<{ success: boolean; output: string }> {
   try {
     const { stdout, stderr } = await runCommand(`bun test ${testFile}`);
-    const output = stdout + "\n" + stderr;
+    const output = `${stdout  }\n${  stderr}`;
     const success = !output.includes("fail") && !output.includes("error");
     return { success, output };
   } catch (error: unknown) {
@@ -211,7 +211,7 @@ function applyTransformations(
       if (t.pattern.test(transformed) && t.addImport) {
         // Check if the import is already present
         if (!transformed.includes(t.addImport)) {
-          transformed = t.addImport + "\n" + transformed;
+          transformed = `${t.addImport  }\n${  transformed}`;
           addedImports.push(t.addImport);
           changes.push({ pattern: t.name, count: 1 });
         }
@@ -299,7 +299,7 @@ async function migrateTestFile(
 
         // If verification failed, restore from backup
         if (!afterResult.success && createBackup) {
-          console.error(`  ⚠️ Test failed after migration, restoring from backup`);
+          console.error("  ⚠️ Test failed after migration, restoring from backup");
           await writeFile(testFile.path, content);
           return {
             success: false,
@@ -355,7 +355,7 @@ async function migrateTests() {
 
     if (!existsSync(analysisPath)) {
       console.error(`Analysis file not found: ${analysisPath}`);
-      console.error(`Run the test analyzer first: bun src/scripts/test-analyzer.ts`);
+      console.error("Run the test analyzer first: bun src/scripts/test-analyzer.ts");
       process.exit(1);
     }
 
@@ -368,7 +368,7 @@ async function migrateTests() {
     if (config.targetPath) {
       const targetPath = resolve(baseDir, config.targetPath);
       testFilesToMigrate = testFilesToMigrate.filter(
-        (file) => file.path === targetPath || file.path.startsWith(targetPath + "/")
+        (file) => file.path === targetPath || file.path.startsWith(`${targetPath  }/`)
       );
 
       if (testFilesToMigrate.length === 0) {

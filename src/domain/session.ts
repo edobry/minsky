@@ -622,13 +622,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -848,7 +848,7 @@ export async function updateSessionFromParams(
 
     if (isDirty && !force) {
       throw new MinskyError(
-        `Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override.`
+        "Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override."
       );
     }
 
@@ -1431,7 +1431,7 @@ export async function sessionReviewFromParams(
   // 3. Get diff stats and full diff
   try {
     // Fetch latest changes
-    await deps.gitService.execInRepository(sessionWorkdir, `git fetch origin`);
+    await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
 
     // Get diff stats
     const diffStatsOutput = await deps.gitService.execInRepository(

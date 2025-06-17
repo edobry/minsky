@@ -391,7 +391,7 @@ describe("createTask", () => {
     await expect(taskBackend.createTask(specPath)).rejects.toThrow("Invalid spec file");
   });
 
-  it('should support spec file with "# Task: Title" format', async () => {
+  it("should support spec file with \"# Task: Title\" format", async () => {
     const specPath = path.join(workspacePath, "process/tasks/no-id-spec.md");
     const newSpecPath = path.join(workspacePath, "process/tasks/003-new-feature.md");
 
@@ -432,7 +432,7 @@ describe("createTask", () => {
     }
   });
 
-  it('should support spec file with "# Task #XXX: Title" format', async () => {
+  it("should support spec file with \"# Task #XXX: Title\" format", async () => {
     const specPath = path.join(workspacePath, "process/tasks/with-id-spec.md");
     const newSpecPath = path.join(workspacePath, "process/tasks/042-existing-id-feature.md");
 

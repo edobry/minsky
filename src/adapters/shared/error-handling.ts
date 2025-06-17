@@ -287,12 +287,12 @@ export const mcpErrorHandler = new McpErrorHandler();
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-    case "cli":
-      return cliErrorHandler;
-    case "mcp":
-      return mcpErrorHandler;
-    default:
-      // Default to CLI error handler
-      return cliErrorHandler;
+  case "cli":
+    return cliErrorHandler;
+  case "mcp":
+    return mcpErrorHandler;
+  default:
+    // Default to CLI error handler
+    return cliErrorHandler;
   }
 }

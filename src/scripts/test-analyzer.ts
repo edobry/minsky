@@ -538,7 +538,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     "",
     "### Recommended Approach",
     "",
-    '1. **Start with "easy" tests** - First migrate tests with low mocking complexity',
+    "1. **Start with \"easy\" tests** - First migrate tests with low mocking complexity",
     "2. **Create utility adapters** - Develop adapters for common Jest patterns",
     "3. **Standardize mocking utilities** - Enhance current mocking utilities",
     "4. **Tackle integration tests last** - These often have the most complex mocking needs",
