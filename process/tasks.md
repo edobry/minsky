@@ -268,4 +268,6 @@
 
 - [ ] Implement Todoist Backend Integration [#137](process/tasks/137-implement-todoist-backend-integration.md)
 
-- [ ] Add GitHub Issues Support as Task Backend [#138](/Users/edobry/Projects/minsky/process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+
+- [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)

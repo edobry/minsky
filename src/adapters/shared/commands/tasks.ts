@@ -334,7 +334,7 @@ const tasksListParams: CommandParameterMap = {
   },
   backend: {
     schema: z.string(),
-    description: "Specify task backend (markdown, github)",
+    description: "Specify task backend (markdown, json-file, github)",
     required: false,
   },
   repo: {
@@ -370,7 +370,7 @@ const tasksGetParams: CommandParameterMap = {
   },
   backend: {
     schema: z.string(),
-    description: "Specify task backend (markdown, github)",
+    description: "Specify task backend (markdown, json-file, github)",
     required: false,
   },
   repo: {
@@ -412,7 +412,7 @@ const tasksCreateParams: CommandParameterMap = {
   },
   backend: {
     schema: z.string(),
-    description: "Specify task backend (markdown, github)",
+    description: "Specify task backend (markdown, json-file, github)",
     required: false,
   },
   repo: {
