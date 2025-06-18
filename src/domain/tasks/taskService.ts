@@ -8,6 +8,7 @@ import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createGitHubIssuesTaskBackend, GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
+import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 
@@ -91,6 +92,15 @@ export class TaskService {
             statusLabels: github.statusLabels,
           })
         );
+      } else {
+        // Try to auto-configure GitHub backend from environment
+        const githubConfig = getGitHubBackendConfig(workspacePath);
+        
+        if (githubConfig && githubConfig.githubToken) {
+          this.backends.push(
+            createGitHubIssuesTaskBackend(githubConfig as GitHubIssuesTaskBackendOptions)
+          );
+        }
       }
     }
 
