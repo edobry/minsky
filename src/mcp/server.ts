@@ -23,7 +23,7 @@ export interface MinskyMCPServerOptions {
    * Transport type to use for the server
    * @default "stdio"
    */
-  transportType?: "stdio" | "sse" | "httpStream";
+  transportType?: "stdio" | "httpStream";
 
   /**
    * Project context containing repository information
@@ -33,29 +33,12 @@ export interface MinskyMCPServerOptions {
   projectContext?: ProjectContext;
 
   /**
-   * SSE configuration options
-   */
-  sse?: {
-    /**
-     * Endpoint for SSE
-     * @default "/sse"
-     */
-    endpoint?: string;
-
-    /**
-     * Port for SSE server
-     * @default 8080
-     */
-    port?: number;
-  };
-
-  /**
    * HTTP Stream configuration options
    */
   httpStream?: {
     /**
      * Endpoint for HTTP Stream
-     * @default "/stream"
+     * @default "/mcp"
      */
     endpoint?: string;
 
@@ -103,12 +86,8 @@ export class MinskyMCPServer {
       version: options.version || "1.0.0", // Should be dynamically pulled from package.json
       transportType: options.transportType || "stdio",
       projectContext: this.projectContext,
-      sse: {
-        endpoint: options.sse?.endpoint || "/sse",
-        port: options.sse?.port || 8080,
-      },
       httpStream: {
-        endpoint: options.httpStream?.endpoint || "/stream",
+        endpoint: options.httpStream?.endpoint || "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
         port: options.httpStream?.port || 8080,
       },
     };
@@ -166,19 +145,11 @@ export class MinskyMCPServer {
 
       if (this.options.transportType === "stdio") {
         await this.server.start({ transportType: "stdio" });
-      } else if (this.options.transportType === "sse" && this.options.sse) {
-        await this.server.start({
-          transportType: "sse",
-          sse: {
-            endpoint: "/sse", // Endpoint must start with a / character
-            port: this.options.sse.port || 8080,
-          },
-        });
       } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
         await this.server.start({
           transportType: "httpStream",
           httpStream: {
-            endpoint: "/stream", // Endpoint must start with a / character
+            endpoint: (this.options.httpStream.endpoint || "/mcp") as `/${string}`, // Updated from /stream to /mcp
             port: this.options.httpStream.port || 8080,
           },
         });
