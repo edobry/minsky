@@ -1,8 +1,6 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
 import * as fs from "fs";
 import * as childProcess from "child_process";
-import * as path from "path";
-import { expectToHaveLength } from "../test-utils/assertions";
 
 // Mock the logger module
 mock.module("../logger.js", () => ({
@@ -17,7 +15,6 @@ import {
   detectPackageManager,
   getInstallCommand,
   installDependencies,
-  type PackageManager,
 } from "../package-manager";
 
 describe("Package Manager Utilities", () => {
