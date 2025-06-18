@@ -7,6 +7,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { join } from "path";
+import { execSync } from "child_process";
 import type {
   TaskData,
   TaskState,
@@ -17,8 +18,8 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData.js";
-import type { TaskBackend } from "./taskBackend.js";
-import { log } from "../../utils/logger.js";
+import type { TaskBackend } from "./taskBackend";
+import { log } from "../../utils/logger";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -61,6 +62,41 @@ const DEFAULT_STATUS_LABELS = {
 } as const;
 
 /**
+ * Extract GitHub owner and repo from git remote URL
+ */
+function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; repo: string } | null {
+  try {
+    // Get the origin remote URL
+    const remoteUrl = execSync("git remote get-url origin", {
+      cwd: workspacePath,
+      encoding: "utf8" as BufferEncoding,
+    }).toString().trim();
+
+    // Parse GitHub repository from various URL formats
+    // SSH: git@github.com:owner/repo.git
+    // HTTPS: https://github.com/owner/repo.git
+    const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+    const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+    
+    const match = sshMatch || httpsMatch;
+    if (match && match[1] && match[2]) {
+      return {
+        owner: match[1],
+        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    log.debug("Failed to extract GitHub repo from git remote", {
+      workspacePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
  * GitHubIssuesTaskBackend implementation
  */
 export class GitHubIssuesTaskBackend implements TaskBackend {
@@ -89,6 +125,23 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         retryAfter: 30,
       },
     });
+
+    // Auto-create labels (async, but we don't wait for it)
+    this.ensureLabelsExist();
+  }
+
+  /**
+   * Ensure GitHub labels exist for task statuses
+   */
+  private async ensureLabelsExist(): Promise<void> {
+    const { createGitHubLabels } = await import("./githubBackendConfig");
+    try {
+      await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
+    } catch (error) {
+      log.warn("Failed to ensure GitHub labels exist", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   // ---- Data Retrieval ----
@@ -188,7 +241,7 @@ ${issue.body || "No description provided"}
 - Updated: ${issue.updated_at}
 
 ## Labels
-${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}`).join('\n')}
+${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
 `;
 
       return {
@@ -230,18 +283,18 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
 
   parseTaskSpec(content: string): TaskSpecData {
     // Parse markdown content to extract task specification
-    const lines = content.split('\n');
-    let title = '';
-    let description = '';
+    const lines = content.split("\n");
+    let title = "";
+    let description = "";
     let metadata: Record<string, any> = {};
     
-    let currentSection = '';
+    let currentSection = "";
     let descriptionLines: string[] = [];
 
     for (const line of lines) {
       const trimmed = line.trim();
       
-      if (trimmed.startsWith('# ')) {
+      if (trimmed.startsWith("# ")) {
         title = trimmed.substring(2).trim();
         // Extract task ID from title if present
         const taskIdMatch = title.match(/^Task (#\d+):/);
@@ -249,12 +302,12 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
           metadata.taskId = taskIdMatch[1];
           title = title.substring(taskIdMatch[0].length).trim();
         }
-      } else if (trimmed.startsWith('## ')) {
+      } else if (trimmed.startsWith("## ")) {
         currentSection = trimmed.substring(3).trim().toLowerCase();
-        if (currentSection === 'description') {
+        if (currentSection === "description") {
           descriptionLines = [];
         }
-      } else if (currentSection === 'description' && trimmed) {
+      } else if (currentSection === "description" && trimmed) {
         descriptionLines.push(trimmed);
       }
     }
@@ -271,7 +324,7 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
     
-    let content = `# Task ${metadata?.taskId || '#000'}: ${title}\n\n`;
+    let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
     
     if (description) {
       content += `## Description\n${description}\n\n`;
@@ -279,10 +332,11 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
 
     // Add GitHub-specific metadata if available
     if (metadata?.githubIssue) {
+      const githubIssue = metadata.githubIssue as any;
       content += `## GitHub Issue\n`;
-      content += `- Issue: #${metadata.githubIssue.number}\n`;
-      content += `- URL: ${metadata.githubIssue.html_url}\n`;
-      content += `- State: ${metadata.githubIssue.state}\n\n`;
+      content += `- Issue: #${githubIssue.number}\n`;
+      content += `- URL: ${githubIssue.html_url}\n`;
+      content += `- State: ${githubIssue.state}\n\n`;
     }
 
     return content;
@@ -365,16 +419,6 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
       description: issue.body || "",
       status,
       specPath: this.getTaskSpecPath(taskId, issue.title),
-      metadata: {
-        githubIssue: {
-          number: issue.number,
-          html_url: issue.html_url,
-          state: issue.state,
-          created_at: issue.created_at,
-          updated_at: issue.updated_at,
-          labels: issue.labels,
-        },
-      },
     };
   }
 
@@ -429,40 +473,20 @@ ${issue.labels.map(label => `- ${typeof label === 'string' ? label : label.name}
     try {
       const issueData = this.convertTaskDataToIssueFormat(taskData);
       
-      // Check if issue already exists
-      const existingIssue = taskData.metadata?.githubIssue;
+      // For now, we'll always create new issues since we can't track existing ones without metadata
+      // TODO: Implement a better way to track GitHub issue numbers
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title: issueData.title,
+        body: issueData.body,
+        labels: issueData.labels,
+      });
       
-      if (existingIssue && existingIssue.number) {
-        // Update existing issue
-        await this.octokit.rest.issues.update({
-          owner: this.owner,
-          repo: this.repo,
-          issue_number: existingIssue.number,
-          title: issueData.title,
-          body: issueData.body,
-          labels: issueData.labels,
-          state: issueData.state,
-        });
-        
-        log.debug("Updated GitHub issue", {
-          issueNumber: existingIssue.number,
-          title: issueData.title,
-        });
-      } else {
-        // Create new issue
-        const response = await this.octokit.rest.issues.create({
-          owner: this.owner,
-          repo: this.repo,
-          title: issueData.title,
-          body: issueData.body,
-          labels: issueData.labels,
-        });
-        
-        log.debug("Created GitHub issue", {
-          issueNumber: response.data.number,
-          title: issueData.title,
-        });
-      }
+      log.debug("Created GitHub issue", {
+        issueNumber: response.data.number,
+        title: issueData.title,
+      });
     } catch (error) {
       log.error("Failed to sync task to GitHub", {
         taskId: taskData.id,

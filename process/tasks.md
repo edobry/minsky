@@ -271,3 +271,7 @@
 - [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#140](process/tasks/140-import-existing-github-issues-under-minsky-management.md)
+
+- [ ] Implement Repository Configuration System [#141](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#138/process/tasks/141-implement-repository-configuration-system.md)
