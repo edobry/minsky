@@ -6,10 +6,10 @@
  * This file tests that option descriptions are consistent across interfaces.
  */
 
-import { describe, expect, it } from "bun:test";
-import * as descriptions from "../option-descriptions.js";
-import { expectToHaveLength } from "../test-utils/assertions.js";
-import { setupTestMocks } from "../test-utils/mocking.js";
+import { describe, expect, test } from "bun:test";
+import * as descriptions from "../option-descriptions";
+import { expectToHaveLength } from "../test-utils/assertions";
+import { setupTestMocks } from "../test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
