@@ -482,18 +482,32 @@ export class GitService implements GitServiceInterface {
       return options.repoPath;
     }
 
-    if (!options.session) {
-      throw new Error("Either 'session' or 'repoPath' must be provided to create a PR.");
+    // Try to resolve session from taskId if provided
+    let sessionName = options.session;
+    if (!sessionName && options.taskId) {
+      if (!deps.getSessionByTaskId) {
+        throw new Error("getSessionByTaskId dependency not available");
+      }
+      const sessionRecord = await deps.getSessionByTaskId(options.taskId);
+      if (!sessionRecord) {
+        throw new Error(`No session found for task ID "${options.taskId}"`);
+      }
+      sessionName = sessionRecord.session;
+      log.debug("Resolved session from task ID", { taskId: options.taskId, session: sessionName });
     }
 
-    const session = await deps.getSession(options.session);
+    if (!sessionName) {
+      throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to create a PR.");
+    }
+
+    const session = await deps.getSession(sessionName);
     if (!session) {
-      throw new Error(`Session '${options.session}' not found.`);
+      throw new Error(`Session '${sessionName}' not found.`);
     }
     const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    const workdir = deps.getSessionWorkdir(repoName, sessionName);
 
-    log.debug("Using workdir for PR", { workdir, session: options.session });
+    log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
   }
 
