@@ -276,4 +276,4 @@
 
 - [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-fix.md)
 
-- [ ] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
+- [-] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)

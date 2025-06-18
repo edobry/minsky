@@ -35,3 +35,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # SpecStory explanation file
 .specstory/.what-is-this.md
 .specstory/history/*
+
+# test-migration tool
+.test-migration-tmp/
+batch-results.json
+
+# backup files
+*.bak
