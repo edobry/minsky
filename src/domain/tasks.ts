@@ -1,11 +1,7 @@
 import { promises as fs } from "fs";
 import { join } from "path";
-import { parse as parsePath } from "path";
-import { SessionDB } from "./session.js";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { resolveRepoPath } from "./repo-utils.js";
-import { resolveWorkspacePath } from "./workspace.js";
 import { log } from "../utils/logger";
 import { normalizeTaskId } from "./tasks/utils.js";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
@@ -16,15 +12,7 @@ import type {
   TaskStatusSetParams,
   TaskCreateParams,
 } from "../schemas/tasks.js";
-import {
-  taskListParamsSchema,
-  taskGetParamsSchema,
-  taskStatusGetParamsSchema,
-  taskStatusSetParamsSchema,
-  taskCreateParamsSchema,
-} from "../schemas/tasks.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
-import { z } from "zod";
+import { ResourceNotFoundError } from "../errors/index.js";
 import matter from "gray-matter";
 
 // Import and re-export functions from taskCommands.ts
