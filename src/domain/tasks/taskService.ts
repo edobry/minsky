@@ -60,9 +60,11 @@ export interface TaskListOptions {
 export class TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly currentBackend: TaskBackend;
+  private readonly workspacePath: string;
 
   constructor(options: TaskServiceOptions = {}) {
     const { workspacePath = process.cwd(), backend = "markdown", customBackends, github } = options;
+    this.workspacePath = workspacePath;
 
     // Initialize with provided backends or create defaults
     if (customBackends && customBackends.length > 0) {
@@ -112,6 +114,55 @@ export class TaskService {
       );
     }
     this.currentBackend = selectedBackend;
+  }
+
+  /**
+   * Initialize GitHub backend if available
+   * This must be called after construction to add GitHub support
+   */
+  async initializeGitHubBackend(): Promise<void> {
+    try {
+      const { tryCreateGitHubBackend } = await import("./githubBackendFactory");
+      const githubBackend = await tryCreateGitHubBackend(this.workspacePath);
+      
+      if (githubBackend) {
+        // Check if GitHub backend is already added
+        const existingGitHub = this.backends.find(b => b.name === "github-issues");
+        if (!existingGitHub) {
+          this.backends.push(githubBackend);
+          log.debug("GitHub backend initialized successfully");
+        }
+      }
+    } catch (error) {
+      log.debug("GitHub backend not available", { error: String(error) });
+    }
+  }
+
+  /**
+   * Get available backend names
+   */
+  getAvailableBackends(): string[] {
+    return this.backends.map(b => b.name);
+  }
+
+  /**
+   * Switch to a different backend
+   */
+  async switchBackend(backendName: string): Promise<void> {
+    // Initialize GitHub backend if needed and requested
+    if (backendName === "github-issues") {
+      await this.initializeGitHubBackend();
+    }
+
+    const selectedBackend = this.backends.find((b) => b.name === backendName);
+    if (!selectedBackend) {
+      throw new Error(
+        `Backend '${backendName}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+      );
+    }
+    
+    // Replace current backend
+    (this as any).currentBackend = selectedBackend;
   }
 
   /**
@@ -429,4 +480,21 @@ export class TaskService {
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
   return new TaskService(options);
+}
+
+/**
+ * Create a TaskService instance with GitHub backend support
+ * @param options Options for creating the TaskService
+ * @returns Promise resolving to TaskService instance with GitHub backend initialized
+ */
+export async function createTaskServiceWithGitHub(options: TaskServiceOptions = {}): Promise<TaskService> {
+  const service = new TaskService(options);
+  await service.initializeGitHubBackend();
+  
+  // If GitHub backend was requested but not available, try to switch to it
+  if (options.backend === "github-issues") {
+    await service.switchBackend("github-issues");
+  }
+  
+  return service;
 }
