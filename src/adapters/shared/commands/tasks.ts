@@ -13,7 +13,6 @@ import {
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-  type CommandParameterDefinition,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -26,11 +25,7 @@ import {
 } from "../../../domain/tasks";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
-import {
-  taskListParamsSchema,
-  taskGetParamsSchema,
-  taskCreateParamsSchema,
-} from "../../../schemas/tasks";
+// Schemas removed as they are unused in this file
 
 // Exported from domain/tasks.ts
 export const TASK_STATUS = {

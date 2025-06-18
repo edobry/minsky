@@ -246,7 +246,7 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
-- [ ] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
+- [+] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
 
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
@@ -278,4 +278,4 @@
 
 - [-] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
 
-- [ ] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](/Users/edobry/Projects/minsky/process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+- [+] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
