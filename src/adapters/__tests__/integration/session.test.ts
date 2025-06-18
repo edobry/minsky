@@ -187,7 +187,7 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error('Session "non-existent" not found');
+      const error = new Error("Session \"non-existent\" not found");
       mockDeleteSessionFromParams.mockRejectedValue(error);
       const params: SessionDeleteParams = {
         name: "non-existent",
@@ -197,7 +197,7 @@ describe("Session Domain Methods", () => {
 
       // Act & Assert
       await expect(mockDeleteSessionFromParams(params)).rejects.toThrow(
-        'Session "non-existent" not found'
+        "Session \"non-existent\" not found"
       );
     });
 
@@ -398,7 +398,7 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error('Session "non-existent" not found');
+      const error = new Error("Session \"non-existent\" not found");
       mockGetSessionDirFromParams.mockRejectedValue(error);
       const params = {
         name: "non-existent",
@@ -406,7 +406,7 @@ describe("Session Domain Methods", () => {
 
       // Act & Assert
       await expect(mockGetSessionDirFromParams(params)).rejects.toThrow(
-        'Session "non-existent" not found'
+        "Session \"non-existent\" not found"
       );
     });
   });

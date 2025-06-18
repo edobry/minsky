@@ -29,12 +29,12 @@ mcp.stdout.on("data", (data) => {
 
     // Use the introspection functionality to get all available tools
     mcp.stdin.write(
-      JSON.stringify({
+      `${JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "rpc.discover",
         params: {},
-      }) + "\n"
+      })  }\n`
     );
   }
 });
