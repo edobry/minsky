@@ -8,7 +8,6 @@
 
 import { describe, expect, test } from "bun:test";
 import * as descriptions from "../option-descriptions";
-import { expectToHaveLength } from "../test-utils/assertions";
 import { setupTestMocks } from "../test-utils/mocking";
 
 // Set up automatic mock cleanup
