@@ -29,6 +29,19 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
+  - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
+  - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
+  - Added `--no-ff` merge of feature branch INTO PR branch to create proper prepared merge commit
+  - Implemented proper error handling for merge conflicts with exit code 4 and cleanup
+  - Added comprehensive test coverage demonstrating broken vs fixed behavior
+  - Verified end-to-end workflow shows correct prepared merge commit structure
+  - Enabled fast-forward merge capability for `session approve` command as documented
+  - Full compliance with Task #025 prepared merge commit specification
+  - Resolves fundamental issue that broke the documented PR workflow
+
+_See: SpecStory history [2025-06-18_fix-prepared-merge-commit-workflow](mdc:.specstory/history/2025-06-18_fix-prepared-merge-commit-workflow.md) for prepared merge commit implementation._
+
 - **Task #140: Fix dependency installation error in session startup**
   - Fixed null reference error when calling .toString() on execSync result during dependency installation
   - Added proper null handling using optional chaining and fallback empty string for quiet mode
