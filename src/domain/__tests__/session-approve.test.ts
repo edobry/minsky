@@ -1,8 +1,6 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { approveSessionFromParams } from "../session";
-import { GitService } from "../git";
-import { TaskService } from "../tasks";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors";
+import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
@@ -31,7 +29,7 @@ describe("Session Approve", () => {
         }
         return Promise.resolve(null);
       }),
-      getSessionWorkdir: createMock((sessionName) =>
+      getSessionWorkdir: createMock((_sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       ),
     };
@@ -208,7 +206,7 @@ describe("Session Approve", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
+      expect((error as Error).message).toContain('Session "non-existent-session" not found');
     }
   });
 
