@@ -7,6 +7,7 @@ import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskDa
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { createGitHubIssuesTaskBackend, GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 
@@ -20,6 +21,18 @@ export interface TaskServiceOptions {
   backend?: string;
   /** Custom backends to use instead of defaults */
   customBackends?: TaskBackend[];
+  /** GitHub configuration for GitHub Issues backend */
+  github?: {
+    token: string;
+    owner: string;
+    repo: string;
+    statusLabels?: {
+      TODO: string;
+      "IN-PROGRESS": string;
+      "IN-REVIEW": string;
+      DONE: string;
+    };
+  };
 }
 
 /**
@@ -48,7 +61,7 @@ export class TaskService {
   private readonly currentBackend: TaskBackend;
 
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = "markdown", customBackends } = options;
+    const { workspacePath = process.cwd(), backend = "markdown", customBackends, github } = options;
 
     // Initialize with provided backends or create defaults
     if (customBackends && customBackends.length > 0) {
@@ -65,6 +78,20 @@ export class TaskService {
           workspacePath,
         }),
       ];
+
+      // Add GitHub Issues backend if configuration is provided
+      if (github && github.token && github.owner && github.repo) {
+        this.backends.push(
+          createGitHubIssuesTaskBackend({
+            name: "github-issues",
+            workspacePath,
+            githubToken: github.token,
+            owner: github.owner,
+            repo: github.repo,
+            statusLabels: github.statusLabels,
+          })
+        );
+      }
     }
 
     // Set current backend
