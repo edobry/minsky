@@ -278,4 +278,4 @@
 
 - [-] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
 
-- [+] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+- [-] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
