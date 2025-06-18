@@ -825,3 +825,8 @@ _See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/hi
   - All session-related tests continue to pass (74 tests)
 
 _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._
+
+- Extracted test-migration module to separate repository for preservation
+- Removed redundant bun-test.d.ts (now using bun-types package)
+
+_See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._
