@@ -421,7 +421,7 @@ export class TaskMigrationUtils {
       }
     }
 
-    return lines.join("\n") + "\n";
+    return `${lines.join("\n")  }\n`;
   }
 
   /**

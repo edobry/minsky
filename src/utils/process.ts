@@ -6,13 +6,13 @@
 export function exit(code: number): never {
   // For now, we use process.exit as it's consistently used across the codebase
   // In the future, we could adapt this to use Bun-specific APIs if needed
-  // eslint-disable-next-line no-restricted-globals
+   
   process.exit(code);
 }
 
 // Store the original process.cwd() function to allow resetting
 let currentWorkingDirectoryImpl = () => {
-  // eslint-disable-next-line no-restricted-globals
+   
   return process.cwd();
 };
 

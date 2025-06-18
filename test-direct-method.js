@@ -28,26 +28,26 @@ mcp.stdout.on("data", (data) => {
     console.log("Server started, attempting rpc.discover...");
 
     mcp.stdin.write(
-      JSON.stringify({
+      `${JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "rpc.discover",
         params: {},
-      }) + "\n"
+      })  }\n`
     );
 
     // After a short delay, try with different casing for the method name
     setTimeout(() => {
       console.log("Trying with Task.List method name...");
       mcp.stdin.write(
-        JSON.stringify({
+        `${JSON.stringify({
           jsonrpc: "2.0",
           id: "2",
           method: "Task.List",
           params: {
             all: true,
           },
-        }) + "\n"
+        })  }\n`
       );
     }, 500);
 
@@ -55,14 +55,14 @@ mcp.stdout.on("data", (data) => {
     setTimeout(() => {
       console.log("Trying with task.list method name...");
       mcp.stdin.write(
-        JSON.stringify({
+        `${JSON.stringify({
           jsonrpc: "2.0",
           id: "3",
           method: "task.list",
           params: {
             all: true,
           },
-        }) + "\n"
+        })  }\n`
       );
     }, 1000);
 
@@ -70,12 +70,12 @@ mcp.stdout.on("data", (data) => {
     setTimeout(() => {
       console.log("Trying another method...");
       mcp.stdin.write(
-        JSON.stringify({
+        `${JSON.stringify({
           jsonrpc: "2.0",
           id: "4",
           method: "help",
           params: {},
-        }) + "\n"
+        })  }\n`
       );
     }, 1500);
   }
