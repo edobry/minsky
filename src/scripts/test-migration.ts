@@ -25,6 +25,7 @@ import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { log } from "../utils/logger";
 
 // Promisify exec
 const execAsync = promisify(exec);
@@ -267,29 +268,29 @@ async function migrateTestFile(
 
     // Check if there were any changes
     if (content === transformed) {
-      console.log(`  No changes needed for: ${testFile.relativePath}`);
+      log.cli(`  No changes needed for: ${testFile.relativePath}`);
       return { success: true, changes: [], addedImports: [] };
     }
 
     // Verify tests before migration if requested
     let verificationResult;
     if (verifyTests) {
-      console.log(`  Verifying test before migration: ${testFile.relativePath}`);
+      log.cli(`  Verifying test before migration: ${testFile.relativePath}`);
       const beforeResult = await runTest(testFile.path);
 
       if (!dryRun) {
         // Create backup if requested
         if (createBackup) {
           await writeFile(`${testFile.path}.bak`, content);
-          console.log(`  Created backup: ${testFile.path}.bak`);
+          log.cli(`  Created backup: ${testFile.path}.bak`);
         }
 
         // Write the transformed content
         await writeFile(testFile.path, transformed);
-        console.log(`  Migrated: ${testFile.relativePath}`);
+        log.cli(`  Migrated: ${testFile.relativePath}`);
 
         // Verify tests after migration
-        console.log(`  Verifying test after migration: ${testFile.relativePath}`);
+        log.cli(`  Verifying test after migration: ${testFile.relativePath}`);
         const afterResult = await runTest(testFile.path);
 
         verificationResult = {
@@ -299,7 +300,7 @@ async function migrateTestFile(
 
         // If verification failed, restore from backup
         if (!afterResult.success && createBackup) {
-          console.error("  ⚠️ Test failed after migration, restoring from backup");
+          log.cliError("  ⚠️ Test failed after migration, restoring from backup");
           await writeFile(testFile.path, content);
           return {
             success: false,
@@ -309,7 +310,7 @@ async function migrateTestFile(
           };
         }
       } else {
-        console.log(`  [DRY RUN] Would migrate: ${testFile.relativePath}`);
+        log.cli(`  [DRY RUN] Would migrate: ${testFile.relativePath}`);
       }
     } else {
       // No verification, just migrate
@@ -317,14 +318,14 @@ async function migrateTestFile(
         // Create backup if requested
         if (createBackup) {
           await writeFile(`${testFile.path}.bak`, content);
-          console.log(`  Created backup: ${testFile.path}.bak`);
+          log.cli(`  Created backup: ${testFile.path}.bak`);
         }
 
         // Write the transformed content
         await writeFile(testFile.path, transformed);
-        console.log(`  Migrated: ${testFile.relativePath}`);
+        log.cli(`  Migrated: ${testFile.relativePath}`);
       } else {
-        console.log(`  [DRY RUN] Would migrate: ${testFile.relativePath}`);
+        log.cli(`  [DRY RUN] Would migrate: ${testFile.relativePath}`);
       }
     }
 
@@ -336,7 +337,7 @@ async function migrateTestFile(
     };
   } catch (error: unknown) {
     const err = error as Error;
-    console.error(`  ❌ Error migrating ${testFile.relativePath}:`, err.message || err);
+    log.cliError(`  ❌ Error migrating ${testFile.relativePath}:`, err.message || err);
     return { success: false, changes: [], addedImports: [] };
   }
 }
@@ -346,16 +347,16 @@ async function migrateTestFile(
  */
 async function migrateTests() {
   try {
-    console.log("Test Migration Script");
-    console.log("--------------------");
+    log.cli("Test Migration Script");
+    log.cli("--------------------");
 
     // Load the analysis report
     const analysisPath = resolve(baseDir, config.analysisFile);
-    console.log(`Loading analysis from: ${analysisPath}`);
+    log.cli(`Loading analysis from: ${analysisPath}`);
 
     if (!existsSync(analysisPath)) {
-      console.error(`Analysis file not found: ${analysisPath}`);
-      console.error("Run the test analyzer first: bun src/scripts/test-analyzer.ts");
+      log.cliError(`Analysis file not found: ${analysisPath}`);
+      log.cliError("Run the test analyzer first: bun src/scripts/test-analyzer.ts");
       process.exit(1);
     }
 
@@ -368,15 +369,15 @@ async function migrateTests() {
     if (config.targetPath) {
       const targetPath = resolve(baseDir, config.targetPath);
       testFilesToMigrate = testFilesToMigrate.filter(
-        (file) => file.path === targetPath || file.path.startsWith(`${targetPath  }/`)
+        (file) => file.path === targetPath || file.path.startsWith(`${targetPath}/`)
       );
 
       if (testFilesToMigrate.length === 0) {
-        console.error(`No test files found matching target: ${config.targetPath}`);
+        log.cliError(`No test files found matching target: ${config.targetPath}`);
         process.exit(1);
       }
 
-      console.log(
+      log.cli(
         `Filtered to ${testFilesToMigrate.length} test files matching target: ${config.targetPath}`
       );
     }
@@ -387,21 +388,21 @@ async function migrateTests() {
       );
 
       if (testFilesToMigrate.length === 0) {
-        console.error(`No test files found with difficulty: ${config.difficultyFilter}`);
+        log.cliError(`No test files found with difficulty: ${config.difficultyFilter}`);
         process.exit(1);
       }
 
-      console.log(
+      log.cli(
         `Filtered to ${testFilesToMigrate.length} test files with difficulty: ${config.difficultyFilter}`
       );
     }
 
     // Output configuration
-    console.log("\nMigration Configuration:");
-    console.log(`- Dry Run: ${config.dryRun ? "Yes" : "No"}`);
-    console.log(`- Create Backups: ${config.backup ? "Yes" : "No"}`);
-    console.log(`- Verify Tests: ${config.verify ? "Yes" : "No"}`);
-    console.log(`- Target Files: ${testFilesToMigrate.length}`);
+    log.cli("\nMigration Configuration:");
+    log.cli(`- Dry Run: ${config.dryRun ? "Yes" : "No"}`);
+    log.cli(`- Create Backups: ${config.backup ? "Yes" : "No"}`);
+    log.cli(`- Verify Tests: ${config.verify ? "Yes" : "No"}`);
+    log.cli(`- Target Files: ${testFilesToMigrate.length}`);
 
     // Create results directory
     const resultsDir = resolve(baseDir, "test-migration-results");
@@ -410,7 +411,7 @@ async function migrateTests() {
     }
 
     // Migrate each test file
-    console.log("\nStarting migration...");
+    log.cli("\nStarting migration...");
 
     const migrationResults: Array<{
       file: string;
@@ -423,7 +424,7 @@ async function migrateTests() {
     let failCount = 0;
 
     for (const [index, testFile] of testFilesToMigrate.entries()) {
-      console.log(
+      log.cli(
         `\n[${index + 1}/${testFilesToMigrate.length}] Migrating: ${testFile.relativePath}`
       );
 
@@ -465,7 +466,7 @@ async function migrateTests() {
     // Write migration report
     const reportPath = resolve(resultsDir, "migration-report.json");
     await writeFile(reportPath, JSON.stringify(migrationReport, null, 2));
-    console.log(`\nMigration report written to: ${reportPath}`);
+    log.cli(`\nMigration report written to: ${reportPath}`);
 
     // Generate markdown summary
     const mdReportPath = resolve(resultsDir, "migration-report.md");
@@ -533,21 +534,21 @@ async function migrateTests() {
     }
 
     await writeFile(mdReportPath, md.join("\n"));
-    console.log(`Migration markdown report written to: ${mdReportPath}`);
+    log.cli(`Migration markdown report written to: ${mdReportPath}`);
 
     // Final output
-    console.log("\nMigration Complete!");
-    console.log(`- Total Files: ${migrationReport.summary.totalFiles}`);
-    console.log(`- Successfully Migrated: ${migrationReport.summary.successCount}`);
-    console.log(`- Failed Migrations: ${migrationReport.summary.failCount}`);
+    log.cli("\nMigration Complete!");
+    log.cli(`- Total Files: ${migrationReport.summary.totalFiles}`);
+    log.cli(`- Successfully Migrated: ${migrationReport.summary.successCount}`);
+    log.cli(`- Failed Migrations: ${migrationReport.summary.failCount}`);
 
     if (config.dryRun) {
-      console.log("\nThis was a dry run. No files were modified.");
-      console.log("To apply changes, run without the --dry-run flag.");
+      log.cli("\nThis was a dry run. No files were modified.");
+      log.cli("To apply changes, run without the --dry-run flag.");
     }
   } catch (error: unknown) {
     const err = error as Error;
-    console.error("Error in migration process:", err.message || err);
+    log.cliError("Error in migration process:", err.message || err);
     process.exit(1);
   }
 }
