@@ -6,8 +6,8 @@
  * Tests for the Jest/Vitest compatibility layer for Bun.
  */
 import { describe, test, expect as bunExpect } from "bun:test";
-import { compat } from "../index.js";
-import { setupTestMocks } from "../mocking.js";
+import { compat } from "../index";
+import { setupTestMocks } from "../mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
