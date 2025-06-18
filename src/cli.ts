@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/* eslint-disable no-restricted-imports */
+ 
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index.js";
