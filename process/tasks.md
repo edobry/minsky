@@ -1,78 +1,76 @@
-- [+] Update session start command to support task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
+- [+] Update `session start` Command to Support Task IDs [#001](process/tasks/001-update-session-start-task-id.md)
 
-- [x] Store session repos under per-repo directories and add repoName to session DB [#002](process/tasks/002-store-session-repos-under-per-repo-directories-and-add-reponame-to-session-db.md)
+- [x] Store Session Repos Under Per-Repo Directories and Add repoName to Session DB [#002](process/tasks/002-per-repo-session-storage.md)
 
-- [x] Add `init` command to set up a project for Minsky [#003](process/tasks/003-add-init-command-to-set-up-a-project-for-minsky.md)
+- [x] Add `init` command to set up a project for Minsky [#003](process/tasks/003-add-init-command.md)
 
-- [x] Add `--task` option to `session get` command to query sessions by task ID [#004](process/tasks/004-add-task-option-to-session-get-command-to-query-sessions-by-task-id.md)
+- [x] Add `--task` Option to `session get` Command [#004](process/tasks/004-add-task-option-to-session-get.md)
 
-- [x] Add `git push` command to simplify pushing branches to remote repositories [#005](process/tasks/005-add-git-push-command-to-simplify-pushing-branches-to-remote-repositories.md)
+- [x] Add `git push` Command to Simplify Pushing Branches [#005](process/tasks/005-add-git-push-command.md)
 
-- [x] Add `--quiet` option to `session start` for programmatic output [#006](process/tasks/006-add-quiet-option-to-session-start-for-programmatic-output.md)
+- [x] Add `--quiet` Option to `session start` for Programmatic Output [#006](process/tasks/006-add-quiet-option-to-session-start.md)
 
-- [x] Add `minsky tasks create` command to create tasks from spec documents [#007](process/tasks/007-add-minsky-tasks-create-command-to-create-tasks-from-spec-documents.md)
+- [x] Add `minsky tasks create` Command [#007](process/tasks/007-add-tasks-create-command.md)
 
-- [x] Update `tasks list` to default to not-DONE tasks only, add option to show DONE [#008](process/tasks/008-update-tasks-list-to-default-to-not-done-tasks-only-add-option-to-show-done.md)
+- [x] Update `tasks list` to Default to Not-DONE Tasks Only [#008](process/tasks/008-update-tasks-list-hide-done.md)
 
-- [x] Add `git commit` command to stage and commit changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
+- [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command.md)
 
-- [x] Enhance `git pr` command to create GitHub PRs and update task status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command.md)
 
-- [x] Fix `git pr` command and add proper tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
 
-- [x] Add `session update` command to sync session with main branch [#012](process/tasks/012-add-session-update-command-to-sync-session-with-main-branch.md)
+- [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
-- [x] Add Repository Backend Support for Remote Git Repositories [#014](process/tasks/014-add-repository-backend-support-for-remote-git-repositories.md)
+- [x] Add Repository Backend Support for Remote Git Repositories [#014](process/tasks/014-add-repository-backend-support.md)
 
-- [x] Add `session delete` command to remove session repos and records [#015](process/tasks/015-add-session-delete-command-to-remove-session-repos-and-records.md)
+- [x] Add `session delete` Command [#015](process/tasks/015-add-session-delete-command.md)
 
-- [x] Enforce task operations in main workspace [#016](process/tasks/016-enforce-task-operations-in-main-workspace.md)
+- [x] Enforce Task Operations in Main Workspace [#016](process/tasks/016-enforce-main-workspace-task-operations.md)
 
-- [x] Support both task ID formats (`000` and `#000`) in any command with `--task` option [#017](process/tasks/017-support-both-task-id-formats-000-and-000-in-any-command-with-task-option.md)
+- [x] Support Both Task ID Formats in `--task` Option [#017](process/tasks/017-support-task-id-format-in-task-option.md)
 
-- [x] Add `--task` option to `session dir` command to query session directories by task ID [#018](process/tasks/018-add-task-option-to-session-dir-command-to-query-session-directories-by-task-id.md)
+- [x] Add `--task` Option to `session dir` Command [#018](process/tasks/018-add-task-option-to-session-dir.md)
 
-- [x] Implement test suite improvements for better reliability and maintainability [#019](process/tasks/019-implement-test-suite-improvements-for-better-reliability-and-maintainability.md)
+- [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr.md)
 
-- [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
+- [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-git-service.md)
 
-- [x] Fix Session Test Failures and Linting Issues [#022](process/tasks/022-fix-session-test-failures-and-linting-issues.md)
+- [x] Fix Session Test Failures and Linting Issues [#022](process/tasks/022-fix-session-test-failures.md)
 
-- [x] Add task specification path to task object [#023](process/tasks/023-add-task-specification-path-to-task-object.md)
+- [x] Add Task Specification Path to Task Object [#023](process/tasks/023-add-task-spec-path-to-task-object.md)
 
-- [x] Fix `session dir` command logic [#024](process/tasks/024-fix-session-dir-command-logic.md)
+- [x] Fix `session dir` Command Logic [#024](process/tasks/024-fix-session-dir-command-logic.md)
 
-- [x] Add `git approve` command for session PR merging [#025](process/tasks/025-add-git-approve-command-for-session-pr-merging.md)
+- [x] Add PR Merging Commands for Session Workflow [#025](process/tasks/025-add-git-approve-command.md)
 
-- [x] Fix task spec paths to use standardized format [#026](process/tasks/026-fix-task-spec-paths-to-use-standardized-format.md)
+- [x] Fix Task Spec Paths [#026](process/tasks/026-fix-task-spec-paths.md)
 
-- [x] Auto-detect Session Context in Session Commands [#027](process/tasks/027-auto-detect-session-context-in-session-commands.md)
+- [x] Auto-detect Session Context in Session Commands [#027](process/tasks/027-autodetect-session-in-commands.md)
 
 - [x] Automate Task Status Updates at Key Workflow Points [#028](process/tasks/028-automate-task-status-updates-at-key-workflow-points.md)
 
-- [x] Add `rules` command for managing Minsky rules [#029](process/tasks/029-add-rules-command-for-managing-minsky-rules.md)
+- [x] Add `rules` command for managing Minsky rules [#029](process/tasks/029-add-rules-command.md)
 
 - [x] Setup Project Tooling and Automation [#030](process/tasks/030-setup-project-tooling-and-automation.md)
 
-- [x] Add Filter Messages to `tasks list` Command [#031](process/tasks/031-add-filter-messages-to-tasks-list-command.md)
+- [x] Add Filter Messages to `tasks list` Command [#031](process/tasks/031-add-task-filter-messages.md)
 
-- [x] Auto-Rename Task Spec Files in `tasks create` Command [#032](process/tasks/032-auto-rename-task-spec-files-in-tasks-create-command.md)
+- [x] Auto-Rename Task Spec Files in `tasks create` Command [#032](process/tasks/032-auto-rename-task-spec-files.md)
 
-- [ ] Enhance Minsky Init Command with Additional Rules [#033](process/tasks/033-enhance-minsky-init-command-with-additional-rules.md)
+- [ ] Enhance Minsky Init Command with Additional Rules [#033](process/tasks/033-enhance-init-command-with-additional-rules.md)
 
-- [x] Add MCP Support to Minsky [#034](process/tasks/034-add-mcp-support-to-minsky.md)
+- [x] Add MCP Support to Minsky [#034](process/tasks/034-mcp-support.md)
 
-- [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-fix-task-creation-workflow-to-not-require-task-number-in-spec-title.md)
+- [x] Fix Task Creation Workflow to Not Require Task Number in Spec Title [#035](process/tasks/035-task-create-title-workflow-fix.md)
 
-- [x] Improve Task Creation Workflow with Auto-Renaming and Flexible Titles [#036](process/tasks/036-improve-task-creation-workflow-with-auto-renaming-and-flexible-titles.md)
+- [x] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](process/tasks/037-session-commit-command.md)
 
-- [x] Add `session commit` Command to Stage, Commit, and Push All Changes for a Session [#037](process/tasks/037-add-session-commit-command-to-stage-commit-and-push-all-changes-for-a-session.md)
+- [x] Make tasks status set prompt for status if not provided [#038](process/tasks/038-tasks-status-set-prompt.md)
 
-- [x] Make tasks status set prompt for status if not provided [#038](process/tasks/038-make-tasks-status-set-prompt-for-status-if-not-provided.md)
-
-- [x] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-command-architecture.md)
+- [x] Interface-Agnostic Command Architecture [#039](process/tasks/039-interface-agnostic-commands.md)
 
 - [x] Add `--task` Option to `session delete` Command [#040](process/tasks/040-add-task-option-to-session-delete-command.md)
 
@@ -152,13 +150,13 @@
 
 - [x] Fix minsky rules CLI to operate on rules in the current workspace (main or session) [#078](process/tasks/078-fix-minsky-rules-cli-to-operate-on-rules-in-the-current-workspace-main-or-session-.md)
 
-- [x] Revisit GitService Testing Strategy [#079](process/tasks/079-revisit-gitservice-testing-strategy.md)
+- [x] Task: Revisit GitService Testing Strategy [#079](process/tasks/079-revisit-gitservice-testing-strategy.md)
 
 - [x] Review Workspace and Repository Path Concepts [#080](process/tasks/080-review-workspace-and-repository-path-concepts.md)
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [#081](process/tasks/081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
-- [ ] Add Context Management Commands [#082](process/tasks/082-add-context-management-commands.md)
+- [ ] Add Context Management Commands for Environment-Agnostic AI Collaboration [#082](process/tasks/082-add-context-management-commands.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [#083](process/tasks/083-fix-bugs-in-minsky-rules-cli-command.md)
 
@@ -234,7 +232,7 @@
 
 - [x] Add --with-inspector Option to `mcp start` Command [#120](process/tasks/120-add-with-inspector-option-to-mcp-start-command.md)
 
-- [x] Add "session review" Command for PR Review [#121](process/tasks/121-add-session-review-command-for-pr-review.md)
+- [x] Enhance `tasks get` Command to Support Multiple Task IDs [#121](process/tasks/121-enhance-tasks-get-command-to-support-multiple-task-ids.md)
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
@@ -248,7 +246,7 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
-- [ ] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
+- [ ] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency.md)
 
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
@@ -260,22 +258,22 @@
 
 - [x] Fix CLI Flag Naming Inconsistency for Task Identification [#133](process/tasks/133-fix-cli-flag-naming-inconsistency-for-task-identification.md)
 
-- [x] Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
+- [x] Task: Resolve Remaining Test Race Conditions and Stability Issues [#134](process/tasks/134-resolve-remaining-test-race-conditions-and-stability-issues.md)
 
-- [x] Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
+- [x] Task: Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
 - [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
-- [ ] Implement Todoist Backend Integration [#137](process/tasks/137-implement-todoist-backend-integration.md)
+- [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-implement-todoist-backend-integration.md)
 
-- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-task-backend.md)
 
-- [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
+- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
-- [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
+- [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error.md)
 
 - [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
 
-- [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
+- [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-fix.md)
 
-- [ ] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](/Users/edobry/Projects/minsky/process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
+- [ ] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
