@@ -18,6 +18,14 @@ alwaysApply: true
 
 - **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
 
+- **Systematic Verification and Thoroughness Protocol:** Based on user feedback about incomplete work:
+  - **Always Check Reality First:** Before making assumptions about what should be correct, verify the actual current state (what files exist, what current content is, etc.)
+  - **Fix ALL Identified Issues:** When analysis reveals multiple issues (e.g., "37 mismatches found"), systematically address EVERY single issue, not just a subset
+  - **Comprehensive Verification Before Claiming Completion:** Never declare a task complete without running a comprehensive verification script or check that validates ALL aspects of the work
+  - **Honest Uncertainty Communication:** If uncertain about completeness, explicitly state "I need to verify this thoroughly" rather than expressing false confidence
+  - **Progressive Disclosure:** When issues are found, address them completely in that session rather than leaving some for later
+  - **Post-Fix Validation:** After claiming to fix issues, immediately run verification to confirm the fixes actually resolved the problems
+
 - **Strict Command Verification Protocol:** For all commands, but especially CLI tools like Minsky or Git:
   - **Check Command Existence and Syntax:** Use `--help` or similar documentation to verify command existence and correct syntax BEFORE first use.
   - **Use Progressive Verification:** For complex multi-step commands:
