@@ -2,10 +2,8 @@
  * TypeScript codemod to remove unused imports and variables
  * Uses ts-morph for better TypeScript support
  */
+import { Project } from "ts-morph";
 
-import { Project, SourceFile, ImportDeclaration, VariableDeclaration } from "ts-morph";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
 
 export async function removeUnusedImports(filePath: string): Promise<boolean> {
   const project = new Project({
