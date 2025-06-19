@@ -7,9 +7,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { existsSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
 import { setupTestMocks } from "../../utils/test-utils/mocking.ts";
-import { UriFormat } from "../uri-utils.ts";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,

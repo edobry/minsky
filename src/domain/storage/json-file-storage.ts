@@ -5,8 +5,7 @@
  * It provides a generic storage mechanism for any data type that can be
  * serialized to JSON.
  */
-
-import { join, dirname } from "path";
+import { dirname } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { log } from "../../utils/logger";
 import type {
@@ -15,7 +14,6 @@ import type {
   DatabaseQueryOptions,
 } from "./database-storage";
 import type { DatabaseStorage } from "./database-storage";
-
 /**
  * Configuration options for JsonFileStorage
  */

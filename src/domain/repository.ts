@@ -4,20 +4,15 @@
  */
 import { normalizeRepoName } from "./repo-utils.js";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import type { RepositoryUri } from "./uri-utils.js";
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
-import { existsSync } from "fs";
 
 /**
  * Repository backend types supported by the system.
  */
-export enum RepositoryBackendType {
-  LOCAL = "local",
-  REMOTE = "remote",
-  GITHUB = "github",
-}
+export enum RepositoryBackendType {}
+// Enum values removed as they are unused
 
 /**
  * Repository resolution options.

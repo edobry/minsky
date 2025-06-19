@@ -1,10 +1,10 @@
-import { expect, describe, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   getStatusFilterMessage,
   getActiveTasksMessage,
   generateFilterMessages,
-} from "./filter-messages.js";
-import { expectToHaveLength } from "./test-utils/assertions.js";
+} from "./filter-messages";
+import { expectToHaveLength } from "./test-utils/assertions";
 
 describe("Filter Messages Utility", () => {
   describe("getStatusFilterMessage", () => {

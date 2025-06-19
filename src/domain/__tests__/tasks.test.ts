@@ -2,7 +2,7 @@
  * Tests for interface-agnostic task functions
  * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import {
   listTasksFromParams,
   getTaskFromParams,
@@ -14,7 +14,6 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
-
 // Set up automatic mock cleanup
 setupTestMocks();
 

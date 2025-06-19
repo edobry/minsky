@@ -5,7 +5,6 @@
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "./git";
-import { MinskyError } from "../errors/index.js";
 import {
   createMock,
   setupTestMocks,
@@ -16,7 +15,7 @@ import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
 } from "../utils/test-utils/assertions.js";
-import { TestGitService } from "../utils/test-utils/test-git-service.js";
+
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -265,7 +264,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       await expect(gitService.prWithDependencies({ taskId: "999" }, mockDeps)).rejects.toThrow(
-        'No session found for task ID "999"'
+        "No session found for task ID \"999\""
       );
 
       expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "999");

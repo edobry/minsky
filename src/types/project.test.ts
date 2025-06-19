@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ProjectContext } from "./project.js";
 import {
   validateRepositoryPath,
   createProjectContext,
   createProjectContextFromCwd,
-} from "./project.js";
+} from "./project";
 
 describe("ProjectContext", () => {
   describe("validateRepositoryPath", () => {

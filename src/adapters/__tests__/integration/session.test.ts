@@ -1,17 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  SessionDB,
-  type Session,
-  createSessionDeps,
-} from "../../../domain/session.js";
 import { type SessionDeleteParams } from "../../../schemas/session.js";
-import { GitService } from "../../../domain/git.js";
-import { TaskService } from "../../../domain/tasks.js";
-import * as WorkspaceUtils from "../../../domain/workspace.js";
 import {
   createMock,
   mockModule,
