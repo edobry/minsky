@@ -28,18 +28,6 @@ mock.module("../../../../domain/tasks", () => ({
 
 describe("Shared CLI Options", () => {
   describe("Option Application Functions", () => {
-    it("DEBUG: should show what spy captures for repo options", () => {
-      const command = new Command();
-      const spy = spyOn(command, "option");
-
-      addRepoOptions(command);
-
-      console.log("Spy call count:", spy.mock.calls.length);
-      spy.mock.calls.forEach((call, index) => {
-        console.log(`Call ${index}:`, call);
-      });
-    });
-
     it("should add repository options to a command", () => {
       const command = new Command();
       const spy = spyOn(command, "option");

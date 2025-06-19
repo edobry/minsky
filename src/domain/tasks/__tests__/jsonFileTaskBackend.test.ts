@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { TaskData } from "../../../types/tasks/taskData";
+import { log } from "../../../utils/logger";
 
 // Global test isolation to prevent race conditions
 let testSequenceNumber = 0;
@@ -56,7 +57,7 @@ describe("JsonFileTaskBackend", () => {
       }
     } catch (error) {
       // Log but don't fail tests on cleanup errors
-      console.warn("Cleanup warning:", error);
+      log.cliWarn("Cleanup warning:", error);
     }
   });
 

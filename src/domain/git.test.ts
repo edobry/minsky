@@ -265,7 +265,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       await expect(gitService.prWithDependencies({ taskId: "999" }, mockDeps)).rejects.toThrow(
-        'No session found for task ID "999"'
+        "No session found for task ID \"999\""
       );
 
       expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "999");
