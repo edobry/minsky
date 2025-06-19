@@ -1,9 +1,5 @@
 # Implement Repository Configuration System
 
-## Status
-
-TODO
-
 ## Priority
 
 High
