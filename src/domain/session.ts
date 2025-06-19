@@ -166,7 +166,7 @@ export class SessionDB implements SessionProviderInterface {
       await this.ensureDbDir();
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
     } catch (error) {
-      console.error(
+      log.error(
         `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -217,7 +217,7 @@ export class SessionDB implements SessionProviderInterface {
       const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
       return found || null; // Ensure we return null, not undefined
     } catch (error) {
-      console.error(
+      log.error(
         `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
       );
       return null;
@@ -235,7 +235,7 @@ export class SessionDB implements SessionProviderInterface {
       await this.writeDb(sessions);
       return true;
     } catch (error) {
-      console.error(
+      log.error(
         `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
@@ -324,7 +324,7 @@ export class SessionDB implements SessionProviderInterface {
       return newPath;
     } catch (error) {
       // If we can't create the directory, fall back to the original path
-      console.error(
+      log.error(
         `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
       );
       return newPath;
@@ -592,13 +592,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
