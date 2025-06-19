@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import { RuleService } from "../src/domain/rules";
 import { join } from "path";
+import { log } from "../src/utils/logger";
 
 describe("Rule description quoting fix", () => {
   const tempDir = join(process.cwd(), "test-verification-tmp");
@@ -17,7 +18,7 @@ describe("Rule description quoting fix", () => {
     try {
       await fs.rm(tempDir, { recursive: true, force: true });
     } catch (error) {
-      console.error("Error cleaning up:", error);
+      log.cliError("Error cleaning up:", error);
     }
   });
 

@@ -1,4 +1,4 @@
-- [+] Update `session start` Command to Support Task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
+- [x] Update `session start` Command to Support Task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
 
 - [x] Store Session Repos Under Per-Repo Directories and Add repoName to Session DB [#002](process/tasks/002-store-session-repos-under-per-repo-directories-and-add-reponame-to-session-db.md)
 
@@ -116,7 +116,7 @@
 
 - [ ] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
 
-- [ ] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
+- [x] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
 
 - [ ] Define and Implement Snapshot Testing Strategy [#063](process/tasks/063-define-and-implement-snapshot-testing-strategy.md)
 
@@ -246,7 +246,7 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
-- [ ] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
+- [+] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
 
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
@@ -262,20 +262,26 @@
 
 - [x] Task: Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-task-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
-- [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
+- [+] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
-- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
-- [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
+- [+] Implement Repository Configuration System [#141](process/tasks/141-implement-repository-configuration-system.md)
 
 - [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
 
-- [-] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
+- [x] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
 
-- [ ] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](/Users/edobry/Projects/minsky/process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+- [x] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#145](process/tasks/145-import-existing-github-issues-under-minsky-management.md)
+
+- [x] Fix Session PR Command Import Bug [#146](process/tasks/146-fix-session-pr-command-import-bug.md)
+
+- [+] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)

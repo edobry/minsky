@@ -13,7 +13,6 @@ import {
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-  type CommandParameterDefinition,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -26,11 +25,7 @@ import {
 } from "../../../domain/tasks";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
-import {
-  taskListParamsSchema,
-  taskGetParamsSchema,
-  taskCreateParamsSchema,
-} from "../../../schemas/tasks";
+// Schemas removed as they are unused in this file
 
 // Exported from domain/tasks.ts
 export const TASK_STATUS = {
@@ -174,7 +169,7 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -202,7 +197,7 @@ const tasksStatusSetRegistration = {
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
@@ -282,7 +277,7 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {

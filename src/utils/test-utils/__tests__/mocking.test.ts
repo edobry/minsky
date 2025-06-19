@@ -1,10 +1,9 @@
 /**
  * Tests for the mocking utilities
  */
-import { describe, test, expect, mock } from "bun:test";
-import { createMock, mockModule, createSpyOn } from "../mocking.js";
-import { expectToMatch } from "../assertions.js";
-
+import { describe, expect, test } from "bun:test";
+import { expectToMatch } from "../assertions";
+import { createMock, createSpyOn } from "../mocking";
 describe("Mocking Utilities", () => {
   test("createMock creates a proper mock function", () => {
     // Create a mock

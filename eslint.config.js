@@ -6,6 +6,16 @@ import importPlugin from "eslint-plugin-import";
 export default [
   js.configs.recommended,
   {
+    ignores: [
+      // Exclude codemod scripts from linting
+      "codemods/**",
+      // Exclude other development/temporary files
+      "test-tmp/**",
+      "test-analysis/**",
+      "test-verification/**",
+    ],
+  },
+  {
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

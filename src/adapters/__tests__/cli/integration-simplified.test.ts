@@ -1,8 +1,7 @@
 /**
  * Simplified CLI Integration Tests
  */
-import { describe, test, expect, spyOn, beforeEach } from "bun:test";
-import { Command } from "commander";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   sharedCommandRegistry,
   CommandCategory,
