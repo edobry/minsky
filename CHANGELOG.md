@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Task #138: Add GitHub Issues Support as Task Backend**
+  - Implemented full GitHub Issues integration as a task backend option
+  - Created GitHubIssuesTaskBackend with complete API integration using Octokit
+  - Added environment variable support for GitHub authentication (GITHUB_TOKEN)
+  - Implemented comprehensive task-to-issue mapping functionality:
+    - Create tasks as GitHub issues with proper formatting
+    - Update task status by modifying issue state and labels
+    - List and filter tasks from GitHub issues
+    - Support for issue assignments, labels, and milestones
+  - Added comprehensive test suite with mocked GitHub API responses
+  - Integrated with existing task service using factory pattern
+  - Maintained backward compatibility with existing markdown backend
+  - Created task #145 to address dynamic imports used in implementation
+  - Created task #146 to fix session PR command import bug discovered during implementation
+
+_See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/history/2025-01-17_github-issues-task-backend.md) for implementation details._
+
 ### Changed
 
 - **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
