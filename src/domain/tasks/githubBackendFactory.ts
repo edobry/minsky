@@ -12,21 +12,24 @@ import type { TaskBackend } from "./taskBackend";
  */
 export async function tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
   try {
-    // Use runtime require to avoid TypeScript module resolution issues
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { getGitHubBackendConfig } = require("./githubBackendConfig");
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { createGitHubIssuesTaskBackend } = require("./githubIssuesTaskBackend");
+    // Dynamic import to avoid hard dependency
+    const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
+      import("./githubBackendConfig"),
+      import("./githubIssuesTaskBackend"),
+    ]);
 
     const config = getGitHubBackendConfig(workspacePath);
-    if (!config) {
+    if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
 
     return createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath,
-      ...config
+      githubToken: config.githubToken,
+      owner: config.owner,
+      repo: config.repo,
+      statusLabels: config.statusLabels,
     });
   } catch (error) {
     // Return null if GitHub modules are not available
@@ -42,4 +45,4 @@ export async function tryCreateGitHubBackend(workspacePath: string): Promise<Tas
 export async function isGitHubBackendAvailable(workspacePath: string): Promise<boolean> {
   const backend = await tryCreateGitHubBackend(workspacePath);
   return backend !== null;
-} 
+}

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { join } from "path";
 import {
   isSessionRepository,
@@ -9,7 +9,7 @@ import {
   createWorkspaceUtils,
   type WorkspaceUtilsInterface,
 } from "./workspace";
-import { SessionDB, type SessionProviderInterface, createSessionProvider } from "./session";
+import type { SessionProviderInterface } from "./session";
 import { promises as fs } from "fs";
 import type { SessionRecord } from "./session";
 import { execAsync } from "../utils/exec.js";

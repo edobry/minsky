@@ -28,14 +28,14 @@ mcp.stdout.on("data", (data) => {
     console.log("Server started, sending tasks.list command...");
 
     mcp.stdin.write(
-      JSON.stringify({
+      `${JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "tasks.list",
         params: {
           all: true,
         },
-      }) + "\n"
+      })  }\n`
     );
   }
 });

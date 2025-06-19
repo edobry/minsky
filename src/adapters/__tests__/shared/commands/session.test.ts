@@ -244,10 +244,10 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
+      name: "custom-session",
       task: "123",
       branch: "feature-branch",
       repo: "/test/repo",
-      session: "custom-session",
       quiet: true,
       noStatusUpdate: true,
       json: true,
@@ -258,13 +258,16 @@ describe("Shared Session Commands", () => {
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(startSessionSpy);
     expect(getMockCallArg(startSessionSpy, 0, 0)).toEqual({
+      name: "custom-session",
       task: "123",
       branch: "feature-branch",
       repo: "/test/repo",
-      name: "custom-session",
+      session: undefined,
       quiet: true,
       noStatusUpdate: true,
       json: true,
+      skipInstall: undefined,
+      packageManager: undefined,
     });
 
     // Verify result

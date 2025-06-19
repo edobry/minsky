@@ -3,14 +3,15 @@
  * Orchestrates task operations while separating pure functions from side effects
  */
 
-import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskData";
+import { TaskData } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { createGitHubIssuesTaskBackend, GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
-import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
+import { tryCreateGitHubBackend } from "./githubBackendFactory";
+
+// Dynamic import for GitHub backend to avoid hard dependency
 
 /**
  * Options for the TaskService
@@ -22,18 +23,6 @@ export interface TaskServiceOptions {
   backend?: string;
   /** Custom backends to use instead of defaults */
   customBackends?: TaskBackend[];
-  /** GitHub configuration for GitHub Issues backend */
-  github?: {
-    token: string;
-    owner: string;
-    repo: string;
-    statusLabels?: {
-      TODO: string;
-      "IN-PROGRESS": string;
-      "IN-REVIEW": string;
-      DONE: string;
-    };
-  };
 }
 
 /**
@@ -60,11 +49,9 @@ export interface TaskListOptions {
 export class TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly currentBackend: TaskBackend;
-  private readonly workspacePath: string;
 
   constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = "markdown", customBackends, github } = options;
-    this.workspacePath = workspacePath;
+    const { workspacePath = process.cwd(), backend = "markdown", customBackends } = options;
 
     // Initialize with provided backends or create defaults
     if (customBackends && customBackends.length > 0) {
@@ -82,27 +69,15 @@ export class TaskService {
         }),
       ];
 
-      // Add GitHub Issues backend if configuration is provided
-      if (github && github.token && github.owner && github.repo) {
-        this.backends.push(
-          createGitHubIssuesTaskBackend({
-            name: "github-issues",
-            workspacePath,
-            githubToken: github.token,
-            owner: github.owner,
-            repo: github.repo,
-            statusLabels: github.statusLabels,
-          })
-        );
-      } else {
-        // Try to auto-configure GitHub backend from environment
-        const githubConfig = getGitHubBackendConfig(workspacePath);
-        
-        if (githubConfig && githubConfig.githubToken) {
-          this.backends.push(
-            createGitHubIssuesTaskBackend(githubConfig as GitHubIssuesTaskBackendOptions)
-          );
+      // Try to add GitHub backend if configuration is available
+      try {
+        const githubBackend = this.tryCreateGitHubBackend(workspacePath);
+        if (githubBackend) {
+          this.backends.push(githubBackend);
         }
+      } catch (error) {
+        // Silently ignore GitHub backend if not available
+        log.debug("GitHub backend not available", { error: String(error) });
       }
     }
 
@@ -114,55 +89,6 @@ export class TaskService {
       );
     }
     this.currentBackend = selectedBackend;
-  }
-
-  /**
-   * Initialize GitHub backend if available
-   * This must be called after construction to add GitHub support
-   */
-  async initializeGitHubBackend(): Promise<void> {
-    try {
-      const { tryCreateGitHubBackend } = await import("./githubBackendFactory");
-      const githubBackend = await tryCreateGitHubBackend(this.workspacePath);
-      
-      if (githubBackend) {
-        // Check if GitHub backend is already added
-        const existingGitHub = this.backends.find(b => b.name === "github-issues");
-        if (!existingGitHub) {
-          this.backends.push(githubBackend);
-          log.debug("GitHub backend initialized successfully");
-        }
-      }
-    } catch (error) {
-      log.debug("GitHub backend not available", { error: String(error) });
-    }
-  }
-
-  /**
-   * Get available backend names
-   */
-  getAvailableBackends(): string[] {
-    return this.backends.map(b => b.name);
-  }
-
-  /**
-   * Switch to a different backend
-   */
-  async switchBackend(backendName: string): Promise<void> {
-    // Initialize GitHub backend if needed and requested
-    if (backendName === "github-issues") {
-      await this.initializeGitHubBackend();
-    }
-
-    const selectedBackend = this.backends.find((b) => b.name === backendName);
-    if (!selectedBackend) {
-      throw new Error(
-        `Backend '${backendName}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
-      );
-    }
-    
-    // Replace current backend
-    (this as any).currentBackend = selectedBackend;
   }
 
   /**
@@ -471,6 +397,35 @@ export class TaskService {
       task,
     };
   }
+
+  /**
+   * Try to create GitHub backend using dynamic imports
+   * @param workspacePath Workspace path
+   * @returns GitHub TaskBackend instance or null if not available
+   */
+  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+    try {
+      // Dynamic import to avoid hard dependency on GitHub modules
+      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
+        import("./githubBackendConfig"),
+        import("./githubIssuesTaskBackend"),
+      ]);
+
+      const config = getGitHubBackendConfig(workspacePath);
+      if (!config) {
+        return null;
+      }
+
+      return createGitHubIssuesTaskBackend({
+        name: "github-issues",
+        workspacePath,
+        ...config,
+      });
+    } catch (error) {
+      // Return null if GitHub modules are not available
+      return null;
+    }
+  }
 }
 
 /**
@@ -480,21 +435,4 @@ export class TaskService {
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
   return new TaskService(options);
-}
-
-/**
- * Create a TaskService instance with GitHub backend support
- * @param options Options for creating the TaskService
- * @returns Promise resolving to TaskService instance with GitHub backend initialized
- */
-export async function createTaskServiceWithGitHub(options: TaskServiceOptions = {}): Promise<TaskService> {
-  const service = new TaskService(options);
-  await service.initializeGitHubBackend();
-  
-  // If GitHub backend was requested but not available, try to switch to it
-  if (options.backend === "github-issues") {
-    await service.switchBackend("github-issues");
-  }
-  
-  return service;
 }

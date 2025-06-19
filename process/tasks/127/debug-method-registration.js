@@ -85,7 +85,7 @@ function runNextTest() {
     console.log(`\n==== RUNNING TEST: ${step.name} ====`);
     console.log(`REQUEST: ${JSON.stringify(step.request, null, 2)}`);
 
-    mcp.stdin.write(JSON.stringify(step.request) + "\n");
+    mcp.stdin.write(`${JSON.stringify(step.request)  }\n`);
     step.executed = true;
     currentStep++;
 

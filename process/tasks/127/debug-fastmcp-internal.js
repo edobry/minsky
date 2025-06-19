@@ -39,7 +39,7 @@ server.addTool({
 });
 
 // Log available internal properties
-console.log(`\n==== FastMCP Internal Properties ====`);
+console.log("\n==== FastMCP Internal Properties ====");
 for (const prop in server) {
   if (prop.startsWith("_")) {
     try {
@@ -60,7 +60,7 @@ for (const prop in server) {
 }
 
 // Try to directly access and log the tools property
-console.log(`\n==== FastMCP Tools Property ====`);
+console.log("\n==== FastMCP Tools Property ====");
 try {
   if ("_tools" in server) {
     const tools = server["_tools"];
@@ -86,12 +86,12 @@ try {
 }
 
 // Test starting the server to see if we can access additional properties
-console.log(`\n==== Starting FastMCP Server ====`);
+console.log("\n==== Starting FastMCP Server ====");
 server.start({ transportType: "stdio" }).then(() => {
   console.log("Server started");
 
   // Check for new properties after server start
-  console.log(`\n==== FastMCP Properties After Start ====`);
+  console.log("\n==== FastMCP Properties After Start ====");
   for (const prop in server) {
     if (prop.startsWith("_")) {
       try {
@@ -112,7 +112,7 @@ server.start({ transportType: "stdio" }).then(() => {
   }
 
   // Try to access the tools property again
-  console.log(`\n==== FastMCP Tools Property After Start ====`);
+  console.log("\n==== FastMCP Tools Property After Start ====");
   try {
     if ("_tools" in server) {
       const tools = server["_tools"];
