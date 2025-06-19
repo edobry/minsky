@@ -19,14 +19,17 @@ export async function tryCreateGitHubBackend(workspacePath: string): Promise<Tas
     ]);
 
     const config = getGitHubBackendConfig(workspacePath);
-    if (!config) {
+    if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
 
     return createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath,
-      ...config,
+      githubToken: config.githubToken,
+      owner: config.owner,
+      repo: config.repo,
+      statusLabels: config.statusLabels,
     });
   } catch (error) {
     // Return null if GitHub modules are not available

@@ -272,10 +272,16 @@
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
-- [+] Fix Session Start CLI Design [#141](process/tasks/141-fix-session-start-cli-design.md)
+- [+] Implement Repository Configuration System [#141](process/tasks/141-repo-config-system.md)
 
 - [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
 
 - [-] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
 
 - [-] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#145](process/tasks/145-import-existing-github-issues-under-minsky-management.md)
+
+- [x] Fix Session PR Command Import Bug [#146](process/tasks/146-fix-session-pr-command-import-bug.md)
+
+- [ ] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
