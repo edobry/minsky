@@ -125,7 +125,20 @@ export class BackendMigrationUtils {
 
       // Apply transformations if not dry run
       if (!dryRun) {
-        const formattedData = targetBackend.formatTasks(transformedTasks.migrated);
+        // Combine existing target tasks with migrated tasks
+        let finalTasks: TaskData[] = [];
+        
+        if (idConflictStrategy === "overwrite") {
+          // For overwrite, remove conflicting target tasks and add all migrated tasks
+          const migratedIds = new Set(transformedTasks.migrated.map(t => t.id));
+          const nonConflictingTargetTasks = targetTasks.filter(t => !migratedIds.has(t.id));
+          finalTasks = [...nonConflictingTargetTasks, ...transformedTasks.migrated];
+        } else {
+          // For skip and rename, just add migrated tasks to existing target tasks
+          finalTasks = [...targetTasks, ...transformedTasks.migrated];
+        }
+        
+        const formattedData = targetBackend.formatTasks(finalTasks);
         await targetBackend.saveTasksData(formattedData);
       }
 
@@ -180,10 +193,18 @@ export class BackendMigrationUtils {
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
-    // Validate target backend is writable
+    // Validate target backend is writable (non-destructively)
     try {
+      // Back up current target data
+      const currentDataResult = await targetBackend.getTasksData();
+      const currentData = currentDataResult.content || "[]";
+      
+      // Test write capability
       const testData = targetBackend.formatTasks([]);
       await targetBackend.saveTasksData(testData);
+      
+      // Restore original data
+      await targetBackend.saveTasksData(currentData);
     } catch (error) {
       throw new Error(`Cannot write to target backend: ${error}`);
     }
@@ -228,7 +249,7 @@ export class BackendMigrationUtils {
 
     await targetBackend.saveTasksData(backupData.originalData);
     
-    log.agent("Migration rollback completed successfully");
+    log.debug("Migration rollback completed successfully");
   }
 
   /**
@@ -327,8 +348,8 @@ export class BackendMigrationUtils {
    * Generate a unique ID when conflicts occur
    */
   private async generateUniqueId(baseId: string, existingIds: Set<string>): Promise<string> {
+    let newId = `${baseId}-migrated`;
     let counter = 1;
-    let newId = `${baseId}-migrated-${counter}`;
     
     while (existingIds.has(newId)) {
       counter++;

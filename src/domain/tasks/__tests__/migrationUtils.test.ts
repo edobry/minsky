@@ -197,10 +197,10 @@ describe("BackendMigrationUtils", () => {
       expect(result.migratedCount).toBe(1);
       expect(result.skippedCount).toBe(0);
       
-             const finalTasks = targetBackend.getTasks();
-       expect(finalTasks).toHaveLength(2);
-       expect(finalTasks.find(t => t.id === "1")!.title).toBe("Target Task 1"); // Original preserved
-       expect(finalTasks.find(t => t.id.startsWith("1-migrated"))!.title).toBe("Source Task 1"); // Renamed task
+      const finalTasks = targetBackend.getTasks();
+      expect(finalTasks).toHaveLength(2);
+      expect(finalTasks.find(t => t.id === "1")!.title).toBe("Target Task 1"); // Original preserved
+      expect(finalTasks.find(t => t.id.startsWith("1-migrated"))!.title).toBe("Source Task 1"); // Renamed task
     });
 
     test("should handle ID conflicts with overwrite strategy", async () => {
@@ -332,7 +332,7 @@ describe("BackendMigrationUtils", () => {
     test("should validate successfully for different backends", async () => {
       await expect(
         migrationUtils.validateMigration(sourceBackend, targetBackend)
-      ).resolves.not.toThrow();
+      ).resolves.toBeUndefined();
     });
 
     test("should throw error for same backend", async () => {
