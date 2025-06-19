@@ -168,6 +168,19 @@ credentials:
 6. **Backward Compatible**: Existing CLI patterns continue to work
 7. **Auto-Detection**: Repository setup detected automatically in `minsky init`
 
+## Documentation
+
+**Complete design documentation with examples, configuration schema, and implementation guidance is available at: [docs/repository-configuration.md](../../docs/repository-configuration.md)**
+
+This documentation provides:
+
+- Detailed configuration examples for both repository and user configs
+- Complete YAML schema specifications
+- Implementation architecture and service interfaces
+- Configuration resolution algorithm
+- Testing scenarios and edge cases
+- Deployment considerations for different environments
+
 ## Technical Approach
 
 ### CLI Examples
@@ -227,11 +240,39 @@ async function resolveConfig(workingDir: string): Promise<ResolvedConfig> {
 }
 ```
 
+## Implementation Files
+
+The following files need to be created or modified:
+
+### New Files
+
+- `src/domain/configuration/` - Configuration service and interfaces
+- `src/domain/configuration/config-loader.ts` - Configuration loading logic
+- `src/domain/configuration/config-validator.ts` - Schema validation
+- `src/domain/configuration/credential-manager.ts` - Credential resolution
+- `src/domain/configuration/types.ts` - Configuration interfaces
+- `src/commands/config/` - Configuration CLI commands
+- `src/commands/config/list.ts` - Config list command
+- `src/commands/config/show.ts` - Config show command
+
+### Modified Files
+
+- `src/commands/init.ts` - Add backend configuration options
+- `src/adapters/cli/task-commands.ts` - Use configuration service
+- `src/adapters/shared/commands/tasks.ts` - Configuration integration
+- `src/domain/tasks/backend-resolver.ts` - Backend selection logic
+
+### Configuration Files (User-facing)
+
+- `.minsky/config.yaml` - Repository configuration (committed)
+- `~/.config/minsky/config.yaml` - Global user configuration
+
 ## Dependencies
 
 - YAML parser for configuration files (js-yaml)
 - Configuration validation schema (Zod)
 - Directory lookup utilities for XDG paths
+- OS utilities for XDG directory resolution (os.homedir(), path.join())
 
 ## Estimated Effort
 
@@ -252,12 +293,34 @@ The following features are intentionally deferred to keep this implementation mi
 
 These can be addressed in future tasks if needed.
 
-## Notes
+## Implementation Notes
 
 - **Repository Backend Consistency**: Critical that all users use same task backend for same database
 - **Clear Config Separation**: Repository settings (committed) vs global user settings (XDG dir)
 - **Multiple Credential Sources**: Supports constrained environments without environment variables
 - **Future Extensible**: Architecture supports additional features when needed
+
+### Key Design Decisions
+
+1. **5-Level Configuration Hierarchy**: CLI flags > env vars > user config > repo config > defaults
+2. **XDG Standard**: User config in `~/.config/minsky/` follows XDG Base Directory specification
+3. **Repository Consistency**: `.minsky/config.yaml` is committed to ensure all team members use same backend
+4. **Credential Security**: User credentials never stored in repository, only in global user config
+5. **Auto-Detection**: Repository characteristics determine default backend if not explicitly configured
+
+### Testing Strategy
+
+- Unit tests for configuration loading and merging logic
+- Integration tests for CLI command behavior with different config combinations
+- E2E tests for configuration file creation and resolution
+- Test coverage for constrained environments (no env vars, missing config files)
+
+### Error Handling
+
+- Clear error messages for missing configuration files
+- Validation errors with specific field information
+- Graceful degradation when credentials are missing
+- Interactive prompts for credential setup in supported environments
 
 ## Related Tasks
 
