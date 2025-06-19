@@ -1,4 +1,4 @@
-# Task #001: Improve Error Handling for MCP Server Port Conflicts
+# Improve Error Handling for MCP Server Port Conflicts
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #100: Align MCP API with CLI Implementation and Remove Placeholders
+# Align MCP API with CLI Implementation and Remove Placeholders
 
 ## Context
 

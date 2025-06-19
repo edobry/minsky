@@ -1,4 +1,4 @@
-# Task #021: Refactor Large Methods in GitService
+# Refactor Large Methods in GitService
 
 ## Description
 

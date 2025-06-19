@@ -1,4 +1,4 @@
-# Task #104: Re-implement Disabled Integration Tests
+# Re-implement Disabled Integration Tests
 
 ## Context
 

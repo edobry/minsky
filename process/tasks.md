@@ -294,4 +294,6 @@
 
 - [ ] Refactor Task Spec Document Title Format [#152](process/tasks/152-refactor-task-spec-document-title-format.md)
 
-- [ ] Test Clean Title Format [#153](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#152/process/tasks/153-test-clean-title-format.md)
+- [ ] Test Clean Title Format [#153](process/tasks/153-test-clean-title-format.md)
+
+- [ ] Test New Task Creation After Migration [#154](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#152/process/tasks/154-test-new-task-creation-after-migration.md)

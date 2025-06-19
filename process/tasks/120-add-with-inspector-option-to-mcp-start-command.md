@@ -1,4 +1,4 @@
-# Task #120: Add --with-inspector Option to `mcp start` Command
+# Add --with-inspector Option to `mcp start` Command
 
 ## Context
 
