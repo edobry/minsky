@@ -1,4 +1,4 @@
-# Task #150: Add --body-path Option and Required Title/Body to Session PR Command
+# Add --body-path Option and Required Title/Body to Session PR Command
 
 ## Context
 

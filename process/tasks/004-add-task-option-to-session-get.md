@@ -1,4 +1,4 @@
-# Task #004: Add `--task` Option to `session get` Command
+# Add `--task` Option to `session get` Command
 
 ## Context
 

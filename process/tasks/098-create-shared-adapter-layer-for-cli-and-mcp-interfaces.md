@@ -1,4 +1,4 @@
-# Task #098: Create Shared Adapter Layer for CLI and MCP Interfaces
+# Create Shared Adapter Layer for CLI and MCP Interfaces
 
 ## Context
 

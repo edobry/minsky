@@ -1,4 +1,4 @@
-# Task #081: Disable Debug Logs Unless Debug Log Level is Explicitly Set
+# Disable Debug Logs Unless Debug Log Level is Explicitly Set
 
 ## Context
 
