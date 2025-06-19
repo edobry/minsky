@@ -935,6 +935,38 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       );
     }
 
+    // Handle body content - read from file if bodyPath is provided
+    let bodyContent = params.body;
+    if (params.bodyPath) {
+      try {
+        // Resolve relative paths relative to current working directory
+        const filePath = require("path").resolve(params.bodyPath);
+        bodyContent = await readFile(filePath, "utf-8");
+        
+        if (!bodyContent.trim()) {
+          throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
+        }
+        
+        log.debug(`Read PR body from file: ${filePath}`, {
+          fileSize: bodyContent.length,
+          bodyPath: params.bodyPath,
+        });
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          throw error;
+        }
+        
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
+          throw new ValidationError(`Body file not found: ${params.bodyPath}`);
+        } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
+          throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
+        } else {
+          throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
+        }
+      }
+    }
+
     // Determine the session name
     let sessionName = params.session;
     const sessionDb = new SessionDB();
@@ -976,6 +1008,8 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     log.debug(`Creating PR for session: ${sessionName}`, {
       session: sessionName,
       title: params.title,
+      hasBody: !!bodyContent,
+      bodySource: params.bodyPath ? "file" : "parameter",
       baseBranch: params.baseBranch,
     });
 
@@ -998,7 +1032,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     const result = await preparePrFromParams({
       session: sessionName,
       title: params.title,
-      body: params.body,
+      body: bodyContent,
       baseBranch: params.baseBranch,
       debug: params.debug,
     });
@@ -1027,6 +1061,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     log.error("Error creating PR for session", {
       session: params.session,
       task: params.task,
+      bodyPath: params.bodyPath,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
