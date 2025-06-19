@@ -1,8 +1,9 @@
 import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
-import { normalizeRepoName } from "./repo-utils";
-
+import { normalizeRepoName } from "./repo-utils.js";
+import { existsSync as syncExists, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -12,23 +13,31 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
+  SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { GitService, type GitServiceInterface } from "./git";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
+import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
+  isSessionWorkspace,
   type WorkspaceUtilsInterface,
   getCurrentSession,
-} from "./workspace";
-import { resolveRepoPath } from "./repo-utils";
-import * as WorkspaceUtils from "./workspace";
+  isSessionRepository,
+  getSessionFromWorkspace,
+  getCurrentSessionContext,
+} from "./workspace.js";
+import { resolveRepoPath } from "./repo-utils.js";
+import { normalizeTaskId } from "./tasks/utils.js";
+import * as WorkspaceUtils from "./workspace.js";
+import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
 import {
   preparePrFromParams,
   createPullRequestFromParams,
   mergePrFromParams,
   createGitService,
-} from "./git";
+} from "./git.js";
+import { getCurrentWorkingDirectory } from "../utils/process.js";
 
 // Remove locally defined interfaces since we're now importing them
 
@@ -419,7 +428,7 @@ export class SessionDB implements SessionProviderInterface {
           session.repoPath = newPath;
           modified = true;
         } catch (err) {
-          log.error(`Failed to migrate session ${session.session}:`, err);
+          console.error(`Failed to migrate session ${session.session}:`, err);
         }
       }
     }
@@ -683,8 +692,8 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
         // Log the error but don't fail the session creation
-        log.cliWarn(
-          `Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+        console.error(
+          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -884,7 +893,7 @@ export async function updateSessionFromParams(
 
     // Handle stash error outside finally block
     if (stashError) {
-      log.error("Failed to restore stashed changes:", stashError);
+      console.error("Failed to restore stashed changes:", stashError);
       throw new MinskyError(
         "Session was updated, but failed to restore stashed changes. Please resolve manually.",
         stashError
@@ -1159,8 +1168,8 @@ export async function approveSessionFromParams(
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
       } catch (error) {
         // Don't fail the whole operation if task update fails
-        log.cliWarn(
-          `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+        console.error(
+          `Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
