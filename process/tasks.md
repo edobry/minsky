@@ -284,4 +284,4 @@
 
 - [x] Fix Session PR Command Import Bug [#146](process/tasks/146-fix-session-pr-command-import-bug.md)
 
-- [ ] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
+- [+] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
