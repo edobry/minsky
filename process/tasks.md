@@ -262,7 +262,7 @@
 
 - [x] Task: Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-task-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
-- [ ] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
+- [+] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
