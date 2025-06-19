@@ -8,25 +8,29 @@ import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 
 // Load environment variables from .env file
-config();
+config({ quiet: true });
 
 /**
  * Extract GitHub repository info from git remote
  */
-function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; repo: string } | null {
+function extractGitHubRepoFromRemote(
+  workspacePath: string
+): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
       cwd: workspacePath,
-      encoding: "utf8" as BufferEncoding,
-    }).toString().trim();
+      encoding: "utf8",
+    })
+      .toString()
+      .trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
     const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
     const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
-    
+
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
@@ -34,7 +38,7 @@ function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; re
         repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
       };
     }
-    
+
     return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
@@ -48,10 +52,12 @@ function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; re
 /**
  * Get GitHub backend configuration from environment and git remote
  */
-export function getGitHubBackendConfig(workspacePath: string): Partial<GitHubIssuesTaskBackendOptions> | null {
+export function getGitHubBackendConfig(
+  workspacePath: string
+): Partial<GitHubIssuesTaskBackendOptions> | null {
   // Check for GitHub token in environment
   const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  
+
   if (!githubToken) {
     log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
     return null;
@@ -59,7 +65,7 @@ export function getGitHubBackendConfig(workspacePath: string): Partial<GitHubIss
 
   // Try to auto-detect repository from git remote
   const repoInfo = extractGitHubRepoFromRemote(workspacePath);
-  
+
   if (!repoInfo) {
     log.error("Could not detect GitHub repository from git remote");
     return null;
@@ -109,7 +115,7 @@ export async function createGitHubLabels(
         color: getColorForStatus(status),
         description: `Minsky task status: ${status}`,
       });
-      
+
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
@@ -129,6 +135,6 @@ function getColorForStatus(status: string): string {
     "IN-REVIEW": "0052cc", // Blue
     DONE: "5319e7", // Purple
   };
-  
+
   return colors[status] || "cccccc"; // Default gray
-} 
+}
