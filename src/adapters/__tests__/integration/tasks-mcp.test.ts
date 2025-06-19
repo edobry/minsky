@@ -3,7 +3,7 @@
  * @migrated Already using native Bun patterns
  * @refactored Uses project utilities and proper TypeScript imports
  */
-import { describe, expect, beforeEach } from "bun:test";
+import { describe, beforeEach } from "bun:test";
 import { type Task, TASK_STATUS } from "../../../domain/tasks.ts";
 import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.ts";
 import type {

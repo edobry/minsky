@@ -5,7 +5,6 @@
  * adapters. It ensures errors are consistently formatted and reported across
  * interfaces.
  */
-
 import {
   MinskyError,
   ValidationError,
@@ -16,9 +15,7 @@ import {
   GitOperationError,
   ensureError,
 } from "../../errors/index.js";
-
-import { log, isHumanMode, isStructuredMode } from "../../utils/logger.js";
-
+import { log, isStructuredMode } from "../../utils/logger.js";
 /**
  * Interface for adapter-specific error handlers
  */

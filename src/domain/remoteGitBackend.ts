@@ -2,7 +2,6 @@
  * Remote Git backend implementation for Minsky.
  * Manages remote Git repositories using the system Git client.
  */
-
 import { exec } from "child_process";
 import { promisify } from "util";
 import { join, dirname } from "path";
@@ -24,9 +23,7 @@ import {
 } from "../utils/repository-utils.js";
 import { normalizeRepoName } from "./repo-utils.js";
 import { SessionDB } from "./session.js";
-import { existsSync } from "fs";
 import { log } from "../utils/logger";
-
 const execAsync = promisify(exec);
 
 /**

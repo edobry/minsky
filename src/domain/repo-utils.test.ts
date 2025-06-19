@@ -1,7 +1,6 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { resolveRepoPath, normalizeRepoName, type RepoUtilsDependencies } from "./repo-utils";
 import { createMock } from "../utils/test-utils/mocking";
-import { SessionDB } from "./session";
 
 describe("Repo Utils", () => {
   test("normalizeRepoName extracts repo name from URL", () => {

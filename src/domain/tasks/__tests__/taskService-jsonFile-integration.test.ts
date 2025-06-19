@@ -1,12 +1,10 @@
 /**
  * Integration tests for TaskService with JsonFileTaskBackend (v2 - with mocking)
  */
-
 import { describe, test, expect, beforeEach } from "bun:test";
 import { join } from "path";
 import { TaskService } from "../taskService";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { TaskData } from "../../../types/tasks/taskData";
 import {
   createMockFileSystem,
   setupTestMocks,
