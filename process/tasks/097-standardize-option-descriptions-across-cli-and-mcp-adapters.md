@@ -1,4 +1,4 @@
-# Task #097: Standardize Option Descriptions Across CLI and MCP Adapters
+# Standardize Option Descriptions Across CLI and MCP Adapters
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #008: Update `tasks list` to Default to Not-DONE Tasks Only
+# Update `tasks list` to Default to Not-DONE Tasks Only
 
 ## Objective
 

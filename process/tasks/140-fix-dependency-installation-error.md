@@ -1,4 +1,4 @@
-# Task #140: Fix dependency installation error in session startup
+# Fix dependency installation error in session startup
 
 ## Problem
 

@@ -1,4 +1,4 @@
-# Task #125: Implement CLI Bridge for Shared Command Registry
+# Implement CLI Bridge for Shared Command Registry
 
 ## Context
 

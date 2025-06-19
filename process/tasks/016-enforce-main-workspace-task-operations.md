@@ -1,4 +1,4 @@
-# Task #016: Enforce Task Operations in Main Workspace
+# Enforce Task Operations in Main Workspace
 
 ## Context
 

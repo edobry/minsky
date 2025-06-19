@@ -1,4 +1,4 @@
-# Task #002: Store Session Repos Under Per-Repo Directories and Add repoName to Session DB
+# Store Session Repos Under Per-Repo Directories and Add repoName to Session DB
 
 ## Context
 

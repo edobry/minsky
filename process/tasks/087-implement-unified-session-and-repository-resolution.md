@@ -1,4 +1,4 @@
-# Task #087: Implement Unified Session and Repository Resolution
+# Implement Unified Session and Repository Resolution
 
 ## Context
 

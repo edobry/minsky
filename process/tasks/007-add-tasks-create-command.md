@@ -1,4 +1,4 @@
-# Task #007: Add `minsky tasks create` Command
+# Add `minsky tasks create` Command
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #057: Implement TypeScript-based Rule Authoring System
+# Implement TypeScript-based Rule Authoring System
 
 ## Context
 

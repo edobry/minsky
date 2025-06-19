@@ -1,4 +1,4 @@
-# Task #023: Add Task Specification Path to Task Object
+# Add Task Specification Path to Task Object
 
 ## Context
 
