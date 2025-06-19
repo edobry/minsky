@@ -8,10 +8,7 @@ export default [
   {
     ignores: [
       // Exclude codemod scripts from linting
-      "**/fix-unused-imports.ts",
-      "**/cleanup-unused-imports.ts",
-      "**/automated-unused-cleanup.ts",
-      "**/codemods/**",
+      "codemods/**",
       // Exclude other development/temporary files
       "test-tmp/**",
       "test-analysis/**",
