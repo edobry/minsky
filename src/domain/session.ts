@@ -949,6 +949,8 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     });
 
     // Call the prepare-pr function with the session name
+    // Use dynamic import to avoid potential module resolution issues
+    const { preparePrFromParams } = await import("./git.js");
     const result = await preparePrFromParams({
       session: sessionName,
       title: params.title,
