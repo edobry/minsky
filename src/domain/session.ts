@@ -900,6 +900,41 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   body?: string;
 }> {
   try {
+    // STEP 1: Validate we're in a session workspace and on a session branch
+    const currentDir = process.cwd();
+    const isSessionWorkspace = currentDir.includes('/sessions/');
+    if (!isSessionWorkspace) {
+      throw new MinskyError(
+        "session pr command must be run from within a session workspace. Use 'minsky session start' first."
+      );
+    }
+
+    // Get current git branch
+    const gitService = createGitService();
+    const currentBranch = await gitService.getCurrentBranch(currentDir);
+    
+    // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
+    if (currentBranch.startsWith('pr/')) {
+      throw new MinskyError(
+        `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
+      );
+    }
+
+    // STEP 3: Validate we're on a session branch (task#XXX format)
+    if (!currentBranch.match(/^task#\d+$/)) {
+      throw new MinskyError(
+        `session pr command must be run from a session branch (task#XXX format). Current branch: '${currentBranch}'`
+      );
+    }
+
+    // STEP 4: Check for uncommitted changes
+    const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
+    if (hasUncommittedChanges) {
+      throw new MinskyError(
+        "Cannot create PR with uncommitted changes. Please commit or stash your changes first."
+      );
+    }
+
     // Handle body content - read from file if bodyPath is provided
     let bodyContent = params.body;
     if (params.bodyPath) {
@@ -950,8 +985,6 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     // If still no session name, try to detect from current directory
     if (!sessionName) {
       try {
-        // Get current directory
-        const currentDir = process.cwd();
         // Extract session name from path - assuming standard path format
         const pathParts = currentDir.split("/");
         const sessionsIndex = pathParts.indexOf("sessions");
@@ -980,7 +1013,22 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       baseBranch: params.baseBranch,
     });
 
-    // Call the prepare-pr function with the session name
+    // STEP 5: Run session update first to merge latest changes from main
+    log.cli("Updating session with latest changes from main...");
+    try {
+      await updateSessionFromParams({
+        name: sessionName,
+        repo: params.repo,
+        json: false,
+      });
+      log.cli("Session updated successfully");
+    } catch (error) {
+      throw new MinskyError(
+        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // STEP 6: Now proceed with PR creation
     const result = await preparePrFromParams({
       session: sessionName,
       title: params.title,

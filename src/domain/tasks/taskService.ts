@@ -239,9 +239,17 @@ export class TaskService {
       // Update the spec with the new ID
       spec.id = taskId;
 
-      // Format and save the updated spec
-      const updatedSpecContent = this.currentBackend.formatTaskSpec(spec);
+      // BUG FIX: Preserve original content, only update the title line with task ID
+      // This prevents content truncation caused by formatTaskSpec generating templates
+      const originalContent = specResult.content;
       const specPath = this.currentBackend.getTaskSpecPath(taskId, spec.title);
+
+      // Find and replace the title line to add the task ID
+      // Support both "# Task: Title" and "# Task #XXX: Title" formats
+      const updatedSpecContent = originalContent.replace(
+        /^# Task(?: #\d+)?: (.+)$/m,
+        `# Task ${taskId}: $1`
+      );
 
       const saveSpecResult = await this.currentBackend.saveTaskSpecData(
         specPath,
