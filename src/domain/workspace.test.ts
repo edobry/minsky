@@ -39,8 +39,8 @@ function createMockFn<T extends (...args: any[]) => any>(
   fn.mockResolvedValue = (_v: any) => {
     fn._resolvedValue = _v;
   };
-  fn.mockImplementation = (_f: T) => {
-    fn._impl = _f;
+  fn.mockImplementation = (_fn: T) => {
+    fn._impl = _fn;
   };
   fn._impl = impl;
   fn._resolvedValue = undefined;
@@ -57,32 +57,7 @@ const mockExecAsync = createMockFn((..._args: any[]) => {
   return p;
 });
 
-// Stub SessionDB for getSessionFromRepo tests
-const stubSessionDB = {
-  getSession: async (sessionName: string): Promise<SessionRecord | null> => {
-    if (sessionName === "existingSession") {
-      return {
-        session: "existingSession",
-        repoUrl: "/path/to/main/workspace",
-        repoName: "workspace",
-        createdAt: new Date().toISOString(),
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      };
-    }
-    if (sessionName === "task#027") {
-      return {
-        session: "task#027",
-        repoUrl: "/path/to/main/workspace",
-        repoName: "minsky",
-        createdAt: new Date().toISOString(),
-        backendType: "local",
-        remote: { authMethod: "ssh", depth: 1 },
-      };
-    }
-    return null;
-  },
-};
+// SessionDB stub removed as it was not being used in active tests
 
 // Create a mock WorkspaceUtils implementation
 function createMockWorkspaceUtils(
