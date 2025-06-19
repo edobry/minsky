@@ -282,6 +282,6 @@
 
 - [ ] Import Existing GitHub Issues Under Minsky Management [#145](process/tasks/145-import-existing-github-issues-under-minsky-management.md)
 
-- [ ] Implement Repository Configuration System [#146](process/tasks/146-implement-repository-configuration-system.md)
+- [-] Implement Repository Configuration System [#146](process/tasks/146-implement-repository-configuration-system.md)
 
 - [ ] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
