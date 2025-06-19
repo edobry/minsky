@@ -1,1 +1,0 @@
-feat(#138): Add GitHub Issues Support as Task Backend 
