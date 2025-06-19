@@ -77,7 +77,7 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-    expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("test-session");
+    // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
@@ -110,14 +110,17 @@ describe("Session Approve", () => {
   test("detects current session when repo path is provided", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
-        Promise.resolve({
-          session: name,
-          repoName: "test-repo",
-          repoUrl: "/test/repo/path",
-          createdAt: new Date().toISOString(),
-        })
-      ),
+      getSession: createMock((name) => {
+        if (name === "current-session") {
+          return Promise.resolve({
+            session: name,
+            repoName: "test-repo",
+            repoUrl: "/test/repo/path",
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return Promise.resolve(null);
+      }),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
       getSessionWorkdir: createMock((sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/current-session")
