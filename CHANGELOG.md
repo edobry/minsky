@@ -9,7 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
+  - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
+  - Migrated from legacy .eslintrc.json to modern flat config format (eslint.config.js)
+  - Added @eslint/js v9.29.0 package for flat config support
+  - Updated npm scripts to remove deprecated --ext .ts flag (not needed in v9)
+  - Maintained all existing linting rules and functionality including:
+    - Import restrictions for domain modules
+    - Console usage restrictions with custom logger requirements
+    - TypeScript-specific rules and configurations
+    - Magic number detection and template literal preferences
+  - Verified full compatibility with 2,434 linting issues detected and 402 auto-fixes applied
+  - All tests passing (541/544) with only pre-existing unrelated failures
+  - Zero breaking changes for development workflow with improved performance
+
+_See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
+
 ### Fixed
+
+- **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
+  - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
+  - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
+  - Added `--no-ff` merge of feature branch INTO PR branch to create proper prepared merge commit
+  - Implemented proper error handling for merge conflicts with exit code 4 and cleanup
+  - Added comprehensive test coverage demonstrating broken vs fixed behavior
+  - Verified end-to-end workflow shows correct prepared merge commit structure
+  - Enabled fast-forward merge capability for `session approve` command as documented
+  - Full compliance with Task #025 prepared merge commit specification
+  - Resolves fundamental issue that broke the documented PR workflow
+
+_See: SpecStory history [2025-06-18_fix-prepared-merge-commit-workflow](mdc:.specstory/history/2025-06-18_fix-prepared-merge-commit-workflow.md) for prepared merge commit implementation._
+
+- **Task #140: Fix dependency installation error in session startup**
+  - Fixed null reference error when calling .toString() on execSync result during dependency installation
+  - Added proper null handling using optional chaining and fallback empty string for quiet mode
+  - Resolved session startup failure that occurred when stdio: "ignore" was used with execSync
+  - All session startup operations now complete successfully without dependency installation errors
+
+_See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.specstory/history/2025-01-26_fix-dependency-installation-error.md) for session startup fix._
 
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115

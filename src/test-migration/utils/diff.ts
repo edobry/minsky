@@ -78,7 +78,7 @@ export function createDiff(originalContent: string, transformedContent: string):
  */
 export function createHtmlDiff(originalContent: string, transformedContent: string): string {
   const diff = diffLib.diffLines(originalContent, transformedContent);
-  let html = '<div class="diff">\n';
+  let html = "<div class=\"diff\">\n";
 
   diff.forEach((part) => {
     // Format the part based on whether it's added, removed, or unchanged

@@ -8,7 +8,7 @@ import {
 import { initializeProjectFromParams } from "../../../domain/init.js";
 import { log } from "../../../utils/logger.js";
 import { ValidationError } from "../../../errors/index.js";
-import { initParamsSchema } from "../../../schemas/init.js";
+// Removed unused initParamsSchema import
 
 const initParams: CommandParameterMap = {
   repo: {
@@ -75,7 +75,7 @@ export function registerInitCommands() {
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: initParams,
-    execute: async (params, ctx: CommandExecutionContext) => {
+    execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
         const repoPath = params.repo || params.workspacePath || process.cwd();

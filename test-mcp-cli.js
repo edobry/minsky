@@ -34,7 +34,7 @@ mcp.stdout.on("data", (data) => {
     console.log("Repository path from project context should be used automatically");
 
     mcp.stdin.write(
-      JSON.stringify({
+      `${JSON.stringify({
         jsonrpc: "2.0",
         id: "1",
         method: "mcp.tools.execute",
@@ -44,7 +44,7 @@ mcp.stdout.on("data", (data) => {
             all: true,
           },
         },
-      }) + "\n"
+      })  }\n`
     );
   }
 });

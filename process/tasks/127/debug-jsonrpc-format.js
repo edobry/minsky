@@ -106,7 +106,7 @@ function runNextTest() {
     console.log(`\n==== TEST ${currentTest + 1}: ${test.name} ====`);
     console.log(`REQUEST: ${JSON.stringify(test.request, null, 2)}`);
 
-    mcp.stdin.write(JSON.stringify(test.request) + "\n");
+    mcp.stdin.write(`${JSON.stringify(test.request)  }\n`);
     currentTest++;
 
     // Schedule next test with delay
@@ -119,7 +119,7 @@ function runNextTest() {
       const packageJson = JSON.parse(
         fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")
       );
-      console.log(`\nPackage Information:`);
+      console.log("\nPackage Information:");
       console.log(`- FastMCP Version: ${packageJson.dependencies?.fastmcp || "Not found"}`);
     } catch (e) {
       console.log(`\nCould not read package.json: ${e.message}`);

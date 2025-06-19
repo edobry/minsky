@@ -42,16 +42,16 @@ export function detectPackageManager(repoPath: string): PackageManager {
  */
 export function getInstallCommand(packageManager: PackageManager): string | undefined {
   switch (packageManager) {
-    case "bun":
-      return "bun install";
-    case "npm":
-      return "npm install";
-    case "yarn":
-      return "yarn";
-    case "pnpm":
-      return "pnpm install";
-    default:
-      return undefined;
+  case "bun":
+    return "bun install";
+  case "npm":
+    return "npm install";
+  case "yarn":
+    return "yarn";
+  case "pnpm":
+    return "pnpm install";
+  default:
+    return undefined;
   }
 }
 
@@ -94,10 +94,13 @@ export async function installDependencies(
     }
 
     // Execute the install command
-    const output = execSync(installCmd, {
+    const result = execSync(installCmd, {
       cwd: repoPath,
       stdio: options.quiet ? "ignore" : "inherit",
-    }).toString();
+    });
+
+    // Handle the case where execSync returns null when stdio is "ignore"
+    const output = result?.toString() || "";
 
     return { success: true, output };
   } catch (error) {
