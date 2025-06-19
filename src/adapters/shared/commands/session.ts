@@ -267,13 +267,18 @@ const sessionApproveCommandParams: CommandParameterMap = {
  */
 const sessionPrCommandParams: CommandParameterMap = {
   title: {
-    schema: z.string(),
+    schema: z.string().min(1),
     description: "Title for the PR",
-    required: false,
+    required: true,
   },
   body: {
     schema: z.string(),
     description: "Body text for the PR",
+    required: false,
+  },
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body text",
     required: false,
   },
   session: {
@@ -575,6 +580,7 @@ export function registerSessionCommands(): void {
         const result = await sessionPrFromParams({
           title: params.title,
           body: params.body,
+          bodyPath: params.bodyPath,
           session: params.session,
           task: params.task,
           repo: params.repo,
