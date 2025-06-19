@@ -1334,6 +1334,7 @@ export class GitService implements GitServiceInterface {
     await this.push({
       repoPath: workdir,
       remote: "origin",
+      force: true,
     });
 
     return {
