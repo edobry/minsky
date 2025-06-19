@@ -1018,8 +1018,8 @@ export async function approveSessionFromParams(
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
 
-  // First, get session record to determine the original repo path
-  const sessionDB = createSessionProvider();
+  // Set up session provider (use injected one or create default)
+  const sessionDB = depsInput?.sessionDB || createSessionProvider();
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
@@ -1036,6 +1036,15 @@ export async function approveSessionFromParams(
       );
     }
     sessionNameToUse = session.session;
+  }
+
+  // Try to auto-detect session from repo path if no session name or task is provided
+  if (!sessionNameToUse && params.repo) {
+    const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
+    const detectedSession = await getCurrentSessionFunc(params.repo);
+    if (detectedSession) {
+      sessionNameToUse = detectedSession;
+    }
   }
 
   // Validate that we have a session to work with
@@ -1075,8 +1084,10 @@ export async function approveSessionFromParams(
     taskId = sessionRecord.taskId;
   }
 
-  // Get session workdir
-  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  // BUG FIX: Use originalRepoPath for all git operations instead of session workspace
+  // This ensures approval operations happen in the main repository, not the session workspace
+  // The session workspace state becomes irrelevant for approval
+  const workingDirectory = originalRepoPath;
 
   // Determine PR branch name (pr/<session-name>)
   const featureBranch = sessionNameToUse;
@@ -1084,30 +1095,30 @@ export async function approveSessionFromParams(
   const baseBranch = "main"; // Default base branch, could be made configurable
 
   try {
-    // Execute git commands to merge the PR branch
+    // Execute git commands to merge the PR branch in the main repository
     // First, check out the base branch
-    await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     // Fetch latest changes
-    await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
+    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
     // Perform the fast-forward merge
     await deps.gitService.execInRepository(
-      sessionWorkdir,
+      workingDirectory,
       `git merge --ff-only origin/${prBranch}`
     );
 
     // Get commit hash and date
     const commitHash = (
-      await deps.gitService.execInRepository(sessionWorkdir, "git rev-parse HEAD")
+      await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
     ).trim();
     const mergeDate = new Date().toISOString();
     const mergedBy = (
-      await deps.gitService.execInRepository(sessionWorkdir, "git config user.name")
+      await deps.gitService.execInRepository(workingDirectory, "git config user.name")
     ).trim();
 
     // Push the changes
-    await deps.gitService.execInRepository(sessionWorkdir, `git push origin ${baseBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
     // Delete the PR branch
-    await deps.gitService.execInRepository(sessionWorkdir, `git push origin --delete ${prBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git push origin --delete ${prBranch}`);
 
     // Create merge info
     const mergeInfo = {
@@ -1129,7 +1140,7 @@ export async function approveSessionFromParams(
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
         log.error(errorMsg, { taskId, error });
-        log.cliError(`Warning: ${errorMsg}`);
+        log.cli(`Warning: ${errorMsg}`);
         // Still don't fail the whole operation, but now errors are visible
       }
     }
