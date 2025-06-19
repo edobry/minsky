@@ -1,4 +1,4 @@
-# Task #152: Refactor Task Spec Document Title Format
+# Refactor Task Spec Document Title Format
 
 ## Context
 

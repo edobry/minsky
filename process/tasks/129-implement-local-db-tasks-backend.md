@@ -1,4 +1,4 @@
-# Task #129: Implement Local DB Tasks Backend
+# Implement Local DB Tasks Backend
 
 ## Context
 

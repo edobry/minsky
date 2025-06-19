@@ -1,4 +1,4 @@
-# Task #111: Build Core Mock Compatibility Layer
+# Build Core Mock Compatibility Layer
 
 ## Context
 

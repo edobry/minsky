@@ -1,4 +1,4 @@
-# Task #044: Fix Remaining Test Failures in Minsky
+# Fix Remaining Test Failures in Minsky
 
 ## Summary
 

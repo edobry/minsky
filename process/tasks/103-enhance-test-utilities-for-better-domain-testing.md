@@ -1,4 +1,4 @@
-# Task #103: Enhance Test Utilities for Better Domain Testing
+# Enhance Test Utilities for Better Domain Testing
 
 ## Context
 

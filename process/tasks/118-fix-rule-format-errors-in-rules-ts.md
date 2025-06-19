@@ -1,4 +1,4 @@
-# Task #118: Fix rule format errors in rules.ts
+# Fix rule format errors in rules.ts
 
 ## Problem Statement
 
