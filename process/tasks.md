@@ -285,3 +285,5 @@
 - [x] Fix Session PR Command Import Bug [#146](process/tasks/146-fix-session-pr-command-import-bug.md)
 
 - [+] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
+
+- [ ] Fix session approve command to not depend on session workspace state [#148](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#128/process/tasks/148-fix-session-approve-command-to-not-depend-on-session-workspace-state.md)
