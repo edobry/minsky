@@ -13,7 +13,7 @@ import type {
   SessionUpdateParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { type GitServiceInterface } from "./git.js";
+import { type GitServiceInterface, preparePrFromParams } from "./git.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
   type WorkspaceUtilsInterface,
@@ -24,6 +24,7 @@ import { resolveRepoPath } from "./repo-utils.js";
 import * as WorkspaceUtils from "./workspace.js";
 import { log } from "../utils/logger.js";
 import { createGitService } from "./git.js";
+import { installDependencies } from "../utils/package-manager.js";
 
 export interface SessionRecord {
   session: string;
@@ -629,9 +630,6 @@ export async function startSessionFromParams(
     // Install dependencies if not skipped
     if (!skipInstall) {
       try {
-        // Dynamically import the package manager module to avoid circular dependencies
-        const { installDependencies } = await import("../utils/package-manager.js");
-
         const { success, error } = await installDependencies(sessionDir, {
           packageManager: packageManager,
           quiet: quiet,
@@ -949,8 +947,6 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     });
 
     // Call the prepare-pr function with the session name
-    // Use dynamic import to avoid potential module resolution issues
-    const { preparePrFromParams } = await import("./git.js");
     const result = await preparePrFromParams({
       session: sessionName,
       title: params.title,
