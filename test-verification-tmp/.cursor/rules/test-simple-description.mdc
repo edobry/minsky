@@ -1,7 +1,0 @@
----
-name: Test Simple Rule
-description: This is a simple description
-tags:
-  - test
----
-Rule content for testing
