@@ -246,7 +246,7 @@
 
 - [x] Fix FastMCP Method Registration Issues [#127](process/tasks/127-fix-fastmcp-method-registration-issues.md)
 
-- [+] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
+- [x] Update fastmcp Dependency to v3.3.0 [#128](process/tasks/128-update-fastmcp-dependency-to-v3-3-0.md)
 
 - [x] Implement Local DB Tasks Backend [#129](process/tasks/129-implement-local-db-tasks-backend.md)
 
@@ -278,10 +278,10 @@
 
 - [x] Upgrade ESLint from v8.57.1 to v9.29.0 [#143](process/tasks/143-upgrade-eslint-from-v8-57-1-to-v9-29-0.md)
 
-- [-] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
+- [x] Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow [#144](process/tasks/144-fix-session-pr-and-git-prepare-pr-commands-to-implement-proper-prepared-merge-commit-workflow.md)
 
 - [ ] Import Existing GitHub Issues Under Minsky Management [#145](process/tasks/145-import-existing-github-issues-under-minsky-management.md)
 
 - [x] Fix Session PR Command Import Bug [#146](process/tasks/146-fix-session-pr-command-import-bug.md)
 
-- [ ] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)
+- [+] Implement Backend Migration Utility [#147](process/tasks/147-implement-backend-migration-utility.md)

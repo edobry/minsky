@@ -51,7 +51,7 @@ export function createMCPCommand(): Command {
           transportType = "httpStream";
         }
 
-        // Set port (used for both SSE and HTTP Stream)
+        // Set port (used for HTTP Stream)
         const port = parseInt(options.port, 10);
 
         // Validate and prepare repository path if provided
