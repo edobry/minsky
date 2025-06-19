@@ -9,7 +9,6 @@ import type {
   TaskSpecData,
 } from "../../types/tasks/taskData.js";
 
-
 // Constants used by task functions
 export const CHECKBOX_TO_STATUS: Record<string, string> = {
   " ": "TODO",

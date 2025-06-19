@@ -229,16 +229,26 @@ const tasksStatusSetRegistration = {
         throw new ValidationError("Status parameter is required in non-interactive mode");
       }
 
+      // Define the options array for consistency
+      const statusOptions = [
+        { value: TASK_STATUS.TODO, label: "TODO" },
+        { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
+        { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
+        { value: TASK_STATUS.DONE, label: "DONE" },
+        { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+      ];
+
+      // Find the index of the current status to pre-select it
+      const currentStatusIndex = statusOptions.findIndex(
+        (option) => option.value === previousStatus
+      );
+      const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0; // Default to TODO if current status not found
+
       // Prompt for status selection
       const selectedStatus = await select({
         message: "Select a status:",
-        options: [
-          { value: TASK_STATUS.TODO, label: "TODO" },
-          { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-          { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-          { value: TASK_STATUS.DONE, label: "DONE" },
-          { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-        ],
+        options: statusOptions,
+        initial: initialIndex, // Pre-select the current status
       });
 
       // Handle cancellation
