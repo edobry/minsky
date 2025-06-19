@@ -4,8 +4,7 @@
  */
 import { existsSync } from "fs";
 import { basename } from "path";
-import { MinskyError, ValidationError } from "../errors/index.js";
-
+import { ValidationError } from "../errors/index.js";
 /**
  * Supported repository URI formats
  */

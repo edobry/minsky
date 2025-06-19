@@ -4,7 +4,6 @@
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 import { promises as fs, existsSync } from "fs";
-
 // Import parameter schemas
 import {
   debugParam,
@@ -21,8 +20,7 @@ import {
 // Import domain functions
 import { resolveWorkspacePath } from "../../domain/workspace.js";
 import { RuleService } from "../../domain/rules.js";
-import type { Rule, RuleFormat, UpdateRuleOptions, SearchRuleOptions } from "../../domain/rules.js";
-
+import type { RuleFormat, UpdateRuleOptions, SearchRuleOptions } from "../../domain/rules.js";
 /**
  * Helper to read content from a file if the path exists
  */

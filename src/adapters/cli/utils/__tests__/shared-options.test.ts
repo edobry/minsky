@@ -12,8 +12,7 @@ import {
   normalizeTaskParams,
   normalizeSessionParams,
 } from "../shared-options";
-import type { RepoOptions, OutputOptions, TaskOptions, BackendOptions } from "../shared-options";
-
+import type { RepoOptions, OutputOptions, TaskOptions } from "../shared-options";
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
   normalizeTaskId: mock((taskId: string) => {

@@ -1,9 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
-import { resolveWorkspacePath, getSessionFromRepo } from "../workspace";
+import { resolveWorkspacePath } from "../workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "../workspace";
 import { promises as fs } from "fs";
 import { join } from "path";
-
 describe("resolveWorkspacePath", () => {
   it("uses explicitly provided workspace path", async () => {
     const options: WorkspaceResolutionOptions = {

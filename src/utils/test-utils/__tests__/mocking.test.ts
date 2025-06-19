@@ -2,9 +2,8 @@
  * Tests for the mocking utilities
  */
 import { describe, expect, test } from "bun:test";
-import { expectToMatch, expectToHaveProperty } from "../assertions";
-import { createMock, mockModule, createSpyOn } from "../mocking";
-
+import { expectToMatch } from "../assertions";
+import { createMock, createSpyOn } from "../mocking";
 describe("Mocking Utilities", () => {
   test("createMock creates a proper mock function", () => {
     // Create a mock
