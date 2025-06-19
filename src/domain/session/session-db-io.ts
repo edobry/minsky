@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { normalizeRepoName } from "../repository-uri";
 import type { SessionDbState, SessionRecord } from "./session-db";
 import { initializeSessionDbState } from "./session-db";
+import { log } from "../../utils/logger";
 
 /**
  * Options for the SessionDB file operations
@@ -30,7 +31,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       return initializeSessionDbState({ baseDir });
     }
 
-    const data = readFileSync(dbPath, "utf8");
+    const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
     // Migrate existing sessions to include repoName
@@ -46,7 +47,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       baseDir,
     };
   } catch (e) {
-    console.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
+    log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -71,7 +72,7 @@ export function writeSessionDbFile(
     writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
   } catch (error) {
-    console.error(
+    log.error(
       `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
     );
     return false;
@@ -89,7 +90,7 @@ export function ensureDbDir(dbPath: string): boolean {
     }
     return true;
   } catch (error) {
-    console.error(
+    log.error(
       `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
     );
     return false;
