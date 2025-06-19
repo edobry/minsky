@@ -1,4 +1,4 @@
-# Task #078: Fix minsky rules CLI to operate on rules in the current workspace (main or session)
+# Fix minsky rules CLI to operate on rules in the current workspace (main or session)
 
 ## Description
 

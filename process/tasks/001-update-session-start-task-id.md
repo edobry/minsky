@@ -1,4 +1,4 @@
-# Task #001: Update `session start` Command to Support Task IDs
+# Update `session start` Command to Support Task IDs
 
 ## Context
 

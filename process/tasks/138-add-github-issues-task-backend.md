@@ -1,4 +1,4 @@
-# Task #138: Add GitHub Issues Support as Task Backend
+# Add GitHub Issues Support as Task Backend
 
 ## Status
 IN-PROGRESS

@@ -1,4 +1,4 @@
-# Task #042: Update Minsky Rule Descriptions for Improved AI Triggering
+# Update Minsky Rule Descriptions for Improved AI Triggering
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #049: Implement Session-Scoped MCP Server for Workspace Isolation
+# Implement Session-Scoped MCP Server for Workspace Isolation
 
 ## Context
 

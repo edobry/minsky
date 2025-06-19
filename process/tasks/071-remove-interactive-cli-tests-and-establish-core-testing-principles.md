@@ -1,4 +1,4 @@
-# Task #071: Remove Interactive CLI Tests and Establish Core Testing Principles
+# Remove Interactive CLI Tests and Establish Core Testing Principles
 
 ## Context
 

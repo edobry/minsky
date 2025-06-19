@@ -1,4 +1,4 @@
-# Task #146: Fix Session PR Command Import Bug
+# Fix Session PR Command Import Bug
 
 ## Context
 

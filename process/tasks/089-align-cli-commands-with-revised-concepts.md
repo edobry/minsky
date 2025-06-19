@@ -1,4 +1,4 @@
-# Task #089: Align CLI Commands with Revised Concepts
+# Align CLI Commands with Revised Concepts
 
 ## Context
 
