@@ -22,6 +22,8 @@ Listen for these user signals:
 - Conditional directives: "every time X happens, do Y"
 - Standard setting: "from now on, when..."
 
+
+
 ## Self-Reflection Protocol
 
 1. **Pause and analyze failed mental model**
@@ -44,6 +46,7 @@ Listen for these user signals:
    [ ] Verification Error: Failed to validate before proceeding
    [ ] Tool Error: Misused available tools/functions
    [ ] Preference Error: Failed to adhere to user preferences
+   [ ] Completion Assessment Error: Declared completion without proper verification
    ```
 
 4. **Rule gap analysis**

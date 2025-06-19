@@ -33,136 +33,106 @@ export function createMigrateCommand(): Command {
     .requiredOption("--from <backend>", "Source backend (markdown, json-file, github-issues)")
     .requiredOption("--to <backend>", "Target backend (markdown, json-file, github-issues)")
     .option("--dry-run", "Preview migration without making changes", false)
-    .option("--preserve-ids", "Preserve task IDs during migration", false)
-    .option("--map-status <mapping...>", 'Custom status mapping (format: "OLD=NEW")')
-    .option(
-      "--id-conflict-strategy <strategy>",
-      "How to handle ID conflicts (skip, rename, overwrite)",
-      "skip"
-    )
-    .option("--no-rollback-on-failure", "Disable rollback on migration failure")
-    .option("--no-create-backup", "Skip creating backup before migration")
-    .option("--interactive", "Interactive mode with confirmation prompts", false)
-    .action(async (options: MigrateCommandOptions) => {
-      try {
-        await executeMigrateCommand(options);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        log.cliError(`Migration failed: ${errorMessage}`);
-        throw new Error(errorMessage);
-      }
-    });
+    .option("--preserve-ids", "Preserve original task IDs", true)
+    .option("--map-status <mapping...>", "Custom status mapping (format: \"OLD=NEW\")")
+    .option("--id-conflict-strategy <strategy>", "Strategy for ID conflicts", "skip")
+    .option("--rollback-on-failure", "Rollback changes on failure", true)
+    .option("--create-backup", "Create backup before migration", true)
+    .option("--interactive", "Interactive confirmation prompts", false)
+    .action(handleMigrateCommand);
 
   return command;
 }
 
 /**
- * Execute the migrate command
+ * Handle the migrate command execution
  */
-async function executeMigrateCommand(options: MigrateCommandOptions): Promise<void> {
-  const {
-    from,
-    to,
-    dryRun = false,
-    preserveIds = false,
-    mapStatus = [],
-    idConflictStrategy = "skip",
-    rollbackOnFailure = true,
-    createBackup = true,
-    interactive = false,
-  } = options;
-
-  // Validate backends
-  const validBackends = ["markdown", "json-file", "github-issues"];
-  if (!validBackends.includes(from)) {
-    throw new Error(`Invalid source backend: ${from}. Must be one of: ${validBackends.join(", ")}`);
-  }
-  if (!validBackends.includes(to)) {
-    throw new Error(`Invalid target backend: ${to}. Must be one of: ${validBackends.join(", ")}`);
-  }
-  if (from === to) {
-    throw new Error("Source and target backends cannot be the same");
-  }
-
-  // Parse status mapping
-  const statusMapping: Record<string, string> = {};
-  for (const mapping of mapStatus) {
-    const [oldStatus, newStatus] = mapping.split("=");
-    if (!oldStatus || !newStatus) {
-      throw new Error(`Invalid status mapping format: ${mapping}. Use format "OLD=NEW"`);
+async function handleMigrateCommand(options: MigrateCommandOptions): Promise<void> {
+  try {
+    // Parse status mapping
+    const statusMapping: Record<string, string> = {};
+    if (options.mapStatus) {
+      for (const mapping of options.mapStatus) {
+        const [from, to] = mapping.split("=");
+        if (from && to) {
+          statusMapping[from.trim()] = to.trim();
+        }
+      }
     }
-    statusMapping[oldStatus] = newStatus;
-  }
 
-  // Validate ID conflict strategy
-  if (!["skip", "rename", "overwrite"].includes(idConflictStrategy)) {
-    throw new Error(
-      `Invalid ID conflict strategy: ${idConflictStrategy}. Must be one of: skip, rename, overwrite`
-    );
-  }
-
-  log.cli(`Starting migration from ${from} to ${to}...`);
-  if (dryRun) {
-    log.cli("Running in DRY RUN mode - no changes will be made");
-  }
-
-  // Create task services for source and target backends
-  const sourceService = new TaskService({ backend: from });
-  const targetService = new TaskService({ backend: to });
-
-  // For proper backend access, we need to access the internal backends
-  // This is a bit of a hack, but necessary given the current architecture
-  const sourceBackendInstance = (sourceService as any).currentBackend;
-  const targetBackendInstance = (targetService as any).currentBackend;
-
-  if (!sourceBackendInstance || !targetBackendInstance) {
-    throw new Error("Failed to initialize backend instances");
-  }
-
-  // Interactive confirmation
-  if (interactive && !dryRun) {
-    const confirmed = await promptConfirmation(
-      `Are you sure you want to migrate tasks from ${from} to ${to}? This will modify your task data.`
-    );
-    if (!confirmed) {
-      log.cli("Migration cancelled by user");
-      return;
+    // Validate backend names
+    const validBackends = ["markdown", "json-file", "github-issues"];
+    if (!validBackends.includes(options.from)) {
+      throw new Error(`Invalid source backend: ${options.from}. Valid options: ${validBackends.join(", ")}`);
     }
-  }
+    if (!validBackends.includes(options.to)) {
+      throw new Error(`Invalid target backend: ${options.to}. Valid options: ${validBackends.join(", ")}`);
+    }
 
-  // Perform migration
-  const migrationUtils = new BackendMigrationUtils();
-  const result = await migrationUtils.migrateTasksBetweenBackends(
-    sourceBackendInstance,
-    targetBackendInstance,
-    {
-      preserveIds,
-      dryRun,
+    // Create task services for source and target backends
+    const sourceService = new TaskService({ backend: options.from });
+    const targetService = new TaskService({ backend: options.to });
+
+    // For proper backend access, we need to access the internal backends
+    // This is a bit of a hack, but necessary given the current architecture
+    const sourceBackendInstance = (sourceService as any).currentBackend;
+    const targetBackendInstance = (targetService as any).currentBackend;
+
+    if (!sourceBackendInstance || !targetBackendInstance) {
+      throw new Error("Failed to initialize backend instances");
+    }
+
+    // Initialize migration utils
+    const migrationUtils = new BackendMigrationUtils();
+
+    // Interactive confirmation if requested
+    if (options.interactive && !options.dryRun) {
+      const confirmed = await promptConfirmation(
+        `Migrate tasks from ${options.from} to ${options.to}?`
+      );
+      if (!confirmed) {
+        log.cli("Migration cancelled by user");
+        return;
+      }
+    }
+
+    // Perform migration
+    log.cli(`Starting migration from ${options.from} to ${options.to}...`);
+
+    const migrationOptions = {
+      preserveIds: options.preserveIds ?? true,
+      dryRun: options.dryRun ?? false,
       statusMapping,
-      rollbackOnFailure,
-      idConflictStrategy: idConflictStrategy as "skip" | "rename" | "overwrite",
-      createBackup,
-    }
-  );
+      idConflictStrategy: options.idConflictStrategy as "skip" | "rename" | "overwrite" ?? "skip",
+      rollbackOnFailure: options.rollbackOnFailure ?? true,
+      createBackup: options.createBackup ?? true,
+    };
 
-  // Report results
-  if (result.success) {
-    log.cli(`✅ ${result.summary}`);
-    if (result.migratedCount > 0) {
-      log.cli(`📊 Migrated: ${result.migratedCount} tasks`);
+    const result = await migrationUtils.migrateTasksBetweenBackends(
+      sourceBackendInstance,
+      targetBackendInstance,
+      migrationOptions
+    );
+
+    // Report results
+    if (result.success) {
+      log.cli("Migration completed successfully!");
+      log.cli(`  - Migrated: ${result.migratedCount} tasks`);
+      log.cli(`  - Skipped: ${result.skippedCount} tasks`);
+      
+      if (result.backupPath) {
+        log.cli(`  - Backup created: ${result.backupPath}`);
+      }
+    } else {
+      log.cliError("Migration failed:");
+      result.errors.forEach(error => log.cliError(`  - ${error}`));
+      throw new Error("Migration operation failed");
     }
-    if (result.skippedCount > 0) {
-      log.cli(`⏭️  Skipped: ${result.skippedCount} tasks`);
-    }
-    if (dryRun) {
-      log.cli("💡 Run without --dry-run to perform the actual migration");
-    }
-  } else {
-    log.cliError(`❌ ${result.summary}`);
-    if (result.errors.length > 0) {
-      log.cliError("Errors:");
-      result.errors.forEach((error) => log.cliError(`  - ${error}`));
-    }
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    log.cliError(`Migration failed: ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 }
 
@@ -175,12 +145,10 @@ async function promptConfirmation(message: string): Promise<boolean> {
     const { confirm } = await import("@clack/prompts");
     const result = await confirm({ message });
     return Boolean(result);
-  } catch (error) {
+  } catch {
     // Fallback - just log warning and proceed
     log.cliWarn("Interactive prompts not available. Proceeding with migration...");
     log.cli(`Confirmation requested: ${message}`);
     return true;
   }
-}
-
-export default createMigrateCommand;
+} 
