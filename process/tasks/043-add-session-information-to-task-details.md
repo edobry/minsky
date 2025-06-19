@@ -1,4 +1,4 @@
-# Task #043: Add Session Information to Task Details
+# Add Session Information to Task Details
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #003: Add `init` command to set up a project for Minsky
+# Add `init` command to set up a project for Minsky
 
 ## Objective
 

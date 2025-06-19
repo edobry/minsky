@@ -1,4 +1,4 @@
-# Task: Implement Todoist Backend Integration
+# Implement Todoist Backend Integration
 
 ## Context
 

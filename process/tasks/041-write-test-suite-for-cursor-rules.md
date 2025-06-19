@@ -1,4 +1,4 @@
-# Task #041: Write Test Suite for Cursor Rules
+# Write Test Suite for Cursor Rules
 
 ## Context
 

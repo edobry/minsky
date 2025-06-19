@@ -1,4 +1,4 @@
-# Task #132: Fix Session Get Command Output Format
+# Fix Session Get Command Output Format
 
 ## Context
 

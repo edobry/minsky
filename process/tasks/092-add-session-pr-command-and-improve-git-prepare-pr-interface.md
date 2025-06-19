@@ -1,4 +1,4 @@
-# Task #092: Add Session PR Command and Improve Git Prepare-PR Interface
+# Add Session PR Command and Improve Git Prepare-PR Interface
 
 ## Context
 
