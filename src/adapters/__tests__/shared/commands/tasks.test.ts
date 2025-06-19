@@ -49,7 +49,7 @@ describe("Shared Tasks Commands", () => {
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, 6); // All 6 tasks commands: list, get, create, status.get, status.set, spec
+    expectToHaveLength(tasksCommands, 7); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
 
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
