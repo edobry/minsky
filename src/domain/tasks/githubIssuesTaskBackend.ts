@@ -312,7 +312,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
       }
     }
 
-    description = descriptionLines.join('\n');
+    description = descriptionLines.join("\n");
 
     return {
       title,
@@ -333,7 +333,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     // Add GitHub-specific metadata if available
     if (metadata?.githubIssue) {
       const githubIssue = metadata.githubIssue as any;
-      content += `## GitHub Issue\n`;
+      content += "## GitHub Issue\n";
       content += `- Issue: #${githubIssue.number}\n`;
       content += `- URL: ${githubIssue.html_url}\n`;
       content += `- State: ${githubIssue.state}\n\n`;
@@ -453,7 +453,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     
     for (const [status, labelName] of Object.entries(this.statusLabels)) {
       if (labels.some((label: any) => {
-        const name = typeof label === 'string' ? label : label.name;
+        const name = typeof label === "string" ? label : label.name;
         return name === labelName;
       })) {
         return status;
