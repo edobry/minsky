@@ -72,7 +72,7 @@ export class BackendMigrationUtils {
       createBackup = true,
     } = options;
 
-    log.agent("Starting task migration", {
+    log.debug("Starting task migration", {
       from: sourceBackend.name,
       to: targetBackend.name,
       options,
@@ -133,7 +133,7 @@ export class BackendMigrationUtils {
       result.migratedCount = transformedTasks.migrated.length;
       result.skippedCount = transformedTasks.skipped.length;
 
-      log.agent("Migration completed successfully", {
+      log.debug("Migration completed successfully", {
         migratedCount: result.migratedCount,
         skippedCount: result.skippedCount,
       });
@@ -147,7 +147,7 @@ export class BackendMigrationUtils {
       if (rollbackOnFailure && backupData && !dryRun) {
         try {
           await this.rollbackMigration(backupData, targetBackend);
-          log.agent("Rollback completed successfully");
+          log.debug("Rollback completed successfully");
         } catch (rollbackError) {
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
@@ -221,7 +221,7 @@ export class BackendMigrationUtils {
     backupData: BackupData,
     targetBackend: TaskBackend
   ): Promise<void> {
-    log.agent("Starting migration rollback", {
+    log.debug("Starting migration rollback", {
       targetBackend: backupData.targetBackend,
       timestamp: backupData.timestamp,
     });
