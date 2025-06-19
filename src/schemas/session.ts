@@ -163,13 +163,18 @@ export const sessionPrParamsSchema = z
   .object({
     session: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().optional().describe("PR title (if not provided, will be generated)"),
-    body: z.string().optional().describe("PR body (if not provided, will be generated)"),
+    title: z.string().min(1).describe("PR title (required)"),
+    body: z.string().optional().describe("PR body text"),
+    bodyPath: z.string().optional().describe("Path to file containing PR body text"),
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.body || data.bodyPath, {
+    message: "Either 'body' or 'bodyPath' must be provided",
+    path: ["body"],
+  });
 
 /**
  * Type for session PR parameters
