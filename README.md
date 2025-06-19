@@ -57,24 +57,6 @@ bun link
 
 ## Usage
 
-### Git Commands
-
-```bash
-# Clone a repo (auto-generates session ID)
-minsky git clone https://github.com/user/repo.git
-
-# Clone with a named session
-minsky git clone https://github.com/user/repo.git --session feature-x
-
-# Create a branch in session
-minsky git branch new-feature --session feature-x
-
-# Generate PR document
-minsky git pr --session feature-x
-```
-
-> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
-
 ### Session Commands
 
 #### `minsky session start [options] [session-name]`
@@ -154,6 +136,66 @@ minsky session update --no-push
 minsky session update --remote upstream
 ```
 
+### Git Commands
+
+```bash
+# Clone a repo (auto-generates session ID)
+minsky git clone https://github.com/user/repo.git
+
+# Clone with a named session
+minsky git clone https://github.com/user/repo.git --session feature-x
+
+# Create a branch in session
+minsky git branch new-feature --session feature-x
+
+# Generate PR summary
+minsky git summary --session feature-x
+```
+
+> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+
+### PR Workflow Commands
+
+Minsky provides an enhanced pull request workflow with prepared merge commits:
+
+#### `minsky session pr [session-name] [options]`
+
+Creates a PR branch for a session with a pre-created merge commit that is ready for fast-forward merge.
+
+Options:
+
+- `--task <taskId>`: Task ID to match (if not providing session name)
+- `--title <title>`: PR title (if not provided, will be generated)
+- `--body <body>`: PR body (if not provided, will be generated)
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
+- `--debug`: Enable debug output
+- `--no-status-update`: Skip updating task status
+
+#### `minsky git prepare-pr [options]`
+
+Creates a PR branch with a pre-created merge commit that is ready for fast-forward merge.
+
+Options:
+
+- `--repo <path>`: Path to the repository
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
+- `--title <title>`: PR title (if not provided, will be generated)
+- `--body <body>`: PR body (if not provided, will be generated)
+- `--debug`: Enable debug output
+- `--session <session>`: Session to create PR for
+
+#### `minsky session approve [options]`
+
+Approves and merges a session's PR branch, updating the task status to DONE.
+
+Options:
+
+- `--session <session>`: Name of the session to approve
+- `--task <taskId>`: Task ID associated with the session
+- `--repo <path>`: Repository path
+
+For detailed documentation on the PR workflow, see [docs/pr-workflow.md](./docs/pr-workflow.md).
+
 ### Tasks Management
 
 Minsky supports robust, extensible task management with multiple backends.
@@ -162,6 +204,7 @@ Minsky supports robust, extensible task management with multiple backends.
 
 1. **Markdown Backend (default)**: Traditional checklist in `process/tasks.md`
 2. **JSON File Backend**: Centralized JSON database for enhanced synchronization
+3. **GitHub Issues Backend**: Manage tasks as GitHub Issues with full API integration
 
 #### Basic Usage
 
@@ -189,11 +232,16 @@ minsky tasks status set --repo /path/to/repo #001
 
 ```bash
 # Use specific backend explicitly
-minsky tasks list --backend markdown    # Traditional tasks.md
-minsky tasks list --backend json-file   # Centralized JSON database
+minsky tasks list --backend markdown       # Traditional tasks.md
+minsky tasks list --backend json-file      # Centralized JSON database
+minsky tasks list --backend github-issues  # GitHub Issues integration
 
 # JSON backend provides enhanced synchronization across sessions
 minsky tasks status set #001 DONE --backend json-file
+
+# GitHub backend integrates with GitHub Issues API
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+minsky tasks list --backend github-issues
 ```
 
 #### JSON Task Backend
@@ -210,11 +258,23 @@ The JSON Task Backend offers several advantages over the traditional markdown ap
 
 **Architecture**: For technical details about the JSON backend implementation, see [docs/JSON-TASK-BACKEND.md](./docs/JSON-TASK-BACKEND.md).
 
+#### GitHub Issues Task Backend
+
+The GitHub Issues backend integrates Minsky tasks with GitHub's issue tracking system:
+
+- **API Integration**: Full GitHub REST API integration with authentication
+- **Status Mapping**: Maps Minsky statuses to GitHub issue states and labels
+- **Bidirectional Sync**: Create, update, and track tasks as GitHub issues
+- **Label Management**: Automatic creation and management of status labels
+- **Repository Integration**: Works with both public and private repositories
+
+**Configuration**: The GitHub backend requires authentication via the `GITHUB_TOKEN` environment variable and repository information through command options or configuration.
+
 **Options:**
 
 - `--repo <repoPath>`: Path to a git repository (overrides session)
 - `--session <session>`: Session name to use for repo resolution
-- `--backend <backend>`: Task backend to use (markdown, json-file)
+- `--backend <backend>`: Task backend to use (markdown, json-file, github-issues)
 - `--status <status>`: Filter tasks by status (for `list`)
 - `--task <taskId>`: Task ID to associate with session (for `session start`)
 - `--json`: Output tasks as JSON
@@ -223,16 +283,12 @@ The JSON Task Backend offers several advantages over the traditional markdown ap
 
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
-- Extensible: supports multiple backends (markdown, json-file, future: github)
+- Extensible: supports multiple backends (markdown, json-file, github-issues)
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
 - Interactive status selection when no status is provided to `tasks status set`
-- Cross-session synchronization with JSON backend
+- Cross-session synchronization with JSON and GitHub backends
 
-## Task Workspace Detection
-
-Minsky now automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
-
-## Environment-Aware Logging
+### Environment-Aware Logging
 
 Minsky features an environment-aware logging system that adjusts its output based on the execution context:
 
@@ -251,13 +307,17 @@ You can also set `ENABLE_AGENT_LOGS=true` to enable JSON logs in HUMAN mode if n
 
 For more detailed documentation on logging, see [docs/logging.md](./docs/logging.md).
 
-### How It Works
+### Task Workspace Detection
+
+Minsky automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
+
+#### How It Works
 
 1. When a task command is executed from a session repository, Minsky automatically detects this and resolves the main workspace path.
 2. All task operations are performed on files in the main workspace rather than session-specific copies.
 3. No manual directory change is required - the redirection is transparent.
 
-### Command Line Options
+#### Command Line Options
 
 All task commands now support a `--workspace <path>` option to explicitly specify the main workspace path:
 
@@ -365,7 +425,7 @@ minsky session start feature-123 --repo https://github.com/org/project.git
 cd $(minsky session dir feature-123)
 
 # Work on code, then generate PR
-minsky git pr --session feature-123 > PR.md
+minsky session pr > PR.md
 
 # List and update tasks
 minsky tasks list --session feature-123
