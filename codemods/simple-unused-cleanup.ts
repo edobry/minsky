@@ -187,7 +187,7 @@ function main() {
     }
   }
   
-  console.log(`\n📊 Summary:`);
+  console.log("\n📊 Summary:");
   console.log(`✅ ${processedFiles} files processed successfully`);
   console.log(`🗑️  ${totalRemoved} unused imports removed total`);
   
