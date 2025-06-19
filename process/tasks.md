@@ -292,4 +292,6 @@
 
 - [x] Fix Task Create Command Content Truncation Issue [#151](process/tasks/151-fix-task-create-command-content-truncation-issue.md)
 
-- [ ] Refactor Task Spec Document Title Format [#152](/Users/edobry/Projects/minsky/process/tasks/152-refactor-task-spec-document-title-format.md)
+- [ ] Refactor Task Spec Document Title Format [#152](process/tasks/152-refactor-task-spec-document-title-format.md)
+
+- [ ] Test Clean Title Format [#153](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#152/process/tasks/153-test-clean-title-format.md)
