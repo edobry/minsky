@@ -284,6 +284,20 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "session.pr": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          title: {
+            description: "Title for the PR (required)",
+          },
+          body: {
+            description: "Body text for the PR",
+          },
+          bodyPath: {
+            description: "Path to file containing PR body text",
+          },
+        },
+      },
     },
   });
 }
