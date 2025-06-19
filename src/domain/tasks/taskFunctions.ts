@@ -2,7 +2,6 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
-
 import type {
   TaskData,
   TaskState,
@@ -10,7 +9,7 @@ import type {
   TaskSpecData,
   TaskStatusType,
 } from "../../types/tasks/taskData.js";
-import { log } from "../../utils/index.js";
+
 
 // Constants used by task functions
 export const CHECKBOX_TO_STATUS: Record<string, string> = {

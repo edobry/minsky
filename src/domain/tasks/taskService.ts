@@ -2,14 +2,12 @@
  * Refactored TaskService using functional patterns
  * Orchestrates task operations while separating pure functions from side effects
  */
-
 import { TaskData } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
-import { tryCreateGitHubBackend } from "./githubBackendFactory";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
