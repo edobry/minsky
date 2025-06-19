@@ -1,7 +1,6 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach, mock } from "bun:test";
 import * as fs from "fs";
 import * as childProcess from "child_process";
-import * as path from "path";
 
 // Mock the logger module
 mock.module("../logger.js", () => ({
@@ -16,8 +15,7 @@ import {
   detectPackageManager,
   getInstallCommand,
   installDependencies,
-  type PackageManager,
-} from "../package-manager.js";
+} from "../package-manager";
 
 describe("Package Manager Utilities", () => {
   // Mock fs.existsSync

@@ -9,7 +9,7 @@ import {
   expectToHaveProperty,
   expectToBeCloseTo,
   expectToContainEqual,
-} from "../assertions.js";
+} from "../assertions";
 
 describe("Custom Assertion Helpers", () => {
   describe("expectToMatch", () => {
