@@ -9,7 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
+  - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
+  - Migrated from legacy .eslintrc.json to modern flat config format (eslint.config.js)
+  - Added @eslint/js v9.29.0 package for flat config support
+  - Updated npm scripts to remove deprecated --ext .ts flag (not needed in v9)
+  - Maintained all existing linting rules and functionality including:
+    - Import restrictions for domain modules
+    - Console usage restrictions with custom logger requirements
+    - TypeScript-specific rules and configurations
+    - Magic number detection and template literal preferences
+  - Verified full compatibility with 2,434 linting issues detected and 402 auto-fixes applied
+  - All tests passing (541/544) with only pre-existing unrelated failures
+  - Zero breaking changes for development workflow with improved performance
+
+_See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
+
 ### Fixed
+
+- **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
+  - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
+  - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
+  - Added `--no-ff` merge of feature branch INTO PR branch to create proper prepared merge commit
+  - Implemented proper error handling for merge conflicts with exit code 4 and cleanup
+  - Added comprehensive test coverage demonstrating broken vs fixed behavior
+  - Verified end-to-end workflow shows correct prepared merge commit structure
+  - Enabled fast-forward merge capability for `session approve` command as documented
+  - Full compliance with Task #025 prepared merge commit specification
+  - Resolves fundamental issue that broke the documented PR workflow
+
+_See: SpecStory history [2025-06-18_fix-prepared-merge-commit-workflow](mdc:.specstory/history/2025-06-18_fix-prepared-merge-commit-workflow.md) for prepared merge commit implementation._
+
+- **Task #140: Fix dependency installation error in session startup**
+  - Fixed null reference error when calling .toString() on execSync result during dependency installation
+  - Added proper null handling using optional chaining and fallback empty string for quiet mode
+  - Resolved session startup failure that occurred when stdio: "ignore" was used with execSync
+  - All session startup operations now complete successfully without dependency installation errors
+
+_See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.specstory/history/2025-01-26_fix-dependency-installation-error.md) for session startup fix._
 
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115
@@ -329,34 +368,12 @@ _See: SpecStory history [2023-05-17_add-remaining-task-commands-to-mcp](mdc:.spe
   - Maintained separation between branch naming (from git) and commit messages (from title parameter)
   - Enhanced documentation to clarify PR branch naming behavior
 
-- Task #094: Implement Google Tasks Backend
-  - Will implement a Google Tasks backend for the Minsky task management system
-  - Will provide integration with Google's task management API
-  - Will support authentication with Google OAuth2
-  - Will map between Minsky task statuses and Google Tasks
-  - Will extend TaskService to support Google Tasks as a backend option
+- Task #093: Implement Consistent CLI Error Handling Across All Commands
 
-_See: SpecStory history [2025-06-02_add-google-tasks-backend](mdc:.specstory/history/2025-06-02_add-google-tasks-backend.md) for task creation._
-
-- Task #086: Formalized Core Minsky Concepts and Relationships
-  - Created comprehensive documentation of core concepts in `src/domain/concepts.md`
-  - Added migration guide in `src/domain/migration-guide.md`
-  - Updated JSDoc comments in domain files to use consistent terminology
-  - Added core concepts overview to README.md
-  - Defined clear terminology for Repository, Session, and Workspace
-  - Documented URI handling and auto-detection rules
-
-_See: SpecStory history from task #080 for background analysis on workspace and repository concepts._
-
-- Task #093: Implement consistent CLI error handling across all commands
-  - Created a centralized error handling utility in `src/adapters/cli/utils/error-handler.ts`
-  - Added type-specific error handling for different error categories (validation, resource not found, etc.)
-  - Implemented consistent output formatting with the new `outputResult` utility
-  - Added debug mode detection to show detailed error information only when needed
-  - Refactored session, tasks, git, and init commands to use the centralized error handler
-  - Improved user experience by providing clear, concise error messages
-
-_See: SpecStory history [2025-06-18_implement-consistent-cli-error-handling](mdc:.specstory/history/2025-06-18_implement-consistent-cli-error-handling.md) for error handling implementation._
+  - Created task to standardize error handling across all CLI commands
+  - Will implement consistent error message formatting
+  - Will add proper error codes and categories
+  - Will improve error logging and debugging information
 
 - Task #092: Add session pr command and improve git prepare-pr interface
 

@@ -3,12 +3,15 @@
  * Orchestrates task operations while separating pure functions from side effects
  */
 
-import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskData";
+import { TaskData } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
+import { tryCreateGitHubBackend } from "./githubBackendFactory";
+
+// Dynamic import for GitHub backend to avoid hard dependency
 
 /**
  * Options for the TaskService
@@ -65,6 +68,17 @@ export class TaskService {
           workspacePath,
         }),
       ];
+
+      // Try to add GitHub backend if configuration is available
+      try {
+        const githubBackend = this.tryCreateGitHubBackend(workspacePath);
+        if (githubBackend) {
+          this.backends.push(githubBackend);
+        }
+      } catch (error) {
+        // Silently ignore GitHub backend if not available
+        log.debug("GitHub backend not available", { error: String(error) });
+      }
     }
 
     // Set current backend
@@ -382,6 +396,35 @@ export class TaskService {
       specPath: task.specPath,
       task,
     };
+  }
+
+  /**
+   * Try to create GitHub backend using dynamic imports
+   * @param workspacePath Workspace path
+   * @returns GitHub TaskBackend instance or null if not available
+   */
+  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+    try {
+      // Dynamic import to avoid hard dependency on GitHub modules
+      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
+        import("./githubBackendConfig"),
+        import("./githubIssuesTaskBackend"),
+      ]);
+
+      const config = getGitHubBackendConfig(workspacePath);
+      if (!config) {
+        return null;
+      }
+
+      return createGitHubIssuesTaskBackend({
+        name: "github-issues",
+        workspacePath,
+        ...config,
+      });
+    } catch (error) {
+      // Return null if GitHub modules are not available
+      return null;
+    }
   }
 }
 

@@ -19,7 +19,7 @@ help.stdout.on("data", (data) => {
     for (const line of lines) {
       if (line.includes("--repo")) {
         console.log("\nRepository parameter found in help output:");
-        console.log("👉 " + line);
+        console.log(`👉 ${  line}`);
       }
     }
   } else {

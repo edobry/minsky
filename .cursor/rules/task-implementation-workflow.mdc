@@ -75,13 +75,23 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
 
 ### 4. Development Phase
 
-1. **Make code changes**:
-   - Modify the required files
+1. **Rule Verification (REQUIRED FIRST STEP)**:
+   - **BEFORE writing any code**, identify and consult ALL relevant rules:
+     - Import/dependency rules (e.g., no-dynamic-imports, bun_over_node)
+     - Architecture rules (e.g., domain-oriented-modules, architectural-bypass-prevention)
+     - Code quality rules (e.g., template-literals, constants-management)
+     - Testing rules (e.g., testing-router, bun-test-patterns)
+   - Search for rules related to the implementation approach using semantic search
+   - Explicitly state which rules apply and how they will guide implementation
+   - Document rule compliance plan in the task specification
+
+2. **Make code changes**:
+   - Modify the required files following identified rules
    - Follow project coding standards
    - Add tests for new functionality
    - Ensure backward compatibility
 
-2. **Commit changes regularly**:
+3. **Commit changes regularly**:
    - Use meaningful commit messages with task ID references
    - Group related changes in logical commits
    - Example:
@@ -89,10 +99,11 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
      git commit -m "task #<task-id>: Add new function for handling X"
      ```
 
-3. **Verify changes**:
+4. **Verify changes**:
    - Run tests to ensure nothing is broken
    - Check for linting errors and code quality issues
    - Verify that all task requirements are met
+   - **Verify rule compliance**: Confirm implementation follows all identified rules
 
 ### 4a. Implementation Verification Protocol
 

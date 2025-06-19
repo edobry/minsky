@@ -411,7 +411,7 @@ export function isAsymmetricMatcher(obj: any): obj is AsymmetricMatcher {
 // Export a function to extend the global expect with asymmetric matchers
 export function setupAsymmetricMatchers(): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const bun = require("bun:test");
 
     // Add matchers to expect

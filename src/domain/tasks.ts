@@ -1,9 +1,14 @@
 import { promises as fs } from "fs";
 import { join } from "path";
+import { parse as parsePath } from "path";
+import { SessionDB } from "./session";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { resolveRepoPath } from "./repo-utils";
+import { resolveWorkspacePath } from "./workspace";
 import { log } from "../utils/logger";
-import { normalizeTaskId } from "./tasks/utils.js";
+import { normalizeTaskId } from "./tasks/utils";
+import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import type {
   TaskListParams,
@@ -12,7 +17,15 @@ import type {
   TaskStatusSetParams,
   TaskCreateParams,
 } from "../schemas/tasks.js";
-import { ResourceNotFoundError } from "../errors/index.js";
+import {
+  taskListParamsSchema,
+  taskGetParamsSchema,
+  taskStatusGetParamsSchema,
+  taskStatusSetParamsSchema,
+  taskCreateParamsSchema,
+} from "../schemas/tasks.js";
+import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
+import { z } from "zod";
 import matter from "gray-matter";
 
 // Import and re-export functions from taskCommands.ts
@@ -558,7 +571,11 @@ export class TaskService {
     const { workspacePath = process.cwd(), backend = "markdown" } = options;
 
     // Initialize backends
-    this.backends = [new MarkdownTaskBackend(workspacePath), new GitHubTaskBackend(workspacePath)];
+    this.backends = [
+      new MarkdownTaskBackend(workspacePath),
+      new GitHubTaskBackend(workspacePath),
+      createJsonFileTaskBackend({ name: "json-file", workspacePath }),
+    ];
 
     // Set current backend
     const selectedBackend = this.backends.find((b) => b.name === backend);

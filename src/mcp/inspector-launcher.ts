@@ -20,7 +20,7 @@ export interface InspectorOptions {
   /**
    * Transport type of the MCP server
    */
-  mcpTransportType: "stdio" | "sse" | "httpStream";
+  mcpTransportType: "stdio" | "httpStream";
 
   /**
    * Port of the MCP server (for non-stdio transports)
@@ -100,7 +100,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Configure MCP server connection based on transport type
     if (mcpTransportType === "stdio") {
       args.push("--stdio");
-    } else if (mcpTransportType === "sse" && mcpPort) {
+    } else if (mcpTransportType === "httpStream" && mcpPort) {
       args.push("--sse", `${mcpHost || "localhost"}:${mcpPort}`);
     } else if (mcpTransportType === "httpStream" && mcpPort) {
       args.push("--http-stream", `${mcpHost || "localhost"}:${mcpPort}`);

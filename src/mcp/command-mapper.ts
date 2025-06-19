@@ -1,7 +1,7 @@
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
-import { log } from "../utils/logger.js";
-import type { ProjectContext } from "../types/project.js";
+import { log } from "../utils/logger";
+import type { ProjectContext } from "../types/project";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
