@@ -99,7 +99,7 @@ class CliCommandFactory {
    */
   createCategoryCommand(category: CommandCategory): Command | null {
     this.ensureInitialized();
-    return cliBridge.generateCategoryCommand(category);
+    return cliBridge.generateCategoryCommand(category, { viaFactory: true });
   }
 
   /**
@@ -109,7 +109,7 @@ class CliCommandFactory {
    */
   registerAllCommands(program: Command): void {
     this.ensureInitialized();
-    cliBridge.generateAllCategoryCommands(program);
+    cliBridge.generateAllCategoryCommands(program, { viaFactory: true });
   }
 
   /**
