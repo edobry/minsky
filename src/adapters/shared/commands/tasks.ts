@@ -23,6 +23,8 @@ import {
   getTaskFromParams,
   createTaskFromParams,
 } from "../../../domain/tasks";
+import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
+import { TaskService } from "../../../domain/tasks/taskService";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
 // Schemas removed as they are unused in this file
@@ -498,6 +500,184 @@ const tasksCreateRegistration = {
   },
 };
 
+/**
+ * Parameters for tasks migrate command
+ */
+const tasksMigrateParams: CommandParameterMap = {
+  sourceBackend: {
+    schema: z.string(),
+    description: "Source backend (markdown, json-file, github-issues)",
+    required: true,
+  },
+  targetBackend: {
+    schema: z.string(),
+    description: "Target backend (markdown, json-file, github-issues)",
+    required: true,
+  },
+  idConflictStrategy: {
+    schema: z.enum(["skip", "rename", "overwrite"]).default("skip"),
+    description: "Strategy for handling ID conflicts",
+    required: false,
+  },
+  statusMapping: {
+    schema: z.string(),
+    description: "Custom status mapping (JSON format)",
+    required: false,
+  },
+  createBackup: {
+    schema: z.boolean().default(true),
+    description: "Create backup before migration",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean().default(false),
+    description: "Perform dry run without making changes",
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: "Repository path",
+    required: false,
+  },
+  workspace: {
+    schema: z.string(),
+    description: "Workspace path",
+    required: false,
+  },
+  session: {
+    schema: z.string(),
+    description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
+  force: {
+    schema: z.boolean().default(false),
+    description: "Skip confirmation prompts",
+    required: false,
+  },
+};
+
+/**
+ * Register tasks.migrate command
+ */
+const tasksMigrateRegistration = {
+  id: "tasks.migrate",
+  category: CommandCategory.TASKS,
+  name: "migrate",
+  description: "Migrate tasks between different backends",
+  parameters: tasksMigrateParams,
+  execute: async (params, _ctx: CommandExecutionContext) => {
+    const {
+      sourceBackend,
+      targetBackend,
+      idConflictStrategy = "skip",
+      statusMapping,
+      createBackup = true,
+      dryRun = false,
+      repo,
+      workspace,
+      session,
+      json = false,
+    } = params;
+
+    // Parse status mapping if provided
+    let parsedStatusMapping: Record<string, string> | undefined;
+    if (statusMapping) {
+      try {
+        parsedStatusMapping = JSON.parse(statusMapping);
+      } catch (error) {
+        throw new ValidationError(`Invalid status mapping JSON: ${error}`);
+      }
+    }
+
+    // Create task services for source and target backends
+    const sourceTaskService = new TaskService({
+      workspacePath: workspace || repo || process.cwd(),
+      backend: sourceBackend,
+    });
+
+    const targetTaskService = new TaskService({
+      workspacePath: workspace || repo || process.cwd(),
+      backend: targetBackend,
+    });
+
+    // Use session parameter if provided for session-specific migrations
+    if (session) {
+      log.debug(`Migration requested for session: ${session}`);
+    }
+
+    // Get the actual backend instances
+    const sourceBackendInstance = (sourceTaskService as any).currentBackend;
+    const targetBackendInstance = (targetTaskService as any).currentBackend;
+
+    // Create migration utility
+    const migrationUtils = new BackendMigrationUtils();
+
+    try {
+      // Perform actual migration
+      const result = await migrationUtils.migrateTasksBetweenBackends(
+        sourceBackendInstance,
+        targetBackendInstance,
+        {
+          preserveIds: true,
+          dryRun,
+          statusMapping: parsedStatusMapping,
+          rollbackOnFailure: true,
+          idConflictStrategy,
+          createBackup,
+        }
+      );
+
+      // Transform result to match CLI interface
+      const cliResult = {
+        success: result.success,
+        summary: {
+          migrated: result.migratedCount,
+          skipped: result.skippedCount,
+          total: result.migratedCount + result.skippedCount,
+          errors: result.errors.length,
+        },
+        conflicts: [], // TODO: Add conflict details from result
+        backupPath: result.backupPath,
+      };
+
+      if (json) {
+        return cliResult;
+      }
+
+      // Format human-readable output
+      log.cli(`\n✅ Migration ${dryRun ? "simulation" : "completed"} successfully!`);
+      log.cli(`📊 Summary:`);
+      log.cli(`   • Tasks migrated: ${cliResult.summary.migrated}`);
+      log.cli(`   • Tasks skipped: ${cliResult.summary.skipped}`);
+      log.cli(`   • Total processed: ${cliResult.summary.total}`);
+      
+      if (cliResult.summary.errors > 0) {
+        log.cliWarn(`   • Errors: ${cliResult.summary.errors}`);
+      }
+
+      if (cliResult.conflicts && cliResult.conflicts.length > 0) {
+        log.cliWarn(`\n⚠️  ID Conflicts detected:`);
+        cliResult.conflicts.forEach(conflict => {
+          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
+        });
+      }
+
+      if (cliResult.backupPath) {
+        log.cli(`\n💾 Backup created: ${cliResult.backupPath}`);
+      }
+
+      return cliResult;
+    } catch (error) {
+      throw new ValidationError(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+};
+
 export function registerTasksCommands() {
   // Register tasks.list command
   sharedCommandRegistry.registerCommand(tasksListRegistration);
@@ -516,4 +696,7 @@ export function registerTasksCommands() {
 
   // Register tasks.spec command
   sharedCommandRegistry.registerCommand(tasksSpecRegistration);
+
+  // Register tasks.migrate command
+  sharedCommandRegistry.registerCommand(tasksMigrateRegistration);
 }
