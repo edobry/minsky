@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:te
 import { MarkdownTaskBackend, TaskService, TASK_STATUS } from "./tasks";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { resolveRepoPath } from "./repo-utils";
-import type { RepoResolutionOptions } from "./repo-utils";
 import path from "path";
-
 const SAMPLE_TASKS_MD = `
 # Tasks
 

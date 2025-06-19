@@ -4,15 +4,13 @@
  * This module bridges the shared command registry with the Minsky Control Plane (MCP),
  * allowing shared commands to be executed via MCP requests.
  */
-
-import { z, type ZodIssue } from "zod";
+import { type ZodIssue } from "zod";
 import {
   sharedCommandRegistry,
   type CommandDefinition,
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../command-registry.js";
-import { getErrorHandler } from "../error-handling.js";
 import { ensureError } from "../../../errors/index.js";
 // Assuming MCP requests come in a specific format, e.g., FastMCP
 // For this example, let's define a placeholder for MCP request and response types.

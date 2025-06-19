@@ -98,7 +98,7 @@ export function createMCPCommand(): Command {
           transportType,
           projectContext,
           httpStream: {
-            endpoint: "/mcp",
+            endpoint: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
             port,
           },
         });

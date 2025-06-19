@@ -4,7 +4,6 @@
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { TaskService } from "../taskService.js";
-import { createMarkdownTaskBackend } from "../markdownTaskBackend.js";
 import type { TaskBackend } from "../taskBackend.js";
 import type {
   TaskData,

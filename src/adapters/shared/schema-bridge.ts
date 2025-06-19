@@ -4,11 +4,9 @@
  * This module provides utilities to bridge between Zod schemas and CLI options.
  * It enables consistent validation across interfaces and ensures type safety.
  */
-
-import { Command, Option } from "commander";
+import { Command } from "commander";
 import { z } from "zod";
 import type { CommandParameter, CommandParameterMap } from "./command-registry.js";
-
 /**
  * Type for CLI option flag definition
  */
