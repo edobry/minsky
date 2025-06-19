@@ -7,7 +7,6 @@ import type {
   TaskState,
   TaskFilter,
   TaskSpecData,
-  TaskStatusType,
 } from "../../types/tasks/taskData.js";
 
 
@@ -319,23 +318,30 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     return { title: "", description: "" };
   }
 
-  // Support both "# Task: Title" and "# Task #XXX: Title" formats
+  // Support multiple title formats for backward compatibility:
+  // 1. Old format with task number: "# Task #XXX: Title"
+  // 2. Old format without number: "# Task: Title"  
+  // 3. New clean format: "# Title"
   const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
   const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+  const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
   let title = "";
   let id: string | undefined;
 
   if (titleWithIdMatch && titleWithIdMatch[2]) {
+    // Old format: "# Task #XXX: Title"
     title = titleWithIdMatch[2];
     id = `#${titleWithIdMatch[1]}`;
   } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
+    // Old format: "# Task: Title"
     title = titleWithoutIdMatch[1];
-  } else {
-    // Try a more general pattern to extract title
-    const generalTitleMatch = titleLine.match(/^# (.+)$/);
-    if (generalTitleMatch && generalTitleMatch[1]) {
-      title = generalTitleMatch[1];
+  } else if (cleanTitleMatch && cleanTitleMatch[1]) {
+    // New clean format: "# Title"
+    title = cleanTitleMatch[1];
+    // Skip if this looks like an old task format to avoid false positives
+    if (!title.startsWith("Task ")) {
+      // This is likely the new clean format
     }
   }
 
@@ -366,7 +372,8 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
 export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   if (!spec) return "";
 
-  const titleLine = spec.id ? `# Task ${spec.id}: ${spec.title}` : `# Task: ${spec.title}`;
+  // Generate clean title format without task numbers
+  const titleLine = `# ${spec.title}`;
 
   const contextSection = `
 ## Context

@@ -319,24 +319,38 @@ export class MarkdownTaskBackend implements TaskBackend {
       throw new Error("Invalid spec file: Missing title heading");
     }
 
-    // Support both "# Task: Title" and "# Task #XXX: Title" formats
-    // Improved regex patterns for more robust matching
+    // Support multiple title formats for backward compatibility:
+    // 1. Old format with task number: "# Task #XXX: Title"
+    // 2. Old format without number: "# Task: Title"  
+    // 3. New clean format: "# Title"
     const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+    const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
     let title: string;
     let hasTaskId = false;
     let existingId: string | null = null;
 
     if (titleWithIdMatch && titleWithIdMatch[2]) {
+      // Old format: "# Task #XXX: Title"
       title = titleWithIdMatch[2];
       existingId = `#${titleWithIdMatch[1]}`;
       hasTaskId = true;
     } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
+      // Old format: "# Task: Title"
       title = titleWithoutIdMatch[1];
+    } else if (cleanTitleMatch && cleanTitleMatch[1]) {
+      // New clean format: "# Title"
+      title = cleanTitleMatch[1];
+      // Skip if this looks like an old task format to avoid false positives
+      if (title.startsWith("Task ")) {
+        throw new Error(
+          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        );
+      }
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Task: Title\" or \"# Task #XXX: Title\""
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
@@ -381,12 +395,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullNewPath = join(this.workspacePath, newSpecPath);
 
-    // Update the title in the spec file to include the task number if needed
+    // Update the title in the spec file to use clean format
     let updatedContent = specContent;
-    if (!hasTaskId) {
-      const updatedTitleLine = `# Task ${taskId}: ${title}`;
-      updatedContent = updatedContent.replace(titleLine, updatedTitleLine);
-    }
+    const cleanTitleLine = `# ${title}`;
+    updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
 
     // Rename and update the spec file
     try {
