@@ -6,7 +6,7 @@ import {
   extractRepositoryInfo,
   UriFormat,
 } from "../uri-utils.js";
-import { ValidationError } from "../../errors/index.js";
+
 
 // We'll skip validation tests since mocking is tricky in Bun
 

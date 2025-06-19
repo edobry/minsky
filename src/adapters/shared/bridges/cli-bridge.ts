@@ -4,7 +4,6 @@
  * This module bridges the shared command registry with the Commander.js CLI,
  * enabling automatic generation of CLI commands from shared command definitions.
  */
-
 import { Command } from "commander";
 import {
   sharedCommandRegistry,
@@ -14,8 +13,7 @@ import {
   type CommandExecutionContext,
   type SharedCommand,
 } from "../command-registry";
-import { getErrorHandler } from "../error-handling";
-import { ensureError } from "../../../errors/index";
+
 import { handleCliError, outputResult } from "../../cli/utils/index";
 import { log } from "../../../utils/logger";
 import {

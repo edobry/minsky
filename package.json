@@ -18,6 +18,7 @@
     "minsky": "./src/cli.ts"
   },
   "devDependencies": {
+    "@codemod/cli": "^3.3.0",
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "^0.14.2",
     "@types/bun": "^1.2.11",
@@ -31,14 +32,18 @@
     "eslint-import-resolver-typescript": "^4.3.4",
     "eslint-plugin-import": "^2.31.0",
     "husky": "^9.1.7",
+    "jscodeshift": "^17.3.0",
     "lint-staged": "^16.0.0",
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "ts-morph": "^26.0.0"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
+    "@dotenvx/dotenvx": "^1.44.2",
+    "@octokit/rest": "^22.0.0",
     "@types/logform": "^1.10.1",
     "@types/winston": "^2.4.4",
     "chalk": "^5.4.1",

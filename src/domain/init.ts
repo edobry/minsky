@@ -1,8 +1,6 @@
 import * as fs from "fs";
-import type { PathLike } from "fs";
 import * as path from "path";
 import { z } from "zod";
-
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
   backend: z.enum(["tasks.md", "tasks.csv"]),

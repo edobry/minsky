@@ -8,20 +8,7 @@
 
 import { Command } from "commander";
 import { normalizeTaskId } from "../../../domain/tasks.js";
-import type {
-  TaskListParams,
-  TaskGetParams,
-  TaskStatusGetParams,
-  TaskStatusSetParams,
-} from "../../../schemas/tasks.js";
-import type {
-  SessionListParams,
-  SessionGetParams,
-  SessionStartParams,
-  SessionDirParams,
-  SessionDeleteParams,
-  SessionUpdateParams,
-} from "../../../schemas/session.js";
+// Removed unused schema type imports
 import {
   SESSION_DESCRIPTION,
   REPO_DESCRIPTION,

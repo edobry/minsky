@@ -5,7 +5,6 @@
  * consistent, user-friendly error messages while supporting detailed logging
  * for debugging purposes.
  */
-
 import {
   MinskyError,
   ValidationError,
@@ -16,8 +15,7 @@ import {
   GitOperationError,
   ensureError,
 } from "../../../errors/index.js";
-import { log, isHumanMode, isStructuredMode } from "../../../utils/logger.js";
-
+import { log, isStructuredMode } from "../../../utils/logger.js";
 /**
  * Determines if debug mode is enabled based on environment variables
  */

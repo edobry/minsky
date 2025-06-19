@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import { join, basename, dirname } from "path";
+import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
 import { log } from "../utils/logger"; // Added logger import

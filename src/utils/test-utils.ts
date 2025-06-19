@@ -1,12 +1,12 @@
 /**
  * Test utilities for standardizing test setup, cleanup, and common functions
  */
-import { afterEach, beforeEach, mock, spyOn } from "bun:test";
+import { afterEach, beforeEach, spyOn } from "bun:test";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { createRobustTempDir } from "./tempdir";
-
+import { log } from "./logger";
 // Re-export mocking utilities from the dedicated module
 export * from "./test-utils/mocking";
 
@@ -98,7 +98,7 @@ export function setupTestEnvironment(
       const dir = createTempTestDir();
       tempDir = typeof dir === "string" ? dir : undefined;
       if (!tempDir) {
-        console.warn(
+        log.warn(
           "[SKIP] Temp dir could not be created in this environment. Skipping temp dir setup."
         );
       }
