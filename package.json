@@ -48,7 +48,7 @@
     "@types/winston": "^2.4.4",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
-    "fastmcp": "^3.3.0",
+    "fastmcp": "^3.4.0",
     "fs-extra": "^11.3.0",
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",
