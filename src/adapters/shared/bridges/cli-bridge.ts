@@ -125,9 +125,9 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCommand(commandId: string): Command | null {
-    // Warn about direct usage in development
-    if (process.env.NODE_ENV !== "production") {
+  generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
+    // Warn about direct usage in development (but not when called via factory)
+    if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -232,9 +232,9 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCategoryCommand(category: CommandCategory): Command | null {
-    // Warn about direct usage in development
-    if (process.env.NODE_ENV !== "production") {
+  generateCategoryCommand(category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
+    // Warn about direct usage in development (but not when called via factory)
+    if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
       );
@@ -273,7 +273,7 @@ export class CliCommandBridge {
 
       if (nameParts.length === 1) {
         // Simple command - add directly to category
-        const subcommand = this.generateCommand(commandDef.id);
+        const subcommand = this.generateCommand(commandDef.id, context);
         if (subcommand) {
           categoryCommand.addCommand(subcommand);
         }
@@ -296,7 +296,7 @@ export class CliCommandBridge {
         }
 
         // Create the child command with the correct name
-        const childCommand = this.generateCommand(commandDef.id);
+        const childCommand = this.generateCommand(commandDef.id, context);
         if (childCommand) {
           // Update the child command name to just the child part
           childCommand.name(childName);
@@ -305,7 +305,7 @@ export class CliCommandBridge {
       } else {
         // More complex nesting - handle it recursively or warn
         log.warn(`Complex command nesting not yet supported: ${commandDef.name}`);
-        const subcommand = this.generateCommand(commandDef.id);
+        const subcommand = this.generateCommand(commandDef.id, context);
         if (subcommand) {
           categoryCommand.addCommand(subcommand);
         }
@@ -321,9 +321,9 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateAllCategoryCommands(program: Command): void {
-    // Warn about direct usage in development
-    if (process.env.NODE_ENV !== "production") {
+  generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
+    // Warn about direct usage in development (but not when called via factory)
+    if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
         "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
       );
@@ -337,7 +337,7 @@ export class CliCommandBridge {
 
     // Generate commands for each category
     categories.forEach((category) => {
-      const categoryCommand = this.generateCategoryCommand(category);
+      const categoryCommand = this.generateCategoryCommand(category, context);
       if (categoryCommand) {
         program.addCommand(categoryCommand);
       }

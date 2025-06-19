@@ -414,3 +414,40 @@ If the user expresses a preference for how something should be done:
 ```
 I understand your preference for [specific preference]. I'll adjust my approach to [specific change] going forward. Let me demonstrate that now by [example of implementing preference].
 ```
+
+## When to Apply This Rule
+
+This rule MUST be applied whenever:
+1. The user expresses dissatisfaction
+2. The user corrects you
+3. The user indicates confusion
+4. The user expresses a preference for future behavior
+5. The user asks you to do something differently
+6. Your action results in an error
+
+## Process Error Prevention
+
+### Rule Selection Enforcement
+**BEFORE any rule update:**
+1. **STOP** - Explicitly state which rule you plan to update
+2. **JUSTIFY** - Reference the Rule Authority Hierarchy to explain why
+3. **VERIFY** - Confirm this is the most authoritative rule for the issue
+4. **PROCEED** - Only then make the update
+
+### Question Response Protocol
+When user asks process questions ("how will you...", "what will you do..."):
+1. **Answer the actual question first** - describe behavioral/process changes
+2. **Then** consider if rule updates are needed
+3. **Never** default to rule updates without answering the question
+
+### Implementation Requirement
+**CRITICAL**: When identifying what needs to be done:
+1. **DO IT** immediately - use tools to make changes
+2. **Don't describe it** - avoid "I need to..." or "This should be..."
+3. **Verify completion** - confirm the change was actually made
+
+### Meta-Process Verification
+Before submitting responses about process improvements:
+- Did I answer the user's actual question?
+- Am I updating the correct rule per the hierarchy?
+- Am I implementing changes rather than just describing them?

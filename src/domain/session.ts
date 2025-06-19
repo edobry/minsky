@@ -900,6 +900,41 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   body?: string;
 }> {
   try {
+    // STEP 1: Validate we're in a session workspace and on a session branch
+    const currentDir = process.cwd();
+    const isSessionWorkspace = currentDir.includes('/sessions/');
+    if (!isSessionWorkspace) {
+      throw new MinskyError(
+        "session pr command must be run from within a session workspace. Use 'minsky session start' first."
+      );
+    }
+
+    // Get current git branch
+    const gitService = createGitService();
+    const currentBranch = await gitService.getCurrentBranch(currentDir);
+    
+    // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
+    if (currentBranch.startsWith('pr/')) {
+      throw new MinskyError(
+        `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
+      );
+    }
+
+    // STEP 3: Validate we're on a session branch (task#XXX format)
+    if (!currentBranch.match(/^task#\d+$/)) {
+      throw new MinskyError(
+        `session pr command must be run from a session branch (task#XXX format). Current branch: '${currentBranch}'`
+      );
+    }
+
+    // STEP 4: Check for uncommitted changes
+    const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
+    if (hasUncommittedChanges) {
+      throw new MinskyError(
+        "Cannot create PR with uncommitted changes. Please commit or stash your changes first."
+      );
+    }
+
     // Determine the session name
     let sessionName = params.session;
     const sessionDb = new SessionDB();
@@ -918,8 +953,6 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     // If still no session name, try to detect from current directory
     if (!sessionName) {
       try {
-        // Get current directory
-        const currentDir = process.cwd();
         // Extract session name from path - assuming standard path format
         const pathParts = currentDir.split("/");
         const sessionsIndex = pathParts.indexOf("sessions");
@@ -946,7 +979,22 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       baseBranch: params.baseBranch,
     });
 
-    // Call the prepare-pr function with the session name
+    // STEP 5: Run session update first to merge latest changes from main
+    log.cli("Updating session with latest changes from main...");
+    try {
+      await updateSessionFromParams({
+        name: sessionName,
+        repo: params.repo,
+        json: false,
+      });
+      log.cli("Session updated successfully");
+    } catch (error) {
+      throw new MinskyError(
+        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // STEP 6: Now proceed with PR creation
     const result = await preparePrFromParams({
       session: sessionName,
       title: params.title,
@@ -1018,8 +1066,8 @@ export async function approveSessionFromParams(
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
 
-  // First, get session record to determine the original repo path
-  const sessionDB = createSessionProvider();
+  // Set up session provider (use injected one or create default)
+  const sessionDB = depsInput?.sessionDB || createSessionProvider();
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
@@ -1036,6 +1084,15 @@ export async function approveSessionFromParams(
       );
     }
     sessionNameToUse = session.session;
+  }
+
+  // Try to auto-detect session from repo path if no session name or task is provided
+  if (!sessionNameToUse && params.repo) {
+    const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
+    const detectedSession = await getCurrentSessionFunc(params.repo);
+    if (detectedSession) {
+      sessionNameToUse = detectedSession;
+    }
   }
 
   // Validate that we have a session to work with
@@ -1075,8 +1132,10 @@ export async function approveSessionFromParams(
     taskId = sessionRecord.taskId;
   }
 
-  // Get session workdir
-  const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
+  // BUG FIX: Use originalRepoPath for all git operations instead of session workspace
+  // This ensures approval operations happen in the main repository, not the session workspace
+  // The session workspace state becomes irrelevant for approval
+  const workingDirectory = originalRepoPath;
 
   // Determine PR branch name (pr/<session-name>)
   const featureBranch = sessionNameToUse;
@@ -1084,30 +1143,30 @@ export async function approveSessionFromParams(
   const baseBranch = "main"; // Default base branch, could be made configurable
 
   try {
-    // Execute git commands to merge the PR branch
+    // Execute git commands to merge the PR branch in the main repository
     // First, check out the base branch
-    await deps.gitService.execInRepository(sessionWorkdir, `git checkout ${baseBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     // Fetch latest changes
-    await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
+    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
     // Perform the fast-forward merge
     await deps.gitService.execInRepository(
-      sessionWorkdir,
+      workingDirectory,
       `git merge --ff-only origin/${prBranch}`
     );
 
     // Get commit hash and date
     const commitHash = (
-      await deps.gitService.execInRepository(sessionWorkdir, "git rev-parse HEAD")
+      await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
     ).trim();
     const mergeDate = new Date().toISOString();
     const mergedBy = (
-      await deps.gitService.execInRepository(sessionWorkdir, "git config user.name")
+      await deps.gitService.execInRepository(workingDirectory, "git config user.name")
     ).trim();
 
     // Push the changes
-    await deps.gitService.execInRepository(sessionWorkdir, `git push origin ${baseBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
     // Delete the PR branch
-    await deps.gitService.execInRepository(sessionWorkdir, `git push origin --delete ${prBranch}`);
+    await deps.gitService.execInRepository(workingDirectory, `git push origin --delete ${prBranch}`);
 
     // Create merge info
     const mergeInfo = {
@@ -1129,7 +1188,7 @@ export async function approveSessionFromParams(
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
         log.error(errorMsg, { taskId, error });
-        log.cliError(`Warning: ${errorMsg}`);
+        log.cli(`Warning: ${errorMsg}`);
         // Still don't fail the whole operation, but now errors are visible
       }
     }
