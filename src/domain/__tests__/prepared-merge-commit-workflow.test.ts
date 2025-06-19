@@ -157,7 +157,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       expect(gitCommands).toContain("git -C /test/repo switch -C pr/feature-branch origin/main");
 
       // 3. Should create PR title/body file
-      expect(gitCommands).toContain('echo "Test PR" > /test/repo/.pr_title');
+      expect(gitCommands).toContain("echo \"Test PR\" > /test/repo/.pr_title");
 
       // 4. Should perform --no-ff merge (creating prepared merge commit)
       expect(gitCommands).toContain("git -C /test/repo merge --no-ff feature-branch -F .pr_title");
