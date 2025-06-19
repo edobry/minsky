@@ -22,16 +22,44 @@ const TARGETS: FixTarget[] = [
     unusedImports: ["test"]
   },
   {
+    file: "src/adapters/__tests__/integration/tasks.test.ts",
+    unusedImports: ["getTaskFromParams", "listTasksFromParams", "TaskStatusGetParams", "TaskStatusSetParams", "TaskCreateParams"]
+  },
+  {
+    file: "src/adapters/__tests__/integration/workspace.test.ts",
+    unusedImports: ["WorkspaceService", "createMockObject"]
+  },
+  {
     file: "src/domain/tasks.test.ts",
-    unusedImports: ["resolveRepoPath", "RepoResolutionOptions"]
+    unusedImports: ["resolveRepoPath", "RepoResolutionOptions", "taskService"]
   },
   {
     file: "src/domain/storage/json-file-storage.ts",
-    unusedImports: ["join"]
+    unusedImports: ["join", "options"]
+  },
+  {
+    file: "src/domain/tasks/taskBackend.ts",
+    unusedImports: ["TaskState"]
+  },
+  {
+    file: "src/domain/tasks/taskFunctions.ts",
+    unusedImports: ["TaskStatusType", "log"]
+  },
+  {
+    file: "src/domain/tasks/taskService.ts",
+    unusedImports: ["tryCreateGitHubBackend"]
+  },
+  {
+    file: "src/domain/tasks/taskCommands.ts",
+    unusedImports: ["log"]
   },
   {
     file: "codemods/remove-unused-imports.ts",
     unusedImports: ["SourceFile", "ImportDeclaration", "VariableDeclaration", "readFileSync", "writeFileSync", "join"]
+  },
+  {
+    file: "src/domain/types.ts",
+    unusedImports: ["SESSION", "TASKS", "GIT", "RULES", "INIT", "MCP", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"]
   }
 ];
 
