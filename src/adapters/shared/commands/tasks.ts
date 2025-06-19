@@ -24,6 +24,7 @@ import {
   createTaskFromParams,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
+import { TaskService } from "../../../domain/tasks/taskService";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
 // Schemas removed as they are unused in this file
@@ -593,51 +594,84 @@ const tasksMigrateRegistration = {
       }
     }
 
+    // Create task services for source and target backends
+    const sourceTaskService = new TaskService({
+      workspacePath: workspace || repo || process.cwd(),
+      backend: sourceBackend,
+    });
+
+    const targetTaskService = new TaskService({
+      workspacePath: workspace || repo || process.cwd(),
+      backend: targetBackend,
+    });
+
+    // Use session parameter if provided for session-specific migrations
+    if (session) {
+      log.debug(`Migration requested for session: ${session}`);
+    }
+
+    // Get the actual backend instances
+    const sourceBackendInstance = (sourceTaskService as any).currentBackend;
+    const targetBackendInstance = (targetTaskService as any).currentBackend;
+
     // Create migration utility
     const migrationUtils = new BackendMigrationUtils();
 
     try {
-      // Note: This is a placeholder - actual implementation needs backend instances
-      // For now, return a mock result to demonstrate the interface
-      const result = {
-        success: true,
+      // Perform actual migration
+      const result = await migrationUtils.migrateTasksBetweenBackends(
+        sourceBackendInstance,
+        targetBackendInstance,
+        {
+          preserveIds: true,
+          dryRun,
+          statusMapping: parsedStatusMapping,
+          rollbackOnFailure: true,
+          idConflictStrategy,
+          createBackup,
+        }
+      );
+
+      // Transform result to match CLI interface
+      const cliResult = {
+        success: result.success,
         summary: {
-          migrated: 0,
-          skipped: 0,
-          total: 0,
-          errors: 0,
+          migrated: result.migratedCount,
+          skipped: result.skippedCount,
+          total: result.migratedCount + result.skippedCount,
+          errors: result.errors.length,
         },
-        conflicts: [],
-        backupPath: undefined,
+        conflicts: [], // TODO: Add conflict details from result
+        backupPath: result.backupPath,
       };
 
       if (json) {
-        return result;
+        return cliResult;
       }
 
       // Format human-readable output
-      log.info(`\n✅ Migration ${dryRun ? "simulation" : "completed"} successfully!`);
-      log.info(`📊 Summary:`);
-      log.info(`   • Tasks migrated: ${result.summary.migrated}`);
-      log.info(`   • Tasks skipped: ${result.summary.skipped}`);
-      log.info(`   • Total processed: ${result.summary.total}`);
+      log.cli(`\n✅ Migration ${dryRun ? "simulation" : "completed"} successfully!`);
+      log.cli(`📊 Summary:`);
+      log.cli(`   • Tasks migrated: ${cliResult.summary.migrated}`);
+      log.cli(`   • Tasks skipped: ${cliResult.summary.skipped}`);
+      log.cli(`   • Total processed: ${cliResult.summary.total}`);
       
-      if (result.summary.errors > 0) {
-        log.warn(`   • Errors: ${result.summary.errors}`);
+      if (cliResult.summary.errors > 0) {
+        log.cliWarn(`   • Errors: ${cliResult.summary.errors}`);
       }
 
-      if (result.conflicts && result.conflicts.length > 0) {
-        log.warn(`\n⚠️  ID Conflicts detected:`);
-        result.conflicts.forEach(conflict => {
-          log.warn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
+      if (cliResult.conflicts && cliResult.conflicts.length > 0) {
+        log.cliWarn(`\n⚠️  ID Conflicts detected:`);
+        cliResult.conflicts.forEach(conflict => {
+          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
         });
       }
 
-      if (result.backupPath) {
-        log.info(`\n💾 Backup created: ${result.backupPath}`);
+      if (cliResult.backupPath) {
+        log.cli(`\n💾 Backup created: ${cliResult.backupPath}`);
       }
 
-      return result;
+      return cliResult;
     } catch (error) {
       throw new ValidationError(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
     }
