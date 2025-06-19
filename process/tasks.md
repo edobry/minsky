@@ -290,4 +290,4 @@
 
 - [ ] Add --body-path Option and Required Title/Body to Session PR Command [#150](process/tasks/150-add-body-path-option-and-required-title-body-to-session-pr-command.md)
 
-- [ ] Fix Task Create Command Content Truncation Issue [#151](process/tasks/151-fix-task-create-command-content-truncation-issue.md)
+- [+] Fix Task Create Command Content Truncation Issue [#151](process/tasks/151-fix-task-create-command-content-truncation-issue.md)
