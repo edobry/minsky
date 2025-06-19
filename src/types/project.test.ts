@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { ProjectContext } from "./project";
 import {
   validateRepositoryPath,
   createProjectContext,
