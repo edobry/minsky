@@ -275,3 +275,5 @@
 - [ ] Import Existing GitHub Issues Under Minsky Management [#140](process/tasks/140-import-existing-github-issues-under-minsky-management.md)
 
 - [ ] Implement Repository Configuration System [#141](process/tasks/141-implement-repository-configuration-system.md)
+
+- [ ] Implement Backend Migration Utility [#142](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#138/process/tasks/142-implement-backend-migration-utility.md)
