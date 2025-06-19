@@ -4,20 +4,15 @@
  */
 import { normalizeRepoName } from "./repo-utils.js";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import type { RepositoryUri } from "./uri-utils.js";
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
-import { existsSync } from "fs";
 
 /**
  * Repository backend types supported by the system.
  */
-export enum RepositoryBackendType {
-  LOCAL = "local",
-  REMOTE = "remote",
-  GITHUB = "github",
-}
+export enum RepositoryBackendType {}
+// Enum values removed as they are unused
 
 /**
  * Repository resolution options.
@@ -242,194 +237,194 @@ export async function createRepositoryBackend(
   config: RepositoryConfig
 ): Promise<RepositoryBackend> {
   switch (config.type) {
-  case RepositoryBackendType.LOCAL: {
-    const { LocalGitBackend } = await import("./localGitBackend.js");
-    return new LocalGitBackend(config);
-  }
-  case RepositoryBackendType.REMOTE: {
-    const { RemoteGitBackend } = await import("./remoteGitBackend.js");
-    return new RemoteGitBackend(config);
-  }
-  case RepositoryBackendType.GITHUB: {
-    const { GitService } = await import("./git.js");
-    const gitService = new GitService();
+    case RepositoryBackendType.LOCAL: {
+      const { LocalGitBackend } = await import("./localGitBackend.js");
+      return new LocalGitBackend(config);
+    }
+    case RepositoryBackendType.REMOTE: {
+      const { RemoteGitBackend } = await import("./remoteGitBackend.js");
+      return new RemoteGitBackend(config);
+    }
+    case RepositoryBackendType.GITHUB: {
+      const { GitService } = await import("./git.js");
+      const gitService = new GitService();
 
-    // Create an adapter using GitService that conforms to RepositoryBackend interface
-    return {
-      clone: async (session: string): Promise<CloneResult> => {
-        return await gitService.clone({
-          repoUrl: config.url || "",
-          session,
-          github: {
-            token: (config as GitHubConfig).token,
+      // Create an adapter using GitService that conforms to RepositoryBackend interface
+      return {
+        clone: async (session: string): Promise<CloneResult> => {
+          return await gitService.clone({
+            repoUrl: config.url || "",
+            session,
+            github: {
+              token: (config as GitHubConfig).token,
+              owner: (config as GitHubConfig).owner,
+              repo: (config as GitHubConfig).repo,
+            },
+          });
+        },
+
+        getStatus: async (session?: string): Promise<RepositoryStatus> => {
+          // If no session is provided, work with the most recent session
+          if (!session) {
+            const sessionDb = new (await import("./session.js")).SessionDB();
+            const sessions = await sessionDb.listSessions();
+            const repoName = normalizeRepoName(config.url || "");
+            const repoSession = sessions.find((s) => s.repoName === repoName);
+            if (!repoSession) {
+              throw new Error("No session found for this repository");
+            }
+            session = repoSession.session;
+          }
+
+          const repoName = normalizeRepoName(config.url || "");
+          const workdir = gitService.getSessionWorkdir(repoName, session);
+
+          const gitStatus = await gitService.getStatus(workdir);
+
+          // Get additional status info directly via Git commands
+          const { stdout: branchOutput } = await (
+            await import("util")
+          ).promisify((await import("child_process")).exec)(
+            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+          );
+
+          const branch = branchOutput.trim();
+          return {
+            clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
+            changes: [
+              ...gitStatus.modified.map((file) => `M ${file}`),
+              ...gitStatus.untracked.map((file) => `?? ${file}`),
+              ...gitStatus.deleted.map((file) => `D ${file}`),
+            ],
+            branch,
+            // Add other required fields from RepositoryStatus
+            modifiedFiles: [
+              ...gitStatus.modified.map((file) => ({ status: "M", file })),
+              ...gitStatus.untracked.map((file) => ({ status: "??", file })),
+              ...gitStatus.deleted.map((file) => ({ status: "D", file })),
+            ],
+            dirty: gitStatus.modified.length > 0 || gitStatus.untracked.length > 0,
+          };
+        },
+
+        getPath: async (session?: string): Promise<string> => {
+          // If no session is provided, work with the most recent session
+          if (!session) {
+            const sessionDb = new (await import("./session.js")).SessionDB();
+            const sessions = await sessionDb.listSessions();
+            const repoName = normalizeRepoName(config.url || "");
+            const repoSession = sessions.find((s) => s.repoName === repoName);
+            if (!repoSession) {
+              throw new Error("No session found for this repository");
+            }
+            session = repoSession.session;
+          }
+
+          const repoName = normalizeRepoName(config.url || "");
+          return gitService.getSessionWorkdir(repoName, session);
+        },
+
+        validate: async (): Promise<ValidationResult> => {
+          // Basic validation of the GitHub configuration
+          if (!config.url) {
+            return {
+              valid: false,
+              issues: ["Repository URL is required"],
+              success: false,
+              message: "Repository URL is required",
+            };
+          }
+
+          return {
+            valid: true,
+            success: true,
+            message: "GitHub configuration is valid",
+          };
+        },
+
+        push: async (branch?: string): Promise<void> => {
+          // Find an existing session for this repository
+          const sessionDb = new (await import("./session.js")).SessionDB();
+          const sessions = await sessionDb.listSessions();
+          const repoName = normalizeRepoName(config.url || "");
+          const repoSession = sessions.find((s) => s.repoName === repoName);
+
+          if (!repoSession) {
+            throw new Error("No session found for this repository");
+          }
+
+          const session = repoSession.session;
+          const workdir = gitService.getSessionWorkdir(repoName, session);
+
+          await gitService.push({
+            session,
+            repoPath: workdir,
+          });
+        },
+
+        pull: async (branch?: string): Promise<void> => {
+          // Find an existing session for this repository
+          const sessionDb = new (await import("./session.js")).SessionDB();
+          const sessions = await sessionDb.listSessions();
+          const repoName = normalizeRepoName(config.url || "");
+          const repoSession = sessions.find((s) => s.repoName === repoName);
+
+          if (!repoSession) {
+            throw new Error("No session found for this repository");
+          }
+
+          const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
+          await gitService.pullLatest(workdir);
+        },
+
+        branch: async (session: string, name: string): Promise<BranchResult> => {
+          const repoName = normalizeRepoName(config.url || "");
+          const workdir = gitService.getSessionWorkdir(repoName, session);
+
+          // Execute branch creation via Git command
+          await (await import("util")).promisify((await import("child_process")).exec)(
+            `git -C ${workdir} checkout -b ${name}`
+          );
+
+          return {
+            workdir,
+            branch: name,
+          };
+        },
+
+        checkout: async (branch: string): Promise<void> => {
+          // Find an existing session for this repository
+          const sessionDb = new (await import("./session.js")).SessionDB();
+          const sessions = await sessionDb.listSessions();
+          const repoName = normalizeRepoName(config.url || "");
+          const repoSession = sessions.find((s) => s.repoName === repoName);
+
+          if (!repoSession) {
+            throw new Error("No session found for this repository");
+          }
+
+          const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
+
+          // Execute checkout via Git command
+          await (await import("util")).promisify((await import("child_process")).exec)(
+            `git -C ${workdir} checkout ${branch}`
+          );
+        },
+
+        getConfig: (): RepositoryConfig => {
+          return {
+            type: RepositoryBackendType.GITHUB,
+            url: config.url,
             owner: (config as GitHubConfig).owner,
             repo: (config as GitHubConfig).repo,
-          },
-        });
-      },
-
-      getStatus: async (session?: string): Promise<RepositoryStatus> => {
-        // If no session is provided, work with the most recent session
-        if (!session) {
-          const sessionDb = new (await import("./session.js")).SessionDB();
-          const sessions = await sessionDb.listSessions();
-          const repoName = normalizeRepoName(config.url || "");
-          const repoSession = sessions.find((s) => s.repoName === repoName);
-          if (!repoSession) {
-            throw new Error("No session found for this repository");
-          }
-          session = repoSession.session;
-        }
-
-        const repoName = normalizeRepoName(config.url || "");
-        const workdir = gitService.getSessionWorkdir(repoName, session);
-
-        const gitStatus = await gitService.getStatus(workdir);
-
-        // Get additional status info directly via Git commands
-        const { stdout: branchOutput } = await (
-          await import("util")
-        ).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-        );
-
-        const branch = branchOutput.trim();
-        return {
-          clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
-          changes: [
-            ...gitStatus.modified.map((file) => `M ${file}`),
-            ...gitStatus.untracked.map((file) => `?? ${file}`),
-            ...gitStatus.deleted.map((file) => `D ${file}`),
-          ],
-          branch,
-          // Add other required fields from RepositoryStatus
-          modifiedFiles: [
-            ...gitStatus.modified.map((file) => ({ status: "M", file })),
-            ...gitStatus.untracked.map((file) => ({ status: "??", file })),
-            ...gitStatus.deleted.map((file) => ({ status: "D", file })),
-          ],
-          dirty: gitStatus.modified.length > 0 || gitStatus.untracked.length > 0,
-        };
-      },
-
-      getPath: async (session?: string): Promise<string> => {
-        // If no session is provided, work with the most recent session
-        if (!session) {
-          const sessionDb = new (await import("./session.js")).SessionDB();
-          const sessions = await sessionDb.listSessions();
-          const repoName = normalizeRepoName(config.url || "");
-          const repoSession = sessions.find((s) => s.repoName === repoName);
-          if (!repoSession) {
-            throw new Error("No session found for this repository");
-          }
-          session = repoSession.session;
-        }
-
-        const repoName = normalizeRepoName(config.url || "");
-        return gitService.getSessionWorkdir(repoName, session);
-      },
-
-      validate: async (): Promise<ValidationResult> => {
-        // Basic validation of the GitHub configuration
-        if (!config.url) {
-          return {
-            valid: false,
-            issues: ["Repository URL is required"],
-            success: false,
-            message: "Repository URL is required",
-          };
-        }
-
-        return {
-          valid: true,
-          success: true,
-          message: "GitHub configuration is valid",
-        };
-      },
-
-      push: async (branch?: string): Promise<void> => {
-        // Find an existing session for this repository
-        const sessionDb = new (await import("./session.js")).SessionDB();
-        const sessions = await sessionDb.listSessions();
-        const repoName = normalizeRepoName(config.url || "");
-        const repoSession = sessions.find((s) => s.repoName === repoName);
-
-        if (!repoSession) {
-          throw new Error("No session found for this repository");
-        }
-
-        const session = repoSession.session;
-        const workdir = gitService.getSessionWorkdir(repoName, session);
-
-        await gitService.push({
-          session,
-          repoPath: workdir,
-        });
-      },
-
-      pull: async (branch?: string): Promise<void> => {
-        // Find an existing session for this repository
-        const sessionDb = new (await import("./session.js")).SessionDB();
-        const sessions = await sessionDb.listSessions();
-        const repoName = normalizeRepoName(config.url || "");
-        const repoSession = sessions.find((s) => s.repoName === repoName);
-
-        if (!repoSession) {
-          throw new Error("No session found for this repository");
-        }
-
-        const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
-        await gitService.pullLatest(workdir);
-      },
-
-      branch: async (session: string, name: string): Promise<BranchResult> => {
-        const repoName = normalizeRepoName(config.url || "");
-        const workdir = gitService.getSessionWorkdir(repoName, session);
-
-        // Execute branch creation via Git command
-        await (await import("util")).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} checkout -b ${name}`
-        );
-
-        return {
-          workdir,
-          branch: name,
-        };
-      },
-
-      checkout: async (branch: string): Promise<void> => {
-        // Find an existing session for this repository
-        const sessionDb = new (await import("./session.js")).SessionDB();
-        const sessions = await sessionDb.listSessions();
-        const repoName = normalizeRepoName(config.url || "");
-        const repoSession = sessions.find((s) => s.repoName === repoName);
-
-        if (!repoSession) {
-          throw new Error("No session found for this repository");
-        }
-
-        const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
-
-        // Execute checkout via Git command
-        await (await import("util")).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} checkout ${branch}`
-        );
-      },
-
-      getConfig: (): RepositoryConfig => {
-        return {
-          type: RepositoryBackendType.GITHUB,
-          url: config.url,
-          owner: (config as GitHubConfig).owner,
-          repo: (config as GitHubConfig).repo,
-          token: (config as GitHubConfig).token,
-        } as RepositoryConfig;
-      },
-    };
-  }
-  default: {
-    throw new Error(`Unsupported repository backend type: ${config.type}`);
-  }
+            token: (config as GitHubConfig).token,
+          } as RepositoryConfig;
+        },
+      };
+    }
+    default: {
+      throw new Error(`Unsupported repository backend type: ${config.type}`);
+    }
   }
 }
 

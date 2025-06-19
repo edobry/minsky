@@ -8,9 +8,9 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
+      getSession: createMock((_name) =>
         Promise.resolve({
-          session: name,
+          session: _name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#123",
@@ -35,7 +35,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -47,10 +47,10 @@ describe("Session Approve", () => {
     };
 
     const mockTaskService = {
-      setTaskStatus: createMock((id, status) => Promise.resolve()),
-      getBackendForTask: createMock((id) =>
+      setTaskStatus: createMock((_id, _status) => Promise.resolve()),
+      getBackendForTask: createMock((_id) =>
         Promise.resolve({
-          setTaskMetadata: createMock((id, metadata) => Promise.resolve()),
+          setTaskMetadata: createMock((_id, _metadata) => Promise.resolve()),
         })
       ),
     };

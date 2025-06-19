@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, beforeEach, expect } from "bun:test";
 import { join } from "path";
 import {
   isSessionRepository,
@@ -9,13 +9,9 @@ import {
   createWorkspaceUtils,
   type WorkspaceUtilsInterface,
 } from "./workspace";
-import type { SessionProviderInterface } from "./session";
+import type { SessionProviderInterface, SessionRecord } from "./session";
 import { promises as fs } from "fs";
-import type { SessionRecord } from "./session";
-import { execAsync } from "../utils/exec.js";
-import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { createMock } from "../utils/test-utils/mocking.js";
-import * as processUtils from "../utils/process.js";
 
 // For Bun testing, use mock for function mocks only
 const mockExecOutput = {
@@ -29,22 +25,22 @@ function createMockFn<T extends (...args: any[]) => any>(
 ): T & {
   calls: any[];
   mockResolvedValue?: (v: any) => void;
-  mockImplementation?: (fn: T) => void;
+  mockImplementation?: (_fn: T) => void;
   _impl?: T;
   _resolvedValue?: any;
 } {
-  const fn: any = (...args: any[]) => {
-    fn.calls.push(args);
-    if (typeof fn._impl === "function") return fn._impl(...args);
+  const fn: any = (..._args: any[]) => {
+    fn.calls.push(_args);
+    if (typeof fn._impl === "function") return fn._impl(..._args);
     if (fn._resolvedValue !== undefined) return Promise.resolve(fn._resolvedValue);
     return undefined;
   };
   fn.calls = [];
-  fn.mockResolvedValue = (v: any) => {
-    fn._resolvedValue = v;
+  fn.mockResolvedValue = (_v: any) => {
+    fn._resolvedValue = _v;
   };
-  fn.mockImplementation = (f: T) => {
-    fn._impl = f;
+  fn.mockImplementation = (_f: T) => {
+    fn._impl = _f;
   };
   fn._impl = impl;
   fn._resolvedValue = undefined;
@@ -52,7 +48,7 @@ function createMockFn<T extends (...args: any[]) => any>(
 }
 
 // Mock the exec function
-const mockExecAsync = createMockFn((...args: any[]) => {
+const mockExecAsync = createMockFn((..._args: any[]) => {
   const p: any = Promise.resolve({
     stdout: mockExecOutput.stdout,
     stderr: mockExecOutput.stderr,

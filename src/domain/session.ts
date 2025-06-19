@@ -2,8 +2,6 @@ import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
-import { existsSync as syncExists, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -13,33 +11,19 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
-  SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
+import { type GitServiceInterface } from "./git.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
-  isSessionWorkspace,
   type WorkspaceUtilsInterface,
   getCurrentSession,
-  isSessionRepository,
-  getSessionFromWorkspace,
   getCurrentSessionContext,
 } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
-import { normalizeTaskId } from "./tasks/utils.js";
 import * as WorkspaceUtils from "./workspace.js";
-import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import {
-  preparePrFromParams,
-  createPullRequestFromParams,
-  mergePrFromParams,
-  createGitService,
-} from "./git.js";
-import { getCurrentWorkingDirectory } from "../utils/process.js";
-
-// Remove locally defined interfaces since we're now importing them
+import { createGitService } from "./git.js";
 
 export interface SessionRecord {
   session: string;
@@ -79,15 +63,6 @@ export interface Session {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
-}
-
-// Interface for GitService.clone result
-interface CloneResult {
-  workdir: string;
-  session: string;
-  repoPath?: string; // For backward compatibility
-  success?: boolean; // For backward compatibility
-  message?: string; // For backward compatibility
 }
 
 /**
@@ -135,11 +110,6 @@ export interface SessionProviderInterface {
    */
   getSessionWorkdir(sessionName: string): Promise<string>;
 }
-
-/**
- * In-memory cache of session database
- */
-const sessionDbCache: Session[] | null = null;
 
 /**
  * Session database operations
@@ -1303,7 +1273,7 @@ export async function sessionReviewFromParams(
   // If session is still not set, try to detect from current directory
   if (!sessionNameToUse) {
     try {
-      const currentDir = getCurrentWorkingDirectory();
+      const currentDir = process.cwd();
       const sessionContext = await deps.getCurrentSession(currentDir);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
@@ -1312,7 +1282,7 @@ export async function sessionReviewFromParams(
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
         error: error instanceof Error ? error.message : String(error),
-        currentDir: getCurrentWorkingDirectory(),
+        currentDir: process.cwd(),
       });
     }
   }

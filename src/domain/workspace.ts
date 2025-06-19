@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "./session";
