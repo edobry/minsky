@@ -227,16 +227,27 @@ const tasksStatusSetRegistration = {
         throw new ValidationError("Status parameter is required in non-interactive mode");
       }
 
-      // Prompt for status selection
+      // Create status options with current status first
+      const allStatusOptions = [
+        { value: TASK_STATUS.TODO, label: "TODO" },
+        { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
+        { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
+        { value: TASK_STATUS.DONE, label: "DONE" },
+        { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+      ];
+
+      // Reorder options to put current status first
+      const currentStatusOption = allStatusOptions.find(option => option.value === previousStatus);
+      const otherStatusOptions = allStatusOptions.filter(option => option.value !== previousStatus);
+      
+      const statusOptions = currentStatusOption 
+        ? [currentStatusOption, ...otherStatusOptions]
+        : allStatusOptions;
+
+      // Prompt for status selection with current status highlighted in message
       const selectedStatus = await select({
-        message: "Select a status:",
-        options: [
-          { value: TASK_STATUS.TODO, label: "TODO" },
-          { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-          { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-          { value: TASK_STATUS.DONE, label: "DONE" },
-          { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-        ],
+        message: `Select a status (current: ${previousStatus}):`,
+        options: statusOptions,
       });
 
       // Handle cancellation
