@@ -1,0 +1,53 @@
+feat(#148): fix CLI Bridge direct usage warnings by adding factory context
+
+## Problem Statement
+
+The Minsky CLI was generating 27+ warning messages during initialization:
+- "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
+- Similar warnings for generateCommand and generateCategoryCommand methods
+- These warnings appeared even when using the recommended CLI Command Factory pattern
+
+## Root Cause Analysis
+
+The CLI Command Factory internally calls CLI Bridge methods, which triggered "direct usage" warnings even when following the recommended pattern. The warning system couldn't distinguish between:
+1. Direct usage (should warn)
+2. Factory-mediated usage (should not warn)
+
+## Solution Implementation
+
+### 1. Enhanced CLI Bridge Methods
+- Added optional context parameter: `context?: { viaFactory?: boolean }`
+- Updated method signatures:
+  - `generateCommand(commandId: string, context?: { viaFactory?: boolean })`
+  - `generateCategoryCommand(category: string, context?: { viaFactory?: boolean })`
+  - `generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean })`
+
+### 2. Updated Warning Logic
+- Suppress warnings when `context?.viaFactory` is true
+- Preserve warnings for actual direct usage scenarios
+- Maintain backward compatibility with existing direct usage
+
+### 3. Modified CLI Command Factory
+- Updated all CLI Bridge method calls to pass `{ viaFactory: true }` context
+- Ensures factory-mediated usage is properly identified
+- Maintains clean separation between direct and factory usage
+
+## Testing
+
+Created and executed test script confirming:
+- CLI initialization produces no warnings
+- All functionality preserved
+- Factory pattern works correctly
+- Direct usage still generates appropriate warnings
+
+## Impact
+
+- **Eliminates 27+ warning messages** during CLI initialization
+- **Preserves security model** - warnings still appear for actual direct usage
+- **Maintains backward compatibility** - existing code continues to work
+- **Improves developer experience** - clean CLI startup without noise
+
+## Files Modified
+
+- `src/adapters/shared/bridges/cli-bridge.ts` - Added context parameter and warning logic
+- `src/adapters/cli/cli-command-factory.ts` - Updated to pass factory context
