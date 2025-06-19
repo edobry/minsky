@@ -4,7 +4,7 @@
  */
 
 // Import base errors
-import { MinskyError, ensureError } from "./base-errors.js";
+import { MinskyError, ensureError } from "./base-errors";
 
 // Re-export base errors
 export { MinskyError, ensureError };
@@ -96,7 +96,7 @@ import {
   createNetworkError,
   isNetworkError,
   formatNetworkErrorMessage,
-} from "./network-errors.js";
+} from "./network-errors";
 
 // Re-export the network error classes and functions
 export {

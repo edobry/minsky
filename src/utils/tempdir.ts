@@ -28,21 +28,22 @@ export function createRobustTempDir(
       }
       const tempDir = fs.mkdtempSync(path.join(base, prefix));
       if (process.env.DEBUG_TEST_UTILS) {
-        log.debug(`[DEBUG] createRobustTempDir: ${tempDir}`);
+        log.debug(`createRobustTempDir: ${tempDir}`);
       }
       if (!fs.existsSync(tempDir)) {
         throw new Error(`[UTIL FAILURE] Temp dir was not created: ${tempDir}`);
       }
       return tempDir;
     } catch (err) {
-      log.error(`[ERROR] Failed to create temp dir at ${base} with prefix ${prefix}:`, err as Error);
+      log.error(
+        `Failed to create temp dir at ${base} with prefix ${prefix}:`,
+        err instanceof Error ? err : new Error(String(err))
+      );
       // Try next location
     }
   }
   if (opts?.softFail) {
-    log.warn(
-      `[WARN] All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`
-    );
+    log.warn(`All temp dir creation attempts failed for prefix '${prefix}'. Returning null.`);
     return null;
   }
   throw new Error(`All temp dir creation attempts failed for prefix '${prefix}'.`);

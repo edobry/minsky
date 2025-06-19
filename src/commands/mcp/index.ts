@@ -1,25 +1,25 @@
 import { Command } from "commander";
-import { MinskyMCPServer } from "../../mcp/server.js";
-import { CommandMapper } from "../../mcp/command-mapper.js";
-import { log } from "../../utils/logger.js";
+import { MinskyMCPServer } from "../../mcp/server";
+import { CommandMapper } from "../../mcp/command-mapper";
+import { log } from "../../utils/logger";
 import {
   isNetworkError,
   createNetworkError,
   formatNetworkErrorMessage,
 } from "../../errors/network-errors.js";
-import { SharedErrorHandler } from "../../adapters/shared/error-handling.js";
-import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher.js";
-import { createProjectContext } from "../../types/project.js";
+import { SharedErrorHandler } from "../../adapters/shared/error-handling";
+import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
+import { createProjectContext } from "../../types/project";
 import fs from "fs";
 import path from "path";
 
 // Import adapter-based tool registrations
-import { registerSessionTools } from "../../adapters/mcp/session.js";
-import { registerTaskTools } from "../../adapters/mcp/tasks.js";
-import { registerGitTools } from "../../adapters/mcp/git.js";
-import { registerInitTools } from "../../adapters/mcp/init.js";
-import { registerRulesTools } from "../../adapters/mcp/rules.js";
-import { registerDebugTools } from "../../adapters/mcp/debug.js";
+import { registerSessionTools } from "../../adapters/mcp/session";
+import { registerTaskTools } from "../../adapters/mcp/tasks";
+import { registerGitTools } from "../../adapters/mcp/git";
+import { registerInitTools } from "../../adapters/mcp/init";
+import { registerRulesTools } from "../../adapters/mcp/rules";
+import { registerDebugTools } from "../../adapters/mcp/debug";
 
 /**
  * Create the MCP command
@@ -34,10 +34,9 @@ export function createMCPCommand(): Command {
   startCommand.description("Start the MCP server");
   startCommand
     .option("--stdio", "Use stdio transport (default)")
-    .option("--sse", "Use SSE transport")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
-    .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
+    .option("-p, --port <port>", "Port for HTTP Stream server", "8080")
+    .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
@@ -47,10 +46,8 @@ export function createMCPCommand(): Command {
     .action(async (options) => {
       try {
         // Determine transport type based on options
-        let transportType: "stdio" | "sse" | "httpStream" = "stdio";
-        if (options.sse) {
-          transportType = "sse";
-        } else if (options.httpStream) {
+        let transportType: "stdio" | "httpStream" = "stdio";
+        if (options.httpStream) {
           transportType = "httpStream";
         }
 
@@ -100,12 +97,8 @@ export function createMCPCommand(): Command {
           version: "1.0.0", // TODO: Import from package.json
           transportType,
           projectContext,
-          sse: {
-            endpoint: "/sse",
-            port,
-          },
           httpStream: {
-            endpoint: "/stream",
+            endpoint: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
             port,
           },
         });
@@ -183,7 +176,7 @@ export function createMCPCommand(): Command {
       } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: options.sse ? "sse" : options.httpStream ? "httpStream" : "stdio",
+          transportType: options.httpStream ? "httpStream" : "stdio",
           port: options.port,
           host: options.host,
           withInspector: options.withInspector || false,

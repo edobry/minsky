@@ -125,11 +125,11 @@ function promptForCommand() {
 
         console.log("Sending request:");
         console.log(JSON.stringify(jsonObject, null, 2));
-        mcp.stdin.write(JSON.stringify(jsonObject) + "\n");
+        mcp.stdin.write(`${JSON.stringify(jsonObject)  }\n`);
 
         // Log the normalized method name format (for debugging)
         if (DEBUG && jsonObject.method) {
-          console.log(`[DEBUG] Method format examples:`);
+          console.log("[DEBUG] Method format examples:");
           console.log(`- Original: ${jsonObject.method}`);
           console.log(`- Normalized: ${jsonObject.method.replace(/[^a-zA-Z0-9_.]/g, "_")}`);
           console.log(`- Underscore: ${jsonObject.method.replace(/\./g, "_")}`);
@@ -184,7 +184,7 @@ function listTools() {
   };
 
   console.log("Requesting method list...");
-  mcp.stdin.write(JSON.stringify(request) + "\n");
+  mcp.stdin.write(`${JSON.stringify(request)  }\n`);
 
   // Also try with underscore format as a fallback
   setTimeout(() => {
@@ -197,7 +197,7 @@ function listTools() {
 
     if (DEBUG) {
       console.log("Trying fallback underscore format...");
-      mcp.stdin.write(JSON.stringify(fallbackRequest) + "\n");
+      mcp.stdin.write(`${JSON.stringify(fallbackRequest)  }\n`);
     }
 
     // Continue with prompt regardless

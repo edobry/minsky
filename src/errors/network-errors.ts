@@ -5,7 +5,7 @@
  * particularly for the MCP server startup.
  */
 
-import { MinskyError } from "./base-errors.js";
+import { MinskyError } from "./base-errors";
 
 /**
  * Error class for network-related errors

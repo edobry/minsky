@@ -1,0 +1,141 @@
+---
+name: Architectural Bypass Prevention
+description: Use when designing modules, interfaces, or architectures to prevent bypass patterns and ensure proper encapsulation
+---
+# Architectural Bypass Prevention
+
+Guidelines for designing modules, interfaces, and architectures to prevent bypass patterns that can lead to subtle bugs and regressions.
+
+## Core Principles
+
+- **Encapsulation**: Make implementation details private and expose only controlled interfaces
+- **Fail Fast**: Require explicit initialization and provide clear error messages for misconfiguration
+- **Make Right Way Easy**: Provide simple, discoverable APIs for correct usage
+- **Make Wrong Way Hard**: Use type constraints, private access, and warnings to prevent incorrect usage
+- **Development Feedback**: Add warnings and validation in development mode to guide proper usage
+
+## Implementation Patterns
+
+### 1. Private Implementation with Controlled Access
+
+```typescript
+// AVOID - Direct access to implementation
+export const implementation = new Implementation();
+
+// PREFER - Private implementation, controlled access
+const implementation = new Implementation(); // Not exported
+
+class ControlledFactory {
+  createResource(): Resource {
+    return implementation.create(); // Controlled access
+  }
+}
+```
+
+### 2. Initialization Guards
+
+```typescript
+// PREFER - Explicit initialization requirement
+class Service {
+  private initialized = false;
+
+  initialize(config: Config): void {
+    this.initialized = true;
+  }
+
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error("Service must be initialized before use. Call initialize() first.");
+    }
+  }
+
+  doWork(): void {
+    this.ensureInitialized();
+    // ... implementation
+  }
+}
+```
+
+### 3. Development Warnings
+
+```typescript
+// PREFER - Warn about problematic patterns in development
+function lowLevelMethod(): void {
+  if (process.env.NODE_ENV !== "production") {
+    log.warn("Direct usage detected. Consider using HighLevelFactory instead.");
+  }
+  // ... implementation
+}
+```
+
+### 4. Type-Level Constraints
+
+```typescript
+// PREFER - Use types to prevent incorrect usage
+type ValidId = "valid.id.1" | "valid.id.2"; // Restrict to known values
+
+class TypeSafeFactory {
+  create(id: ValidId): Resource {
+    // Compile-time validation
+    // ... implementation
+  }
+}
+```
+
+### 5. Facade Pattern
+
+```typescript
+// PREFER - Simple interface hiding complexity
+export function initializeSystem(config: Config): void {
+  // All necessary setup in correct order
+  factory.initialize(config);
+  setupCustomizations();
+  registerComponents();
+}
+
+// AVOID - Manual setup prone to errors
+export function manualSetup(): void {
+  // Easy to forget steps or do in wrong order
+}
+```
+
+## ESLint Integration
+
+Add restrictions to prevent direct access to implementation details:
+
+```javascript
+"no-restricted-imports": ["error", {
+  patterns: [{
+    group: ["**/internal-module"],
+    message: "Use PublicFactory instead of direct internal module access"
+  }]
+}]
+```
+
+## Testing Bypass Prevention
+
+```typescript
+// Test that proper interfaces are used
+test("should use factory instead of direct implementation", () => {
+  expect(() => {
+    require("../internal-implementation").directAccess;
+  }).toThrow();
+});
+
+// Test that customizations are applied
+test("should apply customizations through factory", () => {
+  const result = factory.createWithCustomizations();
+  expect(result).toHaveExpectedCustomizations();
+});
+```
+
+## Rationale
+
+Bypass patterns occur when:
+
+- Implementation details are directly accessible
+- Setup steps can be skipped or done incorrectly
+- No feedback is provided for incorrect usage
+- Type system doesn't prevent invalid operations
+
+These patterns prevent such issues by making correct usage the path of least resistance.

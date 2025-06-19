@@ -7,7 +7,7 @@
 
 import { Command, Option } from "commander";
 import { z } from "zod";
-import type { CommandParameterDefinition } from "../command-registry.js";
+import type { CommandParameterDefinition } from "../command-registry";
 
 /**
  * Configuration options for parameter mapping
@@ -55,6 +55,12 @@ export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
   mappings
     .filter((mapping) => mapping.options.asArgument)
+    .sort((a, b) => {
+      // Required arguments come first
+      if (a.paramDef.required && !b.paramDef.required) return -1;
+      if (!a.paramDef.required && b.paramDef.required) return 1;
+      return 0;
+    })
     .forEach((mapping) => {
       // Get schema type for proper argument definition
       const schemaType = getZodSchemaType(mapping.paramDef.schema);

@@ -2,8 +2,6 @@ import { join } from "path";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
-import { existsSync as syncExists, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -13,33 +11,19 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
-  SessionApproveParams,
   SessionPrParams,
 } from "../schemas/session.js";
-import { GitService, type BranchOptions, type GitServiceInterface } from "./git.js";
+import { type GitServiceInterface } from "./git.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
-  isSessionWorkspace,
   type WorkspaceUtilsInterface,
   getCurrentSession,
-  isSessionRepository,
-  getSessionFromWorkspace,
   getCurrentSessionContext,
 } from "./workspace.js";
 import { resolveRepoPath } from "./repo-utils.js";
-import { normalizeTaskId } from "./tasks/utils.js";
 import * as WorkspaceUtils from "./workspace.js";
-import { sessionRecordSchema } from "../schemas/session.js"; // Verified path
 import { log } from "../utils/logger.js";
-import {
-  preparePrFromParams,
-  createPullRequestFromParams,
-  mergePrFromParams,
-  createGitService,
-} from "./git.js";
-import { getCurrentWorkingDirectory } from "../utils/process.js";
-
-// Remove locally defined interfaces since we're now importing them
+import { createGitService } from "./git.js";
 
 export interface SessionRecord {
   session: string;
@@ -79,15 +63,6 @@ export interface Session {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
-}
-
-// Interface for GitService.clone result
-interface CloneResult {
-  workdir: string;
-  session: string;
-  repoPath?: string; // For backward compatibility
-  success?: boolean; // For backward compatibility
-  message?: string; // For backward compatibility
 }
 
 /**
@@ -135,11 +110,6 @@ export interface SessionProviderInterface {
    */
   getSessionWorkdir(sessionName: string): Promise<string>;
 }
-
-/**
- * In-memory cache of session database
- */
-const sessionDbCache: Session[] | null = null;
 
 /**
  * Session database operations
@@ -1047,22 +1017,11 @@ export async function approveSessionFromParams(
   prBranch: string;
   taskId?: string;
 }> {
-  // Set up default dependencies if not provided
-  const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
-    gitService: depsInput?.gitService || createGitService(),
-    taskService:
-      depsInput?.taskService ||
-      new TaskService({
-        workspacePath: params.repo || process.cwd(),
-        backend: "markdown",
-      }),
-    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
-    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
-  };
-
   let sessionNameToUse = params.session;
   let taskId: string | undefined;
+
+  // First, get session record to determine the original repo path
+  const sessionDB = createSessionProvider();
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
@@ -1070,7 +1029,7 @@ export async function approveSessionFromParams(
     taskId = taskIdToUse;
 
     // Get session by task ID
-    const session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
+    const session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
         `No session found for task ${taskIdToUse}`,
@@ -1081,29 +1040,13 @@ export async function approveSessionFromParams(
     sessionNameToUse = session.session;
   }
 
-  // If session is still not set, try to detect it from repo path
-  if (!sessionNameToUse && params.repo) {
-    try {
-      const sessionContext = await deps.getCurrentSession(params.repo);
-      if (sessionContext) {
-        sessionNameToUse = sessionContext;
-      }
-    } catch (error) {
-      // Just log and continue - session detection is optional
-      log.debug("Failed to detect session from repo path", {
-        error: error instanceof Error ? error.message : String(error),
-        repoPath: params.repo,
-      });
-    }
-  }
-
   // Validate that we have a session to work with
   if (!sessionNameToUse) {
     throw new ValidationError("No session detected. Please provide a session name or task ID");
   }
 
   // Get the session record
-  const sessionRecord = await deps.sessionDB.getSession(sessionNameToUse);
+  const sessionRecord = await sessionDB.getSession(sessionNameToUse);
   if (!sessionRecord) {
     throw new ResourceNotFoundError(
       `Session "${sessionNameToUse}" not found`,
@@ -1111,6 +1054,23 @@ export async function approveSessionFromParams(
       sessionNameToUse
     );
   }
+
+  // BUG FIX: Use the original repo URL/path for task updates, not session workspace
+  const originalRepoPath = params.repo || sessionRecord.repoUrl || process.cwd();
+
+  // Set up default dependencies with the correct repo path
+  const deps = {
+    sessionDB: depsInput?.sessionDB || sessionDB,
+    gitService: depsInput?.gitService || createGitService(),
+    taskService:
+      depsInput?.taskService ||
+      new TaskService({
+        workspacePath: originalRepoPath,
+        backend: "markdown",
+      }),
+    workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
+    getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
+  };
 
   // If no taskId from params, use the one from session record
   if (!taskId && sessionRecord.taskId) {
@@ -1166,11 +1126,13 @@ export async function approveSessionFromParams(
     if (taskId && deps.taskService.setTaskStatus) {
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+        log.cli(`Updated task ${taskId} status to DONE`);
       } catch (error) {
-        // Don't fail the whole operation if task update fails
-        console.error(
-          `Warning: Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
-        );
+        // BUG FIX: Use proper logging instead of console.error and make error visible
+        const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
+        log.error(errorMsg, { taskId, error });
+        log.cliError(`Warning: ${errorMsg}`);
+        // Still don't fail the whole operation, but now errors are visible
       }
     }
 
@@ -1311,7 +1273,7 @@ export async function sessionReviewFromParams(
   // If session is still not set, try to detect from current directory
   if (!sessionNameToUse) {
     try {
-      const currentDir = getCurrentWorkingDirectory();
+      const currentDir = process.cwd();
       const sessionContext = await deps.getCurrentSession(currentDir);
       if (sessionContext) {
         sessionNameToUse = sessionContext;
@@ -1320,7 +1282,7 @@ export async function sessionReviewFromParams(
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
         error: error instanceof Error ? error.message : String(error),
-        currentDir: getCurrentWorkingDirectory(),
+        currentDir: process.cwd(),
       });
     }
   }

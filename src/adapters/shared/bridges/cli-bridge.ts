@@ -80,6 +80,11 @@ export interface CategoryCommandOptions {
  * Main CLI bridge class
  *
  * Handles conversion of shared commands to Commander.js commands
+ *
+ * ⚠️  WARNING: This class should not be used directly in most cases.
+ * Use the CLI Command Factory instead to ensure proper customizations are applied.
+ *
+ * @internal - This class is intended to be used through the CLI Command Factory
  */
 export class CliCommandBridge {
   private customizations: Map<string, CliCommandOptions> = new Map();
@@ -118,8 +123,18 @@ export class CliCommandBridge {
 
   /**
    * Generate a CLI command from a shared command definition
+   *
+   * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
+   * @internal
    */
   generateCommand(commandId: string): Command | null {
+    // Warn about direct usage in development
+    if (process.env.NODE_ENV !== "production") {
+      log.warn(
+        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
+      );
+    }
+
     const commandDef = sharedCommandRegistry.getCommand(commandId);
     if (!commandDef) {
       return null;
@@ -215,8 +230,18 @@ export class CliCommandBridge {
 
   /**
    * Generate CLI commands for all commands in a category
+   *
+   * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
+   * @internal
    */
   generateCategoryCommand(category: CommandCategory): Command | null {
+    // Warn about direct usage in development
+    if (process.env.NODE_ENV !== "production") {
+      log.warn(
+        `[CLI Bridge] Direct usage detected for category '${category}'. Consider using CLI Command Factory for proper customization support.`
+      );
+    }
+
     const commands = sharedCommandRegistry.getCommandsByCategory(category);
     if (commands.length === 0) {
       return null;
@@ -294,8 +319,18 @@ export class CliCommandBridge {
 
   /**
    * Generate CLI commands for all categories
+   *
+   * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
+   * @internal
    */
   generateAllCategoryCommands(program: Command): void {
+    // Warn about direct usage in development
+    if (process.env.NODE_ENV !== "production") {
+      log.warn(
+        "[CLI Bridge] Direct usage of generateAllCategoryCommands detected. Consider using CLI Command Factory for proper customization support."
+      );
+    }
+
     // Get unique categories from all commands
     const categories = new Set<CommandCategory>();
     sharedCommandRegistry.getAllCommands().forEach((cmd) => {

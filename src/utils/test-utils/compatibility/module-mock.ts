@@ -94,7 +94,7 @@ export function mockModule(
       try {
         // Use a dynamic import to get the actual module
         // This won't work with ESM in some environments, but is needed for proper Jest-like behavior
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
+         
         const originalModule = require(modulePath);
         originalModules.set(modulePath, originalModule);
       } catch (error) {

@@ -2,27 +2,21 @@
  * Test utilities for ensuring consistent test environment setup and cleanup.
  */
 import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "fs";
-import { join, resolve, dirname, basename } from "path";
-import { spawnSync } from "child_process";
-import { log } from "./logger";
-import type {
-  SpawnSyncOptions,
-  SpawnSyncReturns,
-  SpawnSyncOptionsWithStringEncoding,
-} from "child_process";
-import type { PathLike, WriteFileOptions } from "fs";
-import type { MakeDirectoryOptions, ObjectEncodingOptions } from "fs";
+import { join, dirname } from "path";
+import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
+import type { WriteFileOptions } from "fs";
+import { log } from "./logger.js";
 
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(path: string, options?: { recursive?: boolean }): void {
+export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
-  if (options?.recursive) {
+  if (_options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
       virtualFS.set(parent, { isDirectory: true });
@@ -37,11 +31,14 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void {
+export function mockRmSync(
+  path: string,
+  _options?: { recursive?: boolean; force?: boolean }
+): void {
   log.debug(`[MOCK] Removing ${path}`);
 
   // If recursive, remove all children first
-  if (options?.recursive) {
+  if (_options?.recursive) {
     const children = Array.from(virtualFS.keys()).filter((key) => key.startsWith(`${path}/`));
     for (const child of children) {
       virtualFS.delete(child);
@@ -51,7 +48,7 @@ export function mockRmSync(path: string, options?: { recursive?: boolean; force?
   virtualFS.delete(path);
 }
 
-export function mockWriteFileSync(path: string, data: string, options?: WriteFileOptions): void {
+export function mockWriteFileSync(path: string, data: string, _options?: WriteFileOptions): void {
   log.debug(`[MOCK] Writing to file ${path}`);
   virtualFS.set(path, { isDirectory: false, content: data });
 
@@ -62,7 +59,7 @@ export function mockWriteFileSync(path: string, data: string, options?: WriteFil
   }
 }
 
-export function mockReadFileSync(path: string, options?: { encoding?: BufferEncoding }): string {
+export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
   if (!file || file.isDirectory) {
@@ -83,21 +80,6 @@ type FS = {
 
 // Setup to use real or mock filesystem based on environment
 const useVirtualFS = true; // Set to true to use virtual filesystem
-const fsOps: FS = useVirtualFS
-  ? {
-    mkdirSync: mockMkdirSync,
-    existsSync: mockExistsSync,
-    rmSync: mockRmSync,
-    writeFileSync: mockWriteFileSync,
-    readFileSync: mockReadFileSync,
-  }
-  : {
-    mkdirSync,
-    existsSync,
-    rmSync,
-    writeFileSync,
-    readFileSync,
-  };
 
 // Interface for test environment setup
 export interface MinskyTestEnv {
@@ -118,10 +100,10 @@ export function createUniqueTestDir(prefix: string): string {
 /**
  * Creates a standard minsky test environment with proper directory structure.
  * Using hardcoded paths for tests to avoid filesystem issues.
- * @param baseDir The base test directory (ignored)
+ * @param _baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
-export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
+export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
   // This is stubbed for test purposes - we'll return fixed paths
   // that don't rely on filesystem operations
   const basePath = "/virtual/test-dir";
