@@ -169,7 +169,7 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -197,7 +197,7 @@ const tasksStatusSetRegistration = {
   name: "status set",
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
@@ -277,7 +277,7 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
