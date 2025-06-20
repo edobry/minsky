@@ -7,7 +7,7 @@ import { z } from "zod";
 import { log } from "../../utils/logger.js";
 import { resolveRepoPath } from "../repo-utils.js";
 import { resolveWorkspacePath } from "../workspace.js";
-import { createTaskService, TaskService } from "./taskService.js";
+import { createTaskService, createConfiguredTaskService, TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import fs from "fs/promises";
@@ -76,11 +76,11 @@ export async function listTasksFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
   try {
@@ -100,7 +100,7 @@ export async function listTasksFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = await deps.createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
