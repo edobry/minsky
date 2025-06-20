@@ -593,13 +593,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-          "minsky",
-          "git",
-          normalizedRepoName,
-          "sessions",
-          sessionName
-        );
+            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+            "minsky",
+            "git",
+            normalizedRepoName,
+            "sessions",
+            sessionName
+          );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -902,7 +902,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
   try {
     // STEP 1: Validate we're in a session workspace and on a session branch
     const currentDir = process.cwd();
-    const isSessionWorkspace = currentDir.includes('/sessions/');
+    const isSessionWorkspace = currentDir.includes("/sessions/");
     if (!isSessionWorkspace) {
       throw new MinskyError(
         "session pr command must be run from within a session workspace. Use 'minsky session start' first."
@@ -912,20 +912,17 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     // Get current git branch
     const gitService = createGitService();
     const currentBranch = await gitService.getCurrentBranch(currentDir);
-    
+
     // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
-    if (currentBranch.startsWith('pr/')) {
+    if (currentBranch.startsWith("pr/")) {
       throw new MinskyError(
         `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
       );
     }
 
-    // STEP 3: Validate we're on a session branch (task#XXX format)
-    if (!currentBranch.match(/^task#\d+$/)) {
-      throw new MinskyError(
-        `session pr command must be run from a session branch (task#XXX format). Current branch: '${currentBranch}'`
-      );
-    }
+    // STEP 3: Verify we're in a session directory (no branch format restriction)
+    // The session name will be detected from the directory path or provided explicitly
+    // Both task#XXX and named sessions are supported
 
     // STEP 4: Check for uncommitted changes
     const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
@@ -942,11 +939,11 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
         // Resolve relative paths relative to current working directory
         const filePath = require("path").resolve(params.bodyPath);
         bodyContent = await readFile(filePath, "utf-8");
-        
+
         if (!bodyContent.trim()) {
           throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
         }
-        
+
         log.debug(`Read PR body from file: ${filePath}`, {
           fileSize: bodyContent.length,
           bodyPath: params.bodyPath,
@@ -955,14 +952,16 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
         if (error instanceof ValidationError) {
           throw error;
         }
-        
+
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Body file not found: ${params.bodyPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
           throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
         } else {
-          throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
+          throw new ValidationError(
+            `Failed to read body file: ${params.bodyPath}. ${errorMessage}`
+          );
         }
       }
     }
@@ -1201,7 +1200,10 @@ export async function approveSessionFromParams(
     // Push the changes
     await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
     // Delete the PR branch
-    await deps.gitService.execInRepository(workingDirectory, `git push origin --delete ${prBranch}`);
+    await deps.gitService.execInRepository(
+      workingDirectory,
+      `git push origin --delete ${prBranch}`
+    );
 
     // Create merge info
     const mergeInfo = {

@@ -1,8 +1,19 @@
 # Add Google Tasks Backend Support
 
+## Status
+
+**ON HOLD** - Waiting for completion of task 141 (Repository Configuration System)
+
 ## Summary
 
 Implement Google Tasks API integration as a task backend option to allow users to sync tasks with their Google Tasks account.
+
+## Dependencies
+
+- **Task 141**: Repository Configuration System must be completed first
+  - This task requires a proper configuration system to manage Google API credentials
+  - OAuth 2.0 authentication needs secure credential storage and management
+  - Backend registration and selection requires the configuration architecture from task 141
 
 ## Requirements
 
@@ -31,12 +42,13 @@ Implement Google Tasks API integration as a task backend option to allow users t
 - Provide meaningful error messages for common issues
 - Implement rate limiting and retry logic
 
-### Configuration
+### Configuration **[BLOCKED - Task 141]**
 
 - Add configuration options for Google API credentials
 - Support multiple Google accounts
 - Allow users to select which Google Tasks list to sync with
 - Provide options for sync frequency and conflict resolution
+- **Requires**: Repository-level and user-level configuration system from task 141
 
 ### Testing
 
@@ -47,6 +59,7 @@ Implement Google Tasks API integration as a task backend option to allow users t
 
 ## Acceptance Criteria
 
+- [ ] **BLOCKED**: Task 141 must be completed first
 - [ ] Users can authenticate with their Google account
 - [ ] Tasks can be created, read, updated, and deleted via Google Tasks API
 - [ ] Task synchronization works bidirectionally
@@ -61,10 +74,53 @@ Implement Google Tasks API integration as a task backend option to allow users t
 - Consider using Google's official client libraries
 - Ensure proper handling of API quotas and rate limits
 - Design for extensibility to support other Google services in the future
+- **Wait for task 141**: Credential management and backend registration system
 
-## Dependencies
+## Implementation Blockers
 
-- Google Tasks API access
-- OAuth 2.0 authentication library
-- HTTP client for API requests
-- Configuration management for API credentials
+1. **Credential Management**: Google OAuth 2.0 requires secure credential storage
+
+   - Client ID and Client Secret need to be configured
+   - Access tokens and refresh tokens need secure storage
+   - Multiple account support requires proper configuration architecture
+
+2. **Backend Registration**: Google Tasks backend needs to be integrated into the main system
+
+   - TaskService needs configuration-driven backend selection
+   - CLI commands need to support "google-tasks" backend option
+   - Configuration system needs to handle backend-specific settings
+
+3. **Configuration Schema**: Google Tasks specific configuration needs
+   - OAuth application credentials
+   - Default task list selection
+   - Account-specific settings
+   - Sync preferences and conflict resolution
+
+## Post-Task 141 Implementation Plan
+
+Once task 141 is completed, this task will require:
+
+1. **Google Tasks Backend Implementation**
+
+   - Implement GoogleTasksBackend class with proper TaskBackend interface
+   - OAuth 2.0 authentication flow integration
+   - Full CRUD operations with Google Tasks API
+
+2. **Configuration Integration**
+
+   - Add Google API credentials to global user config
+   - Add Google Tasks backend to repository config options
+   - Implement backend auto-detection for Google Tasks
+
+3. **System Integration**
+   - Register Google Tasks backend in TaskService
+   - Add CLI support for google-tasks backend
+   - Implement proper error handling and credential management
+
+## Dependencies (Detailed)
+
+- **Task 141**: Repository Configuration System
+  - Configuration file format and schema
+  - Credential management system
+  - Backend registration architecture
+  - User-level vs repository-level settings separation
