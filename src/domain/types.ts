@@ -3,7 +3,8 @@
  */
 
 // Re-export task status types from centralized location
-export { TaskStatus, TaskStatusType } from "./tasks/taskConstants.js";
+export type { TaskStatus } from "./tasks/taskConstants.js";
+export { TaskStatusType } from "./tasks/taskConstants.js";
 
 /**
  * Categories of commands supported by the system

@@ -6,7 +6,8 @@
 import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
 
 // Re-export task status types from centralized location
-export { TaskStatusType, TaskStatus } from "../../domain/tasks/taskConstants.js";
+export type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+export { TaskStatusType } from "../../domain/tasks/taskConstants.js";
 
 /**
  * TaskData represents the pure data representation of a task

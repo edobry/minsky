@@ -5,6 +5,7 @@
 import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
 // Import constants from centralized location
+import { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
 export { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
 
 /**
@@ -29,7 +30,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     if (inCodeBlock) continue;
 
     // Match top-level tasks: - [ ] Title [#123](...)
-    const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
+    const match = /^- \[( |x|\-|\+|~)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
     if (!match) continue;
 
     const checkbox = match[1];
