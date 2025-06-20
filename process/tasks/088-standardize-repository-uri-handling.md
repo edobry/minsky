@@ -1,4 +1,4 @@
-# Task #088: Standardize Repository URI Handling
+# Standardize Repository URI Handling
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #060: Implement Automatic Test Linting
+# Implement Automatic Test Linting
 
 ## Context
 

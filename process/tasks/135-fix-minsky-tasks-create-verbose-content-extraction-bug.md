@@ -1,4 +1,4 @@
-# Task: Fix `minsky tasks create` Verbose Content Extraction Bug
+# Fix `minsky tasks create` Verbose Content Extraction Bug
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #012: Add `session update` Command
+# Add `session update` Command
 
 ## Context
 

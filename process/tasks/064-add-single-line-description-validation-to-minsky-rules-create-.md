@@ -1,4 +1,4 @@
-# Task #064: Add Single-Line Description Validation to `minsky rules create`
+# Add Single-Line Description Validation to `minsky rules create`
 
 ## Context
 
