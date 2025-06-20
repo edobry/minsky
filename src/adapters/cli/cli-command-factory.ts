@@ -279,6 +279,20 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "session.dir": {
+        parameters: {
+          session: {
+            asArgument: true,
+            description: "Session name or task ID (e.g., 'my-session' or 'task#123')",
+          },
+          task: {
+            asArgument: true,
+            description: "Task ID (alternative to session name)",
+          },
+        },
+      },
+      "session.pr": {
+      },
     },
   });
 }
