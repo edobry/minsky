@@ -1,0 +1,83 @@
+feat(#155): Add BLOCKED status support for task management
+
+Implements BLOCKED status across the entire task management system with improved constants management and type safety.
+
+## Summary
+
+Added comprehensive BLOCKED status support to the Minsky task management system, including proper type definitions, schema validation, CLI integration, and backend compatibility. Also addressed constants duplication and type safety issues throughout the codebase.
+
+## Changes
+
+### Added
+- BLOCKED status to all task type definitions and schemas
+- Checkbox mapping: BLOCKED ↔ '~' character  
+- Centralized task status constants in src/domain/tasks/taskConstants.ts
+- TASK_STATUS constant object with all status values
+- TASK_STATUS_VALUES array for dynamic schema generation
+- isValidTaskStatus() validation function
+- Comprehensive type safety with TaskStatus type
+
+### Changed
+- Consolidated duplicate status constants from multiple files
+- Replaced hardcoded status arrays in option-descriptions.ts
+- Updated taskService.ts to use centralized validation
+- Improved type safety by replacing string types with TaskStatus
+- Updated option descriptions to dynamically include all statuses
+- Enhanced TaskData interface with proper TaskStatus typing
+- Updated filter functions to use proper types instead of string
+
+### Fixed
+- Constants duplication across 4+ files in the codebase
+- Weak typing in task status handling throughout the system
+- Hardcoded status arrays that didn't include BLOCKED
+- Type safety issues in TaskData, filter functions, and MCP adapters
+
+## Technical Details
+
+### Files Modified
+- src/domain/tasks/taskConstants.ts (NEW) - Centralized constants
+- src/schemas/tasks.ts - Updated schema validation
+- src/domain/types.ts - Re-exported from centralized location
+- src/types/tasks/taskData.ts - Improved type safety
+- src/domain/tasks/taskCommands.ts - Fixed import paths
+- src/domain/tasks/taskFunctions.ts - Updated checkbox mappings
+- src/domain/tasks.ts - Consolidated status constants
+- src/mcp/tools/tasks.ts - Added BLOCKED to MCP tools
+- src/utils/option-descriptions.ts - Dynamic status descriptions
+- src/domain/tasks/taskService.ts - Centralized validation
+- src/adapters/mcp/tasks.ts - Proper type usage
+- src/utils/filter-messages.ts - TaskStatus type instead of string
+
+### Status Mapping
+- TODO: [ ]
+- IN-PROGRESS: [x]
+- IN-REVIEW: [>]
+- DONE: [✓]
+- BLOCKED: [~] (NEW)
+
+## Testing
+
+- All existing tests pass
+- Comprehensive BLOCKED status functionality verified
+- Type safety improvements validated with test script
+- Manual verification of status constants consolidation
+- Dynamic descriptions correctly include BLOCKED status
+
+## Implementation Notes
+
+This implementation goes beyond the original task scope by also addressing:
+1. **Constants Management**: Eliminated duplicate hardcoded status arrays
+2. **Type Safety**: Replaced loose string typing with proper TaskStatus type
+3. **Maintainability**: Centralized all status-related constants for easier future updates
+
+## Checklist
+
+- [x] All requirements implemented
+- [x] All tests pass  
+- [x] Constants properly centralized
+- [x] Type safety improved throughout codebase
+- [x] BLOCKED status works in all CLI commands
+- [x] All task backends support BLOCKED status
+- [x] Schema validation includes BLOCKED
+- [x] Checkbox mapping implemented
+- [x] Documentation updated where needed 
