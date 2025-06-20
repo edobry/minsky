@@ -271,3 +271,11 @@
 - [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Investigate and Restore Missing Init Command Interactivity [#149](process/tasks/149-investigate-and-restore-missing-init-command-interactivity.md)
+
+- [ ] Enhance Tasks Create Command with User-Friendly Options [#150](process/tasks/150-enhance-tasks-create-command-with-user-friendly-options.md)
+
+- [ ] Add --title Option to Tasks Create Command [#151](process/tasks/151-add-title-option-to-tasks-create-command.md)
+
+- [ ] Fix GitHub Token Validation for Non-GitHub Commands [#152](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#141/process/tasks/152-fix-github-token-validation-for-non-github-commands.md)
