@@ -4,11 +4,16 @@
 
 import { config } from "@dotenvx/dotenvx";
 import { execSync } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 
-// Load environment variables from .env file
-config({ quiet: true });
+// Load environment variables from .env file only if it exists
+const envPath = join(process.cwd(), ".env");
+if (existsSync(envPath)) {
+  config({ quiet: true });
+}
 
 /**
  * Extract GitHub repository info from git remote
