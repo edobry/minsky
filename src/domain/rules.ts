@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import { join, basename, dirname } from "path";
+import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
 import { log } from "../utils/logger"; // Added logger import
@@ -13,7 +13,7 @@ function customMatterStringify(content: string, data: any): string {
   const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: '"', // Use double quotes when necessary
+    quotingType: "\"", // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 

@@ -1,11 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { RuleService } from "./rules.js";
-import type { Rule, RuleFormat } from "./rules.js";
+import type { RuleFormat } from "./rules.js";
 import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { log } from "../utils/logger.js";
-
 describe("RuleService", () => {
   const testDir = path.join(import.meta.dir, "../..", "test-rules-tmp");
   const cursorRulesDir = path.join(testDir, ".cursor", "rules");

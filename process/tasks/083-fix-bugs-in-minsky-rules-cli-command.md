@@ -1,4 +1,4 @@
-# Task #083: Fix Bugs in Minsky Rules CLI Command
+# Fix Bugs in Minsky Rules CLI Command
 
 ## Context
 

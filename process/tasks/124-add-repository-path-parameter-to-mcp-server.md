@@ -1,4 +1,4 @@
-# Task #124: Add Repository Path Parameter to MCP Server
+# Add Repository Path Parameter to MCP Server
 
 ## Context
 

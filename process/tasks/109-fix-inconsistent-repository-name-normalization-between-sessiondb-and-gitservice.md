@@ -1,4 +1,4 @@
-# Task #109: Fix inconsistent repository name normalization between SessionDB and GitService
+# Fix inconsistent repository name normalization between SessionDB and GitService
 
 ## Context
 

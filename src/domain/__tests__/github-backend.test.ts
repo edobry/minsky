@@ -12,11 +12,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { GitHubBackend } from "../repository/github.ts";
 import { join } from "path";
-import { mkdtemp, writeFile, mkdir } from "fs/promises";
+import { mkdtemp, mkdir } from "fs/promises";
 import { tmpdir } from "os";
-import { execSync } from "child_process";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
-
 // Set up automatic mock cleanup
 setupTestMocks();
 

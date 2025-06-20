@@ -6,6 +6,7 @@
  */
 import { mock, afterEach } from "bun:test";
 import { createCompatMock } from "./mock-function";
+import { log } from "../../logger";
 
 // Store original modules for restoration
 const originalModules = new Map<string, any>();
@@ -93,7 +94,7 @@ export function mockModule(
       try {
         // Use a dynamic import to get the actual module
         // This won't work with ESM in some environments, but is needed for proper Jest-like behavior
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
+         
         const originalModule = require(modulePath);
         originalModules.set(modulePath, originalModule);
       } catch (error) {
@@ -127,7 +128,7 @@ export function mockModule(
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
   } catch (error) {
-    console.error(`Error mocking module ${modulePath}:`, error);
+    log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
   }
 }

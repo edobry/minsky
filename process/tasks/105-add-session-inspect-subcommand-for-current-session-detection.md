@@ -1,4 +1,4 @@
-# Task #105: Add Session Inspect Subcommand for Current Session Detection
+# Add Session Inspect Subcommand for Current Session Detection
 
 ## Context
 

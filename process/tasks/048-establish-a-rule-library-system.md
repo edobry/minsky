@@ -1,4 +1,4 @@
-# Task #048: Establish a Rule Library System
+# Establish a Rule Library System
 
 ## Context
 

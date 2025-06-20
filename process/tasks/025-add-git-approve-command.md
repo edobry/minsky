@@ -1,4 +1,4 @@
-# Task #025: Add PR Merging Commands for Session Workflow
+# Add PR Merging Commands for Session Workflow
 
 ## Context
 

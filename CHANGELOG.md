@@ -9,18 +9,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Task #138: Add GitHub Issues Support as Task Backend**
+  - Implemented full GitHub Issues integration as a task backend option
+  - Created GitHubIssuesTaskBackend with complete API integration using Octokit
+  - Added environment variable support for GitHub authentication (GITHUB_TOKEN)
+  - Implemented comprehensive task-to-issue mapping functionality:
+    - Create tasks as GitHub issues with proper formatting
+    - Update task status by modifying issue state and labels
+    - List and filter tasks from GitHub issues
+    - Support for issue assignments, labels, and milestones
+  - Added comprehensive test suite with mocked GitHub API responses
+  - Integrated with existing task service using factory pattern
+  - Maintained backward compatibility with existing markdown backend
+  - Created task #145 to address dynamic imports used in implementation
+  - Created task #146 to fix session PR command import bug discovered during implementation
+
+_See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/history/2025-01-17_github-issues-task-backend.md) for implementation details._
+
+### Changed
+
+- **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
+  - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
+  - Migrated from legacy .eslintrc.json to modern flat config format (eslint.config.js)
+  - Added @eslint/js v9.29.0 package for flat config support
+  - Updated npm scripts to remove deprecated --ext .ts flag (not needed in v9)
+  - Maintained all existing linting rules and functionality including:
+    - Import restrictions for domain modules
+    - Console usage restrictions with custom logger requirements
+    - TypeScript-specific rules and configurations
+    - Magic number detection and template literal preferences
+  - Verified full compatibility with 2,434 linting issues detected and 402 auto-fixes applied
+  - All tests passing (541/544) with only pre-existing unrelated failures
+  - Zero breaking changes for development workflow with improved performance
+
+_See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
+
 ### Fixed
 
-- **Task #141: Enable Positional Arguments for Session Dir Command**
+- **Task #141: Repository Configuration System Implementation**
+  - Implemented complete 5-level configuration hierarchy system (CLI flags > env vars > global user config > repo config > defaults)
+  - Added repository configuration support with `.minsky/config.yaml` for team-wide consistency
+  - Created global user configuration in `~/.config/minsky/config.yaml` for credentials and personal settings
+  - Implemented backend auto-detection based on repository characteristics (GitHub remote, tasks.md file, fallback to json-file)
+  - Added comprehensive credential management with multiple sources (environment, file, interactive prompts)
+  - Created CLI commands for configuration management (`minsky config list`, `minsky config show`)
+  - Enhanced `minsky init` command with backend options (`--backend`, `--github-owner`, `--github-repo`)
+  - Integrated configuration system with task commands for zero-config experience
+  - Added YAML configuration file generation and validation
+  - Implemented complete test suite for configuration service and integration scenarios
+  - Enabled zero-config task operations: `minsky tasks list` now works without `--backend` flags after repository setup
+
+_See: SpecStory history [2025-01-24_repo-config-system-implementation](mdc:.specstory/history/2025-01-24_repo-config-system-implementation.md) for configuration system implementation._
+
+- **Session Dir Command: Enable Optional Positional Arguments**
   - Fixed error "too many arguments for 'dir'. Expected 0 arguments but got 1" when using session dir command
-  - Added optional positional argument support for session names while preserving --task option
-  - Updated CLI customization to handle session parameter as optional positional argument  
+  - Added CLI customization to accept optional session name as positional argument
+  - Preserves existing --task option as alternative usage pattern
   - Users can now run either:
     - `minsky session dir my-session-name` (positional session name)
     - `minsky session dir --task task#123` (task ID as option)
-  - Enhanced help text to show [session] as optional positional argument with clear usage guidance
+  - Enhanced help text shows [session] as optional positional argument with clear usage guidance
 
-_See: SpecStory history [2025-01-24_fix-session-dir-positional-args](mdc:.specstory/history/2025-01-24_fix-session-dir-positional-args.md) for implementation details._
+_See: SpecStory history [2025-01-24_session-dir-positional-args](mdc:.specstory/history/2025-01-24_session-dir-positional-args.md) for implementation details._
+
+- **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
+  - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
+  - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
+  - Added `--no-ff` merge of feature branch INTO PR branch to create proper prepared merge commit
+  - Implemented proper error handling for merge conflicts with exit code 4 and cleanup
+  - Added comprehensive test coverage demonstrating broken vs fixed behavior
+  - Verified end-to-end workflow shows correct prepared merge commit structure
+  - Enabled fast-forward merge capability for `session approve` command as documented
+  - Full compliance with Task #025 prepared merge commit specification
+  - Resolves fundamental issue that broke the documented PR workflow
+
+_See: SpecStory history [2025-06-18_fix-prepared-merge-commit-workflow](mdc:.specstory/history/2025-06-18_fix-prepared-merge-commit-workflow.md) for prepared merge commit implementation._
+
+- **Task #140: Fix dependency installation error in session startup**
+  - Fixed null reference error when calling .toString() on execSync result during dependency installation
+  - Added proper null handling using optional chaining and fallback empty string for quiet mode
+  - Resolved session startup failure that occurred when stdio: "ignore" was used with execSync
+  - All session startup operations now complete successfully without dependency installation errors
+
+_See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.specstory/history/2025-01-26_fix-dependency-installation-error.md) for session startup fix._
 
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115
@@ -814,3 +887,8 @@ _See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/hi
   - All session-related tests continue to pass (74 tests)
 
 _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._
+
+- Extracted test-migration module to separate repository for preservation
+- Removed redundant bun-test.d.ts (now using bun-types package)
+
+_See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._

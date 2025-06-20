@@ -2,14 +2,16 @@
  * Refactored TaskService using functional patterns
  * Orchestrates task operations while separating pure functions from side effects
  */
-
-import { TaskData, TaskState, TaskBackendConfig } from "../../types/tasks/taskData";
+import { TaskData } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { configurationService } from "../configuration";
+import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
+
+// Dynamic import for GitHub backend to avoid hard dependency
 
 /**
  * Options for the TaskService
@@ -66,6 +68,17 @@ export class TaskService {
           workspacePath,
         }),
       ];
+
+      // Try to add GitHub backend if configuration is available
+      try {
+        const githubBackend = this.tryCreateGitHubBackend(workspacePath);
+        if (githubBackend) {
+          this.backends.push(githubBackend);
+        }
+      } catch (error) {
+        // Silently ignore GitHub backend if not available
+        log.debug("GitHub backend not available", { error: String(error) });
+      }
     }
 
     // Set current backend
@@ -150,8 +163,8 @@ export class TaskService {
    */
   async setTaskStatus(id: string, status: string): Promise<void> {
     // Verify status is valid
-    if (!["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE"].includes(status)) {
-      throw new Error("Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE");
+    if (!isValidTaskStatus(status)) {
+      throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
 
     // First check if the task exists
@@ -228,9 +241,17 @@ export class TaskService {
       // Update the spec with the new ID
       spec.id = taskId;
 
-      // Format and save the updated spec
-      const updatedSpecContent = this.currentBackend.formatTaskSpec(spec);
+      // BUG FIX: Preserve original content, only update the title line with task ID
+      // This prevents content truncation caused by formatTaskSpec generating templates
+      const originalContent = specResult.content;
       const specPath = this.currentBackend.getTaskSpecPath(taskId, spec.title);
+
+      // Find and replace the title line to add the task ID
+      // Support both "# Task: Title" and "# Task #XXX: Title" formats
+      const updatedSpecContent = originalContent.replace(
+        /^# Task(?: #\d+)?: (.+)$/m,
+        `# Task ${taskId}: $1`
+      );
 
       const saveSpecResult = await this.currentBackend.saveTaskSpecData(
         specPath,
@@ -383,6 +404,35 @@ export class TaskService {
       specPath: task.specPath,
       task,
     };
+  }
+
+  /**
+   * Try to create GitHub backend using dynamic imports
+   * @param workspacePath Workspace path
+   * @returns GitHub TaskBackend instance or null if not available
+   */
+  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+    try {
+      // Dynamic import to avoid hard dependency on GitHub modules
+      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
+        import("./githubBackendConfig"),
+        import("./githubIssuesTaskBackend"),
+      ]);
+
+      const config = getGitHubBackendConfig(workspacePath);
+      if (!config) {
+        return null;
+      }
+
+      return createGitHubIssuesTaskBackend({
+        name: "github-issues",
+        workspacePath,
+        ...config,
+      });
+    } catch (error) {
+      // Return null if GitHub modules are not available
+      return null;
+    }
   }
 }
 

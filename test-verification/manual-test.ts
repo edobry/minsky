@@ -1,6 +1,7 @@
 import { RuleService } from "../src/domain/rules";
 import { promises as fs } from "fs";
 import { join } from "path";
+import { log } from "../src/utils/logger";
 
 async function runTest() {
   const testDir = join(process.cwd(), "test-manual");
@@ -33,17 +34,17 @@ async function runTest() {
     const specialContent = await fs.readFile(specialPath, "utf-8");
     const simpleContent = await fs.readFile(simplePath, "utf-8");
 
-    console.log("Rule with special characters in description:");
-    console.log("------------------------------------------");
-    console.log(specialContent);
-    console.log("\n");
+    log.cli("Rule with special characters in description:");
+    log.cli("------------------------------------------");
+    log.cli(String(specialContent));
+    log.cli("\n");
 
-    console.log("Rule with simple description:");
-    console.log("---------------------------");
-    console.log(simpleContent);
+    log.cli("Rule with simple description:");
+    log.cli("---------------------------");
+    log.cli(String(simpleContent));
   } catch (error) {
-    console.error("Error:", error);
+    log.cliError("Error:", error);
   }
 }
 
-runTest().catch(console.error);
+runTest().catch((error) => log.cliError("Unhandled error:", error));

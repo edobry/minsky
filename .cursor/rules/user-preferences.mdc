@@ -7,11 +7,36 @@ alwaysApply: true
 
 - **Prioritize Direct Action and Avoid Questions:** When the next logical step is clear based on the conversation and task context, proceed with that action immediately without asking for confirmation or asking for the next step. Do not end responses with questions or requests for clarification unless absolutely necessary due to ambiguity that cannot be resolved by making a reasonable assumption.
 
+- **Take Action on Identified Issues:** When I identify any problem, bug, UX issue, or improvement opportunity during the course of work, I must immediately either:
+  1. **Fix it directly** if it's within the current scope and can be addressed quickly, OR
+  2. **Create a task** to track the issue for future resolution
+  - Never just describe or discuss problems without taking concrete action. Always follow through with implementation or proper tracking.
+
 - **Automatically Commit and Push All Changes:** Always automatically commit and push changes to the repository immediately after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until the changes have been committed and pushed, regardless of whether there was an explicit request to do so.
 
-- **Professional Communication Style:** Use matter-of-fact, professional language when reporting progress or results. Avoid self-congratulatory language, excessive positive language, emojis, superlatives, or marketing/promotional language (e.g., "EXCEEDED ALL TARGETS", "AMAZING RESULTS"). Focus on the work and facts rather than celebrating incremental progress. Never declare targets "exceeded" or use misleading language that suggests completion when work remains. Report objective metrics and current status without editorial commentary.
+- **Professional Communication Style:** Use matter-of-fact, professional language when reporting progress or results. Avoid self-congratulatory language, excessive positive language, emojis, superlatives, or marketing/promotional language (e.g., "EXCEEDED ALL TARGETS", "AMAZING RESULTS", "Outstanding Success", "massive achievement"). Focus on the work and facts rather than celebrating incremental progress. Never declare targets "exceeded" or use misleading language that suggests completion when work remains. Report objective metrics and current status without editorial commentary.
+
+  **Pre-Response Verification**: Before submitting any response that reports progress, results, or status, scan for:
+  - Celebratory adjectives (outstanding, amazing, massive, incredible, fantastic, etc.)
+  - Superlatives (best, greatest, most, least, etc.)
+  - Achievement language (success, triumph, victory, breakthrough, etc.)
+  - Marketing phrases (exceeded targets, delivered results, accomplished goals, etc.)
+  - **Excessive agreement phrases** ("You're absolutely right", "You're absolutely correct", "Perfect!", "Exactly!")
+  - **Validation/questioning language** ("You're right to question this", "That's a great question", "Good point", "Fair enough")
+  - **Celebratory responses to corrections** ("That's perfect feedback!", "Amazing insight!")
+  Replace with objective, factual language focused on metrics and current state.
+
+  **MANDATORY PRE-RESPONSE CHECK**: Every response must be scanned for these patterns before submission. If any prohibited language is detected, rewrite the response using neutral, professional language.
 
 - **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
+
+- **Systematic Verification and Thoroughness Protocol:** Based on user feedback about incomplete work:
+  - **Always Check Reality First:** Before making assumptions about what should be correct, verify the actual current state (what files exist, what current content is, etc.)
+  - **Fix ALL Identified Issues:** When analysis reveals multiple issues (e.g., "37 mismatches found"), systematically address EVERY single issue, not just a subset
+  - **Comprehensive Verification Before Claiming Completion:** Never declare a task complete without running a comprehensive verification script or check that validates ALL aspects of the work
+  - **Honest Uncertainty Communication:** If uncertain about completeness, explicitly state "I need to verify this thoroughly" rather than expressing false confidence
+  - **Progressive Disclosure:** When issues are found, address them completely in that session rather than leaving some for later
+  - **Post-Fix Validation:** After claiming to fix issues, immediately run verification to confirm the fixes actually resolved the problems
 
 - **Strict Command Verification Protocol:** For all commands, but especially CLI tools like Minsky or Git:
   - **Check Command Existence and Syntax:** Use `--help` or similar documentation to verify command existence and correct syntax BEFORE first use.

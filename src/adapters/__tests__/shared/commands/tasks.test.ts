@@ -43,29 +43,13 @@ describe("Shared Tasks Commands", () => {
     mock.restore();
   });
 
-  test("DEBUG: check what commands are in registry", () => {
-    console.log("All commands in registry:");
-    const allCommands = sharedCommandRegistry.getAllCommands();
-    console.log("Total commands:", allCommands.length);
-    allCommands.forEach((cmd) => {
-      console.log(`- ${cmd.id} (${cmd.category})`);
-    });
-
-    console.log("\nTasks category commands:");
-    const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    console.log("Tasks commands count:", tasksCommands.length);
-    tasksCommands.forEach((cmd) => {
-      console.log(`- ${cmd.id} (${cmd.name})`);
-    });
-  });
-
   test("registerTasksCommands should register tasks commands in registry", () => {
     // Commands are already registered in beforeEach
     // registerTasksCommands(); // Removed - now done in beforeEach
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, 6); // All 6 tasks commands: list, get, create, status.get, status.set, spec
+    expectToHaveLength(tasksCommands, 7); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
 
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");

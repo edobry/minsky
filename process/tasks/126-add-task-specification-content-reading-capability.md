@@ -1,4 +1,4 @@
-# Task #126: Add Task Specification Content Reading Capability
+# Add Task Specification Content Reading Capability
 
 ## Context
 

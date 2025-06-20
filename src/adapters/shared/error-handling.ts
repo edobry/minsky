@@ -5,7 +5,6 @@
  * adapters. It ensures errors are consistently formatted and reported across
  * interfaces.
  */
-
 import {
   MinskyError,
   ValidationError,
@@ -16,9 +15,7 @@ import {
   GitOperationError,
   ensureError,
 } from "../../errors/index.js";
-
-import { log, isHumanMode, isStructuredMode } from "../../utils/logger.js";
-
+import { log, isStructuredMode } from "../../utils/logger.js";
 /**
  * Interface for adapter-specific error handlers
  */
@@ -287,12 +284,12 @@ export const mcpErrorHandler = new McpErrorHandler();
  */
 export function getErrorHandler(interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-    case "cli":
-      return cliErrorHandler;
-    case "mcp":
-      return mcpErrorHandler;
-    default:
-      // Default to CLI error handler
-      return cliErrorHandler;
+  case "cli":
+    return cliErrorHandler;
+  case "mcp":
+    return mcpErrorHandler;
+  default:
+    // Default to CLI error handler
+    return cliErrorHandler;
   }
 }

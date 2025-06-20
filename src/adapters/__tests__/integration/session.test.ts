@@ -1,17 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  deleteSessionFromParams,
-  SessionDB,
-  type Session,
-  createSessionDeps,
-} from "../../../domain/session.js";
 import { type SessionDeleteParams } from "../../../schemas/session.js";
-import { GitService } from "../../../domain/git.js";
-import { TaskService } from "../../../domain/tasks.js";
-import * as WorkspaceUtils from "../../../domain/workspace.js";
 import {
   createMock,
   mockModule,
@@ -187,7 +175,7 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error('Session "non-existent" not found');
+      const error = new Error("Session \"non-existent\" not found");
       mockDeleteSessionFromParams.mockRejectedValue(error);
       const params: SessionDeleteParams = {
         name: "non-existent",
@@ -197,7 +185,7 @@ describe("Session Domain Methods", () => {
 
       // Act & Assert
       await expect(mockDeleteSessionFromParams(params)).rejects.toThrow(
-        'Session "non-existent" not found'
+        "Session \"non-existent\" not found"
       );
     });
 
@@ -398,7 +386,7 @@ describe("Session Domain Methods", () => {
 
     test("throws error when session not found", async () => {
       // Arrange
-      const error = new Error('Session "non-existent" not found');
+      const error = new Error("Session \"non-existent\" not found");
       mockGetSessionDirFromParams.mockRejectedValue(error);
       const params = {
         name: "non-existent",
@@ -406,7 +394,7 @@ describe("Session Domain Methods", () => {
 
       // Act & Assert
       await expect(mockGetSessionDirFromParams(params)).rejects.toThrow(
-        'Session "non-existent" not found'
+        "Session \"non-existent\" not found"
       );
     });
   });

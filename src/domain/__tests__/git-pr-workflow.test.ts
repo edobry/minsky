@@ -3,18 +3,15 @@
  * @migrated Already using native Bun patterns
  * @refactored Uses project utilities instead of raw Bun APIs
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionFromParams } from "../session.ts";
-import { GitService } from "../git.ts";
-import { TaskService } from "../tasks.ts";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors/index.ts";
+
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.ts";
 import {
   expectToHaveBeenCalled,
   expectToHaveBeenCalledWith,
 } from "../../utils/test-utils/assertions.ts";
 import * as WorkspaceUtils from "../workspace.ts";
-
 // Set up automatic mock cleanup
 setupTestMocks();
 
@@ -126,7 +123,7 @@ describe("Session Approve Workflow", () => {
           workspaceUtils: WorkspaceUtils,
         }
       )
-    ).rejects.toThrow('Session "non-existent-session" not found');
+    ).rejects.toThrow("Session \"non-existent-session\" not found");
   });
 
   test("throws MinskyError when git command fails", async () => {

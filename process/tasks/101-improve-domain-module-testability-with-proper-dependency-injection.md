@@ -1,4 +1,4 @@
-# Task #101: Improve Domain Module Testability with Proper Dependency Injection
+# Improve Domain Module Testability with Proper Dependency Injection
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #046: Document Dependency Management Process
+# Document Dependency Management Process
 
 ## Context
 
