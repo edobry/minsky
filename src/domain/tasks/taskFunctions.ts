@@ -2,15 +2,30 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
-import type {
-  TaskData,
-  TaskState,
-  TaskFilter,
-  TaskSpecData,
-} from "../../types/tasks/taskData.js";
+import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
+<<<<<<< Updated upstream
 // Import constants from centralized location
 export { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
+=======
+// Constants used by task functions
+export const CHECKBOX_TO_STATUS: Record<string, string> = {
+  " ": "TODO",
+  "+": "IN-PROGRESS",
+  "-": "IN-REVIEW",
+  x: "DONE",
+  X: "DONE",
+  "~": "BLOCKED",
+};
+
+export const STATUS_TO_CHECKBOX: Record<string, string> = {
+  TODO: " ",
+  "IN-PROGRESS": "+",
+  "IN-REVIEW": "-",
+  DONE: "x",
+  BLOCKED: "~",
+};
+>>>>>>> Stashed changes
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -306,7 +321,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
 
   // Support multiple title formats for backward compatibility:
   // 1. Old format with task number: "# Task #XXX: Title"
-  // 2. Old format without number: "# Task: Title"  
+  // 2. Old format without number: "# Task: Title"
   // 3. New clean format: "# Title"
   const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
   const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);

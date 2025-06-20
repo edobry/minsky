@@ -12,8 +12,21 @@ import fs from "fs/promises";
 // Re-export task data types
 export type { TaskData } from "../../types/tasks/taskData.js";
 
+<<<<<<< Updated upstream
 // Import task status constants from centralized location
 export { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+=======
+// Constant representing task statuses
+export const TASK_STATUS = {
+  TODO: "TODO",
+  IN_PROGRESS: "IN-PROGRESS",
+  IN_REVIEW: "IN-REVIEW",
+  DONE: "DONE",
+  BLOCKED: "BLOCKED",
+} as const;
+
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
+>>>>>>> Stashed changes
 
 // Import schemas
 import {

@@ -22,7 +22,17 @@ export const TASK_STATUS = {
  * @example "IN-PROGRESS"
  */
 export const taskStatusSchema = z
+<<<<<<< Updated upstream
   .enum(TASK_STATUS_VALUES as [string, ...string[]])
+=======
+  .enum([
+    TASK_STATUS.TODO,
+    TASK_STATUS.DONE,
+    TASK_STATUS.IN_PROGRESS,
+    TASK_STATUS.IN_REVIEW,
+    TASK_STATUS.BLOCKED,
+  ])
+>>>>>>> Stashed changes
   .describe("Task status");
 
 /**

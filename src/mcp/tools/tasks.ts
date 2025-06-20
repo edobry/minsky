@@ -121,13 +121,23 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "Set the status of a task",
     z.object({
       taskId: z.string().describe("ID of the task"),
+<<<<<<< Updated upstream
       status: z.enum(TASK_STATUS_VALUES as [string, ...string[]]).describe("New status for the task"),
+=======
+      status: z
+        .enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"])
+        .describe("New status for the task"),
+>>>>>>> Stashed changes
     }),
     async (
       args: z.infer<
         z.ZodObject<{
           taskId: z.ZodString;
+<<<<<<< Updated upstream
           status: z.ZodEnum<typeof TASK_STATUS_VALUES>;
+=======
+          status: z.ZodEnum<["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]>;
+>>>>>>> Stashed changes
         }>
       >
     ) => {
