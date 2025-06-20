@@ -299,3 +299,5 @@
 - [+] Add Google Tasks Backend Support [#154](process/tasks/154-add-google-tasks-backend-support.md)
 
 - [~] Add BLOCKED Status Support [#155](process/tasks/155-add-blocked-status-support.md)
+
+- [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
