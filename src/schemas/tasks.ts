@@ -3,6 +3,7 @@
  */
 import { z } from "zod";
 import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common";
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
 
 /**
  * Valid task statuses
@@ -12,6 +13,7 @@ export const TASK_STATUS = {
   DONE: "DONE",
   IN_PROGRESS: "IN-PROGRESS",
   IN_REVIEW: "IN-REVIEW",
+  BLOCKED: "BLOCKED",
 } as const;
 
 /**
@@ -20,7 +22,7 @@ export const TASK_STATUS = {
  * @example "IN-PROGRESS"
  */
 export const taskStatusSchema = z
-  .enum([TASK_STATUS.TODO, TASK_STATUS.DONE, TASK_STATUS.IN_PROGRESS, TASK_STATUS.IN_REVIEW])
+  .enum(TASK_STATUS_VALUES as [string, ...string[]])
   .describe("Task status");
 
 /**

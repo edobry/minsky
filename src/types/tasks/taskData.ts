@@ -3,6 +3,9 @@
  * These types represent the pure data structures used in task operations
  */
 
+// Re-export task status types from centralized location
+export { TaskStatusType } from "../../domain/tasks/taskConstants.js";
+
 /**
  * TaskData represents the pure data representation of a task
  * It contains only the essential data without methods or side effects
@@ -50,16 +53,6 @@ export interface TaskSpecData {
   description: string;
   id?: string;
   metadata?: Record<string, unknown>;
-}
-
-/**
- * TaskStatusType defines the valid status values for tasks
- */
-export enum TaskStatusType {
-  TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS",
-  IN_REVIEW = "IN-REVIEW",
-  DONE = "DONE",
 }
 
 /**
