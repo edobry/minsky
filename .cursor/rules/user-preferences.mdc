@@ -28,6 +28,56 @@ alwaysApply: true
 
   **MANDATORY PRE-RESPONSE CHECK**: Every response must be scanned for these patterns before submission. If any prohibited language is detected, rewrite the response using neutral, professional language.
 
+### ⚠️ DETAILED PROHIBITED LANGUAGE PATTERNS (MANDATORY PRE-RESPONSE CHECK):
+Before submitting ANY response, scan for and ELIMINATE:
+- Achievement language: "success", "triumph", "victory", "breakthrough", "achievement", "accomplishment"
+- Superlatives: "outstanding", "exceptional", "amazing", "massive", "incredible", "fantastic", "extraordinary"
+- Marketing phrases: "exceeded targets", "delivered results", "accomplished goals"
+- Celebratory adjectives: "exciting", "thrilling", "remarkable", "phenomenal", "spectacular"
+- All caps achievement statements: "OUTSTANDING SUCCESS", "EXCEPTIONAL RESULTS", "BREAKTHROUGH ACHIEVED"
+- Emojis of any kind
+- Self-congratulatory phrases: "I'm proud to report", "I'm excited to announce", "Great news"
+
+### MANDATORY VERIFICATION STEPS BEFORE EVERY RESPONSE:
+1. **Language Scan**: Check every sentence for prohibited patterns above
+2. **Tone Check**: Ensure matter-of-fact, professional reporting only
+3. **Content Focus**: Report metrics and current state without editorial commentary
+4. **Rewrite Requirement**: If ANY prohibited language found, rewrite ENTIRE response
+
+### Correct Professional Reporting Format:
+- "Current status: X issues reduced to Y issues"
+- "Applied Z fixes across N files"
+- "Next target: Category with M issues"
+- State facts without characterizing them as achievements
+
+## ⚠️ MANDATORY VERIFICATION PROTOCOL FOR PROGRESS/RESULTS RESPONSES
+
+**CRITICAL ENFORCEMENT MECHANISM**
+
+For ANY response that reports progress, results, or status:
+
+### Required Verification Section:
+Every such response MUST include this verification documentation:
+
+```
+VERIFICATION COMPLETE:
+✓ Language scan: [Checked for celebratory/achievement language]
+✓ Tone check: [Confirmed matter-of-fact reporting]
+✓ Content focus: [Verified objective metrics only]
+```
+
+### Process Enforcement:
+1. **If this verification section is missing** from a progress/results response, it indicates the mandatory scan was not performed
+2. **User can immediately identify violations** by absence of verification documentation
+3. **Creates visible accountability** - the verification process becomes part of the response itself
+4. **Cannot be skipped invisibly** - missing verification section signals process failure
+
+### Implementation:
+- This verification section is REQUIRED for any response containing progress reports, status updates, or result summaries
+- Must be included at the end of such responses
+- Omission of this section constitutes evidence of rule violation
+- Creates concrete mechanism for user to identify when mandatory process steps are skipped
+
 - **Verify Workspace Context Before Making Changes:** Always verify which workspace you're working in (main or session) at the beginning of interactions by checking terminal CWD information and using commands like `pwd`, `ls`, or `git status`. Make changes in the appropriate session workspace, not the main workspace, unless specifically directed otherwise.
 
 - **Systematic Verification and Thoroughness Protocol:** Based on user feedback about incomplete work:
