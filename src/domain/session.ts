@@ -1182,11 +1182,8 @@ export async function approveSessionFromParams(
     await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
     // Fetch latest changes
     await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
-    // Perform the fast-forward merge
-    await deps.gitService.execInRepository(
-      workingDirectory,
-      `git merge --ff-only origin/${prBranch}`
-    );
+    // Perform the fast-forward merge from local PR branch
+    await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
 
     // Get commit hash and date
     const commitHash = (
@@ -1199,11 +1196,23 @@ export async function approveSessionFromParams(
 
     // Push the changes
     await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
-    // Delete the PR branch
-    await deps.gitService.execInRepository(
-      workingDirectory,
-      `git push origin --delete ${prBranch}`
-    );
+
+    // Delete the PR branch from remote only if it exists there
+    try {
+      // Check if remote branch exists first
+      await deps.gitService.execInRepository(
+        workingDirectory,
+        `git show-ref --verify --quiet refs/remotes/origin/${prBranch}`
+      );
+      // If it exists, delete it
+      await deps.gitService.execInRepository(
+        workingDirectory,
+        `git push origin --delete ${prBranch}`
+      );
+    } catch (error) {
+      // Remote branch doesn't exist, which is fine - just log it
+      log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+    }
 
     // Create merge info
     const mergeInfo = {
