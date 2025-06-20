@@ -3,7 +3,7 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
-import { resolveRepoPath } from "../repository.js";
+import { resolveRepoPath } from "../repo-utils.js";
 import { resolveWorkspacePath } from "../workspace.js";
 import { createTaskService } from "./taskService.js";
 import type { TaskService } from "./taskService.js";
