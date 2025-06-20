@@ -48,6 +48,17 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Session Dir Command: Enable Optional Positional Arguments**
+  - Fixed error "too many arguments for 'dir'. Expected 0 arguments but got 1" when using session dir command
+  - Added CLI customization to accept optional session name as positional argument
+  - Preserves existing --task option as alternative usage pattern
+  - Users can now run either:
+    - `minsky session dir my-session-name` (positional session name)
+    - `minsky session dir --task task#123` (task ID as option)
+  - Enhanced help text shows [session] as optional positional argument with clear usage guidance
+
+_See: SpecStory history [2025-01-24_session-dir-positional-args](mdc:.specstory/history/2025-01-24_session-dir-positional-args.md) for implementation details._
+
 - **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
   - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
   - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
