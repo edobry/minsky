@@ -58,20 +58,6 @@ export interface TaskSpecData {
 }
 
 /**
-<<<<<<< Updated upstream
-=======
- * TaskStatusType defines the valid status values for tasks
- */
-export enum TaskStatusType {
-  TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS",
-  IN_REVIEW = "IN-REVIEW",
-  DONE = "DONE",
-  BLOCKED = "BLOCKED",
-}
-
-/**
->>>>>>> Stashed changes
  * TaskFileFormat represents the format of a task file (e.g., Markdown)
  */
 export interface TaskFileFormat {

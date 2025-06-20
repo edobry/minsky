@@ -4,28 +4,8 @@
  */
 import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
-<<<<<<< Updated upstream
 // Import constants from centralized location
 export { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
-=======
-// Constants used by task functions
-export const CHECKBOX_TO_STATUS: Record<string, string> = {
-  " ": "TODO",
-  "+": "IN-PROGRESS",
-  "-": "IN-REVIEW",
-  x: "DONE",
-  X: "DONE",
-  "~": "BLOCKED",
-};
-
-export const STATUS_TO_CHECKBOX: Record<string, string> = {
-  TODO: " ",
-  "IN-PROGRESS": "+",
-  "IN-REVIEW": "-",
-  DONE: "x",
-  BLOCKED: "~",
-};
->>>>>>> Stashed changes
 
 /**
  * Parse tasks from markdown content (pure function)
