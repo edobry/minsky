@@ -6,7 +6,6 @@ The current Minsky workflow heavily relies on the `session-first-workflow.mdc` r
 
 Minsky has recently added MCP (Model Context Protocol) support, providing an opportunity to implement proper workspace isolation at the tooling level rather than relying solely on rule-based enforcement.
 
-<<<<<<< HEAD
 ## Updated Analysis
 
 After comprehensive analysis of the current architecture and future direction:
@@ -16,32 +15,53 @@ After comprehensive analysis of the current architecture and future direction:
 3. **Future Compatibility**: Must support planned non-filesystem workspaces and database backends
 4. **Pattern Consistency**: Should follow "preventing bypass patterns" architectural principles
 
-## Requirements
+## Docker Containerization Impact
 
-1. **MCP File Operation Tools**
+**Critical Context**: Plans are underway to run session workspaces in Docker containers (initially local, then remote). This fundamentally changes the architecture requirements:
 
-   - Create a comprehensive set of file operation tools in the MCP server
-   - Tools should mirror common AI agent operations: `file.read`, `file.write`, `file.edit`, `file.delete`, `file.list`
-   - All tools must enforce session workspace boundaries automatically
-   - Provide transparent path resolution that works with both relative and absolute paths
+1. **Deployment Model**: Sessions will run in isolated Docker containers
+2. **Network Boundaries**: File operations must cross container boundaries via APIs
+3. **Resource Constraints**: Solutions must minimize per-container overhead
+4. **Remote Future**: Architecture must work with remote/distributed containers
 
-2. **Path Resolution Safety**
+### Docker Architecture Analysis
 
-   - Implement a robust `SessionPathResolver` class that:
-     - Converts all paths to absolute paths within the session workspace
-     - Validates paths don't escape session boundaries (no `../` traversal attacks)
-     - Handles edge cases like symlinks and mount points
-   - Provide clear, actionable error messages for path violations
-   - Log all path resolutions for debugging and audit purposes
+Four approaches were evaluated specifically for Docker compatibility:
 
-3. **Session Context Integration**
+1. **MCP File Operation Proxy** ⭐ **OPTIMAL for Docker**
+   - Single MCP server routes to container-specific APIs
+   - No per-container MCP overhead
+   - Natural support for remote containers
+   - Security isolation by design
 
-   - Extend the existing `ProjectContext` to include session information
-   - Pass session context through MCP server initialization via `--session` parameter
-   - Use session context for all file operation path resolutions
-   - Support both session-scoped and main workspace MCP servers
-=======
-## Design Analysis
+2. **Session-Specific MCP Instances** ❌ **POOR for Docker**
+   - Requires MCP server in each container
+   - Port management nightmare across containers
+   - Resource waste and network complexity
+
+3. **Virtual Filesystem** ❓ **COMPLEX for Docker**
+   - Could work with container volume mounts
+   - Significant performance and complexity overhead
+
+4. **Centralized Router** ⭐ **GOOD for Docker**
+   - Single endpoint for AI agents
+   - Natural session-to-container mapping
+   - Risk of single point of failure
+
+### Selected Approach: Hybrid MCP Proxy with Container API
+
+Based on Docker requirements, we're implementing a **Hybrid Architecture** combining MCP File Operation Proxy with Centralized Router:
+
+```
+AI Agent → MCP Server → Session Router → File Operation Proxy → Container API → Docker Container
+```
+
+**Key Benefits for Docker:**
+- **Zero container overhead** - no MCP servers in containers
+- **Remote container ready** - API-based communication
+- **Port management free** - single MCP endpoint
+- **Security isolation** - containers isolated by design
+- **Location transparency** - containers can be local or remote
 
 ### Current System Behavior
 
@@ -54,87 +74,80 @@ The core issue stems from how AI coding agents interact with the filesystem:
 
 ### Approaches Considered
 
-Four primary approaches were evaluated:
+Multiple approaches were evaluated during analysis:
 
-1. **Path Transformation Layer**: Add middleware to intercept file operations, transform paths, and enforce boundaries
-   - **Pros**: Simple implementation, minimal architectural changes, transparent to AI agents
-   - **Cons**: Processing overhead, potential for bypass if new tools are added without wrappers
+1. **MCP File Operation Proxy** (Recommended): Add file operation tools that enforce session boundaries
+   - **Pros**: Direct control, transparent to AI agents, automatic path redirection
+   - **Cons**: Requires AI to use MCP tools, may need Cursor configuration
 
-2. **Session-Specific MCP Instances**: Launch dedicated MCP server instances for each session
-   - **Pros**: Strong isolation, clear security boundaries, natural session lifecycle management
-   - **Cons**: Resource overhead with multiple servers, port management complexity, requires agents to connect to specific endpoints
+2. **Session-Specific Tools**: Create tools with `session_` prefix requiring explicit session parameters
+   - **Pros**: Clear separation, explicit context, incremental implementation
+   - **Cons**: Requires AI agents to use different tools, more verbose usage
 
-3. **Virtual Filesystem with Path Mapping**: Create a virtualized filesystem layer for all operations
-   - **Pros**: Most robust approach, handles complex scenarios, clean abstractions
-   - **Cons**: Most complex implementation, significant changes required, higher maintenance burden
+3. **Session-Specific MCP Instances**: Launch dedicated MCP servers per session
+   - **Pros**: Strong isolation, clear boundaries
+   - **Cons**: Resource overhead, port management complexity
 
-4. **Centralized Router with Session Context**: One MCP server that routes based on session context
-   - **Pros**: Resource efficient, centralized control, works across sessions
-   - **Cons**: Requires changes to tool calls, risk of context leakage, complex context management
-
-### Refined Approach: Session-Specific Tools
-
-After analyzing the immediate needs and long-term goals, we've refined our approach to focus on creating explicit session-scoped tools:
-
-1. Create new MCP tools with names like `session_edit_file`, `session_read_file`, etc.
-2. Each tool requires explicit session parameters for clear context
-3. Implement strict path validation to ensure operations stay within session boundaries
-4. Use a centralized MCP server for resource efficiency
-
-This approach provides:
-- Clear separation between standard and session-scoped tools
-- Explicit session context through required parameters
-- Strong path validation and boundary enforcement
-- Incremental implementation with immediate benefits
-
-## Advanced Use Cases Support
-
-This approach supports several advanced usage scenarios:
-
-1. **Multiple Cursor instances on different repos**: All use the same centralized MCP with explicit session parameters
-2. **Single Cursor with multiple tabs on multiple repos**: Each tab specifies its session context when using tools
-3. **Different agents isolated on same repo**: Each agent uses different session identifiers
-4. **Multiple agents collaborating in same session**: Multiple agents use identical session parameters
-5. **Remote/K8s deployments**: Central MCP server handles session routing based on explicit parameters
+4. **Virtual Filesystem**: Create virtualized filesystem layer
+   - **Pros**: Most robust approach, handles all edge cases
+   - **Cons**: Most complex implementation, significant changes required
 
 ## Requirements
 
-1. **Session-Specific MCP Tools**
+1. **MCP File Operation Tools (Docker-Aware)**
 
-   - Create new MCP tools with names prefixed with `session_` (e.g., `session_edit_file`)
-   - Require explicit session identifier parameters for all session tools
-   - Implement session workspace path resolution for each tool
-   - Provide clear documentation on tool usage patterns
+   - Create a comprehensive set of file operation tools in the MCP server
+   - Tools should mirror common AI agent operations: `file.read`, `file.write`, `file.edit`, `file.delete`, `file.list`
+   - All tools must enforce session workspace boundaries automatically
+   - Design tools to work through container APIs (not direct filesystem access)
+   - Provide transparent path resolution that works with both relative and absolute paths
 
-2. **Path Resolution Safety**
+2. **Session-to-Container Routing**
 
-   - Implement path validation to prevent operations outside session boundaries
-   - Transform relative paths to absolute paths within the correct session workspace
-   - Block operations targeting the main workspace or other session workspaces
-   - Provide clear error messages for boundary violations
+   - Implement session context router that maps session IDs to container endpoints
+   - Support both local and remote container deployment scenarios
+   - Handle container lifecycle events (start, stop, migration)
+   - Provide fallback mechanisms for container unavailability
+   - Cache container routing information for performance
 
-3. **Session Lookup and Validation**
+3. **Container File Operation API**
 
-   - Create utilities to lookup session information by name or task ID
-   - Validate session existence and status before operations
-   - Retrieve session workspace paths from the session database
-   - Handle graceful error cases for invalid sessions
->>>>>>> 4d93d2ababdce29badf5ebf6d50956901ff8c7a9
+   - Design REST/gRPC API for file operations within containers
+   - Implement secure authentication and authorization for container access
+   - Support atomic file operations to prevent corruption
+   - Handle file streaming for large files
+   - Provide clear error responses for boundary violations
 
-4. **Tool Registration and Discovery**
+4. **Path Resolution Safety (Container-Aware)**
 
-<<<<<<< HEAD
+   - Implement a robust `SessionPathResolver` class that:
+     - Converts all paths to absolute paths within the session workspace
+     - Validates paths don't escape session boundaries (no `../` traversal attacks)
+     - Handles container-specific path mappings and mount points
+     - Works with both local and remote container scenarios
+   - Provide clear, actionable error messages for path violations
+   - Log all path resolutions for debugging and audit purposes
+
+5. **Session Context Integration**
+
+   - Extend the existing `ProjectContext` to include session and container information
+   - Pass session context through MCP server initialization
+   - Support session-to-container mapping through configuration or service discovery
+   - Handle container migration scenarios gracefully
+
+6. **Cursor API Compatibility**
+
    - Ensure MCP tools are compatible with Cursor's expected file operation patterns
    - Provide tool descriptions that guide AI agents to use MCP tools over native tools
-   - Consider tool naming that makes them discoverable and preferred by AI agents
+   - Maintain familiar tool interfaces while adding container routing underneath
    - Document how to configure Cursor to prioritize MCP tools
 
-5. **Architecture Alignment**
+7. **Container Lifecycle Management**
 
-   - Design file operations as an abstraction layer (similar to DatabaseStorage)
-   - Prepare for future non-filesystem workspace implementations
-   - Follow interface-agnostic command patterns
-   - Implement proper error handling following project patterns
+   - Integrate with session management to handle container creation and destruction
+   - Support container health checks and recovery mechanisms
+   - Handle container migration and failover scenarios
+   - Provide monitoring and observability for container operations
 
 ## Implementation Steps
 
@@ -183,6 +196,16 @@ This approach supports several advanced usage scenarios:
    - [ ] Update session workflow documentation
    - [ ] Create migration guide from rule-based to tool-based enforcement
 
+## Advanced Use Cases Support
+
+This approach supports several advanced usage scenarios:
+
+1. **Multiple Cursor instances on different repos**: Each can specify session context via MCP initialization
+2. **Single Cursor with multiple tabs**: MCP server respects the session context per operation
+3. **Different agents isolated on same repo**: Each agent's MCP connection includes session context
+4. **Multiple agents collaborating in same session**: Shared session context ensures coordination
+5. **Remote/K8s deployments**: Central MCP server with session routing based on context
+
 ## Verification
 
 - [ ] File operations through MCP tools are strictly scoped to session workspace
@@ -210,123 +233,113 @@ This approach supports several advanced usage scenarios:
 2. **ADR-002**: Implemented abstraction layer to support future non-filesystem workspaces
 3. **ADR-003**: Used existing ProjectContext pattern for session information propagation
 4. **ADR-004**: Aligned with domain-driven design by keeping file operations in adapter layer
-=======
-   - Register session tools with the central MCP server
-   - Provide discovery mechanisms for available session tools
-   - Implement consistent parameter patterns across all session tools
-   - Document session tool schemas for AI agent consumption
-
-5. **Session Documentation and Examples**
-   - Create comprehensive documentation for session tool usage
-   - Provide examples of session-aware AI workflows
-   - Document migration from standard tools to session tools
-   - Create guides for different session usage patterns
-
-6. **Mandatory Session Tools Rule**
-   - Create a Cursor rule mandating the use of session-specific tools when in a session
-   - Make the rule explicitly require `session_` prefixed tools instead of built-ins
-   - Add clear warnings about the risks of using built-in tools directly
-   - Provide examples showing correct and incorrect tool usage patterns
-   - Ensure the rule is automatically loaded in session contexts
-
-## Implementation Steps
-
-1. [ ] Core Session Utilities:
-
-   - [ ] Create a `SessionPathResolver` module:
-     - [ ] Session path retrieval and validation
-     - [ ] Path containment verification
-     - [ ] Path transformation utilities
-   - [ ] Implement session-specific error types
-   - [ ] Add session workspace lookup functions
-
-2. [ ] Essential Session Tools (Phase 1):
-
-   - [ ] Create `session_edit_file` tool:
-     - [ ] Define schema with session parameter
-     - [ ] Implement path validation and transformation
-     - [ ] Provide clear error messages for boundary violations
-   - [ ] Create `session_read_file` tool with similar structure
-   - [ ] Implement `session_list_dir` for directory operations
-   - [ ] Add registration for these tools to the MCP server
-
-3. [ ] Additional Session Tools (Phase 2):
-
-   - [ ] Implement `session_grep_search` for text searching
-   - [ ] Create `session_codebase_search` for semantic code search
-   - [ ] Add `session_file_search` for path-based file finding
-   - [ ] Develop utility tools like `session_delete_file`
-   - [ ] Ensure all tools follow consistent parameter patterns
-
-4. [ ] Tool Documentation and Examples:
-
-   - [ ] Create detailed documentation for each session tool
-   - [ ] Add examples of session-aware AI agent prompts
-   - [ ] Provide migration guides from standard tools
-   - [ ] Document common error cases and solutions
-
-5. [ ] Session Integration:
-
-   - [ ] Add session tool documentation to the session start output
-   - [ ] Create helper utilities for session tool discovery
-   - [ ] Implement logging for session tool operations
-   - [ ] Add session tool reference to project documentation
-
-6. [ ] Cursor Rule Development:
-
-   - [ ] Create a new `session-tools.mdc` rule file:
-     - [ ] Add clear mandate for using session-specific tools
-     - [ ] Include examples of correct and incorrect patterns
-     - [ ] Explain the risks of bypassing session tools
-     - [ ] Provide guidance for transitioning to session tools
-   - [ ] Integrate rule with session workflows
-   - [ ] Add automatic rule loading for session contexts
-
-7. [ ] Testing and Validation:
-
-   - [ ] Create unit tests for session path resolution
-   - [ ] Implement integration tests for session tools
-   - [ ] Add security tests for boundary enforcement
-   - [ ] Create end-to-end tests with AI agent simulation
-   - [ ] Validate rule effectiveness with AI agent interactions
-
-## Verification
-
-- [ ] Session-specific tools correctly restrict operations to the session workspace
-- [ ] Relative paths in tool calls are properly resolved within the session context
-- [ ] Operations targeting non-session directories are blocked with clear error messages
-- [ ] AI agents can easily use session tools with explicit session parameters
-- [ ] Session workspaces remain isolated with no cross-session interference
-- [ ] Documentation clearly explains the session tool usage pattern
-- [ ] Cursor rule effectively guides AI agents to use session-specific tools
-
-## Technical Considerations
-
-- **Security**: Ensure strict isolation between sessions and the main workspace
-- **Usability**: Make session parameters clear and consistent across tools
-- **Compatibility**: Maintain standard tools alongside session tools during transition
-- **Error Messages**: Provide informative, actionable error messages
-- **Documentation**: Create comprehensive guides for AI agent usage
-- **Performance**: Minimize overhead of session path resolution
-- **Rule Enforcement**: Balance strong guidance with practical flexibility
->>>>>>> 4d93d2ababdce29badf5ebf6d50956901ff8c7a9
 
 ## Related Tasks
 
 - Related to task #034 (Add MCP Support to Minsky)
 - Related to task #047 (Configure MCP Server in Minsky Init Command)
 - Related to task #039 (Prevent Session Creation Within Existing Sessions)
-<<<<<<< HEAD
 - Influenced by task #090 (Prepare for Future Non-Filesystem Workspaces)
 - Aligned with task #091 (Enhance SessionDB with Multiple Backend Support)
-=======
 
 ## Work Log
 
-- 2024-07-14: Performed initial analysis of the problem and existing codebase
-- 2024-07-14: Evaluated architectural approaches and selected hybrid approach
-- 2024-07-14: Updated task specification with detailed design and implementation plan
-- 2024-07-14: Revised specification to clarify centralized MCP approach with session context
-- 2024-07-14: Refined approach to focus on explicit session-specific tools
-- 2024-07-14: Added requirement for Cursor rule mandating use of session-specific tools
->>>>>>> 4d93d2ababdce29badf5ebf6d50956901ff8c7a9
+- 2024-07-14: Initial analysis performed (session-specific tools approach)
+- 2024-07-14: Revised approach to focus on explicit session-specific tools
+- 2025-06-18: Comprehensive re-analysis performed with focus on architectural alignment
+- 2025-06-18: Selected MCP File Operation Proxy approach for better future compatibility
+- 2025-06-18: Updated specification with abstraction layer design for non-filesystem workspaces
+- 2025-06-17: Discovered Docker containerization plans and previous work conflicts
+- 2025-06-17: Performed Docker compatibility analysis for all approaches
+- 2025-06-17: Documented analysis findings without making architectural decision
+
+## Additional Analysis: Docker Containerization Impact
+
+### Context: Future Docker Deployment
+
+**Critical Discovery**: Plans are underway to run session workspaces in Docker containers (initially local, then remote). This fundamentally changes the architecture evaluation:
+
+1. **Deployment Model**: Sessions will run in isolated Docker containers
+2. **Network Boundaries**: File operations must cross container boundaries
+3. **Resource Constraints**: Solutions must minimize per-container overhead  
+4. **Remote Future**: Architecture must work with distributed containers
+
+### Previous Work Investigation
+
+**Found**: Earlier analysis (May 2025) on this same task evaluated similar approaches but selected the **"Session-Specific Tools"** approach:
+- Tools like `session_edit_file`, `session_read_file` with explicit session parameters
+- Centralized MCP server with session routing
+- Strict path validation to prevent boundary violations
+
+This approach was documented through several commits:
+- `b5d2b4b9`: Initial design analysis phase
+- `6dabc700`: Refined to session-specific tools  
+- `4d93d2ab`: Added Cursor rule requirement
+
+### Docker Compatibility Analysis
+
+Evaluated how each approach handles Docker containerization:
+
+#### 1. **MCP File Operation Proxy**
+```
+AI Agent → MCP Proxy → Container API → Docker Container
+```
+**Docker Pros:**
+- Natural container boundary enforcement
+- Minimal container overhead (no MCP in containers)
+- Remote container support out of the box
+- Security isolation by design
+
+**Docker Cons:**
+- Requires container API design
+- More complex proxy implementation
+
+#### 2. **Session-Specific Tools** (Previous Work)
+```
+AI Agent → MCP Server → session_edit_file(session_id) → Container
+```
+**Docker Pros:**
+- Clear session context through parameters
+- Explicit container routing by session ID
+- Can work with centralized MCP + container APIs
+
+**Docker Cons:**
+- Requires AI agents to use different tool names
+- More verbose tool usage patterns
+
+#### 3. **Per-Session MCP Instances**
+```
+AI Agent → Container 1 MCP (port 1234), Container 2 MCP (port 1235)
+```
+**Docker Pros:**
+- Strong isolation per container
+
+**Docker Cons:**
+- Port management nightmare across containers
+- Resource waste (MCP server per container)
+- Network complexity for remote deployment
+- **Poor fit for Docker scenarios**
+
+#### 4. **Virtual Filesystem**
+```
+AI Agent → Virtual FS → Container Volume Mounts
+```
+**Docker Pros:**
+- Clean abstraction layer
+
+**Docker Cons:**
+- Most complex implementation
+- Performance overhead with container I/O
+- Volume management complexity
+
+### Architecture Decision Pending
+
+**Status**: Analysis complete, but architectural decision still pending.
+
+**Key Questions for Decision:**
+1. Should we proceed with the previous session-specific tools approach?
+2. Should we pivot to MCP proxy approach given Docker requirements?
+3. Should we design a hybrid combining both approaches?
+4. What are the priorities: immediate implementation vs. Docker-readiness?
+
+**Recommendation**: Evaluate both approaches with Docker prototype to make informed decision.
