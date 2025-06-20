@@ -1,6 +1,6 @@
 /**
  * Configuration system types for Minsky
- * 
+ *
  * This module defines the interfaces and types for the hierarchical configuration system
  * that supports both repository-level settings (committed) and global user settings.
  */
@@ -26,7 +26,7 @@ export interface GlobalUserConfig {
   version: number;
   credentials?: {
     github?: {
-      source: 'environment' | 'file' | 'prompt';
+      source: "environment" | "file" | "prompt";
       token?: string;
       token_file?: string;
     };
@@ -35,7 +35,7 @@ export interface GlobalUserConfig {
 }
 
 export interface DetectionRule {
-  condition: "github_remote_exists" | "tasks_md_exists" | "always";
+  condition: "json_file_exists" | "tasks_md_exists" | "always";
   backend: string;
 }
 
@@ -47,18 +47,18 @@ export interface ResolvedConfig {
 }
 
 export interface BackendConfig {
-  'github-issues'?: {
+  "github-issues"?: {
     owner: string;
     repo: string;
   };
   markdown?: Record<string, unknown>;
-  'json-file'?: Record<string, unknown>;
+  "json-file"?: Record<string, unknown>;
 }
 
 export interface CredentialConfig {
   github?: {
     token?: string;
-    source: 'environment' | 'file' | 'prompt';
+    source: "environment" | "file" | "prompt";
   };
 }
 
@@ -93,7 +93,7 @@ export interface ValidationWarning {
   code: string;
 }
 
-export type CredentialSource = 'environment' | 'file' | 'prompt';
+export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
   loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult>;
@@ -115,24 +115,24 @@ export interface BackendDetector {
 
 // Default configuration values
 export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
-  backend: 'json-file',
+  backend: "json-file",
   backendConfig: {},
   credentials: {},
   detectionRules: [
-    { condition: 'github_remote_exists', backend: 'github-issues' },
-    { condition: 'tasks_md_exists', backend: 'markdown' },
-    { condition: 'always', backend: 'json-file' }
-  ]
+    { condition: "tasks_md_exists", backend: "markdown" },
+    { condition: "json_file_exists", backend: "json-file" },
+    { condition: "always", backend: "json-file" },
+  ],
 };
 
 // Configuration file paths
 export const CONFIG_PATHS = {
-  REPOSITORY: '.minsky/config.yaml',
-  GLOBAL_USER: '~/.config/minsky/config.yaml'
+  REPOSITORY: ".minsky/config.yaml",
+  GLOBAL_USER: "~/.config/minsky/config.yaml",
 } as const;
 
 // Environment variable names
 export const ENV_VARS = {
-  BACKEND: 'MINSKY_BACKEND',
-  GITHUB_TOKEN: 'GITHUB_TOKEN'
-} as const; 
+  BACKEND: "MINSKY_BACKEND",
+  GITHUB_TOKEN: "GITHUB_TOKEN",
+} as const;
