@@ -67,12 +67,12 @@ Central MCP Server → Session Lookup → Path Resolution → Local Filesystem
    - Handle edge cases like symlinks, relative paths, and special characters
    - Log all path resolutions for debugging and audit purposes
 
-4. **Session File Operations Backend**
+4. **Workspace Backend**
 
-   - Create `SessionFileOperations` service for actual file system operations
+   - Create `WorkspaceBackend` service for actual workspace operations
    - Design as abstraction layer to support future containerization
-   - Support atomic file operations to prevent corruption
-   - Handle file streaming for large files
+   - Support atomic operations to prevent corruption
+   - Handle large content efficiently (streaming, chunking, etc.)
    - Provide consistent error handling and reporting
 
 5. **MCP Server Integration**
@@ -91,13 +91,13 @@ Central MCP Server → Session Lookup → Path Resolution → Local Filesystem
 
 ## Implementation Steps
 
-1. [ ] **Session File Operations Backend**:
+1. [ ] **Workspace Backend**:
 
-   - [ ] Create `SessionFileOperations` service with abstraction interface
-   - [ ] Implement `LocalSessionFileOperations` for direct filesystem access
-   - [ ] Design interface to support future `ContainerSessionFileOperations`
+   - [ ] Create `WorkspaceBackend` service with abstraction interface
+   - [ ] Implement `LocalWorkspaceBackend` for direct filesystem access
+   - [ ] Design interface to support future `ContainerWorkspaceBackend`
    - [ ] Add comprehensive error handling and validation
-   - [ ] Create unit tests for file operations and boundary enforcement
+   - [ ] Create unit tests for workspace operations and boundary enforcement
 
 2. [ ] **Session Path Resolution System**:
 
@@ -120,7 +120,8 @@ Central MCP Server → Session Lookup → Path Resolution → Local Filesystem
    - [ ] Integrate with existing `SessionService` for session resolution
    - [ ] Add session validation and error handling
    - [ ] Support multiple session identifier formats
-   - [ ] Create adapter layer in `src/adapters/mcp/session-files.ts`
+   - [ ] Create adapter layer in `src/adapters/mcp/session-workspace.ts`
+   - [ ] Wire session-aware tools to use `WorkspaceBackend` abstraction
 
 5. [ ] **Advanced Session Tools**:
 
@@ -174,34 +175,44 @@ This approach supports several usage scenarios with local filesystem:
 - **Future Compatibility**: Design backend abstraction for easy containerization
 - **Testing**: Create comprehensive tests for boundary enforcement and edge cases
 
-## Session File Operations Backend
+## Workspace Backend
 
-The "backend implementation" mentioned refers to the **Session File Operations Backend** - an abstraction layer that handles the actual file operations:
+The "backend implementation" mentioned refers to the **Workspace Backend** - an abstraction layer that handles the actual workspace operations:
 
 ```typescript
 // Abstract interface for future extensibility  
-interface SessionFileOperations {
-  readFile(sessionDir: string, relativePath: string): Promise<string>;
-  writeFile(sessionDir: string, relativePath: string, content: string): Promise<void>;
-  deleteFile(sessionDir: string, relativePath: string): Promise<void>;
-  listDirectory(sessionDir: string, relativePath: string): Promise<string[]>;
+interface WorkspaceBackend {
+  readFile(workspaceDir: string, relativePath: string): Promise<string>;
+  writeFile(workspaceDir: string, relativePath: string, content: string): Promise<void>;
+  deleteFile(workspaceDir: string, relativePath: string): Promise<void>;
+  listDirectory(workspaceDir: string, relativePath: string): Promise<string[]>;
+  // Future: could add non-file operations like database queries
 }
 
 // Current implementation: direct filesystem
-class LocalSessionFileOperations implements SessionFileOperations {
-  async readFile(sessionDir: string, relativePath: string): Promise<string> {
-    const fullPath = this.validatePath(sessionDir, relativePath);
+class LocalWorkspaceBackend implements WorkspaceBackend {
+  async readFile(workspaceDir: string, relativePath: string): Promise<string> {
+    const fullPath = this.validatePath(workspaceDir, relativePath);
     return fs.readFile(fullPath, 'utf8');
   }
   // ... other methods
 }
 
 // Future implementation: container API calls  
-class ContainerSessionFileOperations implements SessionFileOperations {
-  async readFile(sessionDir: string, relativePath: string): Promise<string> {
-    const containerEndpoint = await this.getContainerEndpoint(sessionDir);
-    const response = await fetch(`${containerEndpoint}/api/files/read?path=${relativePath}`);
+class ContainerWorkspaceBackend implements WorkspaceBackend {
+  async readFile(workspaceDir: string, relativePath: string): Promise<string> {
+    const containerEndpoint = await this.getContainerEndpoint(workspaceDir);
+    const response = await fetch(`${containerEndpoint}/api/workspace/read?path=${relativePath}`);
     return response.text();
+  }
+  // ... other methods
+}
+
+// Future implementation: database-backed workspace
+class DatabaseWorkspaceBackend implements WorkspaceBackend {
+  async readFile(workspaceDir: string, relativePath: string): Promise<string> {
+    // Query database for workspace content instead of filesystem
+    return await this.db.getWorkspaceFile(workspaceDir, relativePath);
   }
   // ... other methods
 }
