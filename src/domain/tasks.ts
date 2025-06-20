@@ -11,8 +11,8 @@ import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import { ResourceNotFoundError } from "../errors/index.js";
 import matter from "gray-matter";
-// Import constants for use within this file
-import { TASK_STATUS, TASK_STATUS_CHECKBOX, CHECKBOX_TO_STATUS } from "./tasks/taskConstants.js";
+// Import constants and utilities for use within this file
+import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
 import type { TaskStatus } from "./tasks/taskConstants.js";
 
 // Import and re-export functions from taskCommands.ts
@@ -39,7 +39,7 @@ export {
 };
 
 // Re-export task status constants from centralized location
-export { TASK_STATUS, TASK_STATUS_CHECKBOX, CHECKBOX_TO_STATUS } from "./tasks/taskConstants.js";
+export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants.js";
 export type { TaskStatus } from "./tasks/taskConstants.js";
 
 /**
@@ -193,8 +193,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       if (inCodeBlock) return line;
       if (line.includes(`[#${idNum}]`)) {
-        // Replace only the first checkbox in the line
-        return line.replace(/^(\s*- \[)( |x|\-|\+|~)(\])/, `$1${newStatusChar}$3`);
+        // Use centralized utility to replace checkbox status
+        return TASK_PARSING_UTILS.replaceCheckboxStatus(line, status as TaskStatus);
       }
       return line;
     });
@@ -240,15 +240,13 @@ export class MarkdownTaskBackend implements TaskBackend {
           continue;
         }
         if (inCodeBlock) continue;
-        // Match top-level tasks: - [ ] Title [#123](...)
-        const match = /^- \[( |x|\-|\+|~)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
-        if (!match) continue;
-        const checkbox = match[1];
-        const title = match[2]?.trim() ?? "";
-        const id = `#${match[3] ?? ""}`;
+        // Parse task line using centralized utility
+        const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
+        if (!parsed) continue;
+
+        const { checkbox, title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status =
-          CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
+        const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
         // Aggregate indented lines as description
         let description = "";
         for (let j = i + 1; j < lines.length; j++) {

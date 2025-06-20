@@ -4,9 +4,9 @@
  */
 import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
-// Import constants from centralized location
-import { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
-export { CHECKBOX_TO_STATUS, STATUS_TO_CHECKBOX } from "./taskConstants.js";
+// Import constants and utilities from centralized location
+import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants.js";
+import type { TaskStatus } from "./taskConstants.js";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -29,16 +29,14 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     }
     if (inCodeBlock) continue;
 
-    // Match top-level tasks: - [ ] Title [#123](...)
-    const match = /^- \[( |x|\-|\+|~)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
-    if (!match) continue;
+    // Parse task line using centralized utility
+    const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
+    if (!parsed) continue;
 
-    const checkbox = match[1];
-    const title = match[2]?.trim() ?? "";
-    const id = `#${match[3] ?? ""}`;
+    const { checkbox, title, id } = parsed;
     if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
 
-    const status = CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || "TODO";
+    const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
 
     // Aggregate indented lines as description
     let description = "";
@@ -76,7 +74,7 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
 
   return tasks
     .map((task) => {
-      const checkbox = STATUS_TO_CHECKBOX[task.status] || " ";
+      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
       const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
 
@@ -167,14 +165,14 @@ export function getNextTaskId(tasks: TaskData[]): string {
  * @param status New status
  * @returns New array with the updated task
  */
-export function setTaskStatus(tasks: TaskData[], id: string, status: string): TaskData[] {
+export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
   const normalizedId = normalizeTaskId(id);
   if (!normalizedId) return tasks;
 
-  // Validate status
-  if (!Object.values(CHECKBOX_TO_STATUS).includes(status)) {
+  // Validate status using centralized utility
+  if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
@@ -383,8 +381,8 @@ ${spec.description}
  * @param status Status to validate
  * @returns True if valid, false otherwise
  */
-export function isValidTaskStatus(status: string): boolean {
-  return Object.values(CHECKBOX_TO_STATUS).includes(status);
+export function isValidTaskStatus(status: string): status is TaskStatus {
+  return isValidTaskStatusUtil(status);
 }
 
 /**
