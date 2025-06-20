@@ -7,36 +7,21 @@ alwaysApply: false
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
 
-Listen for these user signals:
+## Error Detection Signals
 
-### Error and Dissatisfaction Signals
+### User Dissatisfaction Signals
 - Direct correction: "that's wrong", "incorrect", "not right"
 - Questions about rationale: "why did you do that?", "what were you thinking?"
 - Expressions of frustration: "you're doing [problem] again", "you keep making this mistake"
 - Implied dissatisfaction: "that's not what I asked for", "this doesn't work"
-
-### Preference and Directive Signals
-- Future instructions: "make sure to always...", "going forward, always..."
-- Preference statements: "remember that I want...", "I prefer..."
-- Prohibitions: "never do this again", "stop doing..."
-- Conditional directives: "every time X happens, do Y"
-- Standard setting: "from now on, when..."
-
-
+- Preference directives: "make sure to always...", "going forward, always..."
 
 ## Self-Reflection Protocol
 
-1. **Pause and analyze failed mental model**
-   - Identify the specific action or reasoning that failed
-   - Trace back through your thought process that led to the error
-   - Isolate assumptions that proved incorrect
+**When triggered, follow this exact procedure:**
 
-2. **Create feedback verification loop**
-   - Before continuing, verify your understanding of what went wrong
-   - Acknowledge the specific error without defensiveness
-   - Confirm you understand the user's correction
-
-3. **Explicitly identify error category**
+1. **Stop Current Task** - Immediately pause and acknowledge feedback
+2. **Root Cause Analysis** - Identify specific failure cause and error category:
    ```
    [ ] Assumption Error: Started with incorrect premise
    [ ] Process Error: Used wrong methodology/approach
@@ -48,271 +33,46 @@ Listen for these user signals:
    [ ] Preference Error: Failed to adhere to user preferences
    [ ] Completion Assessment Error: Declared completion without proper verification
    ```
+3. **Verbalize Understanding** - Confirm comprehension of user's concern
+4. **Apply Correction** - Make immediate changes using tools, not plans
+5. **Verify Alignment** - Confirm approach meets user needs before resuming
 
-4. **Rule gap analysis**
-   - Identify which rule could have prevented this error
-   - Determine if the gap is:
-     - Missing rule entirely
-     - Inadequate existing rule
-     - Failure to apply correct existing rule
-     - Conflicting rules creating ambiguity
-     - Missing user preference
+## Rule Update Authority Hierarchy
 
-## Immediate Correction Action
+When updating rules based on feedback:
+1. **Project Workflow/Process Rules**: Update first for process/workflow requirements
+2. **User-Preferences Rule**: Update for personal preferences not covered by workflow rules
+3. **Self-Improvement Rule**: Update for meta-process corrections and error analysis
+4. **Domain-Specific Rules**: Update only for domain-specific issues
 
-Based on your analysis:
+**CRITICAL**: After identifying required rule changes, they MUST be implemented immediately using edit tools, not merely described.
 
-1. **For existing rule gaps**:
-   - Articulate specifically how the rule would need to be updated
-   - Focus on actionable, concrete improvements
+## ⚠️ Systematic Verification Failure Protocol
 
-2. **For missing rules**:
-   - Propose new rule addressing the specific failure mode
-   - Ensure the rule is precise, testable, and applicable
+**Addresses repeated failures to apply existing verification rules**
 
-3. **For application failures**:
-   - Identify why the correct rule wasn't applied
-   - Create a meta-rule or priority hierarchy if needed
+### When User Reports Repeated Rule Violations:
 
-4. **For user preference directives**:
-   - Document the preference clearly in the user-preferences rule
-   - If no user-preferences rule exists, propose creating one
-   - Update the most relevant rule based on the preference
+1. **Immediate Verification Audit**:
+   - Execute all mandatory verification checks from relevant loaded rules
+   - Do not submit responses without completing required scans
+   - Rewrite completely if violations found
 
-## Immediate Implementation Requirement
+2. **Root Cause Analysis**:
+   - Process Gap: Not executing mandatory steps from existing rules
+   - Attention Failure: Rushing without applying required checks
+   - Rule Application Failure: Having correct rules but ignoring them
 
-**CRITICAL:** After identifying required rule changes, they MUST be implemented immediately:
+3. **Enforcement Mechanism**:
+   - If user reports SAME violation twice: Treat as critical protocol failure
+   - Immediately audit complete verification process
+   - Update enforcement mechanisms to prevent recurrence
 
-1. **No "talking about changes" without making them**:
-   - NEVER merely describe what changes should be made
-   - IMMEDIATELY perform the file edit operation after analysis
-   - Verify the edit was successfully applied
-
-2. **Implementation verification**:
-   - After making a rule change, verify it was actually committed
-   - If the user points out the change was not made, skip re-analysis and immediately implement
-   - Use concrete actions, not plans or intentions
-
-3. **Meta-error prevention**:
-   - If caught describing changes without implementing them, treat this as a critical protocol failure
-   - Immediately make the change without further discussion
-   - This is considered a serious violation of the self-improvement framework
-
-## Rule Update Protocol
-
-When updating rules based on user feedback:
-
-1. **For user preferences**:
-   - Add to or update the user-preferences rule
-   - Format as clear, actionable directives
-   - Include examples of correct behavior
-
-2. **For specific workflows**:
-   - Identify the most specific rule that addresses the concern
-   - Update that rule rather than creating duplicative content
-   - Ensure the update integrates well with existing directives
-
-3. **For general behaviors**:
-   - Update highest-level applicable rule
-   - Add clear section headers for discoverability
-   - Ensure the scope and triggers are well-defined
-
-## Error Prevention Mechanism
-
-Implement these patterns to minimize recurrence:
-
-- **Verification checkpoints**: Establish explicit verification steps
-- **Assumption testing**: Validate key assumptions before proceeding
-- **Progress confirmation**: Regularly confirm alignment with user intent
-- **Tool usage protocol**: Verify tool arguments and outputs match expectations
-- **Preference review**: Scan for user preferences at the start of new sessions
-
-## Examples
-
-### Error Correction
-
-// AVOID
-User: "That's not correct. I needed the absolute path."
-Assistant: "I'll fix that right away." [proceeds without understanding root cause]
-
-// PREFER
-User: "That's not correct. I needed the absolute path."
-Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
-
-### Preference Handling
-
-// AVOID
-User: "Going forward, always use absolute paths when editing files in the session workspace."
-Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
-
-// PREFER
-User: "Going forward, always use absolute paths when editing files in the session workspace."
-Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
-
-## Rule-Driven Remediation Requirement
-
-Whenever a process, application, or verification error occurs (i.e., a rule is not followed in practice, regardless of whether the rule exists), the AI must:
-- Update or create a rule (or meta-rule) to explicitly prevent recurrence of that error, even if the rule already exists in some form.
-- Add a verification checkpoint or enforcement step to the relevant rule(s) to ensure the correct process is followed in the future.
-- Document the error and the rule update in the session worklog or changelog.
-
-This applies to all failures, including those due to misunderstanding, oversight, or failure to apply an existing rule. The goal is to ensure that the rule system evolves to prevent not just gaps, but also lapses in application.
-
-## Pre-Change Communication Protocol
-
-- Before making any rule or process change in response to user feedback:
-  1. Pause and analyze the root cause of the failure.
-  2. Explicitly communicate this analysis, including the error category and reasoning, to the user.
-  3. Only proceed with the change after this analysis and communication step.
-
-This ensures transparency and gives the user a chance to correct or clarify the assistant's analysis.
-
-## Rule Selection and Update Protocol
-
-**To ensure corrections and new requirements are always applied to the most relevant rule, follow this protocol:**
-
-### 1. Rule Authority Hierarchy
-- **Project Workflow/Process Rules** (e.g., minsky-workflow, session-first-workflow): Always check and update these first for any process, workflow, or command usage requirements.
-- **User-Preferences Rule:** Only update if the user expresses a new, personal preference not already covered by a project workflow rule, or if the user explicitly requests a preference override.
-- **Self-Improvement Rule:** Use for meta-process corrections, error analysis, and documenting how/why a process failed.
-- **Other Domain-Specific Rules:** Update only if the issue is specific to that domain (e.g., constants-management, robust-error-handling).
-
-### 2. Rule Update Steps
-1. Identify the nature of the correction or new requirement.
-2. Search for the most specific, authoritative rule that governs this area.
-3. If a project workflow/process rule exists and covers the case, update or clarify that rule.
-4. If the issue is a user-specific preference not covered by workflow rules, update user-preferences.
-5. If the issue is a meta-process or error pattern, update self-improvement.
-6. Never duplicate logic across rules; always centralize in the most relevant rule.
-
-### 3. Verification Checkpoint
-- Before making any rule update, explicitly state which rule is being updated and why.
-- Justify the choice based on the above hierarchy.
-- If uncertain, default to updating the project workflow/process rule and note the reasoning.
-
-### 4. Automation Directive
-- For every correction, run a rule search (by name and description) to confirm the most relevant rule.
-- If a more relevant rule is found after an update, immediately migrate the update to the correct rule and remove it from the less relevant one.
-
-This protocol must be followed for all future rule updates and corrections.
-
-## Rule Update Verification Protocol
-
-- **Before making any rule update:**
-  1. Explicitly identify the nature of the correction (workflow/process, user preference, meta-process, or domain-specific).
-  2. State which rule is being updated and why, referencing the Rule Authority Hierarchy.
-  3. Justify the choice based on the hierarchy (project workflow/process > user-preferences > self-improvement > domain-specific).
-  4. If uncertain, default to updating the project workflow/process rule and note the reasoning.
-  5. Pause and verify: Is this the most authoritative rule for this requirement?
-
-- **After making any rule update:**
-  1. Re-check the rule authority hierarchy to confirm the update is in the correct rule.
-  2. If a more relevant rule is found, immediately migrate the update and remove it from the less relevant rule.
-  3. Document the correction in the session worklog or changelog.
-
-### Example: Rule Update Verification Failure and Remediation
-
-// AVOID
-User: "Never update tasks.md directly, only with the minsky tasks commands."
-Assistant: [updates user-preferences rule]
-User: "That's not the right rule to improve."
-Assistant: [realizes error, moves protocol to minsky-workflow rule]
-
-// PREFER
-User: "Never update tasks.md directly, only with the minsky tasks commands."
-Assistant:
-- "This is a workflow/process requirement. Per the Rule Authority Hierarchy, I will update the minsky-workflow rule, not user-preferences."
-- [updates minsky-workflow rule, adds verification checkpoint]
-- [verifies update is in the correct rule]
-
-## Workflow Error Escalation and Verification Protocol
-
-### Immediate Verification Checkpoint
-- After any failed Minsky CLI command (especially session creation), immediately pause all further implementation or investigation.
-- Before proceeding, verify:
-  - That a valid, usable session workspace exists.
-  - That the session directory was actually created and is accessible.
-  - That the CLI did not return an error or malformed path.
-- If any of these checks fail, do not proceed. Escalate as below.
-
-### Escalation Protocol
-- Immediately recommend and initiate the creation of a new Minsky task/session for the bug.
-- Halt all further implementation work until the bug is tracked and a session for the fix is active.
-- Do not attempt any workaround, manual fix, or further investigation in the main workspace.
-
-### Communication Protocol
-- After any workflow error, output a clear, step-by-step summary of:
-  - What command was run
-  - What the error was
-  - Why this blocks further work
-  - The exact next step (create a new Minsky task/session for the bug)
-- Log this in the session worklog and update the self-improvement rule if needed.
-
-### Meta-Error Prevention
-- If this protocol is not followed, treat it as a critical protocol failure and immediately update this rule and process.
-
-## ⚠️ Critical Error Recovery Protocol
-
-### High-Risk Operation Identification
-- Before executing ANY operation that:
-  1. Modifies data permanently (deletion, overwriting)
-  2. Affects shared resources (remote repositories, shared branches)
-  3. Uses tools with destructive capabilities (`git reset --hard`, `rm -rf`, etc.)
-  4. Cannot be easily undone
-  - You MUST explicitly acknowledge the operation as high-risk and follow the steps below.
-
-### Pre-Execution Documentation
-1. **State of the System**:
-   - Document the current state using appropriate commands (`git status`, `ls`, etc.)
-   - Save critical information (e.g., commit hashes, file listings) that would be needed for recovery
-   - Create reference points (e.g., temporary branches in Git) when applicable
-
-2. **Execution Plan**:
-   - Explicitly state the exact command(s) to be executed
-   - Document expected outcome in detail
-   - Identify potential failure modes and their consequences
-   - Document recovery options for each potential failure
-
-3. **Safer Alternatives Analysis**:
-   - Always consider and document at least one safer alternative approach
-   - Compare risk profiles of different approaches
-   - Justify choice of approach based on risk vs. benefit
-
-### Post-Error Recovery Procedure
-If a critical error occurs during execution:
-
-1. **Immediate Containment**:
-   - STOP all operations immediately
-   - DO NOT attempt further operations that could complicate recovery
-   - Document the exact state after error (evidence collection)
-   - Preserve all information needed for recovery
-
-2. **Systematic Analysis**:
-   - Compare actual state to pre-execution documented state
-   - Identify exactly what changed and what was lost
-   - Determine if the changes can be recovered and how
-   - Map out all possible recovery paths
-
-3. **Staged Recovery**:
-   - Create isolated environment for recovery when possible
-   - Never attempt recovery directly on production/shared resources if avoidable
-   - Execute recovery steps in stages with verification between each stage
-   - Create recovery checkpoints to avoid compounding errors
-
-4. **Prevent Recurrence**:
-   - Document the error and recovery process in detail
-   - Update relevant rules with specific preventative measures
-   - Create verification steps that would have prevented the error
-   - Add explicit warnings about the specific error scenario
-
-### Terminal Error Response
-For catastrophic errors (data loss, corruption of shared resources, security breaches):
-
-1. **Immediate Notification**: Explicitly inform the user of the severity using "TERMINAL ERROR" language
-2. **Complete Operational Pause**: Halt ALL operations until user guidance is received
-3. **Full Transparency**: Provide complete details of what happened, why, and potential consequences
-4. **Comprehensive Documentation**: Document exact commands that led to the error
-5. **Rule System Update**: IMMEDIATELY update rules to prevent recurrence
+### Mandatory Response Verification
+**EVERY response must pass this check:**
+1. **Rule Compliance**: Execute all mandatory protocols from relevant loaded rules
+2. **Response Quality**: Answer actual question, implement rather than describe
+3. **Verification Complete**: Confirm all required checks performed
 
 ## When to Apply This Rule
 
@@ -323,131 +83,3 @@ This rule MUST be applied whenever:
 4. The user expresses a preference for future behavior
 5. The user asks you to do something differently
 6. Your action results in an error
-
-## Self-Improvement Protocol
-
-**REQUIRED: When triggered, follow this exact procedure:**
-
-1. **Stop Current Task**
-   - Immediately pause progress on the current task
-   - Do not continue with the previous workflow
-   - Display acknowledgment that you're considering the feedback
-
-2. **Root Cause Analysis**
-   - Identify the specific cause of the issue
-   - Determine if it's a:
-     - Misunderstanding of requirements
-     - System limitation
-     - Tool usage error
-     - Reasoning error
-     - Misalignment with user preferences
-
-3. **Verbalize Understanding**
-   - Explicitly state what went wrong
-   - Demonstrate that you understand the user's concern
-   - Confirm the user's preference for future behavior
-
-4. **Apply Correction**
-   - State how you'll adjust your approach
-   - Make the change immediately
-   - Use specific, concrete language about what you'll do differently
-
-5. **Verify Alignment**
-   - Confirm your new approach meets the user's needs
-   - Only after confirmation, resume the previous task with the new approach
-
-## Rule System Organization Lessons
-
-When working with complex rule systems (like testing rules), apply these organizational principles:
-
-1. **Create Rule Hierarchies**:
-   - Create a router rule as the entry point for the rule system
-   - Organize rules into layers (Foundation, Implementation, Specialized)
-   - Ensure descriptions clearly indicate rule relationships
-
-2. **Cross-Rule References**:
-   - Always include explicit references to related rules
-   - Use relationship indicators in descriptions ("Apply alongside X")
-   - Create a relationship matrix in the router rule showing when each rule applies
-
-3. **Rule Application Clarity**:
-   - Ensure every rule has a clear, unique purpose
-   - Prevent overlapping guidance between rules
-   - Use specific scenarios in descriptions to trigger correct rule application
-
-4. **Combine Related Rules When Appropriate**:
-   - If multiple rules cover similar topics and are consistently applied together, consider merging them
-   - If a rule system becomes too complex (10+ rules), look for consolidation opportunities
-
-These lessons should be applied proactively when creating or refactoring rule systems to improve AI understanding and rule application.
-
-## Common Self-Improvement Scenarios
-
-### Wrong Rule Application
-
-If you applied an incorrect rule or missed applying a relevant rule:
-
-```
-I apologize for applying the wrong rule. I see that this situation calls for the [correct-rule] instead of [incorrect-rule]. The key difference is [explanation]. I'll now apply the correct rule.
-```
-
-### Confusing Output
-
-If your explanation was unclear or confusing:
-
-```
-I see my explanation was confusing. Let me clarify: [simple, direct explanation]. The core point is [key takeaway]. Does that make more sense?
-```
-
-### System Limitations
-
-If you hit a system limitation:
-
-```
-I understand what you're asking for, but I'm limited in my ability to [specific limitation]. Let me suggest an alternative approach: [workaround].
-```
-
-### User Preference Alignment
-
-If the user expresses a preference for how something should be done:
-
-```
-I understand your preference for [specific preference]. I'll adjust my approach to [specific change] going forward. Let me demonstrate that now by [example of implementing preference].
-```
-
-## When to Apply This Rule
-
-This rule MUST be applied whenever:
-1. The user expresses dissatisfaction
-2. The user corrects you
-3. The user indicates confusion
-4. The user expresses a preference for future behavior
-5. The user asks you to do something differently
-6. Your action results in an error
-
-## Process Error Prevention
-
-### Rule Selection Enforcement
-**BEFORE any rule update:**
-1. **STOP** - Explicitly state which rule you plan to update
-2. **JUSTIFY** - Reference the Rule Authority Hierarchy to explain why
-3. **VERIFY** - Confirm this is the most authoritative rule for the issue
-4. **PROCEED** - Only then make the update
-
-### Question Response Protocol
-When user asks process questions ("how will you...", "what will you do..."):
-1. **Answer the actual question first** - describe behavioral/process changes
-2. **Then** consider if rule updates are needed
-3. **Never** default to rule updates without answering the question
-
-### Implementation Requirement
-**CRITICAL**: When identifying what needs to be done:
-1. **DO IT** immediately - use tools to make changes
-2. **Don't describe it** - avoid "I need to..." or "This should be..."
-3. **Verify completion** - confirm the change was actually made
-
-### Meta-Process Verification
-Before submitting responses about process improvements:
-- Did I answer the user's actual question?
-- Am I updating the correct rule per the hierarchy?
-- Am I implementing changes rather than just describing them?
