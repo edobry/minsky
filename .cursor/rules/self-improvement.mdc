@@ -1,6 +1,6 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs:
+globs: 
 alwaysApply: false
 ---
 # Self-Improvement
@@ -46,6 +46,150 @@ When updating rules based on feedback:
 4. **Domain-Specific Rules**: Update only for domain-specific issues
 
 **CRITICAL**: After identifying required rule changes, they MUST be implemented immediately using edit tools, not merely described.
+
+## Examples
+
+### Error Correction
+
+// AVOID
+User: "That's not correct. I needed the absolute path."
+Assistant: "I'll fix that right away." [proceeds without understanding root cause]
+
+// PREFER
+User: "That's not correct. I needed the absolute path."
+Assistant: [identifies mental model failure] "I see my error. I assumed relative paths would resolve against the current directory, but they actually resolve against the workspace root. This violates the session-first-workflow rule requiring absolute paths. I should have verified my changes were applied correctly. I'll now use the absolute path and confirm the changes are applied."
+
+### Preference Handling
+
+// AVOID
+User: "Going forward, always use absolute paths when editing files in the session workspace."
+Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
+
+// PREFER
+User: "Going forward, always use absolute paths when editing files in the session workspace."
+Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
+
+## Rule System Organization Lessons
+
+When working with complex rule systems (like testing rules), apply these organizational principles:
+
+1. **Create Rule Hierarchies**:
+   - Create a router rule as the entry point for the rule system
+   - Organize rules into layers (Foundation, Implementation, Specialized)
+   - Ensure descriptions clearly indicate rule relationships
+
+2. **Cross-Rule References**:
+   - Always include explicit references to related rules
+   - Use relationship indicators in descriptions ("Apply alongside X")
+   - Create a relationship matrix in the router rule showing when each rule applies
+
+3. **Rule Application Clarity**:
+   - Ensure every rule has a clear, unique purpose
+   - Prevent overlapping guidance between rules
+   - Use specific scenarios in descriptions to trigger correct rule application
+
+4. **Combine Related Rules When Appropriate**:
+   - If multiple rules cover similar topics and are consistently applied together, consider merging them
+   - If a rule system becomes too complex (10+ rules), look for consolidation opportunities
+
+These lessons should be applied proactively when creating or refactoring rule systems to improve AI understanding and rule application.
+
+## Common Self-Improvement Scenarios
+
+### Wrong Rule Application
+
+If you applied an incorrect rule or missed applying a relevant rule:
+
+```
+I apologize for applying the wrong rule. I see that this situation calls for the [correct-rule] instead of [incorrect-rule]. The key difference is [explanation]. I'll now apply the correct rule.
+```
+
+### Confusing Output
+
+If your explanation was unclear or confusing:
+
+```
+I see my explanation was confusing. Let me clarify: [simple, direct explanation]. The core point is [key takeaway]. Does that make more sense?
+```
+
+### System Limitations
+
+If you hit a system limitation:
+
+```
+I understand what you're asking for, but I'm limited in my ability to [specific limitation]. Let me suggest an alternative approach: [workaround].
+```
+
+### User Preference Alignment
+
+If the user expresses a preference for how something should be done:
+
+```
+I understand your preference for [specific preference]. I'll adjust my approach to [specific change] going forward. Let me demonstrate that now by [example of implementing preference].
+```
+
+## ⚠️ Critical Error Recovery Protocol
+
+### High-Risk Operation Identification
+- Before executing ANY operation that:
+  1. Modifies data permanently (deletion, overwriting)
+  2. Affects shared resources (remote repositories, shared branches)
+  3. Uses tools with destructive capabilities (`git reset --hard`, `rm -rf`, etc.)
+  4. Cannot be easily undone
+  - You MUST explicitly acknowledge the operation as high-risk and follow the steps below.
+
+### Pre-Execution Documentation
+1. **State of the System**:
+   - Document the current state using appropriate commands (`git status`, `ls`, etc.)
+   - Save critical information (e.g., commit hashes, file listings) that would be needed for recovery
+   - Create reference points (e.g., temporary branches in Git) when applicable
+
+2. **Execution Plan**:
+   - Explicitly state the exact command(s) to be executed
+   - Document expected outcome in detail
+   - Identify potential failure modes and their consequences
+   - Document recovery options for each potential failure
+
+3. **Safer Alternatives Analysis**:
+   - Always consider and document at least one safer alternative approach
+   - Compare risk profiles of different approaches
+   - Justify choice of approach based on risk vs. benefit
+
+### Post-Error Recovery Procedure
+If a critical error occurs during execution:
+
+1. **Immediate Containment**:
+   - STOP all operations immediately
+   - DO NOT attempt further operations that could complicate recovery
+   - Document the exact state after error (evidence collection)
+   - Preserve all information needed for recovery
+
+2. **Systematic Analysis**:
+   - Compare actual state to pre-execution documented state
+   - Identify exactly what changed and what was lost
+   - Determine if the changes can be recovered and how
+   - Map out all possible recovery paths
+
+3. **Staged Recovery**:
+   - Create isolated environment for recovery when possible
+   - Never attempt recovery directly on production/shared resources if avoidable
+   - Execute recovery steps in stages with verification between each stage
+   - Create recovery checkpoints to avoid compounding errors
+
+4. **Prevent Recurrence**:
+   - Document the error and recovery process in detail
+   - Update relevant rules with specific preventative measures
+   - Create verification steps that would have prevented the error
+   - Add explicit warnings about the specific error scenario
+
+### Terminal Error Response
+For catastrophic errors (data loss, corruption of shared resources, security breaches):
+
+1. **Immediate Notification**: Explicitly inform the user of the severity using "TERMINAL ERROR" language
+2. **Complete Operational Pause**: Halt ALL operations until user guidance is received
+3. **Full Transparency**: Provide complete details of what happened, why, and potential consequences
+4. **Comprehensive Documentation**: Document exact commands that led to the error
+5. **Rule System Update**: IMMEDIATELY update rules to prevent recurrence
 
 ## ⚠️ Systematic Verification Failure Protocol
 
