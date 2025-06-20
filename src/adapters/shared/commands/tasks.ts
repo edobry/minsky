@@ -241,7 +241,7 @@ const tasksStatusSetRegistration = {
       const selectedStatus = await select({
         message: "Select a status:",
         options: statusOptions,
-        initial: initialIndex, // Pre-select the current status
+        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current status
       });
 
       // Handle cancellation
