@@ -18,6 +18,20 @@ export enum CommandCategory {
 }
 
 /**
+<<<<<<< Updated upstream
+=======
+ * Status values for tasks
+ */
+export enum TaskStatus {
+  TODO = "TODO",
+  IN_PROGRESS = "IN-PROGRESS",
+  IN_REVIEW = "IN-REVIEW",
+  DONE = "DONE",
+  BLOCKED = "BLOCKED",
+}
+
+/**
+>>>>>>> Stashed changes
  * Interface for command execution results
  */
 export interface CommandResult {

@@ -35,6 +35,7 @@ export {
   type TaskSpecContentParams,
 };
 
+<<<<<<< Updated upstream
 // Import task status constants from centralized location
 export { 
   TASK_STATUS, 
@@ -43,6 +44,8 @@ export {
   CHECKBOX_TO_STATUS 
 } from "./tasks/taskConstants.js";
 
+=======
+>>>>>>> Stashed changes
 /**
  * Interface for task service operations
  * This defines the contract for task-related functionality
@@ -119,6 +122,36 @@ export interface CreateTaskOptions {
   force?: boolean;
 }
 
+<<<<<<< Updated upstream
+=======
+// Task status constants and checkbox mapping
+export const TASK_STATUS = {
+  TODO: "TODO",
+  DONE: "DONE",
+  IN_PROGRESS: "IN-PROGRESS",
+  IN_REVIEW: "IN-REVIEW",
+  BLOCKED: "BLOCKED",
+} as const;
+
+export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
+
+export const TASK_STATUS_CHECKBOX: Record<string, string> = {
+  [TASK_STATUS.TODO]: " ",
+  [TASK_STATUS.DONE]: "x",
+  [TASK_STATUS.IN_PROGRESS]: "-",
+  [TASK_STATUS.IN_REVIEW]: "+",
+  [TASK_STATUS.BLOCKED]: "~",
+};
+
+export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
+  " ": TASK_STATUS.TODO,
+  x: TASK_STATUS.DONE,
+  "-": TASK_STATUS.IN_PROGRESS,
+  "+": TASK_STATUS.IN_REVIEW,
+  "~": TASK_STATUS.BLOCKED,
+};
+
+>>>>>>> Stashed changes
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
   private filePath: string;
@@ -308,7 +341,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     // Support multiple title formats for backward compatibility:
     // 1. Old format with task number: "# Task #XXX: Title"
-    // 2. Old format without number: "# Task: Title"  
+    // 2. Old format without number: "# Task: Title"
     // 3. New clean format: "# Title"
     const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
@@ -332,12 +365,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
         );
       }
     } else {
       throw new Error(
-        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
       );
     }
 
