@@ -7,6 +7,8 @@
  * Descriptions are organized by functional area for easier maintenance.
  */
 
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
+
 // ------------------------------------------------------------------
 // Repository Resolution
 // ------------------------------------------------------------------
@@ -52,13 +54,14 @@ export const TASK_ID_DESCRIPTION = "ID of the task (with or without # prefix)";
 /**
  * Description for task status filter option
  */
-export const TASK_STATUS_FILTER_DESCRIPTION =
-  "Filter tasks by status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
+export const TASK_STATUS_FILTER_DESCRIPTION = 
+  `Filter tasks by status (${TASK_STATUS_VALUES.join(", ")})`;
 
 /**
  * Description for task status option
  */
-export const TASK_STATUS_DESCRIPTION = "Task status (TODO, IN-PROGRESS, IN-REVIEW, DONE)";
+export const TASK_STATUS_DESCRIPTION = 
+  `Task status (${TASK_STATUS_VALUES.join(", ")})`;
 
 /**
  * Description for all tasks option

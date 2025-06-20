@@ -23,6 +23,8 @@ import {
   createTaskFromParams,
 } from "../../domain/index.js";
 
+import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+
 /**
  * Registers task tools with the MCP command mapper
  */
@@ -141,7 +143,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       const params = {
         ...args,
-        status: args.status as "TODO" | "IN-PROGRESS" | "IN-REVIEW" | "DONE", // Cast to expected type
+        status: args.status as TaskStatus, // Use proper type instead of hardcoded union
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 

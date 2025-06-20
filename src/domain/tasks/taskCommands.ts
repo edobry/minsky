@@ -3,24 +3,17 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
-import { resolveRepoPath } from "../repo-utils.js";
-import { resolveWorkspacePath } from "../workspace.js";
-import { createTaskService, TaskService } from "./taskService.js";
+import { resolveRepoPath, resolveWorkspacePath } from "../repository/index.js";
+import { createTaskService } from "./taskService.js";
+import type { TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import fs from "fs/promises";
 // Re-export task data types
 export type { TaskData } from "../../types/tasks/taskData.js";
 
-// Constant representing task statuses
-export const TASK_STATUS = {
-  TODO: "TODO",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-  DONE: "DONE",
-} as const;
-
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
+// Import task status constants from centralized location
+export { TASK_STATUS, TaskStatus } from "./taskConstants.js";
 
 // Import schemas
 import {
