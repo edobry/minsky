@@ -295,3 +295,5 @@
 - [x] Refactor Task Spec Document Title Format [#152](process/tasks/152-refactor-task-spec-document-title-format.md)
 
 - [x] Fix Task Status Selector to Show Current Status as Default [#153](process/tasks/153-fix-task-status-selector-to-show-current-status-as-default.md)
+
+- [+] Add Google Tasks Backend Support [#154](process/tasks/154-add-google-tasks-backend-support.md)
