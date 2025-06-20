@@ -271,3 +271,5 @@
 - [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Design Containerized Session Workspace Architecture [#150](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#049/process/tasks/150-design-containerized-session-workspace-architecture.md)
