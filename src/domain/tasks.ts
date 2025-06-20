@@ -35,17 +35,14 @@ export {
   type TaskSpecContentParams,
 };
 
-<<<<<<< Updated upstream
 // Import task status constants from centralized location
-export { 
-  TASK_STATUS, 
-  TaskStatus, 
-  TASK_STATUS_CHECKBOX, 
-  CHECKBOX_TO_STATUS 
+export {
+  TASK_STATUS,
+  TaskStatus,
+  TASK_STATUS_CHECKBOX,
+  CHECKBOX_TO_STATUS,
 } from "./tasks/taskConstants.js";
 
-=======
->>>>>>> Stashed changes
 /**
  * Interface for task service operations
  * This defines the contract for task-related functionality
@@ -122,36 +119,6 @@ export interface CreateTaskOptions {
   force?: boolean;
 }
 
-<<<<<<< Updated upstream
-=======
-// Task status constants and checkbox mapping
-export const TASK_STATUS = {
-  TODO: "TODO",
-  DONE: "DONE",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-  BLOCKED: "BLOCKED",
-} as const;
-
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
-
-export const TASK_STATUS_CHECKBOX: Record<string, string> = {
-  [TASK_STATUS.TODO]: " ",
-  [TASK_STATUS.DONE]: "x",
-  [TASK_STATUS.IN_PROGRESS]: "-",
-  [TASK_STATUS.IN_REVIEW]: "+",
-  [TASK_STATUS.BLOCKED]: "~",
-};
-
-export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
-  " ": TASK_STATUS.TODO,
-  x: TASK_STATUS.DONE,
-  "-": TASK_STATUS.IN_PROGRESS,
-  "+": TASK_STATUS.IN_REVIEW,
-  "~": TASK_STATUS.BLOCKED,
-};
-
->>>>>>> Stashed changes
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
   private filePath: string;
