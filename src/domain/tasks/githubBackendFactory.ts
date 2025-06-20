@@ -8,9 +8,13 @@ import type { TaskBackend } from "./taskBackend";
 /**
  * Try to create a GitHub backend instance
  * @param workspacePath Workspace path
+ * @param shouldLogErrors Whether to log errors when configuration is not available
  * @returns GitHub backend or null if not available
  */
-export async function tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+export async function tryCreateGitHubBackend(
+  workspacePath: string,
+  shouldLogErrors = false
+): Promise<TaskBackend | null> {
   try {
     // Dynamic import to avoid hard dependency
     const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
@@ -18,7 +22,7 @@ export async function tryCreateGitHubBackend(workspacePath: string): Promise<Tas
       import("./githubIssuesTaskBackend"),
     ]);
 
-    const config = getGitHubBackendConfig(workspacePath);
+    const config = getGitHubBackendConfig(workspacePath, { logErrors: shouldLogErrors });
     if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
@@ -31,7 +35,7 @@ export async function tryCreateGitHubBackend(workspacePath: string): Promise<Tas
       repo: config.repo,
       statusLabels: config.statusLabels,
     });
-  } catch (error) {
+  } catch {
     // Return null if GitHub modules are not available
     return null;
   }

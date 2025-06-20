@@ -58,13 +58,18 @@ function extractGitHubRepoFromRemote(
  * Get GitHub backend configuration from environment and git remote
  */
 export function getGitHubBackendConfig(
-  workspacePath: string
+  workspacePath: string,
+  options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
+  const { logErrors = false } = options || {};
+
   // Check for GitHub token in environment
   const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {
-    log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
+    if (logErrors) {
+      log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
+    }
     return null;
   }
 
@@ -72,7 +77,9 @@ export function getGitHubBackendConfig(
   const repoInfo = extractGitHubRepoFromRemote(workspacePath);
 
   if (!repoInfo) {
-    log.error("Could not detect GitHub repository from git remote");
+    if (logErrors) {
+      log.error("Could not detect GitHub repository from git remote");
+    }
     return null;
   }
 
