@@ -8,6 +8,7 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
+import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -161,8 +162,8 @@ export class TaskService {
    */
   async setTaskStatus(id: string, status: string): Promise<void> {
     // Verify status is valid
-    if (!["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE"].includes(status)) {
-      throw new Error("Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE");
+    if (!isValidTaskStatus(status)) {
+      throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
 
     // First check if the task exists

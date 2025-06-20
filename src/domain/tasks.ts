@@ -1,3 +1,8 @@
+/**
+ * Task operations for the Minsky CLI
+ * This file provides all task-related functionality including managing tasks
+ */
+
 import { promises as fs } from "fs";
 import { join } from "path";
 import { log } from "../utils/logger";
@@ -30,7 +35,13 @@ export {
   type TaskSpecContentParams,
 };
 
-
+// Import task status constants from centralized location
+export { 
+  TASK_STATUS, 
+  TaskStatus, 
+  TASK_STATUS_CHECKBOX, 
+  CHECKBOX_TO_STATUS 
+} from "./tasks/taskConstants.js";
 
 /**
  * Interface for task service operations
@@ -107,30 +118,6 @@ export interface TaskListOptions {
 export interface CreateTaskOptions {
   force?: boolean;
 }
-
-// Task status constants and checkbox mapping
-export const TASK_STATUS = {
-  TODO: "TODO",
-  DONE: "DONE",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-} as const;
-
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
-
-export const TASK_STATUS_CHECKBOX: Record<string, string> = {
-  [TASK_STATUS.TODO]: " ",
-  [TASK_STATUS.DONE]: "x",
-  [TASK_STATUS.IN_PROGRESS]: "-",
-  [TASK_STATUS.IN_REVIEW]: "+",
-};
-
-export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
-  " ": TASK_STATUS.TODO,
-  x: TASK_STATUS.DONE,
-  "-": TASK_STATUS.IN_PROGRESS,
-  "+": TASK_STATUS.IN_REVIEW,
-};
 
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
