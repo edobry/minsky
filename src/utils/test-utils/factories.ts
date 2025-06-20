@@ -2,9 +2,7 @@
  * Test data factory functions for creating test fixtures
  * This module provides functions to create test data for various domain entities
  */
-import { createMock } from "./mocking";
-import type { TaskData, TaskStatusType } from "../../types/tasks/taskData";
-
+import type { TaskData } from "../../types/tasks/taskData";
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults
@@ -171,29 +169,29 @@ export function createRandomFilePath(extension: string = "txt"): string {
 export function createFieldData(fieldName: string): any {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
-    case "id":
-      return createRandomId();
-    case "name":
-      return `Test ${createRandomString(5)}`;
-    case "email":
-      return `test.${createRandomString(5)}@example.com`;
-    case "date":
-    case "createdat":
-    case "updatedat":
-    case "timestamp":
-      return new Date().toISOString();
-    case "active":
-    case "enabled":
-    case "visible":
-      return Math.random() > 0.5;
-    case "count":
-    case "age":
-    case "quantity":
-      return Math.floor(Math.random() * 100);
-    case "price":
-    case "amount":
-      return parseFloat((Math.random() * 100).toFixed(2));
-    default:
-      return `Test ${fieldName} ${createRandomString(5)}`;
+  case "id":
+    return createRandomId();
+  case "name":
+    return `Test ${createRandomString(5)}`;
+  case "email":
+    return `test.${createRandomString(5)}@example.com`;
+  case "date":
+  case "createdat":
+  case "updatedat":
+  case "timestamp":
+    return new Date().toISOString();
+  case "active":
+  case "enabled":
+  case "visible":
+    return Math.random() > 0.5;
+  case "count":
+  case "age":
+  case "quantity":
+    return Math.floor(Math.random() * 100);
+  case "price":
+  case "amount":
+    return parseFloat((Math.random() * 100).toFixed(2));
+  default:
+    return `Test ${fieldName} ${createRandomString(5)}`;
   }
 }

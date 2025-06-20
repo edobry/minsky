@@ -1,4 +1,4 @@
-# Task #117: Fix Session Update Command Implementation
+# Fix Session Update Command Implementation
 
 ## Context
 

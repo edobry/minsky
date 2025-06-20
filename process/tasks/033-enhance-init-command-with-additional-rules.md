@@ -1,4 +1,4 @@
-# Task #033: Enhance Minsky Init Command with Additional Rules
+# Enhance Minsky Init Command with Additional Rules
 
 ## Context
 

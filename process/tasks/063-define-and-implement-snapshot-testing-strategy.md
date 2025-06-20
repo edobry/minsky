@@ -1,4 +1,4 @@
-# Task #063: Define and Implement Snapshot Testing Strategy
+# Define and Implement Snapshot Testing Strategy
 
 ## Context
 

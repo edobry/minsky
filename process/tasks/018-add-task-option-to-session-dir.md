@@ -1,4 +1,4 @@
-# Task #018: Add `--task` Option to `session dir` Command
+# Add `--task` Option to `session dir` Command
 
 ## Context
 

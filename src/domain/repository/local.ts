@@ -4,7 +4,6 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "../session.js";
 import { normalizeRepositoryURI } from "../repository-uri.js";
-import { isLocalRepositoryURI } from "../repository-uri.js";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,

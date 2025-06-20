@@ -1,4 +1,4 @@
-# Task #084: Extend Auto-Detection to Additional Commands
+# Extend Auto-Detection to Additional Commands
 
 ## Context
 

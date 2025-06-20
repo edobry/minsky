@@ -1,4 +1,4 @@
-# Task #068: AI Guideline: Do Not Over-Optimize Indentation
+# AI Guideline: Do Not Over-Optimize Indentation
 
 ## Context
 

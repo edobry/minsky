@@ -1,4 +1,4 @@
-# Task #116: Improve CI/CD Test Stability with Progressive Migration
+# Improve CI/CD Test Stability with Progressive Migration
 
 ## Context
 

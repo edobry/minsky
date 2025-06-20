@@ -26,7 +26,7 @@ import {
   createTaskDataArray,
   createRandomId,
 } from "../factories.js";
-import type { TaskData } from "../../../types/tasks/taskData.js";
+
 
 // Create a test suite for managed setup/teardown
 const { beforeEachTest, afterEachTest } = createTestSuite();

@@ -16,7 +16,7 @@ import {
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions from domain/index.js as required by linter
-// eslint-disable-next-line no-restricted-imports
+ 
 import {
   listSessionsFromParams,
   getSessionFromParams,

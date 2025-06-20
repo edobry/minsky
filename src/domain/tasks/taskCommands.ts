@@ -2,28 +2,20 @@
  * Interface-agnostic command functions for task operations
  * These functions are used by the CLI and MCP adapters
  */
-
 import { z } from "zod";
-import { log } from "../../utils/logger.js";
 import { resolveRepoPath } from "../repo-utils.js";
 import { resolveWorkspacePath } from "../workspace.js";
 import { createTaskService, createConfiguredTaskService, TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import fs from "fs/promises";
-
 // Re-export task data types
 export type { TaskData } from "../../types/tasks/taskData.js";
 
-// Constant representing task statuses
-export const TASK_STATUS = {
-  TODO: "TODO",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-  DONE: "DONE",
-} as const;
-
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
+// Import task status constants from centralized location
+import { TASK_STATUS } from "./taskConstants.js";
+export { TASK_STATUS } from "./taskConstants.js";
+export type { TaskStatus } from "./taskConstants.js";
 
 // Import schemas
 import {

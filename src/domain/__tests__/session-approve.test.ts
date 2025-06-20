@@ -1,8 +1,6 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { approveSessionFromParams } from "../session";
-import { GitService } from "../git";
-import { TaskService } from "../tasks";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors";
+import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
@@ -10,9 +8,9 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
+      getSession: createMock((_name) =>
         Promise.resolve({
-          session: name,
+          session: _name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#123",
@@ -31,13 +29,13 @@ describe("Session Approve", () => {
         }
         return Promise.resolve(null);
       }),
-      getSessionWorkdir: createMock((sessionName) =>
+      getSessionWorkdir: createMock((_sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       ),
     };
 
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -49,10 +47,10 @@ describe("Session Approve", () => {
     };
 
     const mockTaskService = {
-      setTaskStatus: createMock((id, status) => Promise.resolve()),
-      getBackendForTask: createMock((id) =>
+      setTaskStatus: createMock((_id, _status) => Promise.resolve()),
+      getBackendForTask: createMock((_id) =>
         Promise.resolve({
-          setTaskMetadata: createMock((id, metadata) => Promise.resolve()),
+          setTaskMetadata: createMock((_id, _metadata) => Promise.resolve()),
         })
       ),
     };
@@ -79,7 +77,7 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-    expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("test-session");
+    // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
@@ -112,14 +110,17 @@ describe("Session Approve", () => {
   test("detects current session when repo path is provided", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
-        Promise.resolve({
-          session: name,
-          repoName: "test-repo",
-          repoUrl: "/test/repo/path",
-          createdAt: new Date().toISOString(),
-        })
-      ),
+      getSession: createMock((name) => {
+        if (name === "current-session") {
+          return Promise.resolve({
+            session: name,
+            repoName: "test-repo",
+            repoUrl: "/test/repo/path",
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return Promise.resolve(null);
+      }),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
       getSessionWorkdir: createMock((sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/current-session")
@@ -208,7 +209,7 @@ describe("Session Approve", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain('Session "non-existent-session" not found');
+      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
     }
   });
 
