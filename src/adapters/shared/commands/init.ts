@@ -22,8 +22,18 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   backend: {
+    schema: z.enum(["markdown", "json-file", "github-issues"]).optional(),
+    description: "Task backend type (markdown, json-file, github-issues)",
+    required: false,
+  },
+  githubOwner: {
     schema: z.string().optional(),
-    description: "Task backend type (tasks.md or tasks.csv)",
+    description: "GitHub repository owner (required for github-issues backend)",
+    required: false,
+  },
+  githubRepo: {
+    schema: z.string().optional(),
+    description: "GitHub repository name (required for github-issues backend)",
     required: false,
   },
   ruleFormat: {
