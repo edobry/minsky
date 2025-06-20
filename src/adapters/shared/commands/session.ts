@@ -131,8 +131,8 @@ const sessionStartCommandParams: CommandParameterMap = {
 const sessionDirCommandParams: CommandParameterMap = {
   session: {
     schema: z.string().min(1),
-    description: "Session name",
-    required: false,
+    description: "Session name or task ID (e.g., 'my-session' or 'task#123')",
+    required: true,
   },
   task: {
     schema: z.string(),
