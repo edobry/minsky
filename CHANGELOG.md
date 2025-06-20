@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Task #141: Enable Positional Arguments for Session Dir Command**
+  - Fixed error "too many arguments for 'dir'. Expected 0 arguments but got 1" when using session dir command
+  - Made session parameter required in session.dir command to enable positional argument support
+  - Updated CLI customization to properly handle session parameter as positional argument
+  - Users can now run `minsky session dir task#123` instead of `minsky session dir --task task#123`
+  - Enhanced parameter description to clarify it accepts both session names and task IDs
+
+_See: SpecStory history [2025-01-24_fix-session-dir-positional-args](mdc:.specstory/history/2025-01-24_fix-session-dir-positional-args.md) for implementation details._
+
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115
   - Confirmed 544/544 tests passing with 0 failures in existing CI workflow using Bun
