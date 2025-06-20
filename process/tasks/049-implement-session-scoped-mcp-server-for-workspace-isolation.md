@@ -240,3 +240,142 @@ This follows the same pattern as Minsky's existing task backends (`MarkdownTaskB
 - 2025-06-17: Simplified scope to local filesystem with session-aware tools (Phase 1)
 - 2025-06-17: Extracted Docker/K8s architecture to Task #150
 - 2025-06-17: Updated task spec to focus on incremental implementation
+- 2025-06-20: Performed senior engineer analysis and created detailed implementation plan
+
+## Detailed Implementation Plan
+
+### 🏗️ **Architecture Overview**
+
+Based on analysis of the current codebase:
+
+1. **MCP Server**: Uses FastMCP v3.3.0 with `MinskyMCPServer` wrapper
+2. **CommandMapper**: Extended with category-specific methods (`addSessionCommand`, `addTaskCommand`, etc.)
+3. **Project Context**: Already supports repository path context via `ProjectContext` interface
+4. **Tool Registration**: Tools are registered via adapter pattern in `src/adapters/mcp/`
+
+### 📋 **Implementation Phases**
+
+#### **Phase 1: Core Infrastructure (2-3 days)**
+
+**1.1 Create Workspace Backend Interface**
+```typescript
+// src/domain/workspace/workspace-backend.ts
+interface WorkspaceBackend {
+  readFile(workspaceDir: string, relativePath: string): Promise<string>;
+  writeFile(workspaceDir: string, relativePath: string, content: string): Promise<void>;
+  deleteFile(workspaceDir: string, relativePath: string): Promise<void>;
+  listDirectory(workspaceDir: string, relativePath?: string): Promise<FileInfo[]>;
+  exists(workspaceDir: string, relativePath: string): Promise<boolean>;
+}
+```
+
+**1.2 Implement Local Workspace Backend**
+- Create `LocalWorkspaceBackend` implementing direct filesystem operations
+- Add comprehensive error handling for file operations
+- Include atomic write operations to prevent corruption
+- Implement proper cleanup on errors
+
+**1.3 Create Session Path Resolver**
+```typescript
+// src/domain/session/session-path-resolver.ts
+class SessionPathResolver {
+  validateAndResolvePath(sessionDir: string, userPath: string): string;
+  isPathWithinSession(sessionDir: string, resolvedPath: string): boolean;
+  normalizeRelativePath(basePath: string, relativePath: string): string;
+}
+```
+
+#### **Phase 2: MCP Tool Implementation (3-4 days)**
+
+**2.1 Extend CommandMapper**
+```typescript
+// Add to CommandMapper
+addFileCommand(
+  name: string,
+  description: string,
+  schema: z.ZodType,
+  handler: (args: any, context: ProjectContext) => Promise<any>
+): void
+```
+
+**2.2 Create Session File Tools**
+- `session_edit_file`: Edit files within session workspace
+- `session_read_file`: Read file contents from session
+- `session_list_dir`: List directory contents in session
+- `session_delete_file`: Delete files (with safety checks)
+- `session_file_search`: Search for files by name pattern
+- `session_grep_search`: Search file contents
+
+**2.3 Register Tools in MCP Adapter**
+```typescript
+// src/adapters/mcp/session-files.ts
+export function registerSessionFileTools(commandMapper: CommandMapper): void {
+  // Register each tool with proper Zod schemas
+}
+```
+
+#### **Phase 3: Integration & Safety (2 days)**
+
+**3.1 Session Service Integration**
+- Extend `SessionService` to provide session workspace paths
+- Add validation for session existence and accessibility
+- Implement session workspace locking during operations
+
+**3.2 Security Hardening**
+- Implement path traversal attack prevention
+- Add symlink resolution and validation
+- Create comprehensive blacklist for sensitive paths
+- Add rate limiting for file operations
+
+**3.3 Error Handling Enhancement**
+- Create specific error types: `SessionNotFoundError`, `PathViolationError`, etc.
+- Implement proper error recovery and cleanup
+- Add detailed logging for debugging
+
+#### **Phase 4: Testing & Documentation (2 days)**
+
+**4.1 Test Suite**
+- Unit tests for `SessionPathResolver` with edge cases
+- Integration tests for each MCP tool
+- Security tests for path traversal attempts
+- Performance tests for large file operations
+- End-to-end tests with actual MCP client
+
+**4.2 Documentation**
+- API documentation for new tools
+- Migration guide from `edit_file` to `session_edit_file`
+- Security considerations documentation
+- Examples of proper usage patterns
+
+### 🔧 **Technical Decisions**
+
+1. **Tool Naming**: Use `session_` prefix for clarity and discoverability
+2. **Parameter Design**: Explicit `session` parameter required (no implicit context)
+3. **Path Handling**: All paths relative to session root, absolute paths rejected
+4. **Error Messages**: Clear, actionable messages guiding to correct usage
+5. **Performance**: Implement caching for session lookups (5-minute TTL)
+6. **Compatibility**: Tools work alongside existing non-session tools
+
+### 📊 **Success Metrics**
+
+- Zero path escapes in security testing
+- < 10ms overhead for session resolution
+- 100% backward compatibility with existing tools
+- Clear error messages that guide users to correct usage
+- Comprehensive test coverage (>90%)
+
+### 🚀 **Rollout Strategy**
+
+1. **Week 1**: Core infrastructure and basic tools
+2. **Week 2**: Complete tool set and security hardening
+3. **Week 3**: Testing, documentation, and refinement
+4. **Week 4**: Gradual rollout with monitoring
+
+### ⚠️ **Risk Mitigation**
+
+- **Risk**: AI agents continue using old tools
+  - **Mitigation**: Clear deprecation warnings, helpful error messages
+- **Risk**: Performance impact on file operations
+  - **Mitigation**: Caching, efficient path resolution
+- **Risk**: Security vulnerabilities
+  - **Mitigation**: Multiple validation layers, comprehensive testing
