@@ -1,4 +1,4 @@
-# Task #062: Improve bun:test TypeScript Declarations
+# Improve bun:test TypeScript Declarations
 
 ## Context
 

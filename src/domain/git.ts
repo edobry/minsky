@@ -67,6 +67,16 @@ export interface GitServiceInterface {
    * Get the status of a repository
    */
   getStatus(repoPath?: string): Promise<GitStatus>;
+
+  /**
+   * Get the current branch name
+   */
+  getCurrentBranch(repoPath: string): Promise<string>;
+
+  /**
+   * Check if repository has uncommitted changes
+   */
+  hasUncommittedChanges(repoPath: string): Promise<boolean>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
@@ -1763,6 +1773,22 @@ export class GitService implements GitServiceInterface {
       }
       throw new Error(err.stderr || err.message || String(err));
     }
+  }
+
+  /**
+   * Get the current branch name
+   */
+  async getCurrentBranch(repoPath: string): Promise<string> {
+    const { stdout } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
+    return stdout.trim();
+  }
+
+  /**
+   * Check if repository has uncommitted changes
+   */
+  async hasUncommittedChanges(repoPath: string): Promise<boolean> {
+    const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
+    return stdout.trim().length > 0;
   }
 }
 

@@ -1,4 +1,4 @@
-# Task #142: Test dependency installation fix
+# Test dependency installation fix
 
 ## Description
 

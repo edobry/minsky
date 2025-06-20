@@ -1,4 +1,4 @@
-# Task #119: Fix MCP Rules.list Command to Exclude Rule Content
+# Fix MCP Rules.list Command to Exclude Rule Content
 
 ## Context
 

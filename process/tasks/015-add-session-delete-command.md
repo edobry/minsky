@@ -1,4 +1,4 @@
-# Task #015: Add `session delete` Command
+# Add `session delete` Command
 
 ## Context
 
