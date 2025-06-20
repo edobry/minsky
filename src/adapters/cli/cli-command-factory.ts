@@ -284,6 +284,14 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "session.dir": {
+        parameters: {
+          session: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+        },
+      },
       "session.pr": {
         useFirstRequiredParamAsArgument: false,
         parameters: {
