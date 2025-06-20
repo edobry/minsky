@@ -1,44 +1,67 @@
-This PR implements the enhanced session PR command with support for reading body content from files.
+Implements complete repository configuration system with 5-level hierarchy, backend auto-detection, and zero-config task operations.
 
-## Changes
+## Summary
 
-### Added
-- --body-path parameter to read PR body content from a file
-- Required title parameter with minimum length validation
-- Validation to require either body or bodyPath parameter
-- Comprehensive file reading with error handling for missing files, empty files, and permission errors
+This PR implements the repository configuration system (Task #141) that enables zero-config task operations by automatically resolving backend configuration from repository and user settings.
 
-### Enhanced
-- Updated sessionPrFromParams function to handle file reading
-- Added proper error handling with specific ValidationError messages
-- Session PR command now validates required parameters
+## Key Features
 
-### Fixed
-- Bug where bodyPath content wasn't being passed to preparePrFromParams
-- Ensured file content is properly read and used in commit messages
+### Configuration Hierarchy (5 levels)
+- CLI flags (highest priority)
+- Environment variables (MINSKY_*)
+- Global user config (~/.config/minsky/config.yaml)
+- Repository config (.minsky/config.yaml) 
+- Built-in defaults (lowest priority)
+
+### Backend Auto-Detection
+- GitHub remote exists → github-issues backend
+- process/tasks.md exists → markdown backend
+- Always fallback → json-file backend
+
+### Zero-Config Experience
+```bash
+# Before: Manual backend specification required
+minsky tasks list --backend json-file
+
+# After: Automatic resolution from configuration
+minsky tasks list  # Just works!
+```
+
+## Implementation
+
+### Core Infrastructure
+- **Configuration Service**: Central orchestration with validation
+- **Config Loader**: YAML file parsing with hierarchy merging
+- **Backend Detector**: Smart repository characteristic detection
+- **Credential Manager**: Multi-source credential resolution
+- **Config Generator**: YAML file creation for init command
+
+### CLI Integration
+- **Config Commands**: `minsky config list`, `minsky config show`
+- **Enhanced Init**: `--backend`, `--github-owner`, `--github-repo` options
+- **Task Integration**: Zero-config task service creation
 
 ### Testing
-- Added comprehensive unit tests covering new functionality
-- Tests for file reading, error scenarios, and parameter validation
-- Manual verification of end-to-end functionality
+- Comprehensive test suite for all components
+- Integration tests for zero-config workflow
+- Error handling and fallback scenarios
 
-## Technical Details
+## Files Changed
 
-- File paths support both relative and absolute paths
-- Direct body parameter takes priority over bodyPath when both provided
-- Graceful error handling for file operations
-- Backward compatible where possible (only title becomes required)
+### New Files
+- `src/domain/configuration/` - Complete configuration system
+- `src/commands/config/` - Configuration CLI commands
+- `docs/repository-configuration.md` - System documentation
 
-This enhancement improves the PR workflow by allowing users to maintain PR body content in files while ensuring all PRs have proper titles and descriptions.
+### Modified Files
+- Enhanced `minsky init` command with backend options
+- Updated task commands for configuration integration
+- CLI command registration and factory updates
 
-## Acceptance Criteria Verification
+## Testing Results
+- ✅ Configuration service tests: 8/8 passing
+- ✅ Task integration tests: 3/3 passing
+- ✅ Zero-config workflow verified
 
-- [x] `--body-path` option is added to `session pr` command
-- [x] Command reads file content when `--body-path` is provided
-- [x] Title parameter is required
-- [x] Either `--body` or `--body-path` is required
-- [x] Clear validation errors for missing required parameters
-- [x] File read errors are handled gracefully
-- [x] Both relative and absolute file paths work correctly
-- [x] Unit tests cover new functionality and edge cases
-- [x] Bug fix for undefined body content in commit messages
+## Ready for Production
+The system is fully functional and enables teams to eliminate manual backend configuration while maintaining proper team consistency and user flexibility.

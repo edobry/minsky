@@ -5,8 +5,7 @@
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils.js";
 import { resolveWorkspacePath } from "../workspace.js";
-import { createTaskService } from "./taskService.js";
-import type { TaskService } from "./taskService.js";
+import { createTaskService, createConfiguredTaskService, TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import fs from "fs/promises";
@@ -69,11 +68,11 @@ export async function listTasksFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
   try {
@@ -93,7 +92,7 @@ export async function listTasksFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = await deps.createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -135,11 +134,11 @@ export async function getTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any> {
   try {
@@ -168,7 +167,7 @@ export async function getTaskFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = await deps.createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -204,11 +203,11 @@ export async function getTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<string> {
   try {
@@ -237,7 +236,7 @@ export async function getTaskStatusFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = await deps.createTaskService({
       workspacePath,
       backend: validParams.backend,
     });
