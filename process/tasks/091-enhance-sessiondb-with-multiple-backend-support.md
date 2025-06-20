@@ -1,4 +1,4 @@
-# Task #091: Enhance SessionDB with Multiple Backend Support
+# Enhance SessionDB with Multiple Backend Support
 
 ## Context
 

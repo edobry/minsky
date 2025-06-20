@@ -1,4 +1,4 @@
-# Task #070: Auto-Detect Current Session/Task in Minsky CLI from Session Workspace
+# Auto-Detect Current Session/Task in Minsky CLI from Session Workspace
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #047: Configure MCP Server in Minsky Init Command
+# Configure MCP Server in Minsky Init Command
 
 ## Context
 

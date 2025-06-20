@@ -1,4 +1,4 @@
-# Task #095: Fix git prepare-pr Branch Naming Issues
+# Fix git prepare-pr Branch Naming Issues
 
 ## Context
 

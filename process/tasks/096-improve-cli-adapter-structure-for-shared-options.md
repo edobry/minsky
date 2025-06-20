@@ -1,4 +1,4 @@
-# Task #096: Improve CLI Adapter Structure for Shared Options
+# Improve CLI Adapter Structure for Shared Options
 
 ## Context
 

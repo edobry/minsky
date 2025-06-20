@@ -1,4 +1,4 @@
-# Task #082: Add Context Management Commands for Environment-Agnostic AI Collaboration
+# Add Context Management Commands for Environment-Agnostic AI Collaboration
 
 ## Context
 

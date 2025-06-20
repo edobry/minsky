@@ -1,4 +1,4 @@
-# Task #093: Implement Consistent CLI Error Handling Across All Commands
+# Implement Consistent CLI Error Handling Across All Commands
 
 ## Context
 

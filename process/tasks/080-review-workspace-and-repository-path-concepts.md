@@ -1,4 +1,4 @@
-# Task #080: Review Workspace and Repository Path Concepts
+# Review Workspace and Repository Path Concepts
 
 ## Context
 

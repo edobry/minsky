@@ -1,4 +1,4 @@
-# Task #039: Interface-Agnostic Command Architecture
+# Interface-Agnostic Command Architecture
 
 ## Context
 

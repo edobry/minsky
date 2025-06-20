@@ -1,4 +1,4 @@
-# Task #027: Auto-detect Session Context in Session Commands
+# Auto-detect Session Context in Session Commands
 
 ## Context
 

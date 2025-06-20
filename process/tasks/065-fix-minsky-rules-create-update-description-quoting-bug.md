@@ -1,4 +1,4 @@
-# Task #065: Fix `minsky rules create/update` Description Quoting Bug
+# Fix `minsky rules create/update` Description Quoting Bug
 
 ## Context
 

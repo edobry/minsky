@@ -1,4 +1,4 @@
-# Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow
+# Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #075: Fix Minsky Session Delete Command Cleanup
+# Fix Minsky Session Delete Command Cleanup
 
 ## Context
 

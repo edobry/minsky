@@ -1,4 +1,4 @@
-# Task #027: Add Filter Messages to `tasks list` Command
+# Add Filter Messages to `tasks list` Command
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #020: Add `--task` option to `git pr` command
+# Add `--task` option to `git pr` command
 
 ## Context
 

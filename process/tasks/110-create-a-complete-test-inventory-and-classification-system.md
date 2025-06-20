@@ -1,4 +1,4 @@
-# Task #110: Create a Complete Test Inventory and Classification System
+# Create a Complete Test Inventory and Classification System
 
 ## Context
 

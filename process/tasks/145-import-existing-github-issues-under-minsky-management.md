@@ -1,4 +1,4 @@
-# Task #145: Import Existing GitHub Issues Under Minsky Management
+# Import Existing GitHub Issues Under Minsky Management
 
 ## Context
 

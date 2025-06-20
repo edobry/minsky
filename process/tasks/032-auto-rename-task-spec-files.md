@@ -1,4 +1,4 @@
-# Task #032: Auto-Rename Task Spec Files in `tasks create` Command
+# Auto-Rename Task Spec Files in `tasks create` Command
 
 ## Context
 

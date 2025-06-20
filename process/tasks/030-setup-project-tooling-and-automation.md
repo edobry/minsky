@@ -1,4 +1,4 @@
-# Task #030: Setup Project Tooling and Automation
+# Setup Project Tooling and Automation
 
 ## Context
 

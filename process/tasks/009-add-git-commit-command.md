@@ -1,4 +1,4 @@
-# Task #009: Add `git commit` Command to Stage and Commit Changes
+# Add `git commit` Command to Stage and Commit Changes
 
 ## Context
 

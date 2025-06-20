@@ -1,4 +1,4 @@
-# Task #024: Fix `session dir` Command Logic
+# Fix `session dir` Command Logic
 
 ## Context
 

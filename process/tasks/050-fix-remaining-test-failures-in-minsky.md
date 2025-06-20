@@ -1,4 +1,4 @@
-# Task #050: Fix Remaining Test Failures in Minsky
+# Fix Remaining Test Failures in Minsky
 
 ## Summary
 

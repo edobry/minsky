@@ -1,4 +1,4 @@
-# Task #127: Fix FastMCP Method Registration Issues
+# Fix FastMCP Method Registration Issues
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #035: Fix Task Creation Workflow to Not Require Task Number in Spec Title
+# Fix Task Creation Workflow to Not Require Task Number in Spec Title
 
 ## Context
 

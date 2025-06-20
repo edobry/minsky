@@ -1,4 +1,4 @@
-# Task #054: Configure Husky Hooks for Session Repositories
+# Configure Husky Hooks for Session Repositories
 
 ## Context
 

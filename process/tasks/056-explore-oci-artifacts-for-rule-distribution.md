@@ -1,4 +1,4 @@
-# Task #056: Explore OCI Artifacts for Rule Distribution
+# Explore OCI Artifacts for Rule Distribution
 
 ## Context
 

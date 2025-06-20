@@ -1,4 +1,4 @@
-# Task #074: Implement Auto-Dependency Installation for Session Workspaces
+# Implement Auto-Dependency Installation for Session Workspaces
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #073: Fix Adapter Integration Test Failures
+# Fix Adapter Integration Test Failures
 
 ## Context
 

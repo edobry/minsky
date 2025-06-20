@@ -1,4 +1,4 @@
-# Task: Integrate JsonFileTaskBackend with CLI Commands
+# Integrate JsonFileTaskBackend with CLI Commands
 
 ## Context
 

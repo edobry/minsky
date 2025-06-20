@@ -1,4 +1,4 @@
-# Task #121: Enhance `tasks get` Command to Support Multiple Task IDs
+# Enhance `tasks get` Command to Support Multiple Task IDs
 
 ## Context
 

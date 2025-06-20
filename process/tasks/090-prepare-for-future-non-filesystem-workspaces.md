@@ -1,4 +1,4 @@
-# Task #090: Prepare for Future Non-Filesystem Workspaces
+# Prepare for Future Non-Filesystem Workspaces
 
 ## Context
 

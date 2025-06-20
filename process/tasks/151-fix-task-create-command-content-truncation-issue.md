@@ -1,4 +1,4 @@
-# Task #151: Fix Task Create Command Content Truncation Issue
+# Fix Task Create Command Content Truncation Issue
 
 ## Context
 

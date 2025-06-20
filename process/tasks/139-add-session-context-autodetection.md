@@ -1,4 +1,4 @@
-# Task #139: Add Session Context Autodetection to Minsky CLI Commands
+# Add Session Context Autodetection to Minsky CLI Commands
 
 ## Status
 TODO

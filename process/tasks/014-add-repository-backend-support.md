@@ -1,4 +1,4 @@
-# Task #014: Add Repository Backend Support for Remote Git Repositories
+# Add Repository Backend Support for Remote Git Repositories
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #005: Add `git push` Command to Simplify Pushing Branches
+# Add `git push` Command to Simplify Pushing Branches
 
 ## Context
 

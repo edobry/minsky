@@ -1,4 +1,4 @@
-# Task #055: Document and Fix Rule Sync Bug in Minsky CLI
+# Document and Fix Rule Sync Bug in Minsky CLI
 
 ## Objective
 

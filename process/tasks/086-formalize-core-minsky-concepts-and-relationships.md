@@ -1,4 +1,4 @@
-# Task #086: Formalize Core Minsky Concepts and Relationships
+# Formalize Core Minsky Concepts and Relationships
 
 ## Context
 

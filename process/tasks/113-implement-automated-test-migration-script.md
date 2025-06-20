@@ -1,4 +1,4 @@
-# Task #113: Implement Automated Test Migration Script
+# Implement Automated Test Migration Script
 
 ## Context
 

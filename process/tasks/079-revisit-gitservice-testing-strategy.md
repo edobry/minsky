@@ -1,4 +1,4 @@
-# Task: Revisit GitService Testing Strategy
+# Revisit GitService Testing Strategy
 
 ## Context
 

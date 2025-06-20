@@ -1,4 +1,4 @@
-# Task #149: Fix session approve command to not depend on session workspace state
+# Fix session approve command to not depend on session workspace state
 
 ## Context
 

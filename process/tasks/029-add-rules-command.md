@@ -1,4 +1,4 @@
-# Task #029: Add `rules` command for managing Minsky rules
+# Add `rules` command for managing Minsky rules
 
 ## Objective
 

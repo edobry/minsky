@@ -1,4 +1,4 @@
-# Task #107: Refactor GitService to Functional Patterns (Subtask of #102)
+# Refactor GitService to Functional Patterns (Subtask of #102)
 
 ## Context
 

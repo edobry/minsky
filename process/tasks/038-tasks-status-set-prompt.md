@@ -1,4 +1,4 @@
-# Task #038: Make tasks status set prompt for status if not provided
+# Make tasks status set prompt for status if not provided
 
 ## Context
 

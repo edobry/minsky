@@ -1,4 +1,4 @@
-# Task #067: Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules
+# Refactor `minsky-workflow.mdc` Rule into Smaller, Focused Rules
 
 ## Context
 

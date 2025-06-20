@@ -1,4 +1,4 @@
-# Task #010: Enhance `git pr` Command to Create GitHub PRs and Update Task Status
+# Enhance `git pr` Command to Create GitHub PRs and Update Task Status
 
 > **OBSOLETE**: This task has been superseded by architectural changes introduced in tasks #092 (Add Session PR Command) and #025 (Add PR Merging Commands for Session Workflow). The functionality described here has been reimplemented with a different architecture that better aligns with the session-first workflow.
 

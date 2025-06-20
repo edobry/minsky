@@ -1,4 +1,4 @@
-# Task #006: Add `--quiet` Option to `session start` for Programmatic Output
+# Add `--quiet` Option to `session start` for Programmatic Output
 
 ## Context
 

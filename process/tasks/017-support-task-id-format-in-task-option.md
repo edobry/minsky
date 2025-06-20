@@ -1,4 +1,4 @@
-# Task #017: Support Both Task ID Formats in `--task` Option
+# Support Both Task ID Formats in `--task` Option
 
 ## Context
 

@@ -1,4 +1,4 @@
-# Task #066: Investigate and Fix `minsky rules get --format generic` Inconsistency
+# Investigate and Fix `minsky rules get --format generic` Inconsistency
 
 ## Context
 

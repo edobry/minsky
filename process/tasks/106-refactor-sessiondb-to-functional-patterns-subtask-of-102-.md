@@ -1,4 +1,4 @@
-# Task #106: Refactor SessionDB to Functional Patterns (Subtask of #102)
+# Refactor SessionDB to Functional Patterns (Subtask of #102)
 
 ## Context
 

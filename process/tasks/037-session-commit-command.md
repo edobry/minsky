@@ -1,4 +1,4 @@
-# Task #037: Add `session commit` Command to Stage, Commit, and Push All Changes for a Session
+# Add `session commit` Command to Stage, Commit, and Push All Changes for a Session
 
 ## Context
 

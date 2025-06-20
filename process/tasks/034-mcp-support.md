@@ -1,4 +1,4 @@
-# Task #034: Add MCP Support to Minsky
+# Add MCP Support to Minsky
 
 ## Context
 

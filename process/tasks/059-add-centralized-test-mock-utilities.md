@@ -1,4 +1,4 @@
-# Task #059: Add Centralized Test Mock Utilities
+# Add Centralized Test Mock Utilities
 
 ## Context
 

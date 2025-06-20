@@ -1,4 +1,4 @@
-# Task #069: Improve Task ID Permissiveness in Minsky CLI Commands
+# Improve Task ID Permissiveness in Minsky CLI Commands
 
 ## Context
 

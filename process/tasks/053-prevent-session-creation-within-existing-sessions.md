@@ -1,4 +1,4 @@
-# Task #053: Prevent Session Creation Within Existing Sessions
+# Prevent Session Creation Within Existing Sessions
 
 ## Context
 

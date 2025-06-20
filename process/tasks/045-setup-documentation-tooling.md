@@ -1,4 +1,4 @@
-# Task #045: Setup Documentation Tooling
+# Setup Documentation Tooling
 
 ## Context
 

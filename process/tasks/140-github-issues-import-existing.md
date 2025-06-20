@@ -1,4 +1,4 @@
-# Task #140: Import Existing GitHub Issues Under Minsky Management
+# Import Existing GitHub Issues Under Minsky Management
 
 ## Status
 TODO

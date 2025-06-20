@@ -1,4 +1,4 @@
-# Task #051: Add Git Commands to MCP Server
+# Add Git Commands to MCP Server
 
 ## Context
 
