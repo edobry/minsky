@@ -272,7 +272,7 @@
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
-- [+] Implement Repository Configuration System [#141](process/tasks/141-implement-repository-configuration-system.md)
+- [x] Implement Repository Configuration System [#141](process/tasks/141-implement-repository-configuration-system.md)
 
 - [x] Test dependency installation fix [#142](process/tasks/142-test-dependency-installation-fix.md)
 

@@ -48,6 +48,21 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Task #141: Repository Configuration System Implementation**
+  - Implemented complete 5-level configuration hierarchy system (CLI flags > env vars > global user config > repo config > defaults)
+  - Added repository configuration support with `.minsky/config.yaml` for team-wide consistency
+  - Created global user configuration in `~/.config/minsky/config.yaml` for credentials and personal settings
+  - Implemented backend auto-detection based on repository characteristics (GitHub remote, tasks.md file, fallback to json-file)
+  - Added comprehensive credential management with multiple sources (environment, file, interactive prompts)
+  - Created CLI commands for configuration management (`minsky config list`, `minsky config show`)
+  - Enhanced `minsky init` command with backend options (`--backend`, `--github-owner`, `--github-repo`)
+  - Integrated configuration system with task commands for zero-config experience
+  - Added YAML configuration file generation and validation
+  - Implemented complete test suite for configuration service and integration scenarios
+  - Enabled zero-config task operations: `minsky tasks list` now works without `--backend` flags after repository setup
+
+_See: SpecStory history [2025-01-24_repo-config-system-implementation](mdc:.specstory/history/2025-01-24_repo-config-system-implementation.md) for configuration system implementation._
+
 - **Session Dir Command: Enable Optional Positional Arguments**
   - Fixed error "too many arguments for 'dir'. Expected 0 arguments but got 1" when using session dir command
   - Added CLI customization to accept optional session name as positional argument

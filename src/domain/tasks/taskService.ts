@@ -8,6 +8,7 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
+import { configurationService } from "../configuration";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
 
 // Dynamic import for GitHub backend to avoid hard dependency
@@ -442,4 +443,52 @@ export class TaskService {
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
   return new TaskService(options);
+}
+
+/**
+ * Create a TaskService instance with configuration resolution
+ * This function uses the configuration system to automatically resolve
+ * the backend from repository and user configuration files
+ * @param options Options for creating the TaskService
+ * @returns Promise resolving to TaskService instance
+ */
+export async function createConfiguredTaskService(options: TaskServiceOptions = {}): Promise<TaskService> {
+  const { workspacePath = process.cwd(), backend, ...otherOptions } = options;
+
+  // If backend is explicitly provided, use the original function
+  if (backend) {
+    return createTaskService(options);
+  }
+
+  try {
+    // Load configuration using the configuration service
+    const configResult = await configurationService.loadConfiguration(workspacePath);
+
+    // Use the resolved backend from configuration
+    const resolvedBackend = configResult.resolved.backend || "json-file"; // fallback to json-file
+
+    log.debug("Resolved backend from configuration", {
+      workspacePath,
+      backend: resolvedBackend,
+      configSource: configResult.resolved.backend ? "configuration" : "default"
+    });
+
+    return createTaskService({
+      ...otherOptions,
+      workspacePath,
+      backend: resolvedBackend
+    });
+  } catch (error) {
+    // If configuration resolution fails, fall back to default backend
+    log.warn("Failed to resolve configuration, using default backend", {
+      workspacePath,
+      error: error instanceof Error ? error.message : String(error)
+    });
+
+    return createTaskService({
+      ...otherOptions,
+      workspacePath,
+      backend: "json-file" // safe fallback
+    });
+  }
 }
