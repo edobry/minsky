@@ -31,8 +31,8 @@ export async function tryCreateGitHubBackend(workspacePath: string): Promise<Tas
       repo: config.repo,
       statusLabels: config.statusLabels,
     });
-  } catch (error) {
-    // Return null if GitHub modules are not available
+  } catch {
+    // If we can't read config, assume no GitHub configuration
     return null;
   }
 }

@@ -11,13 +11,10 @@ import {
   createMock,
   mockModule,
   setupTestMocks,
-  createMockObject,
 } from "../../../utils/test-utils/mocking.js";
 import {
   type TaskGetParams,
   type TaskListParams,
-  type TaskStatusGetParams,
-  type TaskStatusSetParams,
 } from "../../../schemas/tasks.js";
 
 // Set up automatic mock cleanup
@@ -176,7 +173,7 @@ describe("Tasks Domain Methods", () => {
   describe("getTaskStatusFromParams", () => {
     test("gets task status by ID", async () => {
       // Arrange
-      const params: TaskStatusGetParams = { taskId: "124", json: false };
+      const params: TaskGetParams = { taskId: "124", json: false };
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.IN_PROGRESS);
 
       // Act
@@ -189,7 +186,7 @@ describe("Tasks Domain Methods", () => {
 
     test("throws error when task not found", async () => {
       // Arrange
-      const params: TaskStatusGetParams = { taskId: "999", json: false };
+      const params: TaskGetParams = { taskId: "999", json: false };
       const error = new Error(`Task not found: ${params.taskId}`);
       mockGetTaskStatusFromParams.mockRejectedValue(error);
 
@@ -201,7 +198,7 @@ describe("Tasks Domain Methods", () => {
 
     test("handles custom repo path", async () => {
       // Arrange
-      const params: TaskStatusGetParams = {
+      const params: TaskGetParams = {
         taskId: "125",
         repo: "/custom/repo/path",
         json: false,
@@ -220,7 +217,7 @@ describe("Tasks Domain Methods", () => {
   describe("setTaskStatusFromParams", () => {
     test("sets task status", async () => {
       // Arrange
-      const params: TaskStatusSetParams = {
+      const params: TaskGetParams = {
         taskId: "123",
         status: TASK_STATUS.IN_PROGRESS,
         json: false,
@@ -236,7 +233,7 @@ describe("Tasks Domain Methods", () => {
 
     test("throws error when setting invalid status", async () => {
       // Arrange
-      const params: TaskStatusSetParams = {
+      const params: TaskGetParams = {
         taskId: "123",
         status: "INVALID_STATUS" as any,
         json: false,
@@ -252,7 +249,7 @@ describe("Tasks Domain Methods", () => {
 
     test("handles custom repo path", async () => {
       // Arrange
-      const params: TaskStatusSetParams = {
+      const params: TaskGetParams = {
         taskId: "123",
         status: TASK_STATUS.DONE,
         repo: "/custom/repo/path",
