@@ -3,7 +3,8 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
-import { resolveRepoPath, resolveWorkspacePath } from "../repository/index.js";
+import { resolveRepoPath } from "../repository.js";
+import { resolveWorkspacePath } from "../workspace.js";
 import { createTaskService } from "./taskService.js";
 import type { TaskService } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
@@ -13,7 +14,9 @@ import fs from "fs/promises";
 export type { TaskData } from "../../types/tasks/taskData.js";
 
 // Import task status constants from centralized location
-export { TASK_STATUS, TaskStatus } from "./taskConstants.js";
+import { TASK_STATUS } from "./taskConstants.js";
+export { TASK_STATUS } from "./taskConstants.js";
+export type { TaskStatus } from "./taskConstants.js";
 
 // Import schemas
 import {

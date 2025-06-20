@@ -27,16 +27,9 @@ import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
+// Import task status constants from centralized location
+import { TASK_STATUS } from "../../../domain/tasks/taskConstants.js";
 // Schemas removed as they are unused in this file
-
-// Exported from domain/tasks.ts
-export const TASK_STATUS = {
-  TODO: "TODO",
-  DONE: "DONE",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-  BLOCKED: "BLOCKED",
-} as const;
 
 /**
  * Parameters for tasks status get command
@@ -661,18 +654,18 @@ const tasksMigrateRegistration = {
 
       // Format human-readable output
       log.cli(`\n✅ Migration ${dryRun ? "simulation" : "completed"} successfully!`);
-      log.cli(`📊 Summary:`);
+      log.cli("📊 Summary:");
       log.cli(`   • Tasks migrated: ${cliResult.summary.migrated}`);
       log.cli(`   • Tasks skipped: ${cliResult.summary.skipped}`);
       log.cli(`   • Total processed: ${cliResult.summary.total}`);
-      
+
       if (cliResult.summary.errors > 0) {
         log.cliWarn(`   • Errors: ${cliResult.summary.errors}`);
       }
 
       if (cliResult.conflicts && cliResult.conflicts.length > 0) {
-        log.cliWarn(`\n⚠️  ID Conflicts detected:`);
-        cliResult.conflicts.forEach(conflict => {
+        log.cliWarn("\n⚠️  ID Conflicts detected:");
+        cliResult.conflicts.forEach((conflict) => {
           log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
         });
       }
@@ -683,7 +676,9 @@ const tasksMigrateRegistration = {
 
       return cliResult;
     } catch (error) {
-      throw new ValidationError(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ValidationError(
+        `Migration failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   },
 };

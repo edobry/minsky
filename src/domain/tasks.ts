@@ -11,6 +11,9 @@ import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import { ResourceNotFoundError } from "../errors/index.js";
 import matter from "gray-matter";
+// Import constants for use within this file
+import { TASK_STATUS, TASK_STATUS_CHECKBOX, CHECKBOX_TO_STATUS } from "./tasks/taskConstants.js";
+import type { TaskStatus } from "./tasks/taskConstants.js";
 
 // Import and re-export functions from taskCommands.ts
 import {
@@ -35,13 +38,9 @@ export {
   type TaskSpecContentParams,
 };
 
-// Import task status constants from centralized location
-export {
-  TASK_STATUS,
-  TaskStatus,
-  TASK_STATUS_CHECKBOX,
-  CHECKBOX_TO_STATUS,
-} from "./tasks/taskConstants.js";
+// Re-export task status constants from centralized location
+export { TASK_STATUS, TASK_STATUS_CHECKBOX, CHECKBOX_TO_STATUS } from "./tasks/taskConstants.js";
+export type { TaskStatus } from "./tasks/taskConstants.js";
 
 /**
  * Interface for task service operations
@@ -195,7 +194,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       if (inCodeBlock) return line;
       if (line.includes(`[#${idNum}]`)) {
         // Replace only the first checkbox in the line
-        return line.replace(/^(\s*- \[)( |x|\-|\+)(\])/, `$1${newStatusChar}$3`);
+        return line.replace(/^(\s*- \[)( |x|\-|\+|~)(\])/, `$1${newStatusChar}$3`);
       }
       return line;
     });
@@ -242,7 +241,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
         if (inCodeBlock) continue;
         // Match top-level tasks: - [ ] Title [#123](...)
-        const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
+        const match = /^- \[( |x|\-|\+|~)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
         if (!match) continue;
         const checkbox = match[1];
         const title = match[2]?.trim() ?? "";
