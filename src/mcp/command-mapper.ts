@@ -20,7 +20,7 @@ export class CommandMapper {
     description: string;
     inputSchema?: any;
   }): void {
-    log.debug(`Registering _command as MCP tool: ${command.name}`, {
+    log.debug(`Registering _command as MCP tool: ${_command.name}`, {
       description: command.description,
     });
 

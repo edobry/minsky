@@ -48,7 +48,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       const params = {
         ...args,
-        all: args.all ?? false, // Provide default for 'all'
+        all: args.all ?? false, // Provide default for "all"
         json: true, // Always use JSON format for MCP
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
@@ -177,7 +177,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       const params = {
         ...args,
-        force: args.force ?? false, // Provide default for 'force'
+        force: args.force ?? false, // Provide default for "force"
         json: true, // Always use JSON format for MCP
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };

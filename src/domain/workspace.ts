@@ -170,9 +170,9 @@ export async function resolveWorkspacePath(
 
   // If workspace path is explicitly provided, use it
   if (_options?.workspace) {
-    // Validate if it's a valid workspace
+    // Validate if it"s a valid workspace
     try {
-      const processDir = join(_options.workspace, "process");
+      const processDir = join(_options.workspace, \"process\");
       await access(processDir);
       return options.workspace;
     } catch {
@@ -190,7 +190,7 @@ export async function resolveWorkspacePath(
   // Use current directory or provided session workspace as workspace
   const checkPath = options?.sessionWorkspace || process.cwd();
 
-  // Note: We're no longer redirecting to the upstream repository path when in a session
+  // Note: We"re no longer redirecting to the upstream repository path when in a session
   // This allows rules commands to operate on the current directory's rules
   return checkPath;
 }

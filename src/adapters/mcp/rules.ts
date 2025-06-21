@@ -178,8 +178,8 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const content = isString(_args.content)
-        ? await readContentFromFileIfExists(_args.content)
+      const _content = isString(_args._content)
+        ? await readContentFromFileIfExists(_args._content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
@@ -248,9 +248,9 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
       }
 
       // Process content if provided
-      let content: string | undefined;
-      if (isString(_args.content)) {
-        content = await readContentFromFileIfExists(_args.content);
+      let _content: string | undefined;
+      if (isString(_args._content)) {
+        content = await readContentFromFileIfExists(_args._content);
       }
 
       // Parse globs (handling both string and array types)

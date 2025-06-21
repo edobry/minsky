@@ -77,7 +77,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
       // Convert state to a tasks.md-like format for compatibility
       const tasks = result.data?.tasks || [];
-      const content = this.formatTasks(tasks);
+      const _content = this.formatTasks(tasks);
 
       return {
         success: true,
@@ -98,7 +98,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
-      const content = await readFile(fullPath, "utf8");
+      const _content = await readFile(fullPath, "utf8");
       return {
         success: true,
         content,

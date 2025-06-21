@@ -75,7 +75,7 @@ describe("JsonFileStorage Core Tests", () => {
       if (existsSync(testDirPath)) {
         rmSync(testDirPath, { recursive: true, force: true });
       }
-    } catch (___error) {
+    } catch {
       // Log but don't fail tests on cleanup errors
       log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
     }

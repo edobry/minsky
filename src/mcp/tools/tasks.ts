@@ -72,13 +72,13 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch {
-        log.error(`MCP: Error getting task ${_args.taskId} via execSync`, {
+        log.error(`MCP: Error getting task ${_args._taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task ${_args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task ${_args._taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -103,13 +103,13 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
           status: output.split(": ")[1], // Extract the status value
         };
       } catch {
-        log.error(`MCP: Error getting task status for ${_args.taskId} via execSync`, {
+        log.error(`MCP: Error getting task status for ${_args._taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task status for ${_args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task status for ${_args._taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -145,13 +145,13 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
           status: args.status,
         };
       } catch {
-        log.error(`MCP: Error setting task status for ${_args.taskId} via execSync`, {
+        log.error(`MCP: Error setting task status for ${_args._taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to set task status for ${_args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to set task status for ${_args._taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }

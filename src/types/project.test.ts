@@ -37,7 +37,7 @@ describe("ProjectContext", () => {
 
       try {
         createProjectContext("/definitely/does/not/exist/path/12345");
-      } catch (___error) {
+      } catch {
         threwError = true;
         errorMessage = error instanceof Error ? error.message : String(error);
       }

@@ -86,9 +86,9 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
     const migrationUtils = new BackendMigrationUtils();
 
     // Interactive confirmation if requested
-    if (_options.interactive && !options.dryRun) {
+    if (_options.interactive && !_options.dryRun) {
       const confirmed = await promptConfirmation(
-        `Migrate tasks from ${_options.from} to ${options.to}?`
+        `Migrate tasks from ${_options.from} to ${_options.to}?`
       );
       if (!confirmed) {
         log.cli("Migration cancelled by user");
@@ -97,7 +97,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
     }
 
     // Perform migration
-    log.cli(`Starting migration from ${_options.from} to ${options.to}...`);
+    log.cli(`Starting migration from ${_options.from} to ${_options.to}...`);
 
     const migrationOptions = {
       preserveIds: options.preserveIds ?? true,

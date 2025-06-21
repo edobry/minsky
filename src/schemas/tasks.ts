@@ -129,7 +129,7 @@ export const taskSpecContentParamsSchema = z
     section: z
       .string()
       .optional()
-      .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
+      .describe("Specific section of the specification to retrieve (e.g., "requirements")"),
     backend: z
       .string()
       .optional()

@@ -39,12 +39,12 @@ async function makeJSONRPCRequest(method: string, params?: any): Promise<MCPResp
     params
   };
 
-  console.log(`📤 Making MCP request: ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
+  console.log(`📤 Making MCP request: ${method}`, params ? `with params: ${JSON.stringify(params)}` : "");
 
   const response = await fetch(SERVER_URL, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify(request)
   });
@@ -54,7 +54,7 @@ async function makeJSONRPCRequest(method: string, params?: any): Promise<MCPResp
   }
 
   const result: MCPResponse = await response.json();
-  console.log(`📥 Response:`, JSON.stringify(result, null, 2));
+  console.log("📥 Response:", JSON.stringify(result, null, 2));
   
   return result;
 }
@@ -276,7 +276,7 @@ async function testMCPProtocol() {
       console.log("❌ Underscore alias error:", error);
     }
 
-    console.log("\n" + "=" .repeat(60));
+    console.log(`\n${  "=" .repeat(60)}`);
     console.log("🎉 COMPREHENSIVE MCP NETWORK TEST COMPLETED");
     console.log("✅ FastMCP v3.3.0 network protocol verification complete!");
     
@@ -292,13 +292,13 @@ async function testMCPProtocol() {
 }
 
 // Handle cleanup
-process.on('SIGINT', () => {
-  console.log('\n🛑 Test interrupted, exiting...');
+process.on("SIGINT", () => {
+  console.log("\n🛑 Test interrupted, exiting...");
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-  console.log('\n🛑 Test terminated, exiting...');
+process.on("SIGTERM", () => {
+  console.log("\n🛑 Test terminated, exiting...");
   process.exit(0);
 });
 

@@ -16,7 +16,6 @@ import {
   expectToHaveBeenCalledWith,
 } from "../utils/test-utils/assertions.js";
 
-
 // Set up automatic mock cleanup
 setupTestMocks();
 

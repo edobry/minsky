@@ -47,7 +47,7 @@ export class TestGitService extends GitService {
   /**
    * Override execInRepository to use our mock execAsync
    */
-  async execInRepository(workdir: string, _command: string): Promise<string> {
+  async execInRepository(_workdir: string, _command: string): Promise<string> {
     const result = await this.execAsync(`git -C ${workdir} ${_command}`);
     return result.stdout.trim();
   }

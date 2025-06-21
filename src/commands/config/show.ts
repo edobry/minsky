@@ -23,7 +23,7 @@ export function createConfigShowCommand(): Command {
         const result = await configurationService.loadConfiguration(_workingDir);
         
         if (_options.json) {
-          process.stdout.write(JSON.stringify(result.resolved, null, 2) + "\n");
+          process.stdout.write(`${JSON.stringify(result.resolved, null, 2)  }\n`);
         } else {
           displayResolvedConfiguration(result.resolved);
         }
@@ -36,7 +36,7 @@ export function createConfigShowCommand(): Command {
 
 function displayResolvedConfiguration(_resolved: unknown) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
-  process.stdout.write("=".repeat(40) + "\n");
+  process.stdout.write(`${"=".repeat(40)  }\n`);
   
   process.stdout.write(`Backend: ${resolved.backend}\n`);
   

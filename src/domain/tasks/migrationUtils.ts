@@ -161,7 +161,7 @@ export class BackendMigrationUtils {
         try {
           await this.rollbackMigration(backupData, targetBackend);
           log.debug("Rollback completed successfully");
-        } catch (___rollbackError) {
+        } catch {
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
             : "Unknown rollback error";

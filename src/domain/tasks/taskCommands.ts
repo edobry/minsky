@@ -179,7 +179,7 @@ export async function getTaskFromParams(
       throw new ResourceNotFoundError(
         `Task ${validParams._taskId} not found`,
         "task",
-        validParams.taskId
+        validParams._taskId
       );
     }
 
@@ -248,7 +248,7 @@ export async function getTaskStatusFromParams(
       throw new ResourceNotFoundError(
         `Task ${validParams._taskId} not found or has no status`,
         "task",
-        validParams.taskId
+        validParams._taskId
       );
     }
 
@@ -319,7 +319,7 @@ export async function setTaskStatusFromParams(
       throw new ResourceNotFoundError(
         `Task ${validParams._taskId} not found`,
         "task",
-        validParams.taskId
+        validParams._taskId
       );
     }
 
@@ -437,7 +437,7 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(
         `Task ${validParams._taskId} not found`,
         "task",
-        validParams.taskId
+        validParams._taskId
       );
     }
 
@@ -447,12 +447,12 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(
         `Task ${validParams._taskId} has no specification file`,
         "task",
-        validParams.taskId
+        validParams._taskId
       );
     }
 
     // Read the spec content
-    let content: string;
+    let _content: string;
     try {
       content = await fs.readFile(specPath, "utf8");
     } catch {

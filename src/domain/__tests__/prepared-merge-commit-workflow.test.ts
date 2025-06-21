@@ -308,7 +308,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
           await conflictMockExecAsync(
             "git -C /test/repo merge --no-ff feature-branch -F .pr_title"
           );
-        } catch (___error) {
+        } catch {
           // Should abort merge and clean up
           await conflictMockExecAsync("git -C /test/repo merge --abort");
           await conflictMockExecAsync("rm -f /test/repo/.pr_title");

@@ -19,10 +19,10 @@ export class DefaultCredentialManager implements CredentialManager {
    */
   async getCredential(service: "github"): Promise<string | null> {
     switch (service) {
-      case "github":
-        return this.getGitHubCredential();
-      default:
-        return null;
+    case "github":
+      return this.getGitHubCredential();
+    default:
+      return null;
     }
   }
 
@@ -35,11 +35,11 @@ export class DefaultCredentialManager implements CredentialManager {
     value?: string
   ): Promise<void> {
     switch (service) {
-      case "github":
-        await this.setGitHubCredential(source, value);
-        break;
-      default:
-        throw new Error(`Unsupported credential service: ${service}`);
+    case "github":
+      await this.setGitHubCredential(source, value);
+      break;
+    default:
+      throw new Error(`Unsupported credential service: ${service}`);
     }
   }
 
@@ -48,10 +48,10 @@ export class DefaultCredentialManager implements CredentialManager {
    */
   async promptForCredential(service: "github"): Promise<string> {
     switch (service) {
-      case "github":
-        return this.promptForGitHubToken();
-      default:
-        throw new Error(`Cannot prompt for unsupported service: ${service}`);
+    case "github":
+      return this.promptForGitHubToken();
+    default:
+      throw new Error(`Cannot prompt for unsupported service: ${service}`);
     }
   }
 
@@ -135,7 +135,7 @@ export class DefaultCredentialManager implements CredentialManager {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const _content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(_content) as GlobalUserConfig;
     } catch {
       return null;

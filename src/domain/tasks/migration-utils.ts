@@ -88,7 +88,7 @@ export class TaskMigrationUtils {
       }
 
       // Read and parse tasks.md
-      const content = (await readFile(tasksFilePath, "utf8")) as string;
+      const _content = (await readFile(tasksFilePath, "utf8")) as string;
       const tasks = this.parseMarkdownTasks(_content);
 
       if (tasks.length === 0) {
@@ -280,7 +280,7 @@ export class TaskMigrationUtils {
       // Read markdown tasks
       let markdownTasks: TaskData[] = [];
       try {
-        const content = (await readFile(tasksFilePath, "utf8")) as string;
+        const _content = (await readFile(tasksFilePath, "utf8")) as string;
         markdownTasks = this.parseMarkdownTasks(_content);
       } catch {
         // tasks.md doesn't exist or can't be read

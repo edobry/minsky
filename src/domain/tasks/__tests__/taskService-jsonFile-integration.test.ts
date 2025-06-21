@@ -203,7 +203,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
         await taskService.setTaskStatus("#999", "DONE");
         // Should reach here without throwing
         expect(true).toBe(true);
-      } catch (___error) {
+      } catch {
         // Should not throw for non-existent task
         expect(false).toBe(true);
       }

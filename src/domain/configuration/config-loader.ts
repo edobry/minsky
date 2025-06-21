@@ -90,7 +90,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const _content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(_content) as GlobalUserConfig;
     } catch {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
@@ -110,7 +110,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const _content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(_content) as RepositoryConfig;
     } catch {
       // Silently fail - configuration loading should be resilient

@@ -1,8 +1,8 @@
 /**
  * Mock Function Compatibility Layer
  *
- * This module provides Jest/Vitest compatible mock function implementations that work with Bun's test runner.
- * It extends Bun's mock functions with additional methods and proper tracking of calls, arguments, and results.
+ * This module provides Jest/Vitest compatible mock function implementations that work with Bun"s test runner.
+ * It extends Bun"s mock functions with additional methods and proper tracking of calls, arguments, and results.
  */
 import { mock, afterEach } from "bun:test";
 
@@ -61,7 +61,7 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
 
 /**
  * Compatibility layer for Jest/Vitest mock functions.
- * This interface extends Bun's mock functions with additional methods found in Jest/Vitest.
+ * This interface extends Bun"s mock functions with additional methods found in Jest/Vitest.
  */
 export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> {
   /**
@@ -175,7 +175,7 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
 }
 
 /**
- * Creates a compatibility mock function that wraps Bun's mock function.
+ * Creates a compatibility mock function that wraps Bun"s mock function.
  * This adds all the Jest/Vitest compatible methods and tracking behavior.
  *
  * @param implementation Optional initial implementation
@@ -234,7 +234,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
   // Create the Bun mock function with our implementation
   const bunMockFn = mock(implementationFn);
 
-  // Instead of trying to modify Bun's mock function directly (which may be read-only),
+  // Instead of trying to modify Bun"s mock function directly (which may be read-only),
   // create a new function that delegates to it
   const mockFn = function (..._args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
@@ -314,7 +314,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
 
   // Add mockResolvedValue method
   mockFn.mockResolvedValue = function <U>(value: U) {
-    // Use a cast to suppress TypeScript errors since the return types don't match
+    // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
       () => Promise.resolve(value) as unknown as ReturnType<T>
     ) as any;
@@ -322,7 +322,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
 
   // Add mockResolvedValueOnce method
   mockFn.mockResolvedValueOnce = function <U>(value: U) {
-    // Use a cast to suppress TypeScript errors since the return types don't match
+    // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
       () => Promise.resolve(value) as unknown as ReturnType<T>
     ) as any;
@@ -330,7 +330,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
 
   // Add mockRejectedValue method
   mockFn.mockRejectedValue = function (value) {
-    // Use a cast to suppress TypeScript errors since the return types don't match
+    // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementation(
       () => Promise.reject(value) as unknown as ReturnType<T>
     ) as any;
@@ -338,13 +338,13 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
 
   // Add mockRejectedValueOnce method
   mockFn.mockRejectedValueOnce = function (value) {
-    // Use a cast to suppress TypeScript errors since the return types don't match
+    // Use a cast to suppress TypeScript errors since the return types don"t match
     return mockFn.mockImplementationOnce(
       () => Promise.reject(value) as unknown as ReturnType<T>
     ) as any;
   };
 
-  // If there's an initial implementation, set it
+  // If there"s an initial implementation, set it
   if (implementation) {
     mockFn.mockImplementation(implementation);
   }
@@ -367,7 +367,7 @@ export function createTypedMock<T extends (..._args: unknown[]) => any>(
 
 /**
  * Creates a spy on an object method, replacing it with a mock function.
- * Unlike Jest's spyOn, this implementation actually replaces the method.
+ * Unlike Jest"s spyOn, this implementation actually replaces the method.
  *
  * @param object The object containing the method to spy on
  * @param method The name of the method to spy on
@@ -382,7 +382,7 @@ export function spyOn<T extends object, M extends keyof T>(
 
   // Create a mock function that wraps the original
   const mockFn = createCompatMock((..._args: unknown[]) => {
-    if (typeof original === "function") {
+    if (typeof original === \"function\") {
       return (original as Function).apply(object, _args);
     }
     return undefined;
@@ -402,7 +402,7 @@ export function spyOn<T extends object, M extends keyof T>(
  * This is useful for cleaning up between tests.
  */
 export function resetAllMocks(): void {
-  // This delegates to Bun's mock.restore() for now
+  // This delegates to Bun"s mock.restore() for now
   // In the future, we might need to track our own mocks
   mock.restore();
 

@@ -268,11 +268,11 @@ export function registerGitCommands(): void {
   sharedCommandRegistry.registerCommand({
     _id: "git._branch",
     category: CommandCategory.GIT,
-    name: "branch",
+    name: "_branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git._branch command", { params, context });
+      log.debug("Executing git._branch _command", { params, context });
 
       const result = await branchFromParams({
         _session: params.session,
@@ -301,7 +301,7 @@ export function registerGitCommands(): void {
         _session: params.session,
         repo: params.repo,
         _branch: params._branch,
-        taskId: params.task,
+        _taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,
       });

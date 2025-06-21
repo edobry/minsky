@@ -539,7 +539,7 @@ export async function startSessionFromParams(
       // Verify the task exists
       const taskObj = await deps.taskService.getTask(normalizedTaskId);
       if (!taskObj) {
-        throw new ResourceNotFoundError(`Task ${_taskId} not found`, "task", taskId);
+        throw new ResourceNotFoundError(`Task ${_taskId} not found`, "task", _taskId);
       }
 
       // Use the task ID as the session name
@@ -594,13 +594,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -640,7 +640,7 @@ export async function startSessionFromParams(
           log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
 Error: ${error}`);
         }
-      } catch (___installError) {
+      } catch {
         // Log but don't fail session creation
         if (!quiet) {
           log.cliWarn(
@@ -812,7 +812,7 @@ export async function updateSessionFromParams(
     const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
 
     // Check if the workspace is dirty using git status command directly
-    const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
+    const statusOutput = await deps.gitService.execInRepository(_workdir, "git status --porcelain");
     const isDirty = statusOutput.trim().length > 0;
 
     if (isDirty && !force) {
@@ -823,18 +823,18 @@ export async function updateSessionFromParams(
 
     // Stash changes if needed
     if (!noStash) {
-      await deps.gitService.stashChanges(workdir);
+      await deps.gitService.stashChanges(_workdir);
     }
 
     let stashError: unknown;
 
     try {
       // Pull latest changes
-      await deps.gitService.pullLatest(workdir, remote || "origin");
+      await deps.gitService.pullLatest(_workdir, remote || "origin");
 
       // Merge specified branch
       const branchToMerge = branch || "main";
-      const mergeResult = await deps.gitService.mergeBranch(workdir, branchToMerge);
+      const mergeResult = await deps.gitService.mergeBranch(_workdir, branchToMerge);
 
       if (mergeResult.conflicts) {
         throw new MinskyError(
@@ -845,7 +845,7 @@ export async function updateSessionFromParams(
       // Push changes if needed
       if (!noPush) {
         await deps.gitService.push({
-          _repoPath: workdir,
+          _repoPath: _workdir,
           remote: remote || "origin",
         });
       }
@@ -853,7 +853,7 @@ export async function updateSessionFromParams(
       // Always try to restore stashed changes
       if (!noStash) {
         try {
-          await deps.gitService.popStash(workdir);
+          await deps.gitService.popStash(_workdir);
         } catch {
           stashError = error;
         }
@@ -917,7 +917,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* _branch)
     if (currentBranch.startsWith("pr/")) {
       throw new MinskyError(
-        `Cannot run session pr from PR _branch '${currentBranch}'. Switch to your session branch first.`
+        `Cannot run session pr from PR _branch '${currentBranch}'. Switch to your session _branch first.`
       );
     }
 
@@ -1163,7 +1163,7 @@ export async function approveSessionFromParams(
   };
 
   // If no taskId from params, use the one from session record
-  if (!_taskId && sessionRecord.taskId) {
+  if (!_taskId && sessionRecord._taskId) {
     taskId = sessionRecord.taskId;
   }
 
@@ -1407,7 +1407,7 @@ export async function sessionReviewFromParams(
   }
 
   // If no taskId from params, use the one from session record
-  if (!_taskId && sessionRecord.taskId) {
+  if (!_taskId && sessionRecord._taskId) {
     taskId = sessionRecord.taskId;
   }
 

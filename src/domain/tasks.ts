@@ -182,7 +182,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const canonicalId = task.id;
     const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
 
-    const content = await fs.readFile(this.filePath, "utf-8");
+    const _content = await fs.readFile(this.filePath, "utf-8");
     const newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.split("\n");
     let inCodeBlock = false;
@@ -228,7 +228,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   private async parseTasks(): Promise<Task[]> {
     try {
-      const content = await fs.readFile(this.filePath, "utf-8");
+      const _content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
       const lines = content.split("\n");
       const tasks: Task[] = [];
@@ -329,12 +329,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
+          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
         );
       }
     } else {
       throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
@@ -433,7 +433,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
 
     // Add the task to tasks.md
-    const content = await fs.readFile(this.filePath, "utf-8");
+    const _content = await fs.readFile(this.filePath, "utf-8");
     const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
     const tasksFileContent = `${content}\n${taskEntry}`;
     await fs.writeFile(this.filePath, tasksFileContent, "utf-8");

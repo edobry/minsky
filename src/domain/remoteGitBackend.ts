@@ -111,14 +111,14 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(repoName, session);
-      await mkdir(dirname(workdir), { recursive: true });
+      await mkdir(dirname(_workdir), { recursive: true });
 
       // Clone options
       const cloneArgs = ["clone", this.config.url, workdir];
 
       // Add specific branch if provided
       if (this.config._branch) {
-        cloneArgs.push("--_branch", this.config.branch);
+        cloneArgs.push("--_branch", this.config._branch);
       }
 
       // Clone the repository (uses system git config for authentication)
@@ -228,7 +228,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           issues.push(`Branch '${this.config._branch}' not found in remote repository`);
         }
       } catch {
-        issues.push(`Cannot verify _branch '${this.config.branch}' in remote repository`);
+        issues.push(`Cannot verify _branch '${this.config._branch}' in remote repository`);
       }
     }
 
@@ -332,7 +332,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch {
       throw new RepositoryError(
-        `Failed to checkout _branch ${branch}`,
+        `Failed to checkout _branch ${_branch}`,
         error instanceof Error ? error : undefined
       );
     }

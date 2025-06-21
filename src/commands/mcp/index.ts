@@ -178,7 +178,7 @@ export function createMCPCommand(): Command {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: _options.httpStream ? "httpStream" : "stdio",
-          port: options.port,
+          port: _options.port,
           host: options.host,
           withInspector: options.withInspector || false,
           error: error instanceof Error ? error.message : String(error),

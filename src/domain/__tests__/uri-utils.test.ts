@@ -7,7 +7,6 @@ import {
   UriFormat,
 } from "../uri-utils.js";
 
-
 // We'll skip validation tests since mocking is tricky in Bun
 
 describe("URI Utilities", () => {

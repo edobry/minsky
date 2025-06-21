@@ -107,9 +107,9 @@ class CliCommandFactory {
    *
    * @param program - The Commander.js program to register commands to
    */
-  registerAllCommands(program: Command): void {
+  registerAllCommands(_program: Command): void {
     this.ensureInitialized();
-    cliBridge.generateAllCategoryCommands(program, { viaFactory: true });
+    cliBridge.generateAllCategoryCommands(_program, { viaFactory: true });
   }
 
   /**
@@ -172,8 +172,8 @@ export function createCategoryCommand(category: CommandCategory): Command | null
  * Register all commands in a program
  * @deprecated Use cliFactory.registerAllCommands() instead
  */
-export function registerAllCommands(program: Command): void {
-  cliFactory.registerAllCommands(program);
+export function registerAllCommands(_program: Command): void {
+  cliFactory.registerAllCommands(_program);
 }
 
 /**
@@ -223,7 +223,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
       "tasks.status.set": {
         parameters: {
-          taskId: {
+          _taskId: {
             asArgument: true,
             description: "ID of the task to update",
           },
@@ -315,15 +315,15 @@ export function setupCommonCommandCustomizations(program?: Command): void {
  *
  * This is the recommended way to set up the CLI system.
  */
-export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
+export function initializeCliCommands(_program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
   cliFactory.initialize(config);
 
   // Setup common customizations
-  setupCommonCommandCustomizations(program);
+  setupCommonCommandCustomizations(_program);
 
   // Register all commands in the program
-  cliFactory.registerAllCommands(program);
+  cliFactory.registerAllCommands(_program);
 }
 
 /**

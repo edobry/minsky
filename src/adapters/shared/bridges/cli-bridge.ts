@@ -321,7 +321,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
+  generateAllCategoryCommands(_program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -354,7 +354,7 @@ export class CliCommandBridge {
     const mappings = createParameterMappings(commandDef.parameters, _options.parameters || {});
 
     // If automatic argument generation is enabled
-    if (_options.useFirstRequiredParamAsArgument && !options.forceOptions) {
+    if (_options.useFirstRequiredParamAsArgument && !_options.forceOptions) {
       // Find the first required parameter to use as an argument
       const firstRequiredIndex = mappings.findIndex((mapping) => mapping.paramDef.required);
 
@@ -573,7 +573,7 @@ export const cliBridge = new CliCommandBridge();
  * @param createSubcommands Whether to create category subcommands
  */
 export function registerCategorizedCliCommands(
-  program: Command,
+  _program: Command,
   categories: CommandCategory[],
   createSubcommands: boolean = true
 ): void {

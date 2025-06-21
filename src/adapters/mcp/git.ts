@@ -57,7 +57,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
   // Git branch command
   commandMapper.addGitCommand(
     "_branch",
-    "Create a branch in a repository",
+    "Create a _branch in a repository",
     z.object({
       _session: z.string().describe(SESSION_DESCRIPTION),
       name: z.string().describe("Name of the _branch to create"),
