@@ -181,7 +181,7 @@ export class GitHubBackend implements RepositoryBackend {
       const workdir = this.getSessionWorkdir(repoSession.session);
 
       // Use GitService to get repository status
-      const gitStatus = await this.gitService.getStatus(workdir);
+      const gitStatus = await this.gitService.getStatus(_workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
@@ -381,7 +381,7 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
         _session: sessionName,
-        repoPath: workdir,
+        repoPath: _workdir,
         remote: "origin",
       });
 
@@ -422,7 +422,7 @@ export class GitHubBackend implements RepositoryBackend {
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await this.gitService.pullLatest(workdir);
+      const pullResult = await this.gitService.pullLatest(_workdir);
 
       return {
         success: true,

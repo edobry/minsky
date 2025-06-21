@@ -41,7 +41,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch {
-        log.error(`Error getting session ${_args.session}`, { error, _session: args.session });
+        log.error(`Error getting session ${_args.session}`, { error, _session: _args.session });
         throw new Error(
           `Failed to get session ${_args.session}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -89,7 +89,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
       } catch {
-        log.error("Error starting session", { error, name: _args.name, task: args.task });
+        log.error("Error starting session", { error, name: _args.name, task: _args.task });
         throw new Error(
           `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
         );

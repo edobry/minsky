@@ -2,7 +2,7 @@
  * DatabaseStorage Interface
  *
  * This module defines the generic interface for database storage operations.
- * It's designed to be implementation-agnostic, supporting various backends
+ * It"s designed to be implementation-agnostic, supporting various backends
  * such as JSON files, SQLite, PostgreSQL, etc.
  *
  * T = The data entity type (e.g., TaskData, SessionRecord)
@@ -105,7 +105,7 @@ export interface DatabaseStorage<T, S> {
   getStorageLocation(): string;
 
   /**
-   * Initialize the storage (create if doesn't exist)
+   * Initialize the storage (create if doesn"t exist)
    * @returns Promise resolving to true if successful
    */
   initialize(): Promise<boolean>;

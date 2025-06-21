@@ -126,7 +126,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         }
 
         return { success: true, data: state };
-      } catch (___parseError) {
+      } catch {
         log.error("JSON parse error, reinitializing state:", { error: parseError });
         const state = this.initializeState();
         return { success: true, data: state };
@@ -160,7 +160,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       let json: string;
       try {
         json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
-      } catch (___serializationError) {
+      } catch {
         if (
           serializationError instanceof Error &&
           serializationError.message.includes("circular")

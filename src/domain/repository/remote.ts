@@ -303,7 +303,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${_branch}`);
-        } catch (___pushError) {
+        } catch {
           const error = pushError instanceof Error ? pushError : new Error(String(pushError));
           if (error.message.includes("Authentication failed")) {
             return {
@@ -381,7 +381,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${_branch}`);
-        } catch (___pullError) {
+        } catch {
           const error = pullError instanceof Error ? pullError : new Error(String(pullError));
           if (error.message.includes("Authentication failed")) {
             return {

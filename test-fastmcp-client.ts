@@ -81,7 +81,7 @@ async function testFastMCPClientCapabilities() {
       
       // Test 5: Check for other client-related exports
       const possibleClientExports = [
-        'createClient', 'MCPClient', 'connect', 'Transport', 'StdioTransport'
+        "createClient", "MCPClient", "connect", "Transport", "StdioTransport"
       ];
       
       for (const exportName of possibleClientExports) {
@@ -91,7 +91,7 @@ async function testFastMCPClientCapabilities() {
       }
     }
 
-    console.log("\n" + "=" .repeat(60));
+    console.log(`\n${  "=" .repeat(60)}`);
     console.log("🎉 FASTMCP CLIENT CAPABILITIES TEST COMPLETED");
 
   } catch (error) {

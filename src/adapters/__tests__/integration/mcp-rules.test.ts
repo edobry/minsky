@@ -39,7 +39,7 @@ describe("MCP Rules Adapter", () => {
     try {
       registerRulesTools(commandMapper);
       registrationSucceeded = true;
-    } catch (___error) {
+    } catch {
       // If we reach here, the registration failed
       registrationSucceeded = false;
     }

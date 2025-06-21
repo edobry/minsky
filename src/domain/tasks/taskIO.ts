@@ -19,7 +19,7 @@ import type {
  */
 export async function readTasksFile(_filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const _content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,
@@ -70,7 +70,7 @@ export async function writeTasksFile(
  */
 export async function readTaskSpecFile(_filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const _content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,

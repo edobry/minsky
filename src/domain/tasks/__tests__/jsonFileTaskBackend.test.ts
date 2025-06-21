@@ -55,7 +55,7 @@ describe("JsonFileTaskBackend", () => {
       if (existsSync(dbPath)) {
         rmSync(dbPath, { force: true });
       }
-    } catch (___error) {
+    } catch {
       // Log but don't fail tests on cleanup errors
       log.cliWarn("Cleanup warning:", error);
     }

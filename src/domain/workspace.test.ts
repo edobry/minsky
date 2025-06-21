@@ -313,7 +313,7 @@ describe("Workspace Utils", () => {
           { workspace: "/invalid/path" },
           { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
         );
-      } catch (___err) {
+      } catch {
         errorCaught = true;
         expect((err as Error).message).toContain(
           "Invalid workspace path: /invalid/path. Path must be a valid Minsky workspace."

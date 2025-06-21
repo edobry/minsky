@@ -324,7 +324,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
     
-    let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
+    let _content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
     
     if (description) {
       content += `## Description\n${description}\n\n`;

@@ -172,7 +172,7 @@ export const sessionPrParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.body || data.bodyPath, {
-    message: "Either 'body' or 'bodyPath' must be provided",
+    message: "Either "body" or "bodyPath" must be provided",
     path: ["body"],
   });
 
@@ -190,7 +190,7 @@ export const sessionReviewParamsSchema = z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),
-    prBranch: z.string().optional().describe("PR _branch name (defaults to 'pr/<session>')"),
+    prBranch: z.string().optional().describe("PR _branch name (defaults to "pr/<session>")"),
   })
   .merge(commonCommandOptionsSchema);
 

@@ -52,14 +52,14 @@ export class DefaultBackendDetector implements BackendDetector {
     condition: "json_file_exists" | "tasks_md_exists" | "always"
   ): Promise<boolean> {
     switch (condition) {
-      case "json_file_exists":
-        return this.jsonFileExists(_workingDir);
-      case "tasks_md_exists":
-        return this.tasksMdExists(_workingDir);
-      case "always":
-        return true;
-      default:
-        return false;
+    case "json_file_exists":
+      return this.jsonFileExists(_workingDir);
+    case "tasks_md_exists":
+      return this.tasksMdExists(_workingDir);
+    case "always":
+      return true;
+    default:
+      return false;
     }
   }
 

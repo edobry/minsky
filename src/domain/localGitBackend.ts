@@ -110,10 +110,10 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Create the destination directory
       const workdir = this.getSessionWorkdir(repoName, session);
-      await mkdir(dirname(workdir), { recursive: true });
+      await mkdir(dirname(_workdir), { recursive: true });
 
       // Clone the repository
-      await this.execGit(["clone", this.config.path, workdir]);
+      await this.execGit(["clone", this.config.path, _workdir]);
 
       // Set the local path
       this.localPath = workdir;
@@ -311,7 +311,7 @@ export class LocalGitBackend implements RepositoryBackend {
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch {
       throw new RepositoryError(
-        `Failed to checkout _branch ${branch}`,
+        `Failed to checkout _branch ${_branch}`,
         error instanceof Error ? error : undefined
       );
     }

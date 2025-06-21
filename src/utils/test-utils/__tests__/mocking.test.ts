@@ -51,7 +51,7 @@ describe("Mocking Utilities", () => {
     let hasThrown = false;
     try {
       createSpyOn(obj, "name");
-    } catch (___e) {
+    } catch {
       hasThrown = true;
       if (e instanceof Error) {
         expectToMatch(e.message, /Cannot spy on name because it is not a function/);

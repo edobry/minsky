@@ -76,7 +76,7 @@ export function addArgumentsFromMappings(_command: Command, mappings: ParameterM
       command.argument(
         argName,
         mapping._options.description || mapping.paramDef.description || "",
-        mapping.options.parser
+        mapping._options.parser
       );
     });
 
@@ -234,7 +234,7 @@ export function createParameterMappings(
       // Apply default _options
       hidden: paramDef.cliHidden,
 
-      // Override with custom options if available
+      // Override with custom _options if available
       ...customOptions[name],
     },
   }));

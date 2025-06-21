@@ -40,7 +40,7 @@ describe("SessionAdapter", () => {
               sessions: data.sessions || [],
               baseDir: options.baseDir || "/test/base",
             };
-          } catch (___error) {
+          } catch {
             // Return initial state if file doesn't exist
             return {
               sessions: [],

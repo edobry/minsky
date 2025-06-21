@@ -60,7 +60,7 @@ export function createSessionData(
     _taskId?: string;
     repoName?: string;
     repoPath?: string;
-    branch?: string;
+    _branch?: string;
     createdAt?: string;
   } = {}
 ): unknown {

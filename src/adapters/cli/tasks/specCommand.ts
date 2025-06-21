@@ -76,7 +76,7 @@ export function createSpecCommand(): Command {
             // If a specific section was requested, try to extract it
             if (data.section) {
               // Simple extraction logic for common section patterns
-              const content = data.content;
+              const _content = data.content;
               const sectionRegex = new RegExp(`## ${data.section}`, "i");
               const match = content.match(sectionRegex);
 

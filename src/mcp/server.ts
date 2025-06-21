@@ -94,7 +94,7 @@ export class MinskyMCPServer {
     this.server = new Server(
       {
         name: this._options.name,
-        version: this.options.version,
+        version: this._options.version,
       },
       {
         capabilities: {
@@ -227,35 +227,35 @@ export class MinskyMCPServer {
         let result: any;
 
         switch (name) {
-          case "git.status":
-            result = await this.handleGitStatus();
-            break;
-          case "git.log":
-            result = await this.handleGitLog(_args?.maxCount as number | undefined);
-            break;
-          case "tasks.list":
-            result = await this.handleTasksList();
-            break;
-          case "tasks.create":
-            result = await this.handleTasksCreate(_args?.title as string, args?.description as string | undefined);
-            break;
-          case "tasks.update":
-            result = await this.handleTasksUpdate(_args?.id as string, args?.title as string | undefined, args?.description as string | undefined);
-            break;
-          case "session.create":
-            result = await this.handleSessionCreate(_args?.taskId as string);
-            break;
-          case "session.list":
-            result = await this.handleSessionList();
-            break;
-          case "project.info":
-            result = await this.handleProjectInfo();
-            break;
-          default:
-            throw new McpError(
-              ErrorCode.MethodNotFound,
-              `Unknown tool: ${name}`
-            );
+        case "git.status":
+          result = await this.handleGitStatus();
+          break;
+        case "git.log":
+          result = await this.handleGitLog(_args?.maxCount as number | undefined);
+          break;
+        case "tasks.list":
+          result = await this.handleTasksList();
+          break;
+        case "tasks.create":
+          result = await this.handleTasksCreate(_args?.title as string, _args?.description as string | undefined);
+          break;
+        case "tasks.update":
+          result = await this.handleTasksUpdate(_args?.id as string, _args?.title as string | undefined, _args?.description as string | undefined);
+          break;
+        case "session.create":
+          result = await this.handleSessionCreate(_args?._taskId as string);
+          break;
+        case "session.list":
+          result = await this.handleSessionList();
+          break;
+        case "project.info":
+          result = await this.handleProjectInfo();
+          break;
+        default:
+          throw new McpError(
+            ErrorCode.MethodNotFound,
+            `Unknown tool: ${name}`
+          );
         }
 
         const callResult: CallToolResult = {
@@ -326,12 +326,12 @@ export class MinskyMCPServer {
       const transport = new SSEServerTransport(
         this._options.sse.path ?? "/sse",
         {
-          port: this.options.sse.port,
+          port: this._options.sse.port,
           host: this.options.sse.host,
         }
       );
       await this.server.connect(transport);
-      log.agent(`MCP Server started with SSE transport on ${this._options.sse.host ?? "localhost"}:${this.options.sse.port}${this.options.sse.path ?? "/sse"}`);
+      log.agent(`MCP Server started with SSE transport on ${this._options.sse.host ?? "localhost"}:${this._options.sse.port}${this.options.sse.path ?? "/sse"}`);
     } else {
       throw new Error(`Unsupported transport type: ${this._options.transportType}`);
     }

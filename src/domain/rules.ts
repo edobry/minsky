@@ -166,7 +166,7 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const content = await fs.readFile(filePath, "utf-8");
+        const _content = await fs.readFile(filePath, "utf-8");
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -192,7 +192,7 @@ export class RuleService {
             format: requestedFormat,
             path: filePath,
           };
-        } catch (___matterError) {
+        } catch {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
           if (_options.debug) {
@@ -255,7 +255,7 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const content = await fs.readFile(filePath, "utf-8");
+        const _content = await fs.readFile(filePath, "utf-8");
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
@@ -270,7 +270,7 @@ export class RuleService {
           }
 
           // If we found the rule in a different format than requested, return with appropriate notice
-          if (_options.format && format !== options.format) {
+          if (_options.format && format !== _options.format) {
             const originalFormat = format;
             const requestedFormat = options.format;
 
@@ -302,7 +302,7 @@ export class RuleService {
             format,
             path: filePath,
           };
-        } catch (___matterError) {
+        } catch {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (_options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
@@ -415,7 +415,7 @@ export class RuleService {
     const rule = await this.getRule(id, ruleOptions);
 
     // No changes needed
-    if (!_options.content && !options.meta) {
+    if (!_options._content && !options.meta) {
       return rule;
     }
 
@@ -456,7 +456,7 @@ export class RuleService {
       id,
       format: rule.format,
       contentChanged: !!_options._content,
-      metaChanged: !!options.meta,
+      metaChanged: !!_options.meta,
     });
 
     return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
@@ -469,7 +469,7 @@ export class RuleService {
     // Get all rules first (with format filtering if specified)
     const rules = await this.listRules({
       format: _options.format,
-      tag: options.tag,
+      tag: _options.tag,
     });
 
     // No search query, just return the filtered rules

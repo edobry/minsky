@@ -317,7 +317,7 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(params._content);
+        const _content = await readContentFromFileIfExists(params._content);
 
         // Process globs and tags
         const globs = parseGlobs(params.globs);
@@ -372,7 +372,7 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content if provided (could be file path)
-        const content = params.content
+        const _content = params.content
           ? await readContentFromFileIfExists(params._content)
           : undefined;
 

@@ -66,13 +66,13 @@ export class TaskTitleMigration {
 
     try {
       if (_options.verbose) {
-        log.debug(`Starting task title migration...`);
+        log.debug("Starting task title migration...");
         log.debug(`Workspace: ${this.workspacePath}`);
-        log.debug(`Options:`, _options);
+        log.debug("Options:", _options);
       }
 
       // Create backup if requested
-      if (_options.backup && !options.dryRun) {
+      if (_options.backup && !_options.dryRun) {
         result.backupPath = await this.createBackup();
         if (_options.verbose) {
           log.debug(`Created backup at: ${result.backupPath}`);
@@ -117,7 +117,7 @@ export class TaskTitleMigration {
         log.debug(`  Errors: ${result.errors.length}`);
 
         if (result.errors.length > 0) {
-          log.debug(`\nErrors:`);
+          log.debug("\nErrors:");
           result.errors.forEach(error => log.debug(`  - ${error}`));
         }
       }
@@ -144,7 +144,7 @@ export class TaskTitleMigration {
 
     try {
       // Read the file
-      const content = await readFile(filePath, "utf-8");
+      const _content = await readFile(filePath, "utf-8");
       const lines = content.split("\n");
 
       // Find the title line
@@ -300,7 +300,7 @@ export class TaskTitleMigration {
 
     for (const filePath of taskFiles) {
       try {
-        const content = await readFile(filePath, "utf-8");
+        const _content = await readFile(filePath, "utf-8");
         const lines = content.split("\n");
         const titleLine = lines.find(line => line.startsWith("# "));
 

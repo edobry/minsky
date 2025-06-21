@@ -40,7 +40,7 @@ describe("RuleService", () => {
     // Clean up test directories
     try {
       await fs.rm(testDir, { recursive: true, force: true });
-    } catch (___error) {
+    } catch {
       log.error("Failed to clean up test directory", {
         error: error instanceof Error ? error.message : String(error),
         testDir,
