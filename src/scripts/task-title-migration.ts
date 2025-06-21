@@ -13,6 +13,7 @@
 import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
+import { log } from "../utils/logger.js";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -65,16 +66,16 @@ export class TaskTitleMigration {
 
     try {
       if (options.verbose) {
-        console.log(`Starting task title migration...`);
-        console.log(`Workspace: ${this.workspacePath}`);
-        console.log(`Options:`, options);
+        log.debug(`Starting task title migration...`);
+        log.debug(`Workspace: ${this.workspacePath}`);
+        log.debug(`Options:`, options);
       }
 
       // Create backup if requested
       if (options.backup && !options.dryRun) {
         result.backupPath = await this.createBackup();
         if (options.verbose) {
-          console.log(`Created backup at: ${result.backupPath}`);
+          log.debug(`Created backup at: ${result.backupPath}`);
         }
       }
 
@@ -83,7 +84,7 @@ export class TaskTitleMigration {
       result.totalFiles = taskFiles.length;
 
       if (options.verbose) {
-        console.log(`Found ${taskFiles.length} task specification files`);
+        log.debug(`Found ${taskFiles.length} task specification files`);
       }
 
       // Migrate each file
@@ -101,7 +102,7 @@ export class TaskTitleMigration {
 
         if (options.verbose && migrationResult.wasModified) {
           const status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
-          console.log(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
+          log.debug(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
         }
       }
 
@@ -109,15 +110,15 @@ export class TaskTitleMigration {
 
       // Summary
       if (options.verbose || !result.success) {
-        console.log(`\nMigration ${options.dryRun ? "preview" : "completed"}:`);
-        console.log(`  Total files: ${result.totalFiles}`);
-        console.log(`  Modified: ${result.modifiedFiles}`);
-        console.log(`  Skipped: ${result.skippedFiles}`);
-        console.log(`  Errors: ${result.errors.length}`);
+        log.debug(`\nMigration ${options.dryRun ? "preview" : "completed"}:`);
+        log.debug(`  Total files: ${result.totalFiles}`);
+        log.debug(`  Modified: ${result.modifiedFiles}`);
+        log.debug(`  Skipped: ${result.skippedFiles}`);
+        log.debug(`  Errors: ${result.errors.length}`);
 
         if (result.errors.length > 0) {
-          console.log(`\nErrors:`);
-          result.errors.forEach(error => console.log(`  - ${error}`));
+          log.debug(`\nErrors:`);
+          result.errors.forEach(error => log.debug(`  - ${error}`));
         }
       }
 
@@ -287,7 +288,7 @@ export class TaskTitleMigration {
       await copyFile(backupFilePath, originalFilePath);
     }
 
-    console.log(`Rollback completed from backup: ${backupPath}`);
+    log.debug(`Rollback completed from backup: ${backupPath}`);
   }
 
   /**
@@ -341,32 +342,32 @@ if (import.meta.main) {
   if (options.rollback) {
     const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];
     if (!backupPath) {
-      console.error("Error: --rollback requires --backup-path=<path>");
+      log.error("Error: --rollback requires --backup-path=<path>");
       process.exit(1);
     }
     
     migration.rollback(backupPath)
       .then(() => {
-        console.log("Rollback completed successfully");
+        log.debug("Rollback completed successfully");
         process.exit(0);
       })
       .catch(error => {
-        console.error(`Rollback failed: ${error.message}`);
+        log.error(`Rollback failed: ${error.message}`);
         process.exit(1);
       });
   } else {
     migration.migrateAllTasks(options)
       .then(result => {
         if (result.success) {
-          console.log(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
+          log.debug(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
           process.exit(0);
         } else {
-          console.error("Migration failed");
+          log.error("Migration failed");
           process.exit(1);
         }
       })
       .catch(error => {
-        console.error(`Migration error: ${error.message}`);
+        log.error(`Migration error: ${error.message}`);
         process.exit(1);
       });
   }

@@ -7,6 +7,7 @@ import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./ur
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
+import { log } from "../utils/logger.js";
 
 /**
  * Repository backend types supported by the system.
@@ -541,7 +542,7 @@ export async function resolveRepoPath(options: {
   session?: string;
   repo?: string;
 }): Promise<string> {
-  console.warn("resolveRepoPath is deprecated. Use resolveRepository instead.");
+  log.warn("resolveRepoPath is deprecated. Use resolveRepository instead.");
 
   try {
     const repository = await resolveRepository({

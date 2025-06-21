@@ -12,6 +12,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git.js";
 import { sessionPrFromParams } from "../session.js";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
+import { log } from "../utils/logger.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -170,7 +171,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       expect(result.baseBranch).toBe("main");
       expect(result.title).toBe("Test PR");
 
-      console.log(
+      log.debug(
         "✅ CORRECT BEHAVIOR: PR branch created from base branch with prepared merge commit"
       );
     });
@@ -279,7 +280,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const ffOnlyMergeCommand = gitCommands.find((cmd) => cmd.includes("merge --ff-only"));
       expect(ffOnlyMergeCommand).toBeDefined();
 
-      console.log(
+      log.debug(
         "✅ VERIFIED: Prepared merge commit enables fast-forward merge in session approve"
       );
     });

@@ -14,6 +14,7 @@ import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { homedir } from "os";
 import {
+import { log } from "../utils/logger.js";
   ConfigurationLoadResult,
   ConfigurationSources,
   ResolvedConfig,
@@ -92,7 +93,7 @@ export class ConfigurationLoader {
       return parseYaml(content) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
+      log.error(`Failed to load global user config from ${configPath}:`, error);
       return null;
     }
   }
