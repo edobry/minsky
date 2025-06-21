@@ -6,6 +6,37 @@ The current Minsky workflow heavily relies on the `session-first-workflow.mdc` r
 
 Minsky has recently added MCP (Model Context Protocol) support, providing an opportunity to implement proper workspace isolation at the tooling level rather than relying solely on rule-based enforcement.
 
+## Updated Analysis
+
+After comprehensive analysis of the current architecture and future direction:
+
+1. **Root Cause**: AI tools resolve relative paths against the main workspace, not the session workspace
+2. **Architecture Alignment**: Solution must align with domain-driven design and interface-agnostic patterns
+3. **Future Compatibility**: Must support planned non-filesystem workspaces and database backends
+4. **Pattern Consistency**: Should follow "preventing bypass patterns" architectural principles
+
+### Current System Behavior
+
+The core issue stems from how AI coding agents interact with the filesystem:
+
+1. Tools like `edit_file` resolve paths relative to the main workspace root
+2. Even when an AI agent believes it's operating in a session directory, its file operations may target the main workspace
+3. This creates an inherent conflict with Minsky's strict session isolation requirements
+4. The current approach relies solely on rule-based enforcement, which is prone to human error and isn't technically enforced
+
+### Selected Approach: Session-Aware Tools with Local Filesystem
+
+For the **current local filesystem implementation**, we're implementing session-aware tools that:
+
+- Require explicit session parameters for all operations
+- Enforce session workspace boundaries through path validation
+- Use centralized MCP server for resource efficiency
+- Provide clear separation between standard and session-scoped tools
+
+### Future Docker Considerations
+
+**Note**: While this task focuses on local filesystem implementation, the architecture is designed to support future Docker containerization where session workspaces will run in containers. The session-aware tools approach will adapt well to container-based workspaces by routing operations to container APIs instead of local filesystem operations.
+
 ## Requirements
 
 1. **Session-Scoped File Operation Tools**
