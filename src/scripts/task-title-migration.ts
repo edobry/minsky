@@ -122,7 +122,7 @@ export class TaskTitleMigration {
         }
       }
 
-    } catch (error) {
+    } catch (___error) {
       result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
       result.success = false;
     }
@@ -186,7 +186,7 @@ export class TaskTitleMigration {
       result.success = true;
       result.wasModified = true;
 
-    } catch (error) {
+    } catch (___error) {
       result.error = error instanceof Error ? error.message : String(error);
     }
 
@@ -246,7 +246,7 @@ export class TaskTitleMigration {
           }
         }
       }
-    } catch (error) {
+    } catch (___error) {
       throw new Error(`Failed to read tasks directory: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -313,7 +313,7 @@ export class TaskTitleMigration {
         if (titleLine.match(/^# Task #\d+:/) || titleLine.match(/^# Task:/)) {
           errors.push(`${filePath}: Still has old title format: ${titleLine}`);
         }
-      } catch (error) {
+      } catch (___error) {
         errors.push(`${filePath}: Failed to validate - ${error instanceof Error ? error.message : String(error)}`);
       }
     }

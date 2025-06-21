@@ -75,7 +75,7 @@ export class TaskService {
         if (githubBackend) {
           this.backends.push(githubBackend);
         }
-      } catch (error) {
+      } catch (___error) {
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -429,7 +429,7 @@ export class TaskService {
         workspacePath,
         ...config,
       });
-    } catch (error) {
+    } catch (___error) {
       // Return null if GitHub modules are not available
       return null;
     }
@@ -441,7 +441,7 @@ export class TaskService {
  * @param options Options for creating the TaskService
  * @returns TaskService instance
  */
-export function createTaskService(options: TaskServiceOptions = {}): TaskService {
+export function createTaskService(_options: TaskServiceOptions = {}): TaskService {
   return new TaskService(options);
 }
 
@@ -452,7 +452,7 @@ export function createTaskService(options: TaskServiceOptions = {}): TaskService
  * @param options Options for creating the TaskService
  * @returns Promise resolving to TaskService instance
  */
-export async function createConfiguredTaskService(options: TaskServiceOptions = {}): Promise<TaskService> {
+export async function createConfiguredTaskService(_options: TaskServiceOptions = {}): Promise<TaskService> {
   const { workspacePath = process.cwd(), backend, ...otherOptions } = options;
 
   // If backend is explicitly provided, use the original function
@@ -478,7 +478,7 @@ export async function createConfiguredTaskService(options: TaskServiceOptions = 
       workspacePath,
       backend: resolvedBackend
     });
-  } catch (error) {
+  } catch (___error) {
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,

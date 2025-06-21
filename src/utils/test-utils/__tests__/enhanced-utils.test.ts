@@ -38,7 +38,7 @@ describe("Enhanced Test Utilities", () => {
   describe("mockFunction", () => {
     test("should create a type-safe mock function", () => {
       // Define a function type
-      type GreetFn = (name: string) => string;
+      type GreetFn = (_name: unknown) => string;
 
       // Create a typed mock with implementation
       const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
@@ -55,7 +55,7 @@ describe("Enhanced Test Utilities", () => {
     });
 
     test("should allow changing implementation", () => {
-      const mockFn = mockFunction<(n: number) => number>();
+      const mockFn = mockFunction<(_n: unknown) => number>();
 
       // Set implementation
       mockFn.mockImplementation((n) => n * 2);
@@ -238,7 +238,7 @@ describe("Enhanced Test Utilities", () => {
         originalDeps,
         {
           taskService: {
-            getTask: async (id: string) => {
+            getTask: async (_id: unknown) => {
               // Return different tasks based on ID
               if (id === "#123") {
                 return createTaskData({ id: "#123", title: "Important Task" });
@@ -247,7 +247,7 @@ describe("Enhanced Test Utilities", () => {
             },
           },
           sessionDB: {
-            getSession: async (name: string) => {
+            getSession: async (_name: unknown) => {
               if (name === "task#123") {
                 return createSessionData({ taskId: "123", session: name });
               }

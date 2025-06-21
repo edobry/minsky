@@ -150,7 +150,7 @@ export class LocalGitBackend implements RepositoryBackend {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line: string) => ({
+      .map((_line: unknown) => ({
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));
@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // For remote repositories, we can't easily validate them without cloning
       // For now, we'll just assume they're valid
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return { success: false, message: `Invalid git repository: ${error.message}` };
     }

@@ -7,7 +7,7 @@ import { log } from "../../utils/logger";
  * Register session-related tools with the MCP server
  * @param commandMapper The command mapper instance
  */
-export function registerSessionTools(commandMapper: CommandMapper): void {
+export function registerSessionTools(_commandMapper: CommandMapper): void {
   // Session list tool
   commandMapper.addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {
@@ -17,7 +17,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
 
       // Parse the JSON output
       return JSON.parse(output);
-    } catch (error) {
+    } catch (___error) {
       log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
@@ -32,7 +32,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     z.object({
       session: z.string().describe("Session identifier"),
     }),
-    async (args: z.infer<z.ZodObject<{ session: z.ZodString }>>) => {
+    async (_args: unknown) => {
       try {
         // Execute the command
         const command = `minsky session get ${args.session} --json`;
@@ -40,7 +40,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (error) {
+      } catch (___error) {
         log.error(`Error getting session ${args.session}`, { error, session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
@@ -88,7 +88,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           message: output.trim(),
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
           `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
@@ -134,7 +134,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Error committing changes", { error, session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
@@ -175,7 +175,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Error pushing changes", { error, session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`

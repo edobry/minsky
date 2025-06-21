@@ -17,7 +17,7 @@ export function createConfigShowCommand(): Command {
     .description("Show the final resolved configuration")
     .option("--json", "Output in JSON format", false)
     .option("--working-dir <dir>", "Working directory", process.cwd())
-    .action(async (options: ShowOptions) => {
+    .action(async (_options: unknown) => {
       try {
         const workingDir = options.workingDir || process.cwd();
         const result = await configurationService.loadConfiguration(workingDir);
@@ -27,14 +27,14 @@ export function createConfigShowCommand(): Command {
         } else {
           displayResolvedConfiguration(result.resolved);
         }
-      } catch (error) {
+      } catch (___error) {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         process.exit(1);
       }
     });
 }
 
-function displayResolvedConfiguration(resolved: unknown) {
+function displayResolvedConfiguration(_resolved: unknown) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
   process.stdout.write("=".repeat(40) + "\n");
   
@@ -70,7 +70,7 @@ function displayResolvedConfiguration(resolved: unknown) {
 
   if (resolved.detectionRules && resolved.detectionRules.length > 0) {
     process.stdout.write("\nDetection Rules:\n");
-    resolved.detectionRules.forEach((rule: any, index: number) => {
+    resolved.detectionRules.forEach((_rule: unknown) => {
       process.stdout.write(`  ${index + 1}. ${rule.condition} → ${rule.backend}\n`);
     });
   }

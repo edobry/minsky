@@ -9,8 +9,8 @@ import {
 } from "../../../domain/workspace.js";
 
 // Simple mock for execAsync that includes full path for proper matching
-const mockGitRootExecAsync = (stdout: string) => {
-  return async (command: string, options?: any) => {
+const mockGitRootExecAsync = (_stdout: unknown) => {
+  return async (_command: unknown) => {
     if (command.includes("git rev-parse --show-toplevel")) {
       return { stdout, stderr: "" };
     }
@@ -102,7 +102,7 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = {
-        getSession: async (sessionName: string) => ({
+        getSession: async (_sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
@@ -175,7 +175,7 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       const sessionDbMock = {
-        getSession: async (sessionName: string) => ({
+        getSession: async (_sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
@@ -211,7 +211,7 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = {
-        getSession: async (sessionName: string) => ({
+        getSession: async (_sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",

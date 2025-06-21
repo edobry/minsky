@@ -23,7 +23,7 @@ export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSche
  * The interface-agnostic function for initializing a project with Minsky configuration
  * This function acts as the primary domain function for the init command
  */
-export async function initializeProjectFromParams(params: InitializeProjectParams): Promise<void> {
+export async function initializeProjectFromParams(_params: InitializeProjectParams): Promise<void> {
   // Validate the parameters
   const validatedParams = initializeProjectParamsSchema.parse(params);
 
@@ -546,9 +546,9 @@ This rule helps Minsky users configure and leverage the Model Context Protocol e
  * Test utility for mocking file system operations
  */
 export interface FileSystem {
-  existsSync: (path: string) => boolean;
-  mkdirSync: (path: string, options: { recursive: boolean }) => void;
-  writeFileSync: (path: string, content: string) => void;
+  existsSync: (_path: unknown) => boolean;
+  mkdirSync: (_path: unknown) => void;
+  writeFileSync: (_path: unknown) => void;
 }
 
 /**

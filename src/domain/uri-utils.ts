@@ -207,7 +207,7 @@ export function validateRepositoryUri(
  * @returns The URI in the target format
  * @throws ValidationError if the URI cannot be converted to the target format
  */
-export function convertRepositoryUri(uri: string, targetFormat: UriFormat): string {
+export function convertRepositoryUri(_uri: string, targetFormat: UriFormat): string {
   // First normalize the URI to get the repository name
   const normalized = normalizeRepositoryUri(uri);
 
@@ -249,7 +249,7 @@ export function convertRepositoryUri(uri: string, targetFormat: UriFormat): stri
  * @returns Repository information (owner, repo)
  * @throws ValidationError if the URL cannot be parsed
  */
-export function extractRepositoryInfo(url: string): { owner: string; repo: string } {
+export function extractRepositoryInfo(_url: string): { owner: string; repo: string } {
   const normalized = normalizeRepositoryUri(url);
   const [owner, repo] = normalized.name.split("/");
 
@@ -273,7 +273,7 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     const { execAsync } = await import("../utils/exec.js");
     const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
     return stdout.trim();
-  } catch (error) {
+  } catch (___error) {
     // Not in a Git repository
     return undefined;
   }

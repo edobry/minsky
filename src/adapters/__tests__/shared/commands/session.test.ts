@@ -21,16 +21,16 @@ import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 setupTestMocks();
 
 // Custom matcher helper functions
-const arrayContaining = (arr: unknown[]) => ({
-  asymmetricMatch: (actual: unknown[]) =>
+const arrayContaining = (_arr: unknown) => ({
+  asymmetricMatch: (_actual: unknown) =>
     Array.isArray(actual) &&
     arr.every((item) =>
       actual.some((actualItem) => JSON.stringify(actualItem).includes(JSON.stringify(item)))
     ),
 });
 
-const objectContaining = (obj: Record<string, any>) => ({
-  asymmetricMatch: (actual: Record<string, any>) =>
+const objectContaining = (_obj: unknown) => ({
+  asymmetricMatch: (_actual: unknown) =>
     typeof actual === "object" &&
     Object.entries(obj).every(
       ([key, value]) => key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))

@@ -24,7 +24,7 @@ import type { RuleFormat, UpdateRuleOptions, SearchRuleOptions } from "../../dom
 /**
  * Helper to read content from a file if the path exists
  */
-async function readContentFromFileIfExists(contentPath: string): Promise<string> {
+async function readContentFromFileIfExists(_contentPath: string): Promise<string> {
   try {
     // Check if the path exists first
     if (existsSync(contentPath)) {
@@ -40,7 +40,7 @@ async function readContentFromFileIfExists(contentPath: string): Promise<string>
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (error) {
+  } catch (___error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
@@ -65,7 +65,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (e) {
+  } catch (___e) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 
@@ -74,14 +74,14 @@ function parseGlobs(globsStr?: string): string[] | undefined {
 }
 
 // Type guard for string
-function isString(value: unknown): value is string {
+function isString(_value: unknown): value is string {
   return typeof value === "string";
 }
 
 /**
  * Registers rules tools with the MCP command mapper
  */
-export function registerRulesTools(commandMapper: CommandMapper): void {
+export function registerRulesTools(_commandMapper: CommandMapper): void {
   // List rules command
   commandMapper.addCommand({
     name: "rules.list",

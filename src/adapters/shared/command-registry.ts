@@ -103,7 +103,7 @@ export interface SharedCommand {
   name: string;
   description: string;
   parameters: CommandParameterMap;
-  execute: (params: Record<string, any>, context: CommandExecutionContext) => Promise<any>;
+  execute: (_params: unknown) => Promise<any>;
 }
 
 /**

@@ -178,7 +178,7 @@ async function testMCPProtocol() {
         console.log("❌ Tools list failed:", toolsResponse.error);
       } else if (toolsResponse.result && toolsResponse.result.tools) {
         console.log(`✅ Tools list successful - found ${toolsResponse.result.tools.length} tools:`);
-        toolsResponse.result.tools.forEach((tool: any) => {
+        toolsResponse.result.tools.forEach((tool: unknown) => {
           console.log(`   - ${tool.name}: ${tool.description}`);
         });
       } else {

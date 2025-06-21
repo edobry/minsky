@@ -48,7 +48,7 @@ export interface JsonFileStorageOptions<S> {
 class FileOperationLock {
   private static locks = new Map<string, Promise<any>>();
 
-  static async withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
+  static async withLock<T>(_filePath: unknown) => Promise<T>): Promise<T> {
     // If there's already a lock for this file, wait for it
     while (this.locks.has(filePath)) {
       await this.locks.get(filePath);
@@ -126,12 +126,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         }
 
         return { success: true, data: state };
-      } catch (parseError) {
+      } catch (___parseError) {
         log.error("JSON parse error, reinitializing state:", { error: parseError });
         const state = this.initializeState();
         return { success: true, data: state };
       }
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);
       return {
@@ -160,7 +160,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       let json: string;
       try {
         json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
-      } catch (serializationError) {
+      } catch (___serializationError) {
         if (
           serializationError instanceof Error &&
           serializationError.message.includes("circular")
@@ -177,7 +177,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         success: true,
         bytesWritten: json.length,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error writing database file ${this.filePath}: ${typedError.message}`);
       return {
@@ -389,7 +389,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       return true;
-    } catch (error) {
+    } catch (___error) {
       log.error(
         `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
       );

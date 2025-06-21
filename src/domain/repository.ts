@@ -526,7 +526,7 @@ export async function resolveRepository(
       backendType,
       format: normalized.format,
     };
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof ValidationError) {
       throw error;
     }
@@ -538,7 +538,7 @@ export async function resolveRepository(
  * Deprecated: Use resolveRepository instead.
  * This is kept for backward compatibility.
  */
-export async function resolveRepoPath(options: {
+export async function resolveRepoPath(_options: {
   session?: string;
   repo?: string;
 }): Promise<string> {
@@ -557,7 +557,7 @@ export async function resolveRepoPath(options: {
       // For backward compatibility, return the URI for remote repositories
       return repository.uri;
     }
-  } catch (error) {
+  } catch (___error) {
     throw new MinskyError(
       `Failed to resolve repository path: ${error instanceof Error ? error.message : String(error)}`
     );

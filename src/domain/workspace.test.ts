@@ -24,8 +24,8 @@ function createMockFn<T extends (...args: unknown[]) => any>(
   impl?: T
 ): T & {
   calls: unknown[];
-  mockResolvedValue?: (v: unknown) => void;
-  mockImplementation?: (_fn: T) => void;
+  mockResolvedValue?: (_v: unknown) => void;
+  mockImplementation?: (__fn: unknown) => void;
   _impl?: T;
   _resolvedValue?: any;
 } {
@@ -36,10 +36,10 @@ function createMockFn<T extends (...args: unknown[]) => any>(
     return undefined;
   };
   fn.calls = [];
-  fn.mockResolvedValue = (_v: unknown) => {
+  fn.mockResolvedValue = (__v: unknown) => {
     fn._resolvedValue = _v;
   };
-  fn.mockImplementation = (_fn: T) => {
+  fn.mockImplementation = (__fn: unknown) => {
     fn._impl = _fn;
   };
   fn._impl = impl;
@@ -313,7 +313,7 @@ describe("Workspace Utils", () => {
           { workspace: "/invalid/path" },
           { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
         );
-      } catch (err) {
+      } catch (___err) {
         errorCaught = true;
         expect((err as Error).message).toContain(
           "Invalid workspace path: /invalid/path. Path must be a valid Minsky workspace."
@@ -390,9 +390,9 @@ describe("Workspace Utils", () => {
 
     beforeEach(() => {
       mockExecOutput = { stdout: "" };
-      mockExecAsync = async (command: any, options: any) => Promise.resolve(mockExecOutput);
+      mockExecAsync = async (_command: unknown) => Promise.resolve(mockExecOutput);
       mockSessionProvider = createMockSessionProvider({
-        getSession: async (sessionName: string) =>
+        getSession: async (_sessionName: unknown) =>
           Promise.resolve({
             session: sessionName,
             repoUrl: "/path/to/main/workspace",
@@ -445,7 +445,7 @@ describe("getCurrentSessionContext", () => {
   let mockSessionDBError: Error | null = null;
 
   const mockInternalGetCurrentSession = createMockFn(async () => mockCurrentSessionReturnValue);
-  const mockGetSession = createMockFn(async (sessionName: string) => {
+  const mockGetSession = createMockFn(async (_sessionName: unknown) => {
     if (mockSessionDBError) throw mockSessionDBError;
     if (mockSessionRecord && mockSessionRecord.session === sessionName) {
       return mockSessionRecord;

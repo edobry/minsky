@@ -56,7 +56,7 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @param request The MCP command request.
  * @returns A promise that resolves to an MCP command response.
  */
-export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
+export async function executeMcpCommand(_request: McpCommandRequest): Promise<McpCommandResponse> {
   const commandDef = sharedCommandRegistry.getCommand(request.commandId);
 
   if (!commandDef) {
@@ -113,7 +113,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
         if (parseResult.error && parseResult.error.errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((validationIssue: ZodIssue) => {
+          parseResult.error.errors.forEach((_validationIssue: unknown) => {
             errors.push(validationIssue.message);
           });
         } else {
@@ -172,10 +172,10 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 // Example of how this might be registered or used with an MCP server (e.g., FastMCP)
 // This is highly dependent on the MCP framework being used.
 /*
-export function registerMcpCommands(mcpServer: FastMcpServer) {
+export function registerMcpCommands(_mcpServer: FastMcpServer) {
   const commands = sharedCommandRegistry.getAllCommands();
   commands.forEach(commandDef => {
-    mcpServer.addCommandHandler(commandDef.id, async (payload: Record<string, unknown>) => {
+    mcpServer.addCommandHandler(commandDef.id, async (_payload: unknown) => {
       const request: McpCommandRequest = {
         commandId: commandDef.id,
         parameters: payload.params || {},

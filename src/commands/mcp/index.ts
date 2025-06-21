@@ -73,7 +73,7 @@ export function createMCPCommand(): Command {
             log.debug("Using repository path from command line", {
               repositoryPath,
             });
-          } catch (error) {
+          } catch (___error) {
             log.cliError(`Invalid repository path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
@@ -173,7 +173,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch (error) {
+      } catch (___error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.httpStream ? "httpStream" : "stdio",

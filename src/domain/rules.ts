@@ -8,7 +8,7 @@ import * as jsYaml from "js-yaml";
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
 // Create a custom stringify function that doesn't add unnecessary quotes
-function customMatterStringify(content: string, data: any): string {
+function customMatterStringify(_content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
   const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
@@ -112,7 +112,7 @@ export class RuleService {
             }
 
             if (rule) rules.push(rule);
-          } catch (error) {
+          } catch (___error) {
             log.error("Error processing rule file", {
               file,
               originalError: error instanceof Error ? error.message : String(error),
@@ -120,7 +120,7 @@ export class RuleService {
             });
           }
         }
-      } catch (error) {
+      } catch (___error) {
         // Directory might not exist, which is fine
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
@@ -191,7 +191,7 @@ export class RuleService {
             format: requestedFormat,
             path: filePath,
           };
-        } catch (matterError) {
+        } catch (___matterError) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
           if (options.debug) {
@@ -219,7 +219,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (error) {
+      } catch (___error) {
         // Rule not found in the requested format
         if (options.debug) {
           log.debug("File not found in requested format", {
@@ -301,7 +301,7 @@ export class RuleService {
             format,
             path: filePath,
           };
-        } catch (matterError) {
+        } catch (___matterError) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
@@ -325,7 +325,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (error) {
+      } catch (___error) {
         // File doesn't exist in this format, try the next one
         if (options.debug) {
           log.debug("File not found in alternative format", {

@@ -69,7 +69,7 @@ export const taskIdSchema = z
 /**
  * Schema for boolean flags with optional description
  */
-export const flagSchema = (description: string) =>
+export const flagSchema = (_description: unknown) =>
   z.boolean().optional().default(false).describe(description);
 
 /**

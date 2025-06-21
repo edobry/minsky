@@ -392,7 +392,7 @@ export const asymmetricMatchers = {
  *
  * @param expectObj The expect object to enhance
  */
-export function registerAsymmetricMatchers(expectObj: unknown): void {
+export function registerAsymmetricMatchers(_expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
     if (!(key in expectObj)) {
@@ -404,7 +404,7 @@ export function registerAsymmetricMatchers(expectObj: unknown): void {
 /**
  * Check if an object is an asymmetric matcher
  */
-export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
+export function isAsymmetricMatcher(_obj: unknown): obj is AsymmetricMatcher {
   return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
 }
 
@@ -440,7 +440,7 @@ export function setupAsymmetricMatchers(): void {
       // If no equals method was found, just log a warning
       log.warn("Could not find expect.equals method to override for matcher support.");
     }
-  } catch (error) {
+  } catch (___error) {
     // Fail gracefully if bun:test is not available
     log.warn("Failed to set up asymmetric matchers:", error);
   }

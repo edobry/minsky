@@ -6,7 +6,7 @@
 // Add declaration for captureStackTrace which might not be in the default Error type
 declare global {
   interface ErrorConstructor {
-    captureStackTrace(error: Error, constructor: (...args: unknown[]) => any): void;
+    captureStackTrace(_error: unknown) => any): void;
   }
 }
 
@@ -34,7 +34,7 @@ export class MinskyError extends Error {
  * @param error Any caught error (which might be a string or other non-Error object)
  * @returns A proper Error or MinskyError object
  */
-export function ensureError(error: unknown): Error {
+export function ensureError(_error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }

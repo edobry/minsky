@@ -32,7 +32,7 @@ describe("SessionAdapter", () => {
     // Mock session-db-io module to use our mock filesystem
     mockModule("./session-db-io", () => {
       return {
-        readSessionDbFile: (options: unknown) => {
+        readSessionDbFile: (_options: unknown) => {
           try {
             const content = mockFS.readFileSync(options.dbPath || dbPath);
             const data = JSON.parse(content);
@@ -40,7 +40,7 @@ describe("SessionAdapter", () => {
               sessions: data.sessions || [],
               baseDir: options.baseDir || "/test/base",
             };
-          } catch (error) {
+          } catch (___error) {
             // Return initial state if file doesn't exist
             return {
               sessions: [],
@@ -48,7 +48,7 @@ describe("SessionAdapter", () => {
             };
           }
         },
-        writeSessionDbFile: (state: any, options: any) => {
+        writeSessionDbFile: (_state: unknown) => {
           const filePath = options.dbPath || dbPath;
           mockFS.writeFileSync(
             filePath,

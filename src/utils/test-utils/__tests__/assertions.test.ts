@@ -21,7 +21,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToMatch("hello world", /universe/);
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -37,7 +37,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToHaveLength([1, 2, 3], 4);
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -51,7 +51,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToHaveLength("hello", 6);
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -67,7 +67,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToBeInstanceOf("not a date", Date);
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -93,7 +93,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToHaveProperty(obj, "missing");
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -102,7 +102,7 @@ describe("Custom Assertion Helpers", () => {
       failed = false;
       try {
         expectToHaveProperty(obj, "name", "wrong");
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -118,7 +118,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToBeCloseTo(0.1, 0.2, 5);
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -139,7 +139,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToContainEqual(arr, { id: 3, name: "test3" });
-      } catch (error) {
+      } catch (___error) {
         failed = true;
       }
       expect(failed).toBeTruthy();

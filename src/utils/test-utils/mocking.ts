@@ -25,10 +25,10 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
       value: TReturn | Error;
     }>;
   };
-  mockImplementation: (fn: (...args: TArgs) => TReturn) => MockFunction<TReturn, TArgs>;
-  mockReturnValue: (value: TReturn) => MockFunction<TReturn, TArgs>;
-  mockResolvedValue: <U>(value: U) => MockFunction<Promise<U>, TArgs>;
-  mockRejectedValue: (reason: Error) => MockFunction<Promise<never>, TArgs>;
+  mockImplementation: (_fn: unknown) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockReturnValue: (_value: unknown) => MockFunction<TReturn, TArgs>;
+  mockResolvedValue: <U>(_value: unknown) => MockFunction<Promise<U>, TArgs>;
+  mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
 }
 
 /**
@@ -41,7 +41,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  *
  * @example
  * // Create a type-safe mock with implementation
- * type GreetFn = (name: string) => string;
+ * type GreetFn = (_name: unknown) => string;
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const result = mockGreet("World"); // TypeScript knows this returns string
  */
@@ -66,7 +66,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(implementati
  *
  * @example
  * // Create a mock with implementation
- * const mockGreet = createMock((name: string) => `Hello, ${name}!`);
+ * const mockGreet = createMock((_name: unknown) => `Hello, ${name}!`);
  * expect(mockGreet("World")).toBe("Hello, World!");
  * expect(mockGreet.mock.calls.length).toBe(1);
  *
@@ -112,7 +112,7 @@ export function createMock<T extends (...args: unknown[]) => any>(implementation
  * const { someFunction } = await import("path/to/module");
  * expect(someFunction()).toBe("mocked result");
  */
-export function mockModule(modulePath: string, factory: () => any): void {
+export function mockModule(__modulePath: unknown) => any): void {
   mock.module(modulePath, factory); // Use mock.module for module mocking
 }
 
@@ -161,7 +161,7 @@ function resetSharedState(): void {
     if (registryModule?.sharedCommandRegistry?.commands) {
       (registryModule.sharedCommandRegistry as any).commands = new Map();
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
@@ -179,7 +179,7 @@ function resetSharedState(): void {
         bridge.categoryCustomizations.clear();
       }
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -190,7 +190,7 @@ function resetSharedState(): void {
       // Reset any cached error state
       // Note: Most error handlers are stateless, but included for completeness
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -200,7 +200,7 @@ function resetSharedState(): void {
     if (compatModule?.resetAllMocks) {
       compatModule.resetAllMocks();
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -210,7 +210,7 @@ function resetSharedState(): void {
     if (jestCompatModule?.jest?.resetModules) {
       jestCompatModule.jest.resetModules();
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -224,7 +224,7 @@ function resetSharedState(): void {
         // Note: This is defensive - proper tests should restore their own mocks
       }
     }
-  } catch (error) {
+  } catch (___error) {
     // Ignore errors if the module doesn't exist
   }
 }
@@ -305,7 +305,7 @@ export function createMockObject<T extends string>(
 export function createMockExecSync(
   commandResponses: Record<string, string>
 ): ReturnType<typeof createMock> {
-  return createMock((command: string) => {
+  return createMock((_command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
       if (command.includes(pattern)) {
@@ -366,7 +366,7 @@ export function createMockExecSync(
  * // Access internal files map for verification
  * expect(mockFS._files.has("/path/to/new-file.txt")).toBe(true);
  */
-export function createMockFileSystem(initialFiles: Record<string, string> = {}) {
+export function createMockFileSystem(_initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const directories = new Set<string>();
 
@@ -382,14 +382,14 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
 
   const mockFs = {
     // Sync methods
-    existsSync: createMock((path: string) => files.has(path) || directories.has(path)),
-    readFileSync: createMock((path: string, options?: any) => {
+    existsSync: createMock((_path: unknown) => files.has(path) || directories.has(path)),
+    readFileSync: createMock((_path: unknown) => {
       if (!files.has(path)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
     }),
-    writeFileSync: createMock((path: string, data: string) => {
+    writeFileSync: createMock((_path: unknown) => {
       files.set(path, data);
       // Add parent directories
       const parts = path.split("/");
@@ -397,13 +397,13 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    unlink: createMock((path: string) => {
+    unlink: createMock((_path: unknown) => {
       files.delete(path);
     }),
-    mkdirSync: createMock((path: string, options?: any) => {
+    mkdirSync: createMock((_path: unknown) => {
       directories.add(path);
     }),
-    rmSync: createMock((path: string, options?: any) => {
+    rmSync: createMock((_path: unknown) => {
       // Remove the path and any files/directories under it
       files.delete(path);
       directories.delete(path);
@@ -421,13 +421,13 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
 
     // Async methods (fs/promises)
-    readFile: createMock(async (path: string, options?: any) => {
+    readFile: createMock(async (_path: unknown) => {
       if (!files.has(path)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
     }),
-    writeFile: createMock(async (path: string, data: string, options?: any) => {
+    writeFile: createMock(async (_path: unknown) => {
       files.set(path, data);
       // Add parent directories
       const parts = path.split("/");
@@ -435,7 +435,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: string, options?: any) => {
+    mkdir: createMock(async (_path: unknown) => {
       directories.add(path);
       // If recursive option, add all parent directories
       if (options?.recursive) {
@@ -586,7 +586,7 @@ export class TestContext {
    * Registers a cleanup function to be run during teardown.
    * @param fn - The cleanup function to register
    */
-  registerCleanup(fn: () => void | Promise<void>): void {
+  registerCleanup(_fn: unknown) => void | Promise<void>): void {
     this.cleanupFns.push(fn);
   }
 
@@ -674,7 +674,7 @@ export function createTestSuite() {
  * });
  * // Cleanup happens automatically after the test
  */
-export function withCleanup(cleanupFn: () => void | Promise<void>): void {
+export function withCleanup(__cleanupFn: unknown) => void | Promise<void>): void {
   if (!currentTestContext) {
     throw new Error(
       "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."

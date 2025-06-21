@@ -45,12 +45,12 @@ describe("TaskService JsonFile Integration (v2)", () => {
       readFile: mockFS.readFile,
       writeFile: mockFS.writeFile,
       mkdir: mockFS.mkdir,
-      access: async (path: string) => {
+      access: async (_path: unknown) => {
         if (!mockFS._files.has(path) && !mockFS._directories.has(path)) {
           throw new Error(`ENOENT: no such file or directory, access '${path}'`);
         }
       },
-      unlink: async (path: string) => {
+      unlink: async (_path: unknown) => {
         if (!mockFS._files.has(path)) {
           throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
         }
@@ -203,7 +203,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
         await taskService.setTaskStatus("#999", "DONE");
         // Should reach here without throwing
         expect(true).toBe(true);
-      } catch (error) {
+      } catch (___error) {
         // Should not throw for non-existent task
         expect(false).toBe(true);
       }

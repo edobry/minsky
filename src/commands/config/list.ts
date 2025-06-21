@@ -20,7 +20,7 @@ export function createConfigListCommand(): Command {
     .description("List all configuration from all sources")
     .option("--json", "Output in JSON format", false)
     .option("--working-dir <dir>", "Working directory", process.cwd())
-    .action(async (options: ListOptions) => {
+    .action(async (_options: unknown) => {
       try {
         const workingDir = options.workingDir || process.cwd();
         const result = await configurationService.loadConfiguration(workingDir);
@@ -34,14 +34,14 @@ export function createConfigListCommand(): Command {
           log.debug("=".repeat(60));
           displayResolvedConfiguration(result.resolved);
         }
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to load configuration:", error);
         process.exit(1);
       }
     });
 }
 
-function displayConfigurationSources(sources: ConfigurationSources) {
+function displayConfigurationSources(_sources: ConfigurationSources) {
   log.debug("CONFIGURATION SOURCES");
   log.debug("=".repeat(60));
 
@@ -106,7 +106,7 @@ function displayConfigurationSources(sources: ConfigurationSources) {
   displayConfigSection(sources.defaults);
 }
 
-function displayResolvedConfiguration(resolved: unknown) {
+function displayResolvedConfiguration(_resolved: unknown) {
   log.debug(`Backend: ${resolved.backend}`);
   
   if (Object.keys(resolved.backendConfig).length > 0) {
@@ -139,13 +139,13 @@ function displayResolvedConfiguration(resolved: unknown) {
 
   if (resolved.detectionRules && resolved.detectionRules.length > 0) {
     log.debug("\nDetection Rules:");
-    resolved.detectionRules.forEach((rule: any, index: number) => {
+    resolved.detectionRules.forEach((_rule: unknown) => {
       log.debug(`  ${index + 1}. ${rule.condition} → ${rule.backend}`);
     });
   }
 }
 
-function displayConfigSection(config: unknown) {
+function displayConfigSection(_config: unknown) {
   if (!config || Object.keys(config).length === 0) {
     log.debug("  (empty)");
     return;

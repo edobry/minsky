@@ -117,12 +117,12 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a new implementation for the mock function.
    */
-  mockImplementation(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementation(_fn: unknown) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time implementation for the next call.
    */
-  mockImplementationOnce(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementationOnce(_fn: unknown) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets the return value for all calls to the mock function.
@@ -221,7 +221,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
       });
 
       return result;
-    } catch (error) {
+    } catch (___error) {
       // Track the error
       state.results.push({
         type: "throw",

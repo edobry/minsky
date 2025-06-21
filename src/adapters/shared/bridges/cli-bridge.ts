@@ -55,7 +55,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (result: unknown) => void;
+  outputFormatter?: (_result: unknown) => void;
 }
 
 /**
@@ -217,7 +217,7 @@ export class CliCommandBridge {
             });
           }
         }
-      } catch (error) {
+      } catch (___error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);
       }
@@ -401,9 +401,9 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
+  private getDefaultFormatter(commandDef: SharedCommand): (_result: unknown) => void {
     // Very simple default formatter
-    return (result: unknown) => {
+    return (_result: unknown) => {
       if (Array.isArray(result)) {
         // Handle arrays specifically
         if (result.length === 0) {
@@ -433,7 +433,7 @@ export class CliCommandBridge {
         } else if (commandDef.id === "session.list" && result.sessions) {
           // Handle session list results
           if (Array.isArray(result.sessions) && result.sessions.length > 0) {
-            result.sessions.forEach((session: Record<string, unknown>) => {
+            result.sessions.forEach((_session: unknown) => {
               this.formatSessionSummary(session);
             });
           } else {
@@ -443,7 +443,7 @@ export class CliCommandBridge {
           // Handle rules list results
           if (Array.isArray(result.rules)) {
             if (result.rules.length > 0) {
-              result.rules.forEach((rule: Record<string, unknown>) => {
+              result.rules.forEach((_rule: unknown) => {
                 this.formatRuleSummary(rule);
               });
             } else {

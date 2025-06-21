@@ -58,8 +58,8 @@ export interface GitDependencies {
     command: string,
     options?: Record<string, unknown>
   ) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<SessionData | null>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
+  getSession: (_name: unknown) => Promise<SessionData | null>;
+  getSessionWorkdir: (_repoName: unknown) => string;
   [key: string]: unknown;
 }
 
@@ -68,7 +68,7 @@ export interface GitDependencies {
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of domain dependencies for testing
  */
-export function createTestDeps(overrides: Partial<DomainDependencies> = {}): DomainDependencies {
+export function createTestDeps(_overrides: Partial<DomainDependencies> = {}): DomainDependencies {
   // Create a more complete implementation using createPartialMock
   // This avoids type errors by letting TypeScript infer the required interface methods
   const sessionDB = createPartialMock<SessionProviderInterface>({
@@ -104,7 +104,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (_taskId: string) => Promise.resolve("markdown"),
+    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -140,12 +140,12 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of task-specific dependencies for testing
  */
-export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): TaskDependencies {
+export function createTaskTestDeps(_overrides: Partial<TaskDependencies> = {}): TaskDependencies {
   const taskService = createPartialMock<TaskServiceInterface>({
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
     getTaskStatus: () => Promise.resolve(null),
-    getBackendForTask: (_taskId: string) => Promise.resolve("markdown"),
+    getBackendForTask: (__taskId: unknown) => Promise.resolve("markdown"),
     listTasks: () => Promise.resolve([]),
     createTask: () =>
       Promise.resolve({
@@ -213,7 +213,7 @@ export function createSessionTestDeps(
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of git-specific dependencies for testing
  */
-export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): GitDependencies {
+export function createGitTestDeps(_overrides: Partial<GitDependencies> = {}): GitDependencies {
   const gitService = createPartialMock<GitServiceInterface>({
     clone: () => Promise.resolve({ workdir: "/mock/workdir", session: "test-session" }),
     branch: () => Promise.resolve({ workdir: "/mock/workdir", branch: "test-branch" }),
@@ -304,7 +304,7 @@ export function createMockRepositoryBackend(
 export function withMockedDeps<T extends Record<string, unknown>, R>(
   originalDeps: T,
   mockOverrides: Partial<T>,
-  testFn: (deps: T) => R
+  testFn: (_deps: unknown) => R
 ): R {
   // Create a shallow copy of the original deps
   const tempDeps = { ...originalDeps };
@@ -340,7 +340,7 @@ export function withMockedDeps<T extends Record<string, unknown>, R>(
  * @param partialDeps Partial nested dependencies to apply
  * @returns A complete set of deeply nested dependencies with mocks
  */
-export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): DomainDependencies {
+export function createDeepTestDeps(_partialDeps: Partial<DomainDependencies>): DomainDependencies {
   // Start with a base set of dependencies
   const baseDeps = createTestDeps();
 

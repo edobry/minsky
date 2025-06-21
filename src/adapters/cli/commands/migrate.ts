@@ -47,7 +47,7 @@ export function createMigrateCommand(): Command {
 /**
  * Handle the migrate command execution
  */
-async function handleMigrateCommand(options: MigrateCommandOptions): Promise<void> {
+async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<void> {
   try {
     // Parse status mapping
     const statusMapping: Record<string, string> = {};
@@ -129,7 +129,7 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
       throw new Error("Migration operation failed");
     }
 
-  } catch (error) {
+  } catch (___error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.cliError(`Migration failed: ${errorMessage}`);
     throw new Error(errorMessage);
@@ -139,7 +139,7 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
 /**
  * Prompt user for confirmation
  */
-async function promptConfirmation(message: string): Promise<boolean> {
+async function promptConfirmation(_message: string): Promise<boolean> {
   // Import prompts dynamically to avoid dependency issues
   try {
     const { confirm } = await import("@clack/prompts");

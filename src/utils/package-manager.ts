@@ -16,7 +16,7 @@ export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
  * @param repoPath Path to the repository
  * @returns Detected package manager or undefined if not detected
  */
-export function detectPackageManager(repoPath: string): PackageManager {
+export function detectPackageManager(_repoPath: string): PackageManager {
   if (existsSync(join(repoPath, "bun.lock"))) {
     return "bun";
   }
@@ -40,7 +40,7 @@ export function detectPackageManager(repoPath: string): PackageManager {
  * @param packageManager Package manager type
  * @returns Install command string or undefined if not supported
  */
-export function getInstallCommand(packageManager: PackageManager): string | undefined {
+export function getInstallCommand(_packageManager: PackageManager): string | undefined {
   switch (packageManager) {
   case "bun":
     return "bun install";
@@ -103,7 +103,7 @@ export async function installDependencies(
     const output = result?.toString() || "";
 
     return { success: true, output };
-  } catch (error) {
+  } catch (___error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (!options.quiet) {

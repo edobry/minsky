@@ -64,7 +64,7 @@ export async function isSessionWorkspace(
     }
 
     return false;
-  } catch (error) {
+  } catch (___error) {
     return false;
   }
 }
@@ -144,7 +144,7 @@ export async function getSessionFromWorkspace(
       session: sessionName,
       upstreamRepository: sessionRecord.repoUrl,
     };
-  } catch (error) {
+  } catch (___error) {
     return null;
   }
 }
@@ -175,7 +175,7 @@ export async function resolveWorkspacePath(
       const processDir = join(options.workspace, "process");
       await access(processDir);
       return options.workspace;
-    } catch (error) {
+    } catch (___error) {
       throw new Error(
         `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
@@ -251,7 +251,7 @@ export async function getCurrentSessionContext(
       sessionId: currentSessionName,
       taskId: sessionRecord.taskId,
     };
-  } catch (error) {
+  } catch (___error) {
     log.error("Error fetching session record", {
       sessionName: currentSessionName,
       error: error instanceof Error ? error.message : String(error),
@@ -307,7 +307,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
         const processDir = join(path, "process");
         await fs.access(processDir);
         return true;
-      } catch (error) {
+      } catch (___error) {
         return false;
       }
     },

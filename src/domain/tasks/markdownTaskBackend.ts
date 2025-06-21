@@ -149,7 +149,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const files = await readdir(this.tasksDirectory);
       return files.filter((file) => file.startsWith(`${taskId}-`));
-    } catch (error) {
+    } catch (___error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: error instanceof Error ? error : String(error),
       });
@@ -163,6 +163,6 @@ export class MarkdownTaskBackend implements TaskBackend {
  * @param config Backend configuration
  * @returns MarkdownTaskBackend instance
  */
-export function createMarkdownTaskBackend(config: TaskBackendConfig): TaskBackend {
+export function createMarkdownTaskBackend(_config: TaskBackendConfig): TaskBackend {
   return new MarkdownTaskBackend(config);
 }

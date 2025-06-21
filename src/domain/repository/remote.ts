@@ -110,7 +110,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
 
       // Provide more informative error messages for common Git issues
@@ -144,7 +144,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir,
         branch,
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to create branch in Git repository: ${error.message}`);
     }
@@ -200,7 +200,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         clean: !dirty,
         changes: [],
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get Git repository status: ${error.message}`);
     }
@@ -252,7 +252,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Git repository URL validated successfully",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -303,7 +303,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
-        } catch (pushError) {
+        } catch (___pushError) {
           const error = pushError instanceof Error ? pushError : new Error(String(pushError));
           if (error.message.includes("Authentication failed")) {
             return {
@@ -331,7 +331,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Successfully pushed changes to remote repository",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -381,7 +381,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${branch}`);
-        } catch (pullError) {
+        } catch (___pullError) {
           const error = pullError instanceof Error ? pullError : new Error(String(pullError));
           if (error.message.includes("Authentication failed")) {
             return {
@@ -409,7 +409,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Successfully pulled changes from remote repository",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
