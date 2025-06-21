@@ -301,3 +301,5 @@
 - [x] Add BLOCKED Status Support [#155](process/tasks/155-add-blocked-status-support.md)
 
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
+
+- [ ] Review and Modernize Project Documentation Architecture [#157](/Users/edobry/Projects/minsky/process/tasks/157-review-and-modernize-project-documentation-architecture.md)

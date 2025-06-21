@@ -2,86 +2,151 @@
 
 ## Context
 
-The current implementation of SessionDB uses a JSON file stored on the filesystem to store session records. This approach is sufficient for individual development environments but becomes limiting when scaling to team environments or container-based workflows. Task #080 identified the need for a more robust storage approach that can support multiple backends, particularly databases like SQLite and PostgreSQL.
+The current SessionDB implementation uses a JSON file for storage, which is sufficient for individual development but limiting for team environments or container-based workflows. We need to support multiple storage backends, particularly SQLite for local development and PostgreSQL for team/server environments.
+
+The SessionDB has already been refactored into a functional architecture with:
+
+- Pure functions (`session-db.ts`)
+- Separated I/O operations (`session-db-io.ts`)
+- An adapter pattern (`session-adapter.ts`)
+- A generic `DatabaseStorage<T, S>` interface already exists in `src/domain/storage/database-storage.ts`
 
 ## Requirements
 
-1. **Storage Backend Abstraction**
+1. **Storage Backend Implementations**
 
-   - Create an abstract `DatabaseStorage<T, S>` interface for data storage operations
-   - Support the current JSON file implementation (rename from "filesystem" to "JsonFileStorage") as the default
-   - Add support for additional backends:
-     - SQLite (local development)
-     - PostgreSQL (team/server environments)
+   - Wrap current JSON implementation as `JsonFileStorage` backend (default)
+   - Implement `SqliteStorage` backend for local development
+   - Implement `PostgresStorage` backend for team/server environments
+   - Use **Drizzle ORM** for all RDBMS interactions (SQLite and PostgreSQL)
 
-2. **Generic Database Layer**
+2. **Backend Factory & Configuration**
 
-   - Extract reusable database operations (read/write/query) currently in session-db-io.ts
-   - Create standardized error handling and state management patterns
-   - Build migration utilities between different storage backends
+   - Create a backend factory for runtime selection
+   - Support environment-based configuration (e.g., `MINSKY_SESSION_BACKEND=sqlite`)
+   - Maintain backward compatibility with existing JSON storage
 
-3. **Backend Selection Mechanism**
+3. **Data Migration**
 
-   - Implement configuration for selecting storage backends
-   - Support environment-based backend selection
-   - Provide migration tools between backends
+   - Implement migration utilities between backends
+   - Support one-way migrations: JSON → SQLite → PostgreSQL
+   - Provide CLI commands for migration operations
 
-4. **Session Record Consistency**
+4. **Database Schema Design**
+   - Design consistent schema for SessionRecord across all backends
+   - Ensure efficient querying by session name, task ID, and repository
 
-   - Ensure consistent session record structure across backends
-   - Implement validation for session records
-   - Support atomic operations where possible
+## Implementation Plan
 
-5. **Performance Considerations**
-   - Optimize read/write operations for each backend
-   - Implement appropriate caching mechanisms
-   - Ensure backward compatibility with existing code
+### Phase 1: Drizzle ORM Setup ✅ COMPLETED
+
+1. **Add dependencies**: `drizzle-orm`, `drizzle-kit`, `better-sqlite3`, `pg`
+2. **Create schema module**: `src/domain/storage/schemas/session-schema.ts`
+3. **Set up Drizzle config**: `drizzle.config.ts` for migrations
+4. **Create base migration infrastructure**: `src/domain/storage/migrations/`
+
+### Phase 2: JsonFileStorage Backend ✅ COMPLETED
+
+1. **Create backend**: `src/domain/storage/backends/json-file-storage.ts`
+2. **Wrap existing functionality**: Use current `session-db-io.ts` operations
+3. **Implement DatabaseStorage interface**: Full CRUD operations
+4. **Add tests**: Comprehensive test suite for JSON backend
+
+### Phase 3: SqliteStorage Backend ✅ COMPLETED
+
+1. **Create SQLite backend**: `src/domain/storage/backends/sqlite-storage.ts`
+2. **Implement schema**: Sessions table with proper indexing
+3. **Add connection management**: Connection pooling and optimization
+4. **Implement full CRUD**: Using Drizzle ORM queries
+5. **Add tests**: Complete test coverage
+
+### Phase 4: PostgresStorage Backend ✅ COMPLETED
+
+1. **Create PostgreSQL backend**: `src/domain/storage/backends/postgres-storage.ts`
+2. **Implement schema**: Same structure as SQLite
+3. **Add connection management**: Connection pooling with proper cleanup
+4. **Implement full CRUD**: Using Drizzle ORM queries
+5. **Add tests**: Complete test coverage
+
+### Phase 5: Backend Factory & Configuration ✅ COMPLETED
+
+1. **Create factory**: `src/domain/storage/storage-backend-factory.ts`
+2. **Add configuration loading**: Environment variable support
+3. **Update SessionAdapter**: Use factory for backend selection
+4. **Ensure backward compatibility**: Default to JSON storage
+
+### Phase 6: Migration Tools 🔄 IN PROGRESS
+
+1. **Create migration interfaces**: `src/domain/storage/migration/`
+2. **Implement JSON → SQLite migration**: Data transfer utilities
+3. **Implement SQLite → PostgreSQL migration**: Schema and data transfer
+4. **Add CLI commands**: `minsky session migrate` command
+5. **Add verification tools**: Data integrity checks
 
 ## Implementation Steps
 
-1. [ ] Design database storage abstraction:
+1. [x] **Set up Drizzle ORM**
 
-   - [ ] Create `DatabaseStorage<T, S>` interface with generic types
-   - [ ] Define standard CRUD operations
-   - [ ] Extract common utilities (path resolution, error handling, etc.)
-   - [ ] Document interface requirements
+   - [x] Add Drizzle dependencies and configuration
+   - [x] Create schema definitions for SessionRecord
+   - [x] Set up migration infrastructure
 
-2. [ ] Extract reusable database layer components:
+2. [x] **Implement JsonFileStorage Backend**
 
-   - [ ] Create a common utilities module for filesystem operations
-   - [ ] Extract state management patterns
-   - [ ] Build standardized error handling
+   - [x] Create `JsonFileStorage` class implementing `DatabaseStorage<SessionRecord, SessionDbState>`
+   - [x] Wrap existing session-db-io.ts functionality
+   - [x] Add comprehensive tests
 
-3. [ ] Implement JsonFileStorage backend:
+3. [x] **Implement SqliteStorage Backend**
 
-   - [ ] Refactor current implementation to implement the new interface
-   - [ ] Ensure backward compatibility
-   - [ ] Add comprehensive tests
+   - [x] Create SQLite schema using Drizzle
+   - [x] Implement `SqliteStorage` class with Drizzle ORM
+   - [x] Add connection pooling and optimization
+   - [x] Add comprehensive tests
 
-4. [ ] Implement SQLite backend:
+4. [x] **Implement PostgresStorage Backend**
 
-   - [ ] Create SQLite schema for session records
-   - [ ] Implement the `DatabaseStorage` interface for SQLite
-   - [ ] Add migration tools from JsonFile to SQLite
-   - [ ] Add comprehensive tests
+   - [x] Create PostgreSQL schema using Drizzle
+   - [x] Implement `PostgresStorage` class with Drizzle ORM
+   - [x] Add connection pooling and optimization
+   - [x] Document connection string requirements
+   - [x] Add comprehensive tests
 
-5. [ ] Design PostgreSQL backend (optional implementation):
+5. [x] **Create Backend Factory**
 
-   - [ ] Create PostgreSQL schema for session records
-   - [ ] Implement the `DatabaseStorage` interface for PostgreSQL
-   - [ ] Add migration tools for PostgreSQL
-   - [ ] Document team setup requirements
+   - [x] Implement `StorageBackendFactory` with backend selection logic
+   - [x] Add configuration loading from environment variables
+   - [ ] Update SessionAdapter to use the factory
+   - [x] Ensure backward compatibility
 
-6. [ ] Implement backend factory and configuration:
-   - [ ] Create factory for selecting appropriate backend
-   - [ ] Add configuration options
-   - [ ] Document setup and migration process
+6. [ ] **Implement Migration Tools**
+   - [ ] Create migration interfaces and utilities
+   - [ ] Implement JSON → SQLite migration
+   - [ ] Implement SQLite → PostgreSQL migration
+   - [ ] Add CLI commands for migration operations
+   - [ ] Add migration verification and rollback capabilities
 
 ## Verification
 
-- [ ] All backends correctly implement the `DatabaseStorage` interface
-- [ ] Sessions can be created, retrieved, updated, and deleted with all backends
-- [ ] Migration between backends works correctly
-- [ ] Performance is acceptable for all operations
+- [ ] All backends pass the same test suite
+- [ ] Session CRUD operations work identically across backends
+- [ ] Migration tools successfully transfer all data without loss
+- [ ] Performance meets or exceeds current JSON implementation
 - [ ] Backward compatibility is maintained
-- [ ] All tests pass with each backend
+- [ ] Drizzle migrations work correctly for schema updates
+- [ ] Connection pooling works efficiently under load
+
+## Configuration Examples
+
+```bash
+# Local development with SQLite
+export MINSKY_SESSION_BACKEND=sqlite
+export MINSKY_SQLITE_PATH=~/.local/state/minsky/sessions.db
+
+# Team environment with PostgreSQL
+export MINSKY_SESSION_BACKEND=postgres
+export MINSKY_POSTGRES_URL=postgresql://user:pass@host:5432/minsky
+
+# Default JSON file storage (backward compatible)
+# No configuration needed
+```
