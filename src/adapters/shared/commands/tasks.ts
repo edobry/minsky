@@ -295,7 +295,7 @@ const tasksSpecRegistration = {
         taskId: normalizedTaskId,
       });
       return result;
-    } catch (error) {
+    } catch (___error) {
       log.error("Error getting task specification", { error });
       throw error;
     }
@@ -592,7 +592,7 @@ const tasksMigrateRegistration = {
     if (statusMapping) {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
-      } catch (error) {
+      } catch (___error) {
         throw new ValidationError(`Invalid status mapping JSON: ${error}`);
       }
     }
@@ -675,7 +675,7 @@ const tasksMigrateRegistration = {
       }
 
       return cliResult;
-    } catch (error) {
+    } catch (___error) {
       throw new ValidationError(
         `Migration failed: ${error instanceof Error ? error.message : String(error)}`
       );

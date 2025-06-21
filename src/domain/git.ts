@@ -11,7 +11,7 @@ import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
 
-type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
+type ExecCallback = (_error: unknown) => void;
 
 /**
  * Interface for git service operations
@@ -81,25 +81,25 @@ export interface GitServiceInterface {
 
 // Define PrTestDependencies first so PrDependencies can extend it
 export interface PrTestDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
-  getSessionByTaskId?: (taskId: string) => Promise<any>;
+  execAsync: (_command: unknown) => Promise<{ stdout: string; stderr: string }>;
+  getSession: (_name: unknown) => Promise<any>;
+  getSessionWorkdir: (_repoName: unknown) => string;
+  getSessionByTaskId?: (_taskId: unknown) => Promise<any>;
 }
 
 // PrDependencies now extends the proper interface
 export interface PrDependencies extends PrTestDependencies {}
 
 export interface BasicGitDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+  execAsync: (_command: unknown) => Promise<{ stdout: string; stderr: string }>;
 }
 
 export interface ExtendedGitDependencies extends BasicGitDependencies {
-  getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (repoName: string, session: string) => string;
-  mkdir: (path: string, options?: any) => Promise<void>;
-  readdir: (path: string) => Promise<string[]>;
-  access: (path: string) => Promise<void>;
+  getSession: (_name: unknown) => Promise<any>;
+  getSessionWorkdir: (_repoName: unknown) => string;
+  mkdir: (_path: unknown) => Promise<void>;
+  readdir: (_path: unknown) => Promise<string[]>;
+  access: (_path: unknown) => Promise<void>;
 }
 
 export interface CloneOptions {
@@ -310,7 +310,7 @@ export class GitService implements GitServiceInterface {
         if (dirContents.length > 0) {
           log.warn("Destination directory is not empty", { workdir, contents: dirContents });
         }
-      } catch (err) {
+      } catch (___err) {
         // Directory doesn't exist or can't be read - this is expected
         log.debug("Destination directory doesn't exist or is empty", { workdir });
       }
@@ -324,7 +324,7 @@ export class GitService implements GitServiceInterface {
           stdout: stdout.trim().substring(0, 200),
           stderr: stderr.trim().substring(0, 200),
         });
-      } catch (cloneErr) {
+      } catch (___cloneErr) {
         log.error("git clone command failed", {
           error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
           command: cloneCmd,
@@ -348,13 +348,13 @@ export class GitService implements GitServiceInterface {
             fileCount: dirContents.length,
             firstFewFiles: dirContents.slice(0, 5),
           });
-        } catch (err) {
+        } catch (___err) {
           log.warn("Could not read clone directory", {
             workdir,
             error: err instanceof Error ? err.message : String(err),
           });
         }
-      } catch (accessErr) {
+      } catch (___accessErr) {
         log.error(".git directory not found after clone", {
           workdir,
           error: accessErr instanceof Error ? accessErr.message : String(accessErr),
@@ -366,7 +366,7 @@ export class GitService implements GitServiceInterface {
         workdir,
         session,
       };
-    } catch (error) {
+    } catch (___error) {
       log.error("Error during git clone", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -407,10 +407,10 @@ export class GitService implements GitServiceInterface {
 
     const deps: PrDependencies = {
       execAsync,
-      getSession: async (name: string) => this.sessionDb.getSession(name),
-      getSessionWorkdir: (repoName: string, session: string) =>
+      getSession: async (_name: unknown) => this.sessionDb.getSession(name),
+      getSessionWorkdir: (_repoName: unknown) =>
         this.getSessionWorkdir(repoName, session),
-      getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (_taskId: unknown) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
     const result = await this.prWithDependencies(options, deps);
@@ -443,7 +443,7 @@ export class GitService implements GitServiceInterface {
               `Updated task ${taskId} status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
             );
           }
-        } catch (error) {
+        } catch (___error) {
           if (options.debug) {
             log.debug(
               `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
@@ -451,7 +451,7 @@ export class GitService implements GitServiceInterface {
           }
         }
       }
-    } catch (error) {
+    } catch (___error) {
       if (options.debug) {
         log.debug(
           `Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
@@ -564,7 +564,7 @@ export class GitService implements GitServiceInterface {
       const baseBranch = stdout.trim().replace("origin/", "");
       log.debug("Found remote HEAD branch", { baseBranch });
       return baseBranch;
-    } catch (err) {
+    } catch (___err) {
       log.debug("Failed to get remote HEAD", {
         error: err instanceof Error ? err.message : String(err),
         branch,
@@ -579,7 +579,7 @@ export class GitService implements GitServiceInterface {
       const baseBranch = stdout.trim().replace("origin/", "");
       log.debug("Found upstream branch", { baseBranch });
       return baseBranch;
-    } catch (err) {
+    } catch (___err) {
       log.debug("Failed to get upstream branch", {
         error: err instanceof Error ? err.message : String(err),
         branch,
@@ -591,7 +591,7 @@ export class GitService implements GitServiceInterface {
       await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/main`);
       log.debug("Using main as base branch");
       return "main";
-    } catch (err) {
+    } catch (___err) {
       log.debug("Failed to check main branch", {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -602,7 +602,7 @@ export class GitService implements GitServiceInterface {
       await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
       log.debug("Using master as base branch");
       return "master";
-    } catch (err) {
+    } catch (___err) {
       log.debug("Failed to check master branch", {
         error: err instanceof Error ? err.message : String(err),
       });
@@ -632,7 +632,7 @@ export class GitService implements GitServiceInterface {
       mergeBase = stdout.trim();
       comparisonDescription = `Showing changes from merge-base with ${baseBranch}`;
       log.debug("Found merge base with base branch", { baseBranch, mergeBase });
-    } catch (err) {
+    } catch (___err) {
       log.debug("Failed to find merge base", {
         error: err instanceof Error ? err.message : String(err),
         branch,
@@ -645,7 +645,7 @@ export class GitService implements GitServiceInterface {
         mergeBase = stdout.trim();
         comparisonDescription = "Showing changes from first commit";
         log.debug("Using first commit as base", { mergeBase });
-      } catch (err) {
+      } catch (___err) {
         log.debug("Failed to find first commit", {
           error: err instanceof Error ? err.message : String(err),
           branch,
@@ -730,7 +730,7 @@ export class GitService implements GitServiceInterface {
 
       // Use as-is if not in the expected format
       return commits;
-    } catch (error) {
+    } catch (___error) {
       // In case of any parsing errors, fall back to the raw commits data
       return commits;
     }
@@ -844,7 +844,7 @@ export class GitService implements GitServiceInterface {
         { maxBuffer: 1024 * 1024 }
       );
       return stdout;
-    } catch (err) {
+    } catch (___err) {
       // Return empty string on error
       return "";
     }
@@ -876,7 +876,7 @@ export class GitService implements GitServiceInterface {
         { maxBuffer: 1024 * 1024 }
       );
       modifiedFiles = nameOnly;
-    } catch (err) {
+    } catch (___err) {
       // Return empty strings on error
     }
 
@@ -899,7 +899,7 @@ export class GitService implements GitServiceInterface {
         maxBuffer: 1024 * 1024,
       });
       uncommittedChanges = stdout;
-    } catch (err) {
+    } catch (___err) {
       // Ignore errors for uncommitted changes
     }
 
@@ -910,7 +910,7 @@ export class GitService implements GitServiceInterface {
         { maxBuffer: 1024 * 1024 }
       );
       untrackedFiles = stdout;
-    } catch (err) {
+    } catch (___err) {
       // Ignore errors for untracked files
     }
 
@@ -956,7 +956,7 @@ export class GitService implements GitServiceInterface {
           stats = `${lines.length} uncommitted files changed`;
         }
       }
-    } catch (err) {
+    } catch (___err) {
       // Ignore errors for stats
     }
 
@@ -1019,7 +1019,7 @@ export class GitService implements GitServiceInterface {
       // Stash changes
       await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1038,7 +1038,7 @@ export class GitService implements GitServiceInterface {
       // Pop the stash
       await execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -1060,7 +1060,7 @@ export class GitService implements GitServiceInterface {
 
       // Return whether any changes were pulled
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1075,7 +1075,7 @@ export class GitService implements GitServiceInterface {
       // Try to merge the branch
       try {
         await execAsync(`git -C ${workdir} merge ${branch}`);
-      } catch (err) {
+      } catch (___err) {
         // Check if there are merge conflicts
         const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
         if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
@@ -1091,7 +1091,7 @@ export class GitService implements GitServiceInterface {
 
       // Return whether any changes were merged
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1216,7 +1216,7 @@ export class GitService implements GitServiceInterface {
     try {
       const { stdout } = await execAsync(command, { cwd: workdir });
       return stdout;
-    } catch (error) {
+    } catch (___error) {
       log.error("Command execution failed", {
         error: error instanceof Error ? error.message : String(error),
         command,
@@ -1273,7 +1273,7 @@ export class GitService implements GitServiceInterface {
     // Verify base branch exists
     try {
       await execAsync(`git -C ${workdir} rev-parse --verify ${baseBranch}`);
-    } catch (err) {
+    } catch (___err) {
       throw new MinskyError(`Base branch '${baseBranch}' does not exist or is not accessible`);
     }
 
@@ -1295,7 +1295,7 @@ export class GitService implements GitServiceInterface {
       // Create PR branch FROM base branch (Task #025 specification)
       await execAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
       log.debug(`Created PR branch ${prBranch} from origin/${baseBranch}`);
-    } catch (err) {
+    } catch (___err) {
       throw new MinskyError(
         `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1319,13 +1319,13 @@ export class GitService implements GitServiceInterface {
 
       // Clean up the commit message file
       await execAsync(`rm -f ${commitMsgFile}`);
-    } catch (err) {
+    } catch (___err) {
       // Clean up on error
       try {
         await execAsync(`git -C ${workdir} merge --abort`);
         await execAsync(`rm -f ${commitMsgFile}`);
         log.debug("Aborted merge and cleaned up after conflict");
-      } catch (cleanupErr) {
+      } catch (___cleanupErr) {
         log.warn("Failed to clean up after merge error", { cleanupErr });
       }
 
@@ -1432,7 +1432,7 @@ export class GitService implements GitServiceInterface {
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
       const result = defaultBranch.trim().replace(/^origin\//, "");
       return result;
-    } catch (error) {
+    } catch (___error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
         error: error instanceof Error ? error.message : String(error),
@@ -1449,7 +1449,7 @@ export class GitService implements GitServiceInterface {
   async fetchDefaultBranchWithDependencies(
     repoPath: string,
     deps: {
-      execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+      execAsync: (_command: unknown) => Promise<{ stdout: string; stderr: string }>;
     }
   ): Promise<string> {
     try {
@@ -1460,7 +1460,7 @@ export class GitService implements GitServiceInterface {
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
       const result = stdout.trim().replace(/^origin\//, "");
       return result;
-    } catch (error) {
+    } catch (___error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
         error: error instanceof Error ? error.message : String(error),
@@ -1478,7 +1478,7 @@ export class GitService implements GitServiceInterface {
     message: string,
     workdir: string,
     deps: {
-      execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+      execAsync: (_command: unknown) => Promise<{ stdout: string; stderr: string }>;
     },
     amend: boolean = false
   ): Promise<string> {
@@ -1513,7 +1513,7 @@ export class GitService implements GitServiceInterface {
       // Stash changes
       await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1538,7 +1538,7 @@ export class GitService implements GitServiceInterface {
       // Pop the stash
       await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
@@ -1558,7 +1558,7 @@ export class GitService implements GitServiceInterface {
       // Try to merge the branch
       try {
         await deps.execAsync(`git -C ${workdir} merge ${branch}`);
-      } catch (err) {
+      } catch (___err) {
         // Check if there are merge conflicts
         const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
         if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
@@ -1574,7 +1574,7 @@ export class GitService implements GitServiceInterface {
 
       // Return whether any changes were merged
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1621,7 +1621,7 @@ export class GitService implements GitServiceInterface {
 
       // Return whether any changes were pulled
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
-    } catch (err) {
+    } catch (___err) {
       throw new Error(
         `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1658,7 +1658,7 @@ export class GitService implements GitServiceInterface {
         if (dirContents.length > 0) {
           log.warn("Destination directory is not empty", { workdir, contents: dirContents });
         }
-      } catch (err) {
+      } catch (___err) {
         // Directory doesn't exist or can't be read - this is expected
         log.debug("Destination directory doesn't exist or is empty", { workdir });
       }
@@ -1671,12 +1671,12 @@ export class GitService implements GitServiceInterface {
       try {
         const gitDir = join(workdir, ".git");
         await deps.access(gitDir);
-      } catch (accessErr) {
+      } catch (___accessErr) {
         throw new Error("Git repository was not properly cloned: .git directory not found");
       }
 
       return { workdir, session };
-    } catch (error) {
+    } catch (___error) {
       throw new Error(
         `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -1796,7 +1796,7 @@ export class GitService implements GitServiceInterface {
  * Interface-agnostic function to create a pull request
  * This implements the interface agnostic command architecture pattern
  */
-export async function createPullRequestFromParams(params: {
+export async function createPullRequestFromParams(_params: {
   session?: string;
   repo?: string;
   branch?: string;
@@ -1815,7 +1815,7 @@ export async function createPullRequestFromParams(params: {
       noStatusUpdate: params.noStatusUpdate,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error creating pull request", {
       session: params.session,
       repo: params.repo,
@@ -1832,7 +1832,7 @@ export async function createPullRequestFromParams(params: {
  * Interface-agnostic function to commit changes
  * This implements the interface agnostic command architecture pattern
  */
-export async function commitChangesFromParams(params: {
+export async function commitChangesFromParams(_params: {
   message: string;
   session?: string;
   repo?: string;
@@ -1857,7 +1857,7 @@ export async function commitChangesFromParams(params: {
       commitHash,
       message: params.message,
     };
-  } catch (error) {
+  } catch (___error) {
     log.error("Error committing changes", {
       session: params.session,
       repo: params.repo,
@@ -1874,7 +1874,7 @@ export async function commitChangesFromParams(params: {
 /**
  * Interface-agnostic function to prepare a PR branch
  */
-export async function preparePrFromParams(params: {
+export async function preparePrFromParams(_params: {
   session?: string;
   repo?: string;
   baseBranch?: string;
@@ -1895,7 +1895,7 @@ export async function preparePrFromParams(params: {
       debug: params.debug,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error preparing PR branch", {
       session: params.session,
       repo: params.repo,
@@ -1910,7 +1910,7 @@ export async function preparePrFromParams(params: {
 /**
  * Interface-agnostic function to merge a PR branch
  */
-export async function mergePrFromParams(params: {
+export async function mergePrFromParams(_params: {
   prBranch: string;
   repo?: string;
   baseBranch?: string;
@@ -1925,7 +1925,7 @@ export async function mergePrFromParams(params: {
       session: params.session,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error merging PR branch", {
       prBranch: params.prBranch,
       baseBranch: params.baseBranch,
@@ -1941,7 +1941,7 @@ export async function mergePrFromParams(params: {
 /**
  * Interface-agnostic function to clone a repository
  */
-export async function cloneFromParams(params: {
+export async function cloneFromParams(_params: {
   url: string;
   session?: string;
   destination?: string;
@@ -1956,7 +1956,7 @@ export async function cloneFromParams(params: {
       branch: params.branch,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error cloning repository", {
       url: params.url,
       session: params.session,
@@ -1972,7 +1972,7 @@ export async function cloneFromParams(params: {
 /**
  * Interface-agnostic function to create a branch
  */
-export async function branchFromParams(params: {
+export async function branchFromParams(_params: {
   session: string;
   name: string;
 }): Promise<BranchResult> {
@@ -1983,7 +1983,7 @@ export async function branchFromParams(params: {
       branch: params.name,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error creating branch", {
       session: params.session,
       name: params.name,
@@ -1997,7 +1997,7 @@ export async function branchFromParams(params: {
 /**
  * Interface-agnostic function to push changes to a remote repository
  */
-export async function pushFromParams(params: {
+export async function pushFromParams(_params: {
   session?: string;
   repo?: string;
   remote?: string;
@@ -2014,7 +2014,7 @@ export async function pushFromParams(params: {
       debug: params.debug,
     });
     return result;
-  } catch (error) {
+  } catch (___error) {
     log.error("Error pushing changes", {
       session: params.session,
       repo: params.repo,

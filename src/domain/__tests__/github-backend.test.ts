@@ -29,7 +29,7 @@ const mockSessionDB = {
       },
     ])
   ),
-  getSession: createMock((sessionName: string) =>
+  getSession: createMock((_sessionName: unknown) =>
     Promise.resolve({
       session: sessionName,
       repoName: "github/test-repo",

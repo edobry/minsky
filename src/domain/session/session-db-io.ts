@@ -21,7 +21,7 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
+export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionDbState {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
@@ -35,7 +35,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
     const sessions = JSON.parse(data);
 
     // Migrate existing sessions to include repoName
-    const migratedSessions = sessions.map((session: SessionRecord) => {
+    const migratedSessions = sessions.map((_session: unknown) => {
       if (!session.repoName && session.repoUrl) {
         session.repoName = normalizeRepoName(session.repoUrl);
       }
@@ -46,7 +46,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       sessions: migratedSessions,
       baseDir,
     };
-  } catch (e) {
+  } catch (___e) {
     log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
@@ -71,7 +71,7 @@ export function writeSessionDbFile(
 
     writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
-  } catch (error) {
+  } catch (___error) {
     log.error(
       `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -82,14 +82,14 @@ export function writeSessionDbFile(
 /**
  * Ensure the database directory exists
  */
-export function ensureDbDir(dbPath: string): boolean {
+export function ensureDbDir(_dbPath: string): boolean {
   try {
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true });
     }
     return true;
-  } catch (error) {
+  } catch (___error) {
     log.error(
       `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
     );

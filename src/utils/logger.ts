@@ -56,7 +56,7 @@ const agentLogFormat = format.combine(
 // Common format for program/CLI logs (plain text)
 const programLogFormat = format.combine(
   format.colorize(),
-  format.printf((info: TransformableInfo) => {
+  format.printf((_info: unknown) => {
     // Ensure message is a string
     const message = typeof info.message === "string" ? info.message : JSON.stringify(info.message);
     // For user-facing CLI output, just show the message without timestamp and log level
@@ -79,7 +79,7 @@ const programLogFormat = format.combine(
     if (Object.keys(metadata).length > 0) {
       try {
         log += ` ${JSON.stringify(metadata)}`;
-      } catch (e) {
+      } catch (___e) {
         // ignore serialization errors for metadata in text logs
       }
     }
@@ -134,14 +134,14 @@ export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (message: string, context?: LogContext) => {
+  agent: (_message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
     agentLogger.info(message, context);
   },
-  debug: (message: string, context?: LogContext) => {
+  debug: (_message: unknown) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // No-op in HUMAN mode to prevent "no transports" warning
@@ -150,7 +150,7 @@ export const log = {
     // Otherwise, use agentLogger as normal
     agentLogger.debug(message, context);
   },
-  warn: (message: string, context?: LogContext) => {
+  warn: (_message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
@@ -202,19 +202,19 @@ export const log = {
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (message: string, ...args: unknown[]) => programLogger.info(message, ...args),
-  cliWarn: (message: string, ...args: unknown[]) => programLogger.warn(message, ...args),
-  cliError: (message: string, ...args: unknown[]) => programLogger.error(message, ...args),
+  cli: (_message: unknown) => programLogger.info(message, ...args),
+  cliWarn: (_message: unknown) => programLogger.warn(message, ...args),
+  cliError: (_message: unknown) => programLogger.error(message, ...args),
   // Add ability to set log level
-  setLevel: (level: string) => {
+  setLevel: (_level: unknown) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (message: string, ...args: unknown[]) => programLogger.debug(message, ...args),
+  cliDebug: (_message: unknown) => programLogger.debug(message, ...args),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
-  systemDebug: (message: string, ...args: unknown[]) => {
+  systemDebug: (_message: unknown) => {
     // Always log to programLogger (stderr) regardless of mode
     programLogger.debug(message, ...args);
   },

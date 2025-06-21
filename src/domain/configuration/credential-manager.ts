@@ -77,7 +77,7 @@ export class DefaultCredentialManager implements CredentialManager {
       if (existsSync(tokenFile)) {
         try {
           return readFileSync(tokenFile, { encoding: "utf8" }).trim();
-        } catch (error) {
+        } catch (___error) {
           // Silently ignore file read errors
         }
       }
@@ -137,7 +137,7 @@ export class DefaultCredentialManager implements CredentialManager {
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as GlobalUserConfig;
-    } catch (error) {
+    } catch (___error) {
       return null;
     }
   }

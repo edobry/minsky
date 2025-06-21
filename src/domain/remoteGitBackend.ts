@@ -78,7 +78,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         });
       }
       return stdout.trim();
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Git command failed: ${cmd}`,
         error instanceof Error ? error : undefined
@@ -131,7 +131,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to clone remote repository from ${this.config.url}`,
         error instanceof Error ? error : undefined
@@ -161,7 +161,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           try {
             trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
-          } catch (error) {
+          } catch (___error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
           }
@@ -172,7 +172,7 @@ export class RemoteGitBackend implements RepositoryBackend {
             branch: branchOutput,
             tracking: trackingOutput !== "" ? trackingOutput : undefined,
           };
-        } catch (error) {
+        } catch (___error) {
           throw new RepositoryError(
             "Failed to get repository status",
             error instanceof Error ? error : undefined
@@ -209,7 +209,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     // Test URL accessibility using ls-remote (only contacts the remote, doesn't clone)
     try {
       await this.execGit(["ls-remote", "--exit-code", this.config.url]);
-    } catch (error) {
+    } catch (___error) {
       issues.push(`Cannot access remote repository: ${this.config.url}`);
       return { valid: false, issues };
     }
@@ -226,7 +226,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         if (!output) {
           issues.push(`Branch '${this.config.branch}' not found in remote repository`);
         }
-      } catch (error) {
+      } catch (___error) {
         issues.push(`Cannot verify branch '${this.config.branch}' in remote repository`);
       }
     }
@@ -251,7 +251,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
         error instanceof Error ? error : undefined
@@ -276,7 +276,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
         error instanceof Error ? error : undefined
@@ -306,7 +306,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir: this.localPath,
         branch: name,
       };
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
         error instanceof Error ? error : undefined
@@ -329,7 +329,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
         error instanceof Error ? error : undefined

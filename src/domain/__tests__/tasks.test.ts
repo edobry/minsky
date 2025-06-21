@@ -26,19 +26,19 @@ const mockTask: Task = {
 };
 
 // Create a default implementation for getTask that works for all tests
-const defaultGetTaskMock = (id: string) => Promise.resolve(id === "#123" ? mockTask : null);
+const defaultGetTaskMock = (_id: unknown) => Promise.resolve(id === "#123" ? mockTask : null);
 
 const mockTaskService = {
   listTasks: createMock(() => Promise.resolve([mockTask])),
   getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((id: string) =>
+  getTaskStatus: createMock((_id: unknown) =>
     Promise.resolve(id === "#123" ? TASK_STATUS.TODO : null)
   ),
   setTaskStatus: createMock(() => Promise.resolve()),
   backends: [] as any,
   currentBackend: {} as any,
   getWorkspacePath: createMock(() => "/mock/workspace/path"),
-  createTask: createMock((specPath: string, options?: any) =>
+  createTask: createMock((_specPath: unknown) =>
     Promise.resolve({ ...mockTask, id: "#new" })
   ),
 };
@@ -118,7 +118,7 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch (e) {
+      } catch (___e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
       }
     });
@@ -178,7 +178,7 @@ describe("interface-agnostic task functions", () => {
       try {
         await getTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch (e) {
+      } catch (___e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
       }
     });
@@ -210,7 +210,7 @@ describe("interface-agnostic task functions", () => {
       try {
         await setTaskStatusFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
-      } catch (e) {
+      } catch (___e) {
         expectToBeInstanceOf(e, ValidationError);
       }
     });

@@ -38,7 +38,7 @@ describe("GitService Default Branch Detection", () => {
     const gitService = new GitService();
 
     // First mock call will be for the symbolic-ref command to detect default branch
-    execMock.mockImplementation((workdir: string, cmd: string) => {
+    execMock.mockImplementation((_workdir: unknown) => {
       if (cmd.includes("symbolic-ref")) {
         return Promise.resolve("origin/custom-main\n");
       }
@@ -59,7 +59,7 @@ describe("GitService Default Branch Detection", () => {
     const gitService = new GitService();
 
     // Mock symbolic-ref to throw an error
-    execMock.mockImplementation((workdir: string, cmd: string) => {
+    execMock.mockImplementation((_workdir: unknown) => {
       if (cmd.includes("symbolic-ref")) {
         return Promise.reject(new Error("Git command failed"));
       }

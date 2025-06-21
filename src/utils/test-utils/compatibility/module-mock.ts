@@ -50,7 +50,7 @@ const defaultOptions: MockModuleOptions = {
  * @param actualModule The actual module to base mocks on
  * @returns A mocked version of the module
  */
-function createAutoMock(modulePath: string, actualModule: any): unknown {
+function createAutoMock(_modulePath: string, actualModule: any): unknown {
   const mockExports: Record<string, any> = {};
 
   // Create a mock for each export
@@ -97,7 +97,7 @@ export function mockModule(
          
         const originalModule = require(modulePath);
         originalModules.set(modulePath, originalModule);
-      } catch (error) {
+      } catch (___error) {
         // If we can't load the module, just store undefined
         originalModules.set(modulePath, undefined);
       }
@@ -127,7 +127,7 @@ export function mockModule(
     // Default fallback: mock with an empty object
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
-  } catch (error) {
+  } catch (___error) {
     log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
   }
@@ -138,7 +138,7 @@ export function mockModule(
  *
  * @param modulePath The path to the module to restore
  */
-export function restoreModule(modulePath: string): void {
+export function restoreModule(_modulePath: string): void {
   // Remove the mock and allow the original module to be loaded again
   mock.restore();
 
@@ -163,7 +163,7 @@ export function restoreAllModules(): void {
  * @param modulePath The path to the mocked module
  * @returns The mock implementation of the module or undefined if not mocked
  */
-export function getMockModule(modulePath: string): unknown {
+export function getMockModule(_modulePath: string): unknown {
   return mockedModules.get(modulePath);
 }
 

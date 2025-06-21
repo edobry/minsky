@@ -15,7 +15,7 @@ import {
 import type { RepoOptions, OutputOptions, TaskOptions } from "../shared-options";
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
-  normalizeTaskId: mock((taskId: string) => {
+  normalizeTaskId: mock((_taskId: unknown) => {
     if (!taskId) return null;
     // Mock implementation that adds # prefix if not present (like the real function)
     if (taskId.startsWith("#")) {

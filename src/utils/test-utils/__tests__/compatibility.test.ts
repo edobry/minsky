@@ -130,7 +130,7 @@ describe("Mock Function Compatibility", () => {
     let error: Error | null = null;
     try {
       await mockFn2();
-    } catch (e) {
+    } catch (___e) {
       error = e as Error;
     }
 

@@ -48,7 +48,7 @@ export class RepositoryMetadataCache {
    * @param ttl Time to live in milliseconds (defaults to 5 minutes)
    * @returns The cached or fetched value
    */
-  async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {
+  async get<T>(_key: unknown) => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {
     const cacheEntry = this.cache.get(key) as CacheEntry<T> | undefined;
     const now = Date.now();
 

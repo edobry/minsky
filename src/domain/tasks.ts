@@ -274,7 +274,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         });
       }
       return tasks;
-    } catch (error) {
+    } catch (___error) {
       log.error("Error reading tasks file", { error, filePath: this.filePath });
       return [];
     }
@@ -289,7 +289,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     try {
       await fs.access(fullSpecPath);
-    } catch (error) {
+    } catch (___error) {
       throw new Error(`Spec file not found: ${specPath}`);
     }
 
@@ -390,7 +390,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const tasksDir = join(this.workspacePath, "process", "tasks");
       try {
         await fs.mkdir(tasksDir, { recursive: true });
-      } catch (error) {
+      } catch (___error) {
         // Ignore if directory already exists
       }
 
@@ -400,7 +400,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (!options.force) {
           throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
         }
-      } catch (error) {
+      } catch (___error) {
         // File doesn't exist, which is fine
       }
 
@@ -412,12 +412,12 @@ export class MarkdownTaskBackend implements TaskBackend {
         try {
           await fs.access(fullSpecPath);
           await fs.unlink(fullSpecPath);
-        } catch (error) {
+        } catch (___error) {
           // If file doesn't exist or can't be deleted, just log it
           log.warn("Could not delete original spec file", { error, path: fullSpecPath });
         }
       }
-    } catch (error) {
+    } catch (___error) {
       throw new Error(
         `Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -482,7 +482,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(specFilePath, updatedContent, "utf8");
 
       log.debug("Updated task metadata", { id, specFilePath, metadata });
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to update task metadata", {
         error: error instanceof Error ? error.message : String(error),
         id,

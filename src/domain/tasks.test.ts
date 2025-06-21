@@ -225,7 +225,7 @@ const mockDirs = new Set<string>();
 mock.module("fs", () => {
   return {
     promises: {
-      readFile: async (path: string) => {
+      readFile: async (_path: unknown) => {
         if (mockFileSystem.has(path)) {
           return mockFileSystem.get(path);
         }
@@ -251,13 +251,13 @@ mock.module("fs", () => {
         }
         return "";
       },
-      writeFile: async (path: string, content: string) => {
+      writeFile: async (_path: unknown) => {
         mockFileSystem.set(path, content);
       },
-      mkdir: async (path: string) => {
+      mkdir: async (_path: unknown) => {
         mockDirs.add(path.toString());
       },
-      access: async (path: string) => {
+      access: async (_path: unknown) => {
         if (
           path.includes("001-first") ||
           path.includes("002-second") ||
@@ -271,7 +271,7 @@ mock.module("fs", () => {
         }
         throw new Error("File not found");
       },
-      readdir: async (path: string) => {
+      readdir: async (_path: unknown) => {
         if (path.includes("tasks")) {
           return ["001-first.md", "002-second.md", "003-third.md"];
         }
@@ -279,15 +279,15 @@ mock.module("fs", () => {
       },
     },
     // Add sync versions too for readFileSync used in tests
-    mkdtempSync: (prefix: string) => prefix + Date.now(),
-    mkdirSync: (path: string) => {
+    mkdtempSync: (_prefix: unknown) => prefix + Date.now(),
+    mkdirSync: (_path: unknown) => {
       mockDirs.add(path.toString());
     },
     rmSync: () => {},
-    writeFileSync: (path: string, content: string) => {
+    writeFileSync: (_path: unknown) => {
       mockFileSystem.set(path.toString(), content.toString());
     },
-    readFileSync: (path: string) => {
+    readFileSync: (_path: unknown) => {
       if (mockFileSystem.has(path.toString())) {
         return mockFileSystem.get(path.toString());
       }
@@ -337,7 +337,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #002: Test Task\n\n## Context\n\nThis is a test task context.\n\n## Requirements\n\n- Do something\n",
         access: async () => {},
-        writeFile: async (path: string, content: string) => {
+        writeFile: async (_path: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -398,7 +398,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task: New Feature\n\n## Context\n\nThis is a new feature without ID.\n",
         access: async () => {},
-        writeFile: async (path: string, content: string) => {
+        writeFile: async (_path: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},
@@ -439,7 +439,7 @@ describe("createTask", () => {
         readFile: async () =>
           "# Task #042: Existing ID Feature\n\n## Context\n\nThis is a feature with existing ID.\n",
         access: async () => {},
-        writeFile: async (path: string, content: string) => {
+        writeFile: async (_path: unknown) => {
           mockFileSystem.set(path, content);
         },
         mkdir: async () => {},

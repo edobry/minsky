@@ -35,7 +35,7 @@ describe("sessionReviewFromParams", () => {
 
   // Mock the GitServiceInterface
   const mockGitService: GitServiceInterface = {
-    execInRepository: mock((path: string, command: string) => {
+    execInRepository: mock((_path: unknown) => {
       if (command.includes("git ls-remote")) {
         return "refs/heads/pr/testSession";
       }
@@ -64,7 +64,7 @@ describe("sessionReviewFromParams", () => {
 
   // Mock the TaskServiceInterface with getTaskSpecData
   const mockTaskService: TaskServiceInterface & {
-    getTaskSpecData: (taskId: string) => Promise<string>;
+    getTaskSpecData: (_taskId: unknown) => Promise<string>;
   } = {
     getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
     getTask: mock(() => Promise.resolve(null)),
@@ -136,7 +136,7 @@ describe("sessionReviewFromParams", () => {
     (mockSessionDB.deleteSession as any).mockImplementation(() => Promise.resolve(true));
     (mockSessionDB.getRepoPath as any).mockImplementation(() => "/fake/path/to/repo");
 
-    (mockGitService.execInRepository as any).mockImplementation((path: string, command: string) => {
+    (mockGitService.execInRepository as any).mockImplementation((_path: unknown) => {
       if (command.includes("git ls-remote")) {
         return "refs/heads/pr/testSession";
       }

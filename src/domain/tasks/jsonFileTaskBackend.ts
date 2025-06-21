@@ -84,7 +84,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         content,
         filePath: this.storage.getStorageLocation(),
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -104,7 +104,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         content,
         filePath: fullPath,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -211,7 +211,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         bytesWritten: result.bytesWritten,
         filePath: this.storage.getStorageLocation(),
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -237,7 +237,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         bytesWritten: content.length,
         filePath: fullPath,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -278,7 +278,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.getEntities();
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to get all tasks from database", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -295,7 +295,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.getEntity(id);
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to get task by ID from database", {
         id,
         error: error instanceof Error ? error.message : String(error),
@@ -313,7 +313,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.createEntity(task);
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to create task in database", {
         task,
         error: error instanceof Error ? error.message : String(error),
@@ -332,7 +332,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.updateEntity(id, updates);
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to update task in database", {
         id,
         updates,
@@ -351,7 +351,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.deleteEntity(id);
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to delete task from database", {
         id,
         error: error instanceof Error ? error.message : String(error),
@@ -414,6 +414,6 @@ export class JsonFileTaskBackend implements TaskBackend {
  * @param config Backend configuration
  * @returns JsonFileTaskBackend instance
  */
-export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): TaskBackend {
+export function createJsonFileTaskBackend(_config: JsonFileTaskBackendOptions): TaskBackend {
   return new JsonFileTaskBackend(config);
 }

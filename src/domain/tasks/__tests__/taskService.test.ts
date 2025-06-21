@@ -25,7 +25,7 @@ function createMockBackend(): TaskBackend {
       } as TaskReadOperationResult)
     ),
 
-    getTaskSpecData: mock((specPath: string) =>
+    getTaskSpecData: mock((_specPath: unknown) =>
       Promise.resolve({
         success: true,
         content: "# Task #123: Test Task\n\n## Context\n\nDescription.",
@@ -34,7 +34,7 @@ function createMockBackend(): TaskBackend {
     ),
 
     // Mock pure operations
-    parseTasks: mock((content: string) => {
+    parseTasks: mock((_content: unknown) => {
       // Simple parsing for testing
       if (content.includes("#001")) {
         return [
@@ -45,14 +45,14 @@ function createMockBackend(): TaskBackend {
       return [];
     }),
 
-    formatTasks: mock((tasks: TaskData[]) => {
+    formatTasks: mock((_tasks: unknown) => {
       // Simple formatting for testing
       return tasks
         .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)
         .join("\n");
     }),
 
-    parseTaskSpec: mock((content: string) => ({
+    parseTaskSpec: mock((_content: unknown) => ({
       id: "#123",
       title: "Test Task",
       description: "Description.",
@@ -181,7 +181,7 @@ describe("TaskService", () => {
 
       // Verify tasks passed to formatTasks had the updated status
       const updatedTasks = formatTasksSpy.mock.calls[0][0];
-      const updatedTask = updatedTasks.find((t: TaskData) => t.id === "#001");
+      const updatedTask = updatedTasks.find((_t: unknown) => t.id === "#001");
       expect(updatedTask?.status).toBe("DONE");
     });
 

@@ -19,9 +19,9 @@ import {
 // Define interfaces for mock object types
 interface MockRuleService {
   listRules: (options?: unknown) => Promise<any[]>;
-  getRule: (id: string, options?: any) => Promise<any>;
-  createRule: (id: string, content: string, meta: any, options?: any) => Promise<any>;
-  updateRule: (id: string, updates: any, options?: any) => Promise<any>;
+  getRule: (_id: unknown) => Promise<any>;
+  createRule: (_id: unknown) => Promise<any>;
+  updateRule: (_id: unknown) => Promise<any>;
   searchRules: (options?: unknown) => Promise<any[]>;
 }
 
@@ -40,8 +40,8 @@ describe("Shared Rules Commands", () => {
   beforeEach(() => {
     // Mock rules helper functions with correct module path
     mock.module("../../../../utils/rules-helpers.js", () => ({
-      readContentFromFileIfExists: async (path: string) => "# Rule Content from File",
-      parseGlobs: (globs: string) => globs.split(",").map((g) => g.trim()),
+      readContentFromFileIfExists: async (_path: unknown) => "# Rule Content from File",
+      parseGlobs: (_globs: unknown) => globs.split(",").map((g) => g.trim()),
     }));
 
     // Set up spy for workspace path resolution
@@ -74,7 +74,7 @@ describe("Shared Rules Commands", () => {
             tags: ["docs"],
           },
         ]),
-      getRule: (id: string, options?: any) =>
+      getRule: (_id: unknown) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
@@ -85,7 +85,7 @@ describe("Shared Rules Commands", () => {
           globs: ["*.ts"],
           tags: ["test"],
         }),
-      createRule: (id: string, content: string, meta: any, options?: any) =>
+      createRule: (_id: unknown) =>
         Promise.resolve({
           id,
           name: meta.name,
@@ -96,7 +96,7 @@ describe("Shared Rules Commands", () => {
           globs: meta.globs,
           tags: meta.tags,
         }),
-      updateRule: (id: string, updates: any, options?: any) =>
+      updateRule: (_id: unknown) =>
         Promise.resolve({
           id,
           name: updates.meta?.name || `Rule ${id}`,

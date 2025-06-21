@@ -116,7 +116,7 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
 
       // Provide more informative error messages for common GitHub issues
@@ -154,7 +154,7 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         branch,
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to create branch in GitHub repository: ${error.message}`);
     }
@@ -210,7 +210,7 @@ export class GitHubBackend implements RepositoryBackend {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line: string) => line.split("\t")[0] || "")
+        .map((_line: unknown) => line.split("\t")[0] || "")
         .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
@@ -247,7 +247,7 @@ export class GitHubBackend implements RepositoryBackend {
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get GitHub repository status: ${error.message}`);
     }
@@ -284,7 +284,7 @@ export class GitHubBackend implements RepositoryBackend {
       if (repoSession) {
         return this.getSessionWorkdir(repoSession.session);
       }
-    } catch (err) {
+    } catch (___err) {
       // If we can't find a session, just return the base directory
     }
 
@@ -345,7 +345,7 @@ export class GitHubBackend implements RepositoryBackend {
         success: true,
         message: "GitHub repository validated successfully",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         valid: false,
@@ -390,7 +390,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -429,7 +429,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -460,7 +460,7 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
-    } catch (err) {
+    } catch (___err) {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to checkout branch: ${error.message}`);
     }

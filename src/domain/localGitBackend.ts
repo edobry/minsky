@@ -73,7 +73,7 @@ export class LocalGitBackend implements RepositoryBackend {
         });
       }
       return stdout.trim();
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Git command failed: ${cmd}`,
         error instanceof Error ? error : undefined
@@ -122,7 +122,7 @@ export class LocalGitBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to clone local repository from ${this.config.path}`,
         error instanceof Error ? error : undefined
@@ -152,7 +152,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
           try {
             trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
-          } catch (error) {
+          } catch (___error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
           }
@@ -163,7 +163,7 @@ export class LocalGitBackend implements RepositoryBackend {
             branch: branchOutput,
             tracking: trackingOutput !== "" ? trackingOutput : undefined,
           };
-        } catch (error) {
+        } catch (___error) {
           throw new RepositoryError(
             "Failed to get repository status",
             error instanceof Error ? error : undefined
@@ -205,7 +205,7 @@ export class LocalGitBackend implements RepositoryBackend {
     // Check if it's a Git repository
     try {
       await execAsync(`git -C ${this.config.path} rev-parse --git-dir`);
-    } catch (error) {
+    } catch (___error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
       return { valid: false, issues };
     }
@@ -230,7 +230,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
         error instanceof Error ? error : undefined
@@ -255,7 +255,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
         error instanceof Error ? error : undefined
@@ -285,7 +285,7 @@ export class LocalGitBackend implements RepositoryBackend {
         workdir: this.localPath,
         branch: name,
       };
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
         error instanceof Error ? error : undefined
@@ -308,7 +308,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (error) {
+    } catch (___error) {
       throw new RepositoryError(
         `Failed to checkout branch ${branch}`,
         error instanceof Error ? error : undefined

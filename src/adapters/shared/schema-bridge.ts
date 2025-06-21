@@ -41,7 +41,7 @@ export interface CliOptionDetails {
  * @param name Parameter name
  * @returns Normalized CLI option name
  */
-export function paramNameToFlag(name: string): string {
+export function paramNameToFlag(_name: string): string {
   // Convert camelCase to kebab-case
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
@@ -53,7 +53,7 @@ export function paramNameToFlag(name: string): string {
  * @param shortFlag Optional short flag (single character)
  * @returns CLI option flag (e.g., "--flag <value>" or "-f, --flag <value>")
  */
-export function createOptionFlag(name: string, shortFlag?: string): string {
+export function createOptionFlag(_name: string, shortFlag?: string): string {
   const flagName = paramNameToFlag(name);
   const base = `--${flagName}`;
 
@@ -71,7 +71,7 @@ export function createOptionFlag(name: string, shortFlag?: string): string {
  * @param schema Zod schema for the parameter
  * @returns Formatted flag string with value placeholder
  */
-export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string {
+export function addValuePlaceholder(_flag: string, schema: z.ZodTypeAny): string {
   // Determine if the parameter takes a value
   const isBooleanType =
     schema instanceof z.ZodBoolean ||
@@ -136,7 +136,7 @@ export function getSchemaDescription(
  * @param schema Zod enum schema
  * @returns Array of enum values
  */
-export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[] {
+export function getEnumValues(_schema: z.ZodEnum<[string, ...string[]]>): string[] {
   return schema._def.values;
 }
 
@@ -245,7 +245,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
       // Use the schema to validate and transform
       try {
         result[name] = param.schema.parse(value);
-      } catch (error) {
+      } catch (___error) {
         // Re-throw with more context
         throw new Error(`Invalid value for parameter '${name}': ${error}`);
       }

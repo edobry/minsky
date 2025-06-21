@@ -327,7 +327,7 @@ export function registerSessionCommands(): void {
     name: "list",
     description: "List all sessions",
     parameters: sessionListCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.list command", { params, context });
 
       try {
@@ -340,7 +340,7 @@ export function registerSessionCommands(): void {
           success: true,
           sessions,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to list sessions", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -356,7 +356,7 @@ export function registerSessionCommands(): void {
     name: "get",
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.get command", { params, context });
 
       try {
@@ -376,7 +376,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -394,7 +394,7 @@ export function registerSessionCommands(): void {
     name: "start",
     description: "Start a new session",
     parameters: sessionStartCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.start command", { params, context });
 
       // Validate that either name or task is provided
@@ -420,7 +420,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -438,7 +438,7 @@ export function registerSessionCommands(): void {
     name: "dir",
     description: "Get the directory of a session",
     parameters: sessionDirCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.dir command", { params, context });
 
       try {
@@ -453,7 +453,7 @@ export function registerSessionCommands(): void {
           success: true,
           directory,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -471,7 +471,7 @@ export function registerSessionCommands(): void {
     name: "delete",
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.delete command", { params, context });
 
       try {
@@ -486,7 +486,7 @@ export function registerSessionCommands(): void {
           success: deleted,
           session: params.session,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -503,7 +503,7 @@ export function registerSessionCommands(): void {
     name: "update",
     description: "Update a session",
     parameters: sessionUpdateCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.update command", { params, context });
 
       try {
@@ -522,7 +522,7 @@ export function registerSessionCommands(): void {
           success: true,
           session: params.session || params.task,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -540,7 +540,7 @@ export function registerSessionCommands(): void {
     name: "approve",
     description: "Approve a session pull request",
     parameters: sessionApproveCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.approve command", { params, context });
 
       try {
@@ -555,7 +555,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -573,7 +573,7 @@ export function registerSessionCommands(): void {
     name: "pr",
     description: "Create a pull request for a session",
     parameters: sessionPrCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.pr command", { params, context });
 
       try {
@@ -592,7 +592,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -617,7 +617,7 @@ export function registerSessionCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing session.inspect command", { params, context });
 
       try {
@@ -629,7 +629,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
         });

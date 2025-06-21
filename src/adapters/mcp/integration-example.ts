@@ -26,7 +26,7 @@ interface CommandSchema<Params, Result> {
       required: boolean;
     }
   >;
-  handler: (params: Params) => Promise<Result>;
+  handler: (_params: unknown) => Promise<Result>;
 }
 
 import { registerGitCommands } from "../shared/commands/git.js";
@@ -39,7 +39,7 @@ import { log } from "../../utils/logger.js";
 // Mock import for demonstration purposes
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
-  registerSharedCommands: (categories: CommandCategory[]) => {
+  registerSharedCommands: (_categories: unknown) => {
     log.debug(`Registering MCP commands for categories: ${categories.join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories
@@ -77,7 +77,7 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (_params: unknown) => {
     log.debug("MCP git.commit called with params:", params);
     return {
       success: true,
@@ -111,7 +111,7 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (_params: unknown) => {
     log.debug("MCP tasks.status.get called with params:", params);
     return {
       success: true,
@@ -135,7 +135,7 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (_params: unknown) => {
     log.debug("MCP session.list called with params:", params);
     return {
       success: true,
@@ -176,7 +176,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (params: unknown) => {
+  handler: async (_params: unknown) => {
     log.debug("MCP rules.list called with params:", params);
     return {
       success: true,

@@ -220,7 +220,7 @@ export class MinskyMCPServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest) => {
+    this.server.setRequestHandler(CallToolRequestSchema, async (_request: unknown) => {
       const { name, arguments: args } = request.params;
 
       try {
@@ -268,7 +268,7 @@ export class MinskyMCPServer {
         };
 
         return callResult;
-      } catch (error) {
+      } catch (___error) {
         log.error(`Error executing tool ${name}:`, {
           error: error instanceof Error ? error.message : String(error),
         });

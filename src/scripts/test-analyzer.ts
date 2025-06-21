@@ -139,10 +139,10 @@ interface AnalysisReport {
 /**
  * Find all test files in a directory recursively
  */
-async function findTestFiles(dir: string): Promise<string[]> {
+async function findTestFiles(_dir: string): Promise<string[]> {
   const files: string[] = [];
 
-  async function scan(currentDir: string) {
+  async function scan(_currentDir: string) {
     const entries = await readdir(currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -163,7 +163,7 @@ async function findTestFiles(dir: string): Promise<string[]> {
 /**
  * Extract imports from a file
  */
-function extractImports(content: string): string[] {
+function extractImports(_content: string): string[] {
   const importRegex = /import\s+(?:{[^}]*}|\*\s+as\s+\w+|\w+)\s+from\s+['"]([^'"]+)['"]/g;
   const imports: string[] = [];
   let match: RegExpExecArray | null;
@@ -181,7 +181,7 @@ function extractImports(content: string): string[] {
 /**
  * Extract mock dependencies from a file
  */
-function extractMockDependencies(content: string): string[] {
+function extractMockDependencies(_content: string): string[] {
   const mockRegex = /(?:jest\.mock|mock\.module|mockModule)\(['"](.*?)['"]/g;
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;
@@ -199,7 +199,7 @@ function extractMockDependencies(content: string): string[] {
 /**
  * Analyze a single test file
  */
-async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
+async function analyzeTestFile(_path: string): Promise<TestFileAnalysis> {
   const content = await readFile(path, "utf-8");
   const relativePath = relative(baseDir, path);
   const counts = {
@@ -225,13 +225,13 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);
   const usesJest =
-    imports.some((i: string) => i.includes("jest")) ||
+    imports.some((_i: unknown) => i.includes("jest")) ||
     (counts.frameworkFeatures.jestImport !== undefined && counts.frameworkFeatures.jestImport > 0);
   const usesBun =
-    imports.some((i: string) => i.includes("bun:test")) ||
+    imports.some((_i: unknown) => i.includes("bun:test")) ||
     (counts.frameworkFeatures.bunImport !== undefined && counts.frameworkFeatures.bunImport > 0);
   const usesVitest =
-    imports.some((i: string) => i.includes("vitest")) ||
+    imports.some((_i: unknown) => i.includes("vitest")) ||
     (counts.frameworkFeatures.vitestImport !== undefined &&
       counts.frameworkFeatures.vitestImport > 0);
   const usesCustomMocks =
@@ -299,7 +299,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
 /**
  * Generate an analysis report from all test files
  */
-async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisReport> {
+async function generateReport(_testFiles: TestFileAnalysis[]): Promise<AnalysisReport> {
   const totals = {
     mockPatterns: {} as Record<string, number>,
     frameworkFeatures: {} as Record<string, number>,
@@ -363,7 +363,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.mockModule !== undefined &&
       file.counts.mockPatterns.mockModule > 0 &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((_i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[0]?.files?.push(file.relativePath);
     }
@@ -372,7 +372,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.spyOn !== undefined &&
       file.counts.mockPatterns.spyOn > 0 &&
-      !file.imports.some((i: string) => i.includes("createSpyOn"))
+      !file.imports.some((_i: unknown) => i.includes("createSpyOn"))
     ) {
       failingPatterns[1]?.files?.push(file.relativePath);
     }
@@ -383,7 +383,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
         file.counts.frameworkFeatures.jestBeforeEach > 0) ||
         (file.counts.frameworkFeatures.jestAfterEach !== undefined &&
           file.counts.frameworkFeatures.jestAfterEach > 0)) &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((_i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[2]?.files?.push(file.relativePath);
     }
@@ -392,7 +392,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.bunMock !== undefined &&
       file.counts.mockPatterns.bunMock > 0 &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((_i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[3]?.files?.push(file.relativePath);
     }
@@ -412,7 +412,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
 /**
  * Generate a markdown summary from the analysis report
  */
-async function generateMarkdownSummary(report: AnalysisReport, outputPath: string): Promise<void> {
+async function generateMarkdownSummary(_report: AnalysisReport, outputPath: string): Promise<void> {
   const md = [
     "# Test Analysis Report",
     "",
@@ -629,7 +629,7 @@ async function main() {
         `Vitest: ${report.categoryCounts.frameworkDependency.vitest}, ` +
         `None: ${report.categoryCounts.frameworkDependency.none}`
     );
-  } catch (error) {
+  } catch (___error) {
     log.cliError("Error running test analyzer:", error);
     process.exit(1);
   }

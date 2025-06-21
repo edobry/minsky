@@ -69,12 +69,7 @@ export function createSpecCommand(): Command {
         // Format and display the result
         outputResult(result, {
           json: options.json,
-          formatter: (data: {
-            task: { id: string; title: string };
-            specPath: string;
-            content: string;
-            section?: string;
-          }) => {
+          formatter: (_data: unknown) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
 
@@ -107,7 +102,7 @@ export function createSpecCommand(): Command {
             }
           },
         });
-      } catch (error) {
+      } catch (___error) {
         handleCliError(error);
       }
     }

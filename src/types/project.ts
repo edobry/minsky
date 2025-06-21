@@ -29,11 +29,11 @@ export interface ProjectContext {
  * @param repositoryPath The path to validate
  * @returns True if the path exists and is a directory, false otherwise
  */
-export function validateRepositoryPath(repositoryPath: string): boolean {
+export function validateRepositoryPath(_repositoryPath: string): boolean {
   try {
     // Check if the path exists and is a directory
     return fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory();
-  } catch (error) {
+  } catch (___error) {
     return false;
   }
 }
@@ -44,7 +44,7 @@ export function validateRepositoryPath(repositoryPath: string): boolean {
  * @returns A ProjectContext object if validation passes
  * @throws Error if the repository path is invalid
  */
-export function createProjectContext(repositoryPath: string): ProjectContext {
+export function createProjectContext(_repositoryPath: string): ProjectContext {
   // Normalize the path to handle any relative paths or trailing slashes
   const normalizedPath = path.resolve(repositoryPath);
 

@@ -79,7 +79,7 @@ const configListRegistration = {
         sources: configResult.sources,
         resolved: configResult.resolved,
       };
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to load configuration", { 
         workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
@@ -112,7 +112,7 @@ const configShowRegistration = {
         success: true,
         configuration: configResult.resolved,
       };
-    } catch (error) {
+    } catch (___error) {
       log.error("Failed to load configuration", { 
         workspacePath, 
         error: error instanceof Error ? error.message : String(error) 

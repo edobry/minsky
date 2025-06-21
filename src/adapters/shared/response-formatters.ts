@@ -38,7 +38,7 @@ export interface ResponseFormatter<T = unknown> {
  * @param data Response data
  * @returns JSON formatted string
  */
-export function formatAsJson(data: unknown): string {
+export function formatAsJson(_data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
@@ -164,7 +164,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
  */
 export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
   constructor(
-    private itemFormatter?: (item: T) => string,
+    private itemFormatter?: (_item: unknown) => string,
     private title?: string
   ) {
     super();
@@ -336,7 +336,7 @@ export function createErrorFormatter(): ErrorFormatter {
  * @returns A new list formatter
  */
 export function createListFormatter<T>(
-  itemFormatter?: (item: T) => string,
+  itemFormatter?: (_item: unknown) => string,
   title?: string
 ): ListFormatter<T> {
   return new ListFormatter<T>(itemFormatter, title);

@@ -151,7 +151,7 @@ export class BackendMigrationUtils {
         skippedCount: result.skippedCount,
       });
 
-    } catch (error) {
+    } catch (___error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMessage);
       log.error("Migration failed", { error: errorMessage });
@@ -161,7 +161,7 @@ export class BackendMigrationUtils {
         try {
           await this.rollbackMigration(backupData, targetBackend);
           log.debug("Rollback completed successfully");
-        } catch (rollbackError) {
+        } catch (___rollbackError) {
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
             : "Unknown rollback error";
@@ -189,7 +189,7 @@ export class BackendMigrationUtils {
     // Validate source backend has data
     try {
       await sourceBackend.getTasksData();
-    } catch (error) {
+    } catch (___error) {
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
@@ -205,7 +205,7 @@ export class BackendMigrationUtils {
       
       // Restore original data
       await targetBackend.saveTasksData(currentData);
-    } catch (error) {
+    } catch (___error) {
       throw new Error(`Cannot write to target backend: ${error}`);
     }
   }
@@ -299,7 +299,7 @@ export class BackendMigrationUtils {
 
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
-      } catch (error) {
+      } catch (___error) {
         log.warn("Failed to transform task", { taskId: task.id, error });
         skipped.push(task);
       }

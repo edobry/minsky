@@ -68,7 +68,7 @@ export async function listTasksFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
+    createTaskService: (_options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -115,7 +115,7 @@ export async function listTasksFromParams(
     }
 
     return tasks;
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for listing tasks", error.format(), error);
     }
@@ -134,7 +134,7 @@ export async function getTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
+    createTaskService: (_options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -184,7 +184,7 @@ export async function getTaskFromParams(
     }
 
     return task;
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for getting task", error.format(), error);
     }
@@ -203,7 +203,7 @@ export async function getTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => Promise<TaskService>;
+    createTaskService: (_options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -253,7 +253,7 @@ export async function getTaskStatusFromParams(
     }
 
     return status;
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task status",
@@ -275,7 +275,7 @@ export async function setTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (_options: unknown) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -325,7 +325,7 @@ export async function setTaskStatusFromParams(
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for setting task status",
@@ -348,7 +348,7 @@ export async function createTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (_options: unknown) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -383,7 +383,7 @@ export async function createTaskFromParams(
     });
 
     return task;
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for creating task", error.format(), error);
     }
@@ -402,7 +402,7 @@ export async function getTaskSpecContentFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (options: { workspacePath: string; backend?: string }) => TaskService;
+    createTaskService: (_options: unknown) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -455,7 +455,7 @@ export async function getTaskSpecContentFromParams(
     let content: string;
     try {
       content = await fs.readFile(specPath, "utf8");
-    } catch (error) {
+    } catch (___error) {
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
         "file",
@@ -470,7 +470,7 @@ export async function getTaskSpecContentFromParams(
       content,
       section: validParams.section,
     };
-  } catch (error) {
+  } catch (___error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",

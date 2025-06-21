@@ -44,8 +44,8 @@ export interface MockFn<T extends (...args: unknown[]) => any> {
       value: ReturnType<T> | Error;
     }>;
   };
-  mockImplementation: (fn: T) => void;
-  mockReturnValue: (value: ReturnType<T>) => void;
-  mockResolvedValue: <U>(value: U) => void;
-  mockRejectedValue: (reason: Error) => void;
+  mockImplementation: (_fn: unknown) => void;
+  mockReturnValue: (_value: unknown) => void;
+  mockResolvedValue: <U>(_value: unknown) => void;
+  mockRejectedValue: (_reason: unknown) => void;
 }

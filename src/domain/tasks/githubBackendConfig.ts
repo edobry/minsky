@@ -45,7 +45,7 @@ function extractGitHubRepoFromRemote(
     }
 
     return null;
-  } catch (error) {
+  } catch (___error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
       error: error instanceof Error ? error.message : String(error),
@@ -129,7 +129,7 @@ export async function createGitHubLabels(
       });
 
       log.debug(`Created GitHub label: ${labelName}`);
-    } catch (error) {
+    } catch (___error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -140,7 +140,7 @@ export async function createGitHubLabels(
 /**
  * Get color for status label
  */
-function getColorForStatus(status: string): string {
+function getColorForStatus(_status: string): string {
   const colors: Record<string, string> = {
     TODO: "0e8a16", // Green
     "IN-PROGRESS": "fbca04", // Yellow

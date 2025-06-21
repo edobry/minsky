@@ -232,7 +232,7 @@ export function registerRulesCommands(): void {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing rules.list command", { params, context });
 
       try {
@@ -254,7 +254,7 @@ export function registerRulesCommands(): void {
           success: true,
           rules,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to list rules", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -270,7 +270,7 @@ export function registerRulesCommands(): void {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing rules.get command", { params, context });
 
       try {
@@ -291,7 +291,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to get rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -308,7 +308,7 @@ export function registerRulesCommands(): void {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing rules.create command", { params, context });
 
       try {
@@ -322,7 +322,7 @@ export function registerRulesCommands(): void {
         // Process globs and tags
         const globs = parseGlobs(params.globs);
         const tags = params.tags
-          ? params.tags.split(",").map((tag: string) => tag.trim())
+          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
           : undefined;
 
         // Prepare metadata
@@ -346,7 +346,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to create rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -363,7 +363,7 @@ export function registerRulesCommands(): void {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing rules.update command", { params, context });
 
       try {
@@ -379,7 +379,7 @@ export function registerRulesCommands(): void {
         // Process globs and tags
         const globs = params.globs ? parseGlobs(params.globs) : undefined;
         const tags = params.tags
-          ? params.tags.split(",").map((tag: string) => tag.trim())
+          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
           : undefined;
 
         // Prepare metadata updates
@@ -410,7 +410,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to update rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -427,7 +427,7 @@ export function registerRulesCommands(): void {
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+    execute: async (_params: unknown) => {
       log.debug("Executing rules.search command", { params, context });
 
       try {
@@ -451,7 +451,7 @@ export function registerRulesCommands(): void {
           query: params.query,
           matchCount: rules.length,
         };
-      } catch (error) {
+      } catch (___error) {
         log.error("Failed to search rules", {
           error: error instanceof Error ? error.message : String(error),
           query: params.query,

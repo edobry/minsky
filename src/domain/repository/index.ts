@@ -224,7 +224,7 @@ export async function createRepositoryBackend(
         if (stdout.trim() === "not exists") {
           throw new Error(`Repository path does not exist: ${config.repoUrl}`);
         }
-      } catch (err) {
+      } catch (___err) {
         throw new Error(
           `Failed to validate local repository path: ${
             err instanceof Error ? err.message : String(err)

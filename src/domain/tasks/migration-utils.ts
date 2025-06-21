@@ -163,7 +163,7 @@ export class TaskMigrationUtils {
         newDbFile: this.targetDbPath,
         backupFile,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Migration failed", { error: typedError.message });
 
@@ -244,7 +244,7 @@ export class TaskMigrationUtils {
         newDbFile: tasksFilePath,
         backupFile,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Reverse migration failed", { error: typedError.message });
 
@@ -318,7 +318,7 @@ export class TaskMigrationUtils {
         jsonTasks,
         differences,
       };
-    } catch (error) {
+    } catch (___error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -508,7 +508,7 @@ export class TaskMigrationUtils {
  * @param config Migration configuration
  * @returns TaskMigrationUtils instance
  */
-export function createMigrationUtils(config: MigrationConfig): TaskMigrationUtils {
+export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUtils {
   return new TaskMigrationUtils(config);
 }
 
