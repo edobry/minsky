@@ -134,7 +134,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return getTaskSpecFilePath(taskId, title, this.workspacePath);
   }
 
-  async fileExists(path: string): Promise<boolean> {
+  async fileExists(_path: string): Promise<boolean> {
     return checkFileExists(path);
   }
 
@@ -149,7 +149,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const files = await readdir(this.tasksDirectory);
       return files.filter((file) => file.startsWith(`${taskId}-`));
-    } catch (___error) {
+    } catch {
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: error instanceof Error ? error : String(error),
       });

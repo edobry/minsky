@@ -11,7 +11,7 @@ import { log } from "./logger.js";
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
+export function mockMkdirSync(_path: string, _options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(path, { isDirectory: true });
 
@@ -25,14 +25,14 @@ export function mockMkdirSync(path: string, _options?: { recursive?: boolean }):
   }
 }
 
-export function mockExistsSync(path: string): boolean {
+export function mockExistsSync(_path: string): boolean {
   const exists = virtualFS.has(path);
   log.debug(`[MOCK] Checking if ${path} exists: ${exists}`);
   return exists;
 }
 
 export function mockRmSync(
-  path: string,
+  _path: string,
   _options?: { recursive?: boolean; force?: boolean }
 ): void {
   log.debug(`[MOCK] Removing ${path}`);
@@ -48,7 +48,7 @@ export function mockRmSync(
   virtualFS.delete(path);
 }
 
-export function mockWriteFileSync(path: string, data: string, _options?: WriteFileOptions): void {
+export function mockWriteFileSync(_path: string, data: string, _options?: WriteFileOptions): void {
   log.debug(`[MOCK] Writing to file ${path}`);
   virtualFS.set(path, { isDirectory: false, content: data });
 
@@ -59,7 +59,7 @@ export function mockWriteFileSync(path: string, data: string, _options?: WriteFi
   }
 }
 
-export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
+export function mockReadFileSync(_path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
   if (!file || file.isDirectory) {
@@ -127,7 +127,7 @@ export function setupMinskyTestEnv(_baseDir: string): MinskyTestEnv {
 /**
  * Cleans up a test directory - stubbed for testing
  */
-export function cleanupTestDir(path: string): void {
+export function cleanupTestDir(_path: string): void {
   log.debug(`[MOCK] Cleaning up directory: ${path}`);
   // No actual cleanup needed in tests
 }

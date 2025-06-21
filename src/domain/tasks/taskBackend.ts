@@ -108,7 +108,7 @@ export interface TaskBackend {
    * @param path File path
    * @returns Promise resolving to true if file exists, false otherwise
    */
-  fileExists(path: string): Promise<boolean>;
+  fileExists(_path: string): Promise<boolean>;
 }
 
 /**

@@ -41,7 +41,7 @@ export interface OutputOptions {
 /**
  * Format and output command results
  */
-export function outputResult(_result: any, options: OutputOptions = {}): void {
+export function outputResult(_result: any, _options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -73,7 +73,7 @@ export function outputResult(_result: any, options: OutputOptions = {}): void {
         log.cli(String(result));
       }
     }
-  } catch (___error) {
+  } catch {
     log.cliError("Failed to format output:", error);
     log.cli(String(result));
   }
@@ -82,7 +82,7 @@ export function outputResult(_result: any, options: OutputOptions = {}): void {
 /**
  * Handle CLI errors
  */
-export function handleCliError(_error: unknown, options: { debug?: boolean } = {}): void {
+export function handleCliError(_error: unknown, _options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (options.debug) {

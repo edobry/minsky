@@ -230,7 +230,7 @@ export function createParameterMappings(
   return Object.entries(parameters).map(([name, paramDef]) => ({
     name,
     paramDef,
-    options: {
+    _options: {
       // Apply default options
       hidden: paramDef.cliHidden,
 
@@ -270,7 +270,7 @@ export function normalizeCliParameters(
       try {
         const parsedValue = paramDef.schema.parse(rawValue);
         result[paramName] = parsedValue;
-      } catch (___error) {
+      } catch {
         throw new Error(
           `Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`
         );

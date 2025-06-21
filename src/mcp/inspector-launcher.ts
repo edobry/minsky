@@ -67,7 +67,7 @@ export function isInspectorAvailable(): boolean {
     // Try to resolve the inspector package
     require.resolve("@modelcontextprotocol/inspector");
     return true;
-  } catch (___error) {
+  } catch {
     return false;
   }
 }
@@ -144,7 +144,7 @@ export function launchInspector(_options: InspectorOptions): InspectorLaunchResu
       process: inspectorProcess,
       url: `http://localhost:${port}`,
     };
-  } catch (___error) {
+  } catch {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: error instanceof Error ? error.message : String(error),

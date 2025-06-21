@@ -111,4 +111,11 @@ export default [
       "@typescript-eslint/no-explicit-any": "off", // Allow any in test files for mocking
     },
   },
+  {
+    files: ["debug-*.ts", "test-*.ts", "scripts/*.ts"],
+    rules: {
+      "no-console": "off", // Allow console in debug/test scripts
+      "no-magic-numbers": "off", // Allow magic numbers in debug scripts
+    },
+  },
 ];

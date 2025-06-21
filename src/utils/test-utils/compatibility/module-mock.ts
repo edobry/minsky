@@ -97,7 +97,7 @@ export function mockModule(
          
         const originalModule = require(modulePath);
         originalModules.set(modulePath, originalModule);
-      } catch (___error) {
+      } catch {
         // If we can't load the module, just store undefined
         originalModules.set(modulePath, undefined);
       }
@@ -127,7 +127,7 @@ export function mockModule(
     // Default fallback: mock with an empty object
     const emptyMock = {};
     mockedModules.set(modulePath, emptyMock);
-  } catch (___error) {
+  } catch {
     log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
   }

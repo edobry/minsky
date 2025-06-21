@@ -209,7 +209,7 @@ const tasksStatusSetRegistration = {
       taskId: normalizedTaskId,
       repo: params.repo,
       workspace: params.workspace,
-      session: params.session,
+      _session: params.session,
       backend: params.backend,
     });
 
@@ -240,7 +240,7 @@ const tasksStatusSetRegistration = {
       // Prompt for status selection
       const selectedStatus = await select({
         message: "Select a status:",
-        options: statusOptions,
+        _options: statusOptions,
         initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current status
       });
 
@@ -260,7 +260,7 @@ const tasksStatusSetRegistration = {
       status: status,
       repo: params.repo,
       workspace: params.workspace,
-      session: params.session,
+      _session: params.session,
       backend: params.backend,
     });
 
@@ -295,7 +295,7 @@ const tasksSpecRegistration = {
         taskId: normalizedTaskId,
       });
       return result;
-    } catch (___error) {
+    } catch {
       log.error("Error getting task specification", { error });
       throw error;
     }
@@ -476,7 +476,7 @@ const tasksGetRegistration = {
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      session: params.session,
+      _session: params.session,
     });
   },
 };
@@ -498,7 +498,7 @@ const tasksCreateRegistration = {
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      session: params.session,
+      _session: params.session,
     });
   },
 };
@@ -592,7 +592,7 @@ const tasksMigrateRegistration = {
     if (statusMapping) {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
-      } catch (___error) {
+      } catch {
         throw new ValidationError(`Invalid status mapping JSON: ${error}`);
       }
     }
@@ -610,7 +610,7 @@ const tasksMigrateRegistration = {
 
     // Use session parameter if provided for session-specific migrations
     if (session) {
-      log.debug(`Migration requested for session: ${session}`);
+      log.debug(`Migration requested for _session: ${session}`);
     }
 
     // Get the actual backend instances
@@ -675,7 +675,7 @@ const tasksMigrateRegistration = {
       }
 
       return cliResult;
-    } catch (___error) {
+    } catch {
       throw new ValidationError(
         `Migration failed: ${error instanceof Error ? error.message : String(error)}`
       );

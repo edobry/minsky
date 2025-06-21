@@ -17,7 +17,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
 
       // Parse the JSON output
       return JSON.parse(output);
-    } catch (___error) {
+    } catch {
       log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
@@ -30,7 +30,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
     "get",
     "Get details of a specific session",
     z.object({
-      session: z.string().describe("Session identifier"),
+      _session: z.string().describe("Session identifier"),
     }),
     async (_args: unknown) => {
       try {
@@ -40,8 +40,8 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (___error) {
-        log.error(`Error getting session ${args.session}`, { error, session: args.session });
+      } catch {
+        log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -88,10 +88,10 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
           message: output.trim(),
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
-      } catch (___error) {
+      } catch {
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
-          `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -112,7 +112,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       args: z.infer<
         z.ZodObject<{
           message: z.ZodOptional<z.ZodString>;
-          session: z.ZodOptional<z.ZodString>;
+          _session: z.ZodOptional<z.ZodString>;
         }>
       >
     ) => {
@@ -134,8 +134,8 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (___error) {
-        log.error("Error committing changes", { error, session: args.session });
+      } catch {
+        log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -148,7 +148,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
     "push",
     "Push changes in a session",
     z.object({
-      session: z
+      _session: z
         .string()
         .optional()
         .describe("Session to push changes for (uses current session if not provided)"),
@@ -156,7 +156,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
     async (
       args: z.infer<
         z.ZodObject<{
-          session: z.ZodOptional<z.ZodString>;
+          _session: z.ZodOptional<z.ZodString>;
         }>
       >
     ) => {
@@ -175,8 +175,8 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (___error) {
-        log.error("Error pushing changes", { error, session: args.session });
+      } catch {
+        log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`
         );

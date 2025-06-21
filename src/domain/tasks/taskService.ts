@@ -50,7 +50,7 @@ export class TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly currentBackend: TaskBackend;
 
-  constructor(options: TaskServiceOptions = {}) {
+  constructor(_options: TaskServiceOptions = {}) {
     const { workspacePath = process.cwd(), backend = "markdown", customBackends } = options;
 
     // Initialize with provided backends or create defaults
@@ -75,7 +75,7 @@ export class TaskService {
         if (githubBackend) {
           this.backends.push(githubBackend);
         }
-      } catch (___error) {
+      } catch {
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -119,7 +119,7 @@ export class TaskService {
    * @param id Task ID to get
    * @returns Promise resolving to task or null if not found
    */
-  async getTask(id: string): Promise<TaskData | null> {
+  async getTask(_id: string): Promise<TaskData | null> {
     // Get all tasks
     const tasks = await this.listTasks();
 
@@ -150,7 +150,7 @@ export class TaskService {
    * @param id Task ID to get status for
    * @returns Promise resolving to status or null if not found
    */
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(_id: string): Promise<string | null> {
     const task = await this.getTask(id);
     return task ? task.status : null;
   }
@@ -161,7 +161,7 @@ export class TaskService {
    * @param status New status
    * @returns Promise resolving when status is updated
    */
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(_id: string, status: string): Promise<void> {
     // Verify status is valid
     if (!isValidTaskStatus(status)) {
       throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
@@ -177,7 +177,7 @@ export class TaskService {
     // Get all tasks
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
-      throw new Error(`Failed to read tasks data: ${result.error?.message}`);
+      throw new Error(`Failed to read tasks _data: ${result.error?.message}`);
     }
 
     // Parse tasks
@@ -192,7 +192,7 @@ export class TaskService {
     // Save the changes
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
     }
   }
 
@@ -210,7 +210,7 @@ export class TaskService {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<TaskData> {
+  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<TaskData> {
     // Read the spec file
     const specResult = await this.currentBackend.getTaskSpecData(specPath);
     if (!specResult.success || !specResult.content) {
@@ -290,7 +290,7 @@ export class TaskService {
     const updatedContent = this.currentBackend.formatTasks(tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
     }
 
     return newTask;
@@ -301,7 +301,7 @@ export class TaskService {
    * @param id Task ID
    * @returns Promise resolving to the appropriate backend or null if not found
    */
-  async getBackendForTask(id: string): Promise<TaskBackend | null> {
+  async getBackendForTask(_id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
@@ -335,7 +335,7 @@ export class TaskService {
    * @param metadata Metadata to update
    * @returns Promise resolving when metadata is updated
    */
-  async setTaskMetadata(id: string, metadata: any): Promise<void> {
+  async setTaskMetadata(_id: string, metadata: any): Promise<void> {
     // First verify the task exists
     const task = await this.getTask(id);
     if (!task) {
@@ -380,7 +380,7 @@ export class TaskService {
    * @returns Promise resolving to object with spec content and path
    */
   async getTaskSpecContent(
-    id: string
+    _id: string
   ): Promise<{ content: string; specPath: string; task: TaskData }> {
     // First verify the task exists
     const task = await this.getTask(id);
@@ -429,7 +429,7 @@ export class TaskService {
         workspacePath,
         ...config,
       });
-    } catch (___error) {
+    } catch {
       // Return null if GitHub modules are not available
       return null;
     }
@@ -478,7 +478,7 @@ export async function createConfiguredTaskService(_options: TaskServiceOptions =
       workspacePath,
       backend: resolvedBackend
     });
-  } catch (___error) {
+  } catch {
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,

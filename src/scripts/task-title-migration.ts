@@ -54,7 +54,7 @@ export class TaskTitleMigration {
   /**
    * Migrate all task specification files
    */
-  async migrateAllTasks(options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
+  async migrateAllTasks(_options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
     const result: MigrationResult = {
       success: false,
       totalFiles: 0,
@@ -122,7 +122,7 @@ export class TaskTitleMigration {
         }
       }
 
-    } catch (___error) {
+    } catch {
       result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
       result.success = false;
     }
@@ -186,7 +186,7 @@ export class TaskTitleMigration {
       result.success = true;
       result.wasModified = true;
 
-    } catch (___error) {
+    } catch {
       result.error = error instanceof Error ? error.message : String(error);
     }
 
@@ -246,7 +246,7 @@ export class TaskTitleMigration {
           }
         }
       }
-    } catch (___error) {
+    } catch {
       throw new Error(`Failed to read tasks directory: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -313,7 +313,7 @@ export class TaskTitleMigration {
         if (titleLine.match(/^# Task #\d+:/) || titleLine.match(/^# Task:/)) {
           errors.push(`${filePath}: Still has old title format: ${titleLine}`);
         }
-      } catch (___error) {
+      } catch {
         errors.push(`${filePath}: Failed to validate - ${error instanceof Error ? error.message : String(error)}`);
       }
     }

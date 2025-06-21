@@ -3,6 +3,7 @@
  */
 import { z } from "zod";
 
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 /**
  * Schema for file or directory paths
  * @example "/path/to/directory"
@@ -45,7 +46,7 @@ export const taskIdSchema = z
 
     // Handle formats like "task#064" or "task#64"
     if (normalized.toLowerCase().startsWith("task#")) {
-      normalized = normalized.substring(5);
+      normalized = normalized.substring(DEFAULT_RETRY_COUNT);
     }
 
     // Remove all leading '#' characters to avoid multiple hashes
@@ -83,7 +84,7 @@ export const jsonOutputSchema = flagSchema("Output as JSON");
 export const commonCommandOptionsSchema = z
   .object({
     json: jsonOutputSchema,
-    session: sessionNameSchema.optional().describe("Session name to use"),
+    _session: sessionNameSchema.optional().describe("Session name to use"),
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
@@ -106,7 +107,7 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  * Common parameters shared across repository operations
  */
 export const commonRepoSchema = z.object({
-  session: sessionSchema.optional().describe("Session name"),
+  _session: sessionSchema.optional().describe("Session name"),
   repo: z.string().optional().describe("Repository URI"),
   workspace: z.string().optional().describe("URI of the upstream repository"),
   json: z.boolean().optional().describe("Return output as JSON"),

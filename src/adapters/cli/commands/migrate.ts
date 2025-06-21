@@ -63,10 +63,10 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
     // Validate backend names
     const validBackends = ["markdown", "json-file", "github-issues"];
     if (!validBackends.includes(options.from)) {
-      throw new Error(`Invalid source backend: ${options.from}. Valid options: ${validBackends.join(", ")}`);
+      throw new Error(`Invalid source backend: ${options.from}. Valid _options: ${validBackends.join(", ")}`);
     }
     if (!validBackends.includes(options.to)) {
-      throw new Error(`Invalid target backend: ${options.to}. Valid options: ${validBackends.join(", ")}`);
+      throw new Error(`Invalid target backend: ${options.to}. Valid _options: ${validBackends.join(", ")}`);
     }
 
     // Create task services for source and target backends
@@ -129,7 +129,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
       throw new Error("Migration operation failed");
     }
 
-  } catch (___error) {
+  } catch {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.cliError(`Migration failed: ${errorMessage}`);
     throw new Error(errorMessage);

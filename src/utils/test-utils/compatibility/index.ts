@@ -106,7 +106,7 @@ export function setupTestCompat(): void {
  *    ```ts
  *    // This should work as in Jest:
  *    expect(obj).toEqual(expect.objectContaining({
- *      id: 123,
+ *      _id: 123,
  *      name: expect.any(String)
  *    }));
  *    ```

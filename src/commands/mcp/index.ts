@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { DEFAULT_DEV_PORT } from "../utils/constants";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
@@ -35,7 +36,7 @@ export function createMCPCommand(): Command {
   startCommand
     .option("--stdio", "Use stdio transport (default)")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", "8080")
+    .option("-p, --port <port>", "Port for HTTP Stream server", "DEFAULT_DEV_PORT")
     .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
@@ -73,8 +74,8 @@ export function createMCPCommand(): Command {
             log.debug("Using repository path from command line", {
               repositoryPath,
             });
-          } catch (___error) {
-            log.cliError(`Invalid repository path: ${repositoryPath}`);
+          } catch {
+            log.cliError(`Invalid repository _path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
             }
@@ -123,7 +124,7 @@ export function createMCPCommand(): Command {
 
         log.cli(`Minsky MCP Server started with ${transportType} transport`);
         if (projectContext) {
-          log.cli(`Repository path: ${projectContext.repositoryPath}`);
+          log.cli(`Repository _path: ${projectContext.repositoryPath}`);
         }
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
@@ -173,7 +174,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch (___error) {
+      } catch {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.httpStream ? "httpStream" : "stdio",

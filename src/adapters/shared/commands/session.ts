@@ -322,7 +322,7 @@ const sessionPrCommandParams: CommandParameterMap = {
 export function registerSessionCommands(): void {
   // Register session list command
   sharedCommandRegistry.registerCommand({
-    id: "session.list",
+    _id: "session.list",
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
@@ -340,7 +340,7 @@ export function registerSessionCommands(): void {
           success: true,
           sessions,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to list sessions", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -351,7 +351,7 @@ export function registerSessionCommands(): void {
 
   // Register session get command
   sharedCommandRegistry.registerCommand({
-    id: "session.get",
+    _id: "session.get",
     category: CommandCategory.SESSION,
     name: "get",
     description: "Get details of a specific session",
@@ -376,7 +376,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -389,7 +389,7 @@ export function registerSessionCommands(): void {
 
   // Register session start command
   sharedCommandRegistry.registerCommand({
-    id: "session.start",
+    _id: "session.start",
     category: CommandCategory.SESSION,
     name: "start",
     description: "Start a new session",
@@ -406,7 +406,7 @@ export function registerSessionCommands(): void {
         const session = await startSessionFromParams({
           name: params.name,
           task: params.task,
-          branch: params.branch,
+          _branch: params.branch,
           repo: params.repo,
           session: params.session,
           json: params.json,
@@ -420,7 +420,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -433,7 +433,7 @@ export function registerSessionCommands(): void {
 
   // Register session dir command
   sharedCommandRegistry.registerCommand({
-    id: "session.dir",
+    _id: "session.dir",
     category: CommandCategory.SESSION,
     name: "dir",
     description: "Get the directory of a session",
@@ -453,7 +453,7 @@ export function registerSessionCommands(): void {
           success: true,
           directory,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -466,7 +466,7 @@ export function registerSessionCommands(): void {
 
   // Register session delete command
   sharedCommandRegistry.registerCommand({
-    id: "session.delete",
+    _id: "session.delete",
     category: CommandCategory.SESSION,
     name: "delete",
     description: "Delete a session",
@@ -486,7 +486,7 @@ export function registerSessionCommands(): void {
           success: deleted,
           session: params.session,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -498,7 +498,7 @@ export function registerSessionCommands(): void {
 
   // Register session update command
   sharedCommandRegistry.registerCommand({
-    id: "session.update",
+    _id: "session.update",
     category: CommandCategory.SESSION,
     name: "update",
     description: "Update a session",
@@ -511,7 +511,7 @@ export function registerSessionCommands(): void {
           name: params.session,
           task: params.task,
           repo: params.repo,
-          branch: params.branch,
+          _branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
           force: params.force,
@@ -522,7 +522,7 @@ export function registerSessionCommands(): void {
           success: true,
           session: params.session || params.task,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -535,7 +535,7 @@ export function registerSessionCommands(): void {
 
   // Register session approve command
   sharedCommandRegistry.registerCommand({
-    id: "session.approve",
+    _id: "session.approve",
     category: CommandCategory.SESSION,
     name: "approve",
     description: "Approve a session pull request",
@@ -545,7 +545,7 @@ export function registerSessionCommands(): void {
 
       try {
         const result = await approveSessionFromParams({
-          session: params.session,
+          _session: params.session,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -555,7 +555,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -568,7 +568,7 @@ export function registerSessionCommands(): void {
 
   // Register session pr command
   sharedCommandRegistry.registerCommand({
-    id: "session.pr",
+    _id: "session.pr",
     category: CommandCategory.SESSION,
     name: "pr",
     description: "Create a pull request for a session",
@@ -581,7 +581,7 @@ export function registerSessionCommands(): void {
           title: params.title,
           body: params.body,
           bodyPath: params.bodyPath,
-          session: params.session,
+          _session: params.session,
           task: params.task,
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
@@ -592,7 +592,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -605,7 +605,7 @@ export function registerSessionCommands(): void {
 
   // Register session inspect command
   sharedCommandRegistry.registerCommand({
-    id: "session.inspect",
+    _id: "session.inspect",
     category: CommandCategory.SESSION,
     name: "inspect",
     description: "Inspect the current session (auto-detected from workspace)",
@@ -629,7 +629,7 @@ export function registerSessionCommands(): void {
           success: true,
           session,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
         });

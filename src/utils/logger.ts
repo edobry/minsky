@@ -79,7 +79,7 @@ const programLogFormat = format.combine(
     if (Object.keys(metadata).length > 0) {
       try {
         log += ` ${JSON.stringify(metadata)}`;
-      } catch (___e) {
+      } catch {
         // ignore serialization errors for metadata in text logs
       }
     }
@@ -247,7 +247,7 @@ process.on("unhandledRejection", async (reason, promise) => {
 // Basic test to ensure it works - can be removed or moved to a test file
 if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("--- Agent Logger (stdout) ---");
-  log.debug("Agent debug message", { data: "some debug data" });
+  log.debug("Agent debug message", { _data: "some debug data" });
   log.agent("Agent info message", { user: "test" });
   log.warn("Agent warning message", { code: 100 });
   log.error("Agent error message (string)", { details: "string error" });

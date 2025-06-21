@@ -43,7 +43,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (___error) {
+      } catch {
         log.error("MCP: Error listing tasks via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -71,7 +71,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (___error) {
+      } catch {
         log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -102,7 +102,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
           taskId: args.taskId,
           status: output.split(": ")[1], // Extract the status value
         };
-      } catch (___error) {
+      } catch {
         log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -144,7 +144,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
           taskId: args.taskId,
           status: args.status,
         };
-      } catch (___error) {
+      } catch {
         log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -172,7 +172,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (___error) {
+      } catch {
         log.error("MCP: Error creating task via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,

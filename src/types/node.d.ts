@@ -6,10 +6,10 @@
 // Declare Node.js path module
 declare module "path" {
   export function join(...paths: string[]): string;
-  export function dirname(path: string): string;
-  export function basename(path: string): string;
+  export function dirname(_path: string): string;
+  export function basename(_path: string): string;
   export function resolve(...paths: string[]): string;
-  export function parse(path: string): {
+  export function parse(_path: string): {
     root: string;
     dir: string;
     base: string;
@@ -20,10 +20,10 @@ declare module "path" {
 
 // Declare Node.js fs module
 declare module "fs" {
-  export function existsSync(path: string): boolean;
-  export function mkdirSync(path: string, options?: any): void;
-  export function readFileSync(path: string, options?: any): string | Buffer;
-  export function writeFileSync(path: string, data: any, options?: any): void;
+  export function existsSync(_path: string): boolean;
+  export function mkdirSync(_path: string, options?: any): void;
+  export function readFileSync(_path: string, options?: any): string | Buffer;
+  export function writeFileSync(_path: string, data: any, options?: any): void;
   export type PathLike = string | Buffer;
   export type WriteFileOptions = object;
   export type MakeDirectoryOptions = object;
@@ -32,10 +32,10 @@ declare module "fs" {
 
 // Declare Node.js fs/promises module
 declare module "fs/promises" {
-  export function readFile(path: string, options?: any): Promise<string | Buffer>;
-  export function writeFile(path: string, data: any, options?: any): Promise<void>;
-  export function mkdir(path: string, options?: any): Promise<void>;
-  export function access(path: string, mode?: number): Promise<void>;
+  export function readFile(_path: string, options?: any): Promise<string | Buffer>;
+  export function writeFile(_path: string, data: any, options?: any): Promise<void>;
+  export function mkdir(_path: string, options?: any): Promise<void>;
+  export function access(_path: string, mode?: number): Promise<void>;
   export function rename(oldPath: string, newPath: string): Promise<void>;
 }
 
@@ -55,7 +55,7 @@ declare const process: {
 
 // Declare Buffer global
 declare const Buffer: {
-  from(data: string | any[], encoding?: string): any;
+  from(_data: string | any[], encoding?: string): any;
 };
 
 // Declare additional Bun test matchers

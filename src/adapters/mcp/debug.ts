@@ -2,6 +2,7 @@
  * MCP adapter for debug commands
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
+import { BYTES_PER_KB } from "../utils/constants";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
@@ -101,7 +102,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
 
-  const k = 1024;
+  const k = BYTES_PER_KB;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 

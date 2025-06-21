@@ -1,3 +1,5 @@
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
+
 /**
  * Task-related utility functions
  */
@@ -17,7 +19,7 @@ export function normalizeTaskId(userInput: string): string | null {
 
   // Handle formats like "task#064" or "task#64"
   if (normalizedInput.toLowerCase().startsWith("task#")) {
-    normalizedInput = normalizedInput.substring(5);
+    normalizedInput = normalizedInput.substring(DEFAULT_RETRY_COUNT);
   }
 
   // Remove all leading '#' characters to avoid multiple hashes

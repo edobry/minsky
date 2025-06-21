@@ -64,7 +64,7 @@ class CliCommandFactory {
    * @param commandId - The ID of the command to customize
    * @param options - Customization options
    */
-  customizeCommand(commandId: ValidCommandId, options: CliCommandOptions): void {
+  customizeCommand(commandId: ValidCommandId, _options: CliCommandOptions): void {
     this.ensureInitialized();
     cliBridge.registerCommandCustomization(commandId, options);
   }
@@ -75,7 +75,7 @@ class CliCommandFactory {
    * @param category - The command category to customize
    * @param options - Category customization options
    */
-  customizeCategory(category: CommandCategory, options: CategoryCommandOptions): void {
+  customizeCategory(category: CommandCategory, _options: CategoryCommandOptions): void {
     this.ensureInitialized();
     cliBridge.registerCategoryCustomization(category, options);
   }
@@ -137,7 +137,7 @@ const cliFactory = new CliCommandFactory();
  * Register customizations for a specific command
  * @deprecated Use cliFactory.customizeCommand() instead
  */
-export function customizeCommand(commandId: string, options: CliCommandOptions): void {
+export function customizeCommand(commandId: string, _options: CliCommandOptions): void {
   cliFactory.customizeCommand(commandId, options);
 }
 
@@ -147,7 +147,7 @@ export function customizeCommand(commandId: string, options: CliCommandOptions):
  */
 export function customizeCategory(
   category: CommandCategory,
-  options: CategoryCommandOptions
+  _options: CategoryCommandOptions
 ): void {
   cliFactory.customizeCategory(category, options);
 }
@@ -204,7 +204,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
       "tasks.get": {
         parameters: {
-          id: {
+          _id: {
             asArgument: true,
           },
         },

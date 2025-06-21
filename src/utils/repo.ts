@@ -9,6 +9,6 @@ export interface RepoResolutionOptions {
  * Resolve the repository path from session or explicit path
  * If neither is provided, attempt to determine from current directory
  */
-export async function resolveRepoPath(options: RepoResolutionOptions = {}): Promise<string> {
+export async function resolveRepoPath(_options: RepoResolutionOptions = {}): Promise<string> {
   return resolveRepoPathInternal(options);
 }

@@ -59,7 +59,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
     "branch",
     "Create a branch in a repository",
     z.object({
-      session: z.string().describe(SESSION_DESCRIPTION),
+      _session: z.string().describe(SESSION_DESCRIPTION),
       name: z.string().describe("Name of the branch to create"),
     }),
     async (args) => {
@@ -82,7 +82,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
     "push",
     "Push changes to a remote repository",
     z.object({
-      session: z.string().optional().describe(SESSION_DESCRIPTION),
+      _session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       force: z.boolean().optional().describe(GIT_FORCE_DESCRIPTION),
@@ -108,7 +108,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
     "pr",
     "Create a pull request",
     z.object({
-      session: z.string().optional().describe(SESSION_DESCRIPTION),
+      _session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),

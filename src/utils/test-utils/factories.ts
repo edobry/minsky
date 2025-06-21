@@ -3,6 +3,7 @@
  * This module provides functions to create test data for various domain entities
  */
 import type { TaskData } from "../../types/tasks/taskData";
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults
@@ -172,9 +173,9 @@ export function createFieldData(fieldName: string): unknown {
   case "id":
     return createRandomId();
   case "name":
-    return `Test ${createRandomString(5)}`;
+    return `Test ${createRandomString(DEFAULT_RETRY_COUNT)}`;
   case "email":
-    return `test.${createRandomString(5)}@example.com`;
+    return `test.${createRandomString(DEFAULT_RETRY_COUNT)}@example.com`;
   case "date":
   case "createdat":
   case "updatedat":
@@ -183,7 +184,7 @@ export function createFieldData(fieldName: string): unknown {
   case "active":
   case "enabled":
   case "visible":
-    return Math.random() > 0.5;
+    return Math.random() > 0.DEFAULT_RETRY_COUNT;
   case "count":
   case "age":
   case "quantity":
@@ -192,6 +193,6 @@ export function createFieldData(fieldName: string): unknown {
   case "amount":
     return parseFloat((Math.random() * 100).toFixed(2));
   default:
-    return `Test ${fieldName} ${createRandomString(5)}`;
+    return `Test ${fieldName} ${createRandomString(DEFAULT_RETRY_COUNT)}`;
   }
 }

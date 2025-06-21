@@ -68,7 +68,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(session: string): string {
+  private getSessionWorkdir(_session: string): string {
     // Use the new path structure with sessions subdirectory
     return join(this.baseDir, this.repoName, "sessions", session);
   }
@@ -78,7 +78,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(session: string): Promise<CloneResult> {
+  async clone(_session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
@@ -103,7 +103,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
@@ -121,7 +121,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatus(session: string): Promise<RepoStatus> {
+  async getStatus(_session: string): Promise<RepoStatus> {
     const workdir = this.getSessionWorkdir(session);
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
@@ -177,7 +177,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the repository
    */
-  async getPath(session: string): Promise<string> {
+  async getPath(_session: string): Promise<string> {
     return this.getSessionWorkdir(session);
   }
 
@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // For remote repositories, we can't easily validate them without cloning
       // For now, we'll just assume they're valid
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return { success: false, message: `Invalid git repository: ${error.message}` };
     }

@@ -27,7 +27,7 @@ export class ConfigurationGenerator {
   /**
    * Generate and write repository configuration file
    */
-  generateRepositoryConfig(workingDir: string, options: RepositoryConfigOptions): void {
+  generateRepositoryConfig(workingDir: string, _options: RepositoryConfigOptions): void {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
@@ -62,7 +62,7 @@ export class ConfigurationGenerator {
   /**
    * Generate and write global user configuration file
    */
-  generateGlobalUserConfig(options: GlobalUserConfigOptions): void {
+  generateGlobalUserConfig(_options: GlobalUserConfigOptions): void {
     const config: GlobalUserConfig = {
       version: 1
     };

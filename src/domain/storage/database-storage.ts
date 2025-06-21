@@ -60,7 +60,7 @@ export interface DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  getEntity(id: string, options?: DatabaseQueryOptions): Promise<T | null>;
+  getEntity(_id: string, options?: DatabaseQueryOptions): Promise<T | null>;
 
   /**
    * Get all entities that match the query options
@@ -82,21 +82,21 @@ export interface DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  updateEntity(id: string, updates: Partial<T>): Promise<T | null>;
+  updateEntity(_id: string, updates: Partial<T>): Promise<T | null>;
 
   /**
    * Delete an entity by ID
    * @param id Entity identifier
    * @returns Promise resolving to true if deleted, false if not found
    */
-  deleteEntity(id: string): Promise<boolean>;
+  deleteEntity(_id: string): Promise<boolean>;
 
   /**
    * Check if an entity exists
    * @param id Entity identifier
    * @returns Promise resolving to true if exists, false otherwise
    */
-  entityExists(id: string): Promise<boolean>;
+  entityExists(_id: string): Promise<boolean>;
 
   /**
    * Get the storage location or connection info

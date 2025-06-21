@@ -62,7 +62,7 @@ export function getInstallCommand(_packageManager: PackageManager): string | und
  * @returns Result object with success status and output/error messages
  */
 export async function installDependencies(
-  repoPath: string,
+  _repoPath: string,
   options: {
     packageManager?: PackageManager;
     quiet?: boolean;
@@ -103,7 +103,7 @@ export async function installDependencies(
     const output = result?.toString() || "";
 
     return { success: true, output };
-  } catch (___error) {
+  } catch {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (!options.quiet) {

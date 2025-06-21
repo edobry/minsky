@@ -40,7 +40,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   private readonly storage: DatabaseStorage<TaskData, TaskState>;
   private readonly tasksDirectory: string;
 
-  constructor(options: JsonFileTaskBackendOptions) {
+  constructor(_options: JsonFileTaskBackendOptions) {
     this.workspacePath = options.workspacePath;
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
@@ -84,7 +84,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         content,
         filePath: this.storage.getStorageLocation(),
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -104,7 +104,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         content,
         filePath: fullPath,
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -211,7 +211,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         bytesWritten: result.bytesWritten,
         filePath: this.storage.getStorageLocation(),
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -237,7 +237,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         bytesWritten: content.length,
         filePath: fullPath,
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -259,7 +259,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
-  async fileExists(path: string): Promise<boolean> {
+  async fileExists(_path: string): Promise<boolean> {
     try {
       await access(path);
       return true;
@@ -278,7 +278,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.getEntities();
-    } catch (___error) {
+    } catch {
       log.error("Failed to get all tasks from database", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -291,11 +291,11 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @param id Task ID
    * @returns Promise resolving to task data or null
    */
-  async getTaskById(id: string): Promise<TaskData | null> {
+  async getTaskById(_id: string): Promise<TaskData | null> {
     try {
       await this.storage.initialize();
       return await this.storage.getEntity(id);
-    } catch (___error) {
+    } catch {
       log.error("Failed to get task by ID from database", {
         id,
         error: error instanceof Error ? error.message : String(error),
@@ -313,7 +313,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       await this.storage.initialize();
       return await this.storage.createEntity(task);
-    } catch (___error) {
+    } catch {
       log.error("Failed to create task in database", {
         task,
         error: error instanceof Error ? error.message : String(error),
@@ -328,11 +328,11 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @param updates Task data updates
    * @returns Promise resolving to updated task data or null
    */
-  async updateTaskData(id: string, updates: Partial<TaskData>): Promise<TaskData | null> {
+  async updateTaskData(_id: string, updates: Partial<TaskData>): Promise<TaskData | null> {
     try {
       await this.storage.initialize();
       return await this.storage.updateEntity(id, updates);
-    } catch (___error) {
+    } catch {
       log.error("Failed to update task in database", {
         id,
         updates,
@@ -347,11 +347,11 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @param id Task ID
    * @returns Promise resolving to true if deleted, false if not found
    */
-  async deleteTaskData(id: string): Promise<boolean> {
+  async deleteTaskData(_id: string): Promise<boolean> {
     try {
       await this.storage.initialize();
       return await this.storage.deleteEntity(id);
-    } catch (___error) {
+    } catch {
       log.error("Failed to delete task from database", {
         id,
         error: error instanceof Error ? error.message : String(error),

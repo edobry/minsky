@@ -14,7 +14,7 @@ import {
  * Schema for a session record
  */
 export const sessionRecordSchema = z.object({
-  session: sessionNameSchema.describe("Unique name of the session"),
+  _session: sessionNameSchema.describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),
   repoPath: z.string().optional().describe("Path to the session repository"),
@@ -161,7 +161,7 @@ export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
  */
 export const sessionPrParamsSchema = z
   .object({
-    session: sessionNameSchema.optional().describe("Name of the session"),
+    _session: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     title: z.string().min(1).describe("PR title (required)"),
     body: z.string().optional().describe("PR body text"),
@@ -186,7 +186,7 @@ export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
  */
 export const sessionReviewParamsSchema = z
   .object({
-    session: sessionNameSchema.optional().describe("Name of the session to review"),
+    _session: sessionNameSchema.optional().describe("Name of the session to review"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),

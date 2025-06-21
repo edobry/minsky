@@ -25,7 +25,7 @@ export async function readTasksFile(_filePath: string): Promise<TaskReadOperatio
       filePath,
       content,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read tasks file: ${filePath}`, { error: err });
     return {
@@ -52,7 +52,7 @@ export async function writeTasksFile(
       success: true,
       filePath,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
@@ -76,7 +76,7 @@ export async function readTaskSpecFile(_filePath: string): Promise<TaskReadOpera
       filePath,
       content,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {
@@ -106,7 +106,7 @@ export async function writeTaskSpecFile(
       success: true,
       filePath,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
@@ -143,7 +143,7 @@ export async function createDirectory(_dirPath: string): Promise<TaskFileOperati
       success: true,
       filePath: dirPath,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
@@ -168,7 +168,7 @@ export async function deleteFile(_filePath: string): Promise<TaskFileOperationRe
       success: true,
       filePath,
     };
-  } catch (___error) {
+  } catch {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
@@ -189,7 +189,7 @@ export async function listFiles(_dirPath: string): Promise<string[] | null> {
   try {
     const files = await fs.readdir(dirPath);
     return files;
-  } catch (___error) {
+  } catch {
     log.error(`Failed to list files in directory: ${dirPath}`, {
       error: error instanceof Error ? error : String(error),
     });

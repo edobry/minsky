@@ -229,7 +229,7 @@ export function addOptionsToCommand(
  * @returns Validated object with parsed parameters
  */
 export function parseOptionsToParameters<T extends CommandParameterMap>(
-  options: Record<string, unknown>,
+  _options: Record<string, unknown>,
   parameters: T
 ): { [K in keyof T]: z.infer<T[K]["schema"]> } {
   // Create result object
@@ -245,7 +245,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
       // Use the schema to validate and transform
       try {
         result[name] = param.schema.parse(value);
-      } catch (___error) {
+      } catch {
         // Re-throw with more context
         throw new Error(`Invalid value for parameter '${name}': ${error}`);
       }

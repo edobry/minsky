@@ -1,15 +1,16 @@
 /**
  * Configuration loader for Minsky
  * 
- * Implements the 5-level configuration hierarchy:
+ * Implements the DEFAULT_RETRY_COUNT-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
- * 5. Built-in defaults (lowest priority)
+ * DEFAULT_RETRY_COUNT. Built-in defaults (lowest priority)
  */
 
 import { existsSync, readFileSync } from "fs";
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { homedir } from "os";
@@ -91,7 +92,7 @@ export class ConfigurationLoader {
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as GlobalUserConfig;
-    } catch (___error) {
+    } catch {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
       log.error(`Failed to load global user config from ${configPath}:`, error);
       return null;
@@ -111,7 +112,7 @@ export class ConfigurationLoader {
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as RepositoryConfig;
-    } catch (___error) {
+    } catch {
       // Silently fail - configuration loading should be resilient
       return null;
     }

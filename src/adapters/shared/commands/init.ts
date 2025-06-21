@@ -80,7 +80,7 @@ const initParams: CommandParameterMap = {
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand({
-    id: "init",
+    _id: "init",
     category: CommandCategory.INIT,
     name: "init",
     description: "Initialize a project for Minsky",

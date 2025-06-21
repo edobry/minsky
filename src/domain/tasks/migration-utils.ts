@@ -163,7 +163,7 @@ export class TaskMigrationUtils {
         newDbFile: this.targetDbPath,
         backupFile,
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Migration failed", { error: typedError.message });
 
@@ -244,7 +244,7 @@ export class TaskMigrationUtils {
         newDbFile: tasksFilePath,
         backupFile,
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Reverse migration failed", { error: typedError.message });
 
@@ -318,7 +318,7 @@ export class TaskMigrationUtils {
         jsonTasks,
         differences,
       };
-    } catch (___error) {
+    } catch {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -467,7 +467,7 @@ export class TaskMigrationUtils {
         // Check if they're different
         const jsonTask = jsonMap.get(task.id)!;
         if (!this.tasksEqual(task, jsonTask)) {
-          different.push({ id: task.id, markdown: task, json: jsonTask });
+          different.push({ _id: task.id, markdown: task, json: jsonTask });
         }
       }
     }
