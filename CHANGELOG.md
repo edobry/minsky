@@ -22,6 +22,34 @@ _See: SpecStory history [2025-01-20_improve-ci-test-stability](mdc:.specstory/hi
 
 ### Added
 
+- **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
+  - Implemented comprehensive session-scoped file operation tools for MCP server
+  - Added 4 session file tools with complete functionality and security validation:
+    - `session.read_file` - Read files with path validation within session workspace
+    - `session.write_file` - Write files with directory creation support and workspace isolation
+    - `session.list_directory` - List directory contents with detailed file metadata
+    - `session.file_exists` - Check file/directory existence with comprehensive status information
+  - Created `SessionPathResolver` class with robust security features:
+    - Path validation to prevent directory traversal attacks
+    - Session workspace boundary enforcement
+    - Automatic session context detection from working directory
+    - Support for dependency injection for testing
+  - Implemented complete MCP integration with `registerSessionFileTools()` function
+  - Added comprehensive test suite with 8 test cases covering:
+    - Basic functionality testing for all file operations
+    - Security validation for directory traversal prevention
+    - Error handling for missing sessions and invalid paths
+    - Integration testing with temporary workspace isolation
+  - Created detailed documentation in `docs/session-file-tools.md` with:
+    - Complete API reference for all tools
+    - Usage examples and response formats
+    - Security feature explanations
+    - Integration guidelines for AI agents
+  - Ensures strict workspace isolation preventing AI agents from accidentally modifying main workspace
+  - All operations properly scoped to session workspaces with comprehensive error reporting
+
+_See: SpecStory history [2025-06-17_check-mcp-server-status-and-tool-isolation](mdc:.specstory/history/2025-06-17_23-16-check-mcp-server-status-and-tool-isolation.md) for implementation details._
+
 - Task #114: Migrate High-Priority Tests to Native Bun Patterns
   - Created robust custom assertion helpers to bridge Jest and Bun differences
   - Implemented comprehensive ESM import compatibility fixes
