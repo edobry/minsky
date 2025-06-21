@@ -1,6 +1,6 @@
 /**
- * MCP adapter for session file operations
- * Provides session-scoped file operations that enforce workspace isolation
+ * MCP adapter for session workspace operations
+ * Provides session-scoped workspace tools that enforce workspace isolation
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
@@ -85,9 +85,9 @@ function createPathResolver(): SessionPathResolver {
 }
 
 /**
- * Registers session file operation tools with the MCP command mapper
+ * Registers session workspace tools with the MCP command mapper
  */
-export function registerSessionFileTools(commandMapper: CommandMapper): void {
+export function registerSessionWorkspaceTools(commandMapper: CommandMapper): void {
   const pathResolver = createPathResolver();
 
   // Session read file tool

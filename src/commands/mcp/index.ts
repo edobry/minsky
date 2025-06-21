@@ -15,7 +15,7 @@ import path from "path";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
-import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
@@ -122,7 +122,7 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        registerSessionFileTools(commandMapper);
+        registerSessionWorkspaceTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
