@@ -15,12 +15,12 @@ import path from "path";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
+import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerDebugTools } from "../../adapters/mcp/debug";
-import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 
 /**
  * Create the MCP command
