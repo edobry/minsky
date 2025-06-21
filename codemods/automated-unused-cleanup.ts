@@ -1,11 +1,12 @@
+// console is a global
 #!/usr/bin/env bun
 /**
  * Automated script to parse ESLint output and systematically remove ALL unused imports
  * across the entire codebase. This scales our proven approach to the full scope.
  */
 
-import { readFileSync, writeFileSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync, writeFileSync  } from "fs";
+import { execSync  } from "child_process";
 
 interface FixTarget {
   file: string;
@@ -24,7 +25,7 @@ interface EslintUnusedError {
  * Parse ESLint output to extract all unused variable/import errors
  */
 function parseEslintOutput(): EslintUnusedError[] {
-  console.log("🔍 Running ESLint to analyze unused imports...");
+  console.log("🔍 Running ESLint to analyze unused, imports...");
   
   // Run ESLint and capture output
   let eslintOutput: string;
@@ -32,7 +33,7 @@ function parseEslintOutput(): EslintUnusedError[] {
     execSync("bun run lint", { stdio: "pipe" });
     eslintOutput = "";
   } catch (error: any) {
-    // ESLint exits with code 1 when there are errors, but we still get the output
+    // ESLint exits with code 1 when there are errors but we still get the output
     eslintOutput = error.stdout?.toString() || "";
   }
   
@@ -41,7 +42,7 @@ function parseEslintOutput(): EslintUnusedError[] {
   
   let currentFile = "";
   
-  for (const line of lines) {
+  for (const line, of, lines) {
     // Check if this is a file path line
     if (line.startsWith("/") && line.includes("fix-task-status-errors")) {
       currentFile = line.trim();
@@ -51,10 +52,9 @@ function parseEslintOutput(): EslintUnusedError[] {
     // Check if this is an unused variable error
     const match = line.match(/\s*(\d+):(\d+)\s+(?:error|warning)\s+'([^']+)' is defined but never used\s+(no-unused-vars|@typescript-eslint\/no-unused-vars)/);
     if (match && currentFile) {
-      const [, lineNum, column, variable, ruleId] = match;
+      const [lineNum column, variable, ruleId] = match;
       errors.push({
-        file: currentFile.replace("/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-task-status-errors/", ""),
-        line: parseInt(lineNum),
+        file:, currentFile.replace("/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-task-status-errors/", "") line: parseInt(lineNum),
         column: parseInt(column),
         variable: variable,
         ruleId: ruleId
@@ -62,7 +62,7 @@ function parseEslintOutput(): EslintUnusedError[] {
     }
   }
   
-  console.log(`📊 Found ${errors.length} unused variable/import errors across ${new Set(errors.map(e => e.file)).size} files`);
+  console.log(`📊 Found ${errors.length} unused variable/import errors across ${new Set(errors.map(e =>, e.file)).size} files`);
   return errors;
 }
 
@@ -72,7 +72,7 @@ function parseEslintOutput(): EslintUnusedError[] {
 function buildTargets(errors: EslintUnusedError[]): FixTarget[] {
   const fileGroups = new Map<string, string[]>();
   
-  for (const error of errors) {
+  for (const error, of, errors) {
     if (!fileGroups.has(error.file)) {
       fileGroups.set(error.file, []);
     }
@@ -88,7 +88,7 @@ function buildTargets(errors: EslintUnusedError[]): FixTarget[] {
 /**
  * Remove specific unused imports from a TypeScript file
  */
-function cleanupFile(target: FixTarget): { success: boolean; removedCount: number; error?: string } {
+function cleanupFile(target: FixTarget): { success: boolean; removedCount: number; error?: string }, {
   try {
     const content = readFileSync(target.file, "utf-8");
     let lines = content.split("\n");
@@ -98,19 +98,19 @@ function cleanupFile(target: FixTarget): { success: boolean; removedCount: numbe
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      if (!line.trim().startsWith("import ")) continue;
+      if (!line.trim().startsWith("import, ")) continue;
       
-      // Handle named imports: import { a, b, c } from "module"
-      if (line.includes("import {")) {
-        const match = line.match(/import \{([^}]+)\} from (.+)/);
+      // Handle named imports: import { a  } from "module";
+      if (line.includes("import, {")) {
+        const match = line.match(/import, \{([^}]+)\} from (.+)/);
         if (match) {
           const importList = match[1];
           const moduleSpec = match[2];
           
           // Split imports and filter out unused ones
-          const imports = importList.split(",").map(imp => imp.trim());
+          const imports = importList.split(",").map(imp =>, imp.trim());
           const usedImports = imports.filter(imp => {
-            const cleanName = imp.includes(" as ") ? imp.split(" as ")[1].trim() : imp.trim();
+            const cleanName = imp.includes(" as, ") ? imp.split(" as, ")[1].trim() : imp.trim();
             return !target.unusedImports.includes(cleanName);
           });
           
@@ -126,15 +126,15 @@ function cleanupFile(target: FixTarget): { success: boolean; removedCount: numbe
         }
       }
       
-      // Handle type imports: import type { Type1, Type2 } from "module"
-      else if (line.includes("import type {")) {
-        const match = line.match(/import type \{([^}]+)\} from (.+)/);
+      // Handle type imports: import type { Type1 Type2 } from "module"
+      else if (line.includes("import type, {")) {
+        const match = line.match(/import type, \{([^}]+)\} from (.+)/);
         if (match) {
           const typeList = match[1];
           const moduleSpec = match[2];
           
-          const types = typeList.split(",").map(t => t.trim());
-          const usedTypes = types.filter(type => !target.unusedImports.includes(type));
+          const types = typeList.split(",").map(t =>, t.trim());
+          const usedTypes = types.filter(type =>, !target.unusedImports.includes(type));
           
           if (usedTypes.length === 0) {
             lines[i] = "";
@@ -147,8 +147,8 @@ function cleanupFile(target: FixTarget): { success: boolean; removedCount: numbe
       }
       
       // Handle default imports that are unused
-      else if (line.match(/^import \w+/)) {
-        const match = line.match(/^import (\w+)/);
+      else if (line.match(/^import, \w+/)) {
+        const match = line.match(/^import, (\w+)/);
         if (match && target.unusedImports.includes(match[1])) {
           lines[i] = "";
           removedCount++;
@@ -165,7 +165,7 @@ function cleanupFile(target: FixTarget): { success: boolean; removedCount: numbe
             const prevLine = lines[index - 1]?.trim();
             const nextLine = lines[index + 1]?.trim();
             // Keep empty line if it's not from removed imports
-            return !(prevLine?.startsWith("import ") || nextLine?.startsWith("import "));
+            return !(prevLine?.startsWith("import, ") || nextLine?.startsWith("import, "));
           }
           return true;
         })
@@ -185,33 +185,33 @@ function cleanupFile(target: FixTarget): { success: boolean; removedCount: numbe
  * Process all files with unused imports
  */
 function main() {
-  console.log("🧹 Starting automated unused import cleanup across entire codebase...\n");
+  console.log("🧹 Starting automated unused import cleanup across entire, codebase...\n");
   
   // Step 1: Parse ESLint output
   const errors = parseEslintOutput();
   
   if (errors.length === 0) {
-    console.log("✅ No unused imports found!");
+    console.log("✅ No unused imports, found!");
     return;
   }
   
   // Step 2: Build target list
   const targets = buildTargets(errors);
-  console.log(`🎯 Built target list for ${targets.length} files\n`);
+  console.log(`🎯 Built target list for ${targets.length}, files\n`);
   
   // Step 3: Process all files
   let totalRemoved = 0;
   let processedFiles = 0;
   let errorCount = 0;
   
-  console.log("📁 Processing files:");
+  console.log("📁 Processing, files:");
   
-  for (const target of targets) {
+  for (const target, of, targets) {
     const result = cleanupFile(target);
     
     if (result.success) {
       if (result.removedCount > 0) {
-        console.log(`✅ ${target.file}: Removed ${result.removedCount} unused imports`);
+        console.log(`✅ ${target.file}: Removed ${result.removedCount} unused, imports`);
         if (target.unusedImports.length <= 5) {
           console.log(`   🗑️  ${target.unusedImports.join(", ")}`);
         } else {
@@ -219,34 +219,34 @@ function main() {
         }
         totalRemoved += result.removedCount;
       } else {
-        console.log(`ℹ️  ${target.file}: No matching unused imports found`);
+        console.log(`ℹ️  ${target.file}: No matching unused imports, found`);
       }
       processedFiles++;
     } else {
-      console.log(`❌ ${target.file}: ${result.error}`);
+      console.log(`❌ ${target.file}:, ${result.error}`);
       errorCount++;
     }
   }
   
-  console.log(`\n📊 Final Summary:`);
-  console.log(`✅ ${processedFiles} files processed successfully`);
-  console.log(`🗑️  ${totalRemoved} unused imports removed total`);
-  console.log(`📂 ${targets.length} files had unused imports initially`);
+  console.log(`\n📊 Final, Summary:`);
+  console.log(`✅ ${processedFiles} files processed, successfully`);
+  console.log(`🗑️  ${totalRemoved} unused imports removed, total`);
+  console.log(`📂 ${targets.length} files had unused imports, initially`);
   
   if (errorCount > 0) {
-    console.log(`❌ ${errorCount} files had errors`);
+    console.log(`❌ ${errorCount} files had, errors`);
   }
   
-  console.log(`\n🎯 Re-running ESLint to verify improvements...`);
+  console.log(`\n🎯 Re-running ESLint to verify, improvements...`);
   
   // Verify improvement
   try {
     execSync("bun run lint", { stdio: "pipe" });
   } catch (error: any) {
     const newOutput = error.stdout?.toString() || "";
-    const newUnusedCount = (newOutput.match(/defined but never used.*no-unused-vars/g) || []).length;
-    console.log(`📈 Unused imports reduced from ${errors.length} to ${newUnusedCount}`);
-    console.log(`🎉 Improvement: ${errors.length - newUnusedCount} fewer unused import issues!`);
+    const newUnusedCount = (newOutput.match(/defined but never, used.*no-unused-vars/g) || []).length;
+    console.log(`📈 Unused imports reduced from ${errors.length} to, ${newUnusedCount}`);
+    console.log(`🎉 Improvement: ${errors.length - newUnusedCount} fewer unused import, issues!`);
   }
 }
 
