@@ -75,7 +75,7 @@ export class MinskyMCPServer {
   private options: Required<MinskyMCPServerOptions>;
   private projectContext: ProjectContext;
 
-  constructor(options: MinskyMCPServerOptions = {}) {
+  constructor(_options: MinskyMCPServerOptions = {}) {
     this.options = {
       name: options.name ?? "Minsky MCP Server",
       version: options.version ?? "1.0.0",
@@ -268,7 +268,7 @@ export class MinskyMCPServer {
         };
 
         return callResult;
-      } catch (___error) {
+      } catch {
         log.error(`Error executing tool ${name}:`, {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -296,7 +296,7 @@ export class MinskyMCPServer {
     return `Created task: ${title}${description ? ` - ${description}` : ""}`;
   }
 
-  private async handleTasksUpdate(id: string, title?: string, description?: string): Promise<string> {
+  private async handleTasksUpdate(_id: string, title?: string, description?: string): Promise<string> {
     return `Updated task ${id}${title ? ` with title: ${title}` : ""}${description ? ` and description: ${description}` : ""}`;
   }
 

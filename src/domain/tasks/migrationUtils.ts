@@ -61,7 +61,7 @@ export class BackendMigrationUtils {
   async migrateTasksBetweenBackends(
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: MigrationOptions = {}
+    _options: MigrationOptions = {}
   ): Promise<MigrationResult> {
     const {
       preserveIds = true,
@@ -151,7 +151,7 @@ export class BackendMigrationUtils {
         skippedCount: result.skippedCount,
       });
 
-    } catch (___error) {
+    } catch {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMessage);
       log.error("Migration failed", { error: errorMessage });
@@ -189,7 +189,7 @@ export class BackendMigrationUtils {
     // Validate source backend has data
     try {
       await sourceBackend.getTasksData();
-    } catch (___error) {
+    } catch {
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
@@ -205,7 +205,7 @@ export class BackendMigrationUtils {
       
       // Restore original data
       await targetBackend.saveTasksData(currentData);
-    } catch (___error) {
+    } catch {
       throw new Error(`Cannot write to target backend: ${error}`);
     }
   }
@@ -260,7 +260,7 @@ export class BackendMigrationUtils {
     targetTasks: TaskData[],
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: {
+    _options: {
       preserveIds: boolean;
       statusMapping: Record<string, string>;
       idConflictStrategy: "skip" | "rename" | "overwrite";
@@ -299,7 +299,7 @@ export class BackendMigrationUtils {
 
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
-      } catch (___error) {
+      } catch {
         log.warn("Failed to transform task", { taskId: task.id, error });
         skipped.push(task);
       }
@@ -365,7 +365,7 @@ export class BackendMigrationUtils {
   async performDryRun(
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: MigrationOptions
+    _options: MigrationOptions
   ): Promise<MigrationResult> {
     return this.migrateTasksBetweenBackends(sourceBackend, targetBackend, {
       ...options,

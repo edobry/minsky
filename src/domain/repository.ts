@@ -3,6 +3,7 @@
  * Defines the contract for different repository backends (local, remote, GitHub).
  */
 import { normalizeRepoName } from "./repo-utils.js";
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
@@ -165,7 +166,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns CloneResult with working directory information
    */
-  clone(session: string): Promise<CloneResult>;
+  clone(_session: string): Promise<CloneResult>;
 
   /**
    * Get the status of the repository.
@@ -207,14 +208,14 @@ export interface RepositoryBackend {
    * @param name Branch name to create
    * @returns BranchResult with working directory and branch information
    */
-  branch(session: string, name: string): Promise<BranchResult>;
+  branch(_session: string, name: string): Promise<BranchResult>;
 
   /**
    * Checkout an existing branch.
    * @param branch Branch name to checkout
    * @returns void
    */
-  checkout(branch: string): Promise<void>;
+  checkout(_branch: string): Promise<void>;
 
   /**
    * Get the repository configuration.
@@ -252,7 +253,7 @@ export async function createRepositoryBackend(
 
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
-      clone: async (session: string): Promise<CloneResult> => {
+      clone: async (_session: string): Promise<CloneResult> => {
         return await gitService.clone({
           repoUrl: config.url || "",
           session,
@@ -359,7 +360,7 @@ export async function createRepositoryBackend(
 
         await gitService.push({
           session,
-          repoPath: workdir,
+          _repoPath: workdir,
         });
       },
 
@@ -378,7 +379,7 @@ export async function createRepositoryBackend(
         await gitService.pullLatest(workdir);
       },
 
-      branch: async (session: string, name: string): Promise<BranchResult> => {
+      branch: async (_session: string, name: string): Promise<BranchResult> => {
         const repoName = normalizeRepoName(config.url || "");
         const workdir = gitService.getSessionWorkdir(repoName, session);
 
@@ -393,7 +394,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      checkout: async (branch: string): Promise<void> => {
+      checkout: async (_branch: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -437,14 +438,14 @@ export async function createRepositoryBackend(
  * 2. If session is specified, get repository from the session
  * 3. If task ID is specified, find the associated session's repository
  * 4. If auto-detection is enabled, try to find repository from current directory
- * 5. Otherwise throw an error
+ * DEFAULT_RETRY_COUNT. Otherwise throw an error
  *
  * @param options Resolution options
  * @returns Resolved repository information
  * @throws ValidationError if repository cannot be resolved
  */
 export async function resolveRepository(
-  options: RepositoryResolutionOptions = {}
+  _options: RepositoryResolutionOptions = {}
 ): Promise<ResolvedRepository> {
   const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
@@ -485,7 +486,7 @@ export async function resolveRepository(
       throw new ValidationError("No Git repository found in current directory");
     }
   }
-  // 5. No resolution method available
+  // DEFAULT_RETRY_COUNT. No resolution method available
   else {
     throw new ValidationError(
       "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"
@@ -526,7 +527,7 @@ export async function resolveRepository(
       backendType,
       format: normalized.format,
     };
-  } catch (___error) {
+  } catch {
     if (error instanceof ValidationError) {
       throw error;
     }
@@ -547,7 +548,7 @@ export async function resolveRepoPath(_options: {
   try {
     const repository = await resolveRepository({
       uri: options.repo,
-      session: options.session,
+      _session: options.session,
       autoDetect: true,
     });
 
@@ -557,9 +558,9 @@ export async function resolveRepoPath(_options: {
       // For backward compatibility, return the URI for remote repositories
       return repository.uri;
     }
-  } catch (___error) {
+  } catch {
     throw new MinskyError(
-      `Failed to resolve repository path: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to resolve repository _path: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }

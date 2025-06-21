@@ -46,7 +46,7 @@ export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionD
       sessions: migratedSessions,
       baseDir,
     };
-  } catch (___e) {
+  } catch {
     log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
@@ -57,7 +57,7 @@ export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionD
  */
 export function writeSessionDbFile(
   state: SessionDbState,
-  options: SessionDbFileOptions = {}
+  _options: SessionDbFileOptions = {}
 ): boolean {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
@@ -71,7 +71,7 @@ export function writeSessionDbFile(
 
     writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
-  } catch (___error) {
+  } catch {
     log.error(
       `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -89,7 +89,7 @@ export function ensureDbDir(_dbPath: string): boolean {
       mkdirSync(dbDir, { recursive: true });
     }
     return true;
-  } catch (___error) {
+  } catch {
     log.error(
       `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
     );

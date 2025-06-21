@@ -34,7 +34,7 @@ export function createConfigListCommand(): Command {
           log.debug("=".repeat(60));
           displayResolvedConfiguration(result.resolved);
         }
-      } catch (___error) {
+      } catch {
         log.error("Failed to load configuration:", error);
         process.exit(1);
       }

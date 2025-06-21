@@ -11,6 +11,7 @@ export * from "./RepositoryBackend";
 // Import RepositoryStatus but define our own ValidationResult
 import type { RepositoryStatus } from "../repository.js";
 
+import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -73,7 +74,7 @@ export interface RepositoryBackendConfig {
     retryAttempts?: number;
 
     /**
-     * Timeout in milliseconds for git operations (default: 30000)
+     * Timeout in milliseconds for git operations (default: DEFAULT_TIMEOUT_MS)
      */
     timeout?: number;
 
@@ -152,14 +153,14 @@ export interface BranchResult {
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
-  clone(session: string): Promise<CloneResult>;
-  branch(session: string, branch: string): Promise<BranchResult>;
+  clone(_session: string): Promise<CloneResult>;
+  branch(_session: string, branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;
   push(branch?: string): Promise<any>;
   pull(branch?: string): Promise<any>;
-  checkout?(branch: string): Promise<void>;
+  checkout?(_branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 }
 
@@ -224,9 +225,9 @@ export async function createRepositoryBackend(
         if (stdout.trim() === "not exists") {
           throw new Error(`Repository path does not exist: ${config.repoUrl}`);
         }
-      } catch (___err) {
+      } catch {
         throw new Error(
-          `Failed to validate local repository path: ${
+          `Failed to validate local repository _path: ${
             err instanceof Error ? err.message : String(err)
           }`
         );

@@ -29,7 +29,7 @@ export interface ResponseFormatter<T = unknown> {
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(data: T, context: CommandExecutionContext): string | object;
+  format(_data: T, context: CommandExecutionContext): string | object;
 }
 
 /**
@@ -53,7 +53,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(data: T, context: CommandExecutionContext): string | object {
+  format(_data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
     const format = context.format?.toLowerCase() as OutputFormat;
 
@@ -73,7 +73,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Text formatted string
    */
-  abstract formatText(data: T, context: CommandExecutionContext): string;
+  abstract formatText(_data: T, context: CommandExecutionContext): string;
 
   /**
    * Format the response as JSON
@@ -82,7 +82,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns JSON-serializable object
    */
-  formatJson(data: T, _context: CommandExecutionContext): object {
+  formatJson(_data: T, _context: CommandExecutionContext): object {
     return data as unknown as object;
   }
 }

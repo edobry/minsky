@@ -7,6 +7,7 @@
 
 import { MinskyError } from "./base-errors";
 
+import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
 /**
  * Error class for network-related errors
  */
@@ -35,7 +36,7 @@ export class PortInUseError extends NetworkError {
    */
   getSuggestions(): string[] {
     const nextPort = this.port ? this.port + 1 : 8081;
-    const currentPort = this.port || 8080;
+    const currentPort = this.port || DEFAULT_DEV_PORT;
 
     return [
       `Use a different port: minsky mcp start --sse --port ${nextPort}`,
@@ -58,7 +59,7 @@ export class NetworkPermissionError extends NetworkError {
    */
   getSuggestions(): string[] {
     return [
-      "Use a port number above 1024: minsky mcp start --sse --port 8080",
+      "Use a port number above BYTES_PER_KB: minsky mcp start --sse --port DEFAULT_DEV_PORT",
       "Run the command with elevated permissions (not recommended)",
     ];
   }

@@ -1,8 +1,9 @@
 import * as fs from "fs";
+import { DEFAULT_DEV_PORT, DEFAULT_RETRY_COUNT } from "../utils/constants";
 import * as path from "path";
 import { z } from "zod";
 export const initializeProjectParamsSchema = z.object({
-  repoPath: z.string(),
+  _repoPath: z.string(),
   backend: z.enum(["tasks.md", "tasks.csv"]),
   ruleFormat: z.enum(["cursor", "generic"]),
   mcp: z
@@ -330,7 +331,7 @@ During feature implementation, the most relevant rules are:
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
-5. **changelog** - Document the changes
+DEFAULT_RETRY_COUNT. **changelog** - Document the changes
 
 ### When Fixing Bugs
 
@@ -349,7 +350,7 @@ Code reviewers should focus on:
 2. **robust-error-handling** & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
 4. **testable-design** & **tests** - Validate test coverage
-5. **changelog** - Confirm changes are documented
+DEFAULT_RETRY_COUNT. **changelog** - Confirm changes are documented
 
 ### When Creating New Rules
 
@@ -365,7 +366,7 @@ For initializing new projects with Minsky:
 2. **session-first-workflow** - Enforce proper session usage
 3. **creating-tasks** - Enable structured task creation
 4. **changelog** - Set up change tracking
-5. **module-organization** & **command-organization** - If developing with the same architecture
+DEFAULT_RETRY_COUNT. **module-organization** & **command-organization** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -385,7 +386,7 @@ This index serves as a guide to help you understand which rules are relevant to 
  */
 function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): string {
   const transport = mcpOptions?.transport || "stdio";
-  const port = mcpOptions?.port || 8080;
+  const port = mcpOptions?.port || DEFAULT_DEV_PORT;
   const host = mcpOptions?.host || "localhost";
 
   // Base configuration for stdio transport
@@ -555,7 +556,7 @@ export interface FileSystem {
  * For testing: initialize a project with a custom filesystem implementation
  */
 export async function initializeProjectWithFS(
-  options: InitializeProjectOptions,
+  _options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
   const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;

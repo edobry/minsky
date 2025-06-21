@@ -440,7 +440,7 @@ export function setupAsymmetricMatchers(): void {
       // If no equals method was found, just log a warning
       log.warn("Could not find expect.equals method to override for matcher support.");
     }
-  } catch (___error) {
+  } catch {
     // Fail gracefully if bun:test is not available
     log.warn("Failed to set up asymmetric matchers:", error);
   }

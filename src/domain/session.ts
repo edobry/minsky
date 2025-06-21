@@ -1,4 +1,5 @@
 import { join } from "path";
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
@@ -79,7 +80,7 @@ export interface SessionProviderInterface {
   /**
    * Get a specific session by name
    */
-  getSession(session: string): Promise<SessionRecord | null>;
+  getSession(_session: string): Promise<SessionRecord | null>;
 
   /**
    * Get a specific session by task ID
@@ -94,12 +95,12 @@ export interface SessionProviderInterface {
   /**
    * Update an existing session
    */
-  updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+  updateSession(_session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
 
   /**
    * Delete a session by name
    */
-  deleteSession(session: string): Promise<boolean>;
+  deleteSession(_session: string): Promise<boolean>;
 
   /**
    * Get the repository path for a session
@@ -152,7 +153,7 @@ export class SessionDB implements SessionProviderInterface {
         }
         return session;
       });
-    } catch (___e) {
+    } catch {
       return [];
     }
   }
@@ -166,7 +167,7 @@ export class SessionDB implements SessionProviderInterface {
     try {
       await this.ensureDbDir();
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
-    } catch (___error) {
+    } catch {
       log.error(
         `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -188,13 +189,13 @@ export class SessionDB implements SessionProviderInterface {
     return this.readDb();
   }
 
-  async getSession(session: string): Promise<SessionRecord | null> {
+  async getSession(_session: string): Promise<SessionRecord | null> {
     const sessions = await this.readDb();
     return sessions.find((s) => s.session === session) || null;
   }
 
   async updateSession(
-    session: string,
+    _session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
     const sessions = await this.readDb();
@@ -217,7 +218,7 @@ export class SessionDB implements SessionProviderInterface {
       const normalizedInput = normalize(taskId);
       const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
       return found || null; // Ensure we return null, not undefined
-    } catch (___error) {
+    } catch {
       log.error(
         `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -225,7 +226,7 @@ export class SessionDB implements SessionProviderInterface {
     }
   }
 
-  async deleteSession(session: string): Promise<boolean> {
+  async deleteSession(_session: string): Promise<boolean> {
     try {
       const sessions = await this.readDb();
       const index = sessions.findIndex((s) => s.session === session);
@@ -235,9 +236,9 @@ export class SessionDB implements SessionProviderInterface {
       sessions.splice(index, 1);
       await this.writeDb(sessions);
       return true;
-    } catch (___error) {
+    } catch {
       log.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
+        `Error deleting _session: ${error instanceof Error ? error.message : String(error)}`
       );
       return false;
     }
@@ -323,7 +324,7 @@ export class SessionDB implements SessionProviderInterface {
       // This ensures session directories are created even if git clone encounters issues
       await mkdir(join(this.baseDir, normalizedRepoName, "sessions"), { recursive: true });
       return newPath;
-    } catch (___error) {
+    } catch {
       // If we can't create the directory, fall back to the original path
       log.error(
         `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
@@ -337,11 +338,11 @@ export class SessionDB implements SessionProviderInterface {
    * @param path The repository path to check
    * @returns true if the repository exists
    */
-  private async repoExists(path: string): Promise<boolean> {
+  private async repoExists(_path: string): Promise<boolean> {
     try {
       await access(path);
       return true;
-    } catch (___err) {
+    } catch {
       return false;
     }
   }
@@ -398,7 +399,7 @@ export class SessionDB implements SessionProviderInterface {
           // Update session record
           session.repoPath = newPath;
           modified = true;
-        } catch (___err) {
+        } catch {
           log.error(`Failed to migrate session ${session.session}:`, { error: err });
         }
       }
@@ -518,7 +519,7 @@ export async function startSessionFromParams(
     if (!repoUrl) {
       try {
         repoUrl = await deps.resolveRepoPath({});
-      } catch (___err) {
+      } catch {
         const error = err instanceof Error ? err : new Error(String(err));
         throw new MinskyError(
           `--repo is required (not in a git repo and no --repo provided): ${error.message}`
@@ -617,13 +618,13 @@ export async function startSessionFromParams(
     // Now clone the repo
     const gitCloneResult = await deps.gitService.clone({
       repoUrl,
-      session: sessionName,
+      _session: sessionName,
     });
 
     // Create a branch based on the session name
     const branchName = branch || sessionName;
     const branchResult = await deps.gitService.branch({
-      session: sessionName,
+      _session: sessionName,
       branch: branchName,
     });
 
@@ -658,7 +659,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
 
         // Update the status to IN-PROGRESS
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
-      } catch (___error) {
+      } catch {
         // Log the error but don't fail the session creation
         log.cliWarn(
           `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
@@ -667,7 +668,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
     }
 
     if (!quiet) {
-      log.debug(`Started session for task ${taskId}`, { session: sessionName });
+      log.debug(`Started session for task ${taskId}`, { _session: sessionName });
     }
 
     return {
@@ -677,12 +678,12 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
       branch: branchName,
       taskId,
     };
-  } catch (___error) {
+  } catch {
     if (error instanceof MinskyError) {
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }
@@ -844,7 +845,7 @@ export async function updateSessionFromParams(
       // Push changes if needed
       if (!noPush) {
         await deps.gitService.push({
-          repoPath: workdir,
+          _repoPath: workdir,
           remote: remote || "origin",
         });
       }
@@ -853,7 +854,7 @@ export async function updateSessionFromParams(
       if (!noStash) {
         try {
           await deps.gitService.popStash(workdir);
-        } catch (___error) {
+        } catch {
           stashError = error;
         }
       }
@@ -878,12 +879,12 @@ export async function updateSessionFromParams(
       taskId: sessionRecord.taskId,
       repoPath: workdir,
     };
-  } catch (___error) {
+  } catch {
     if (error instanceof MinskyError) {
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to update session: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to update _session: ${error instanceof Error ? error.message : String(error)}`,
         error
       );
     }
@@ -948,7 +949,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
           fileSize: bodyContent.length,
           bodyPath: params.bodyPath,
         });
-      } catch (___error) {
+      } catch {
         if (error instanceof ValidationError) {
           throw error;
         }
@@ -990,7 +991,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
         if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
           sessionName = pathParts[sessionsIndex + 1];
         }
-      } catch (___error) {
+      } catch {
         // If detection fails, throw error
         throw new MinskyError(
           "Could not detect session from current directory. Please specify a session name or task ID."
@@ -1004,7 +1005,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
       }
     }
 
-    log.debug(`Creating PR for session: ${sessionName}`, {
+    log.debug(`Creating PR for _session: ${sessionName}`, {
       session: sessionName,
       title: params.title,
       hasBody: !!bodyContent,
@@ -1012,7 +1013,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main
+    // STEP DEFAULT_RETRY_COUNT: Run session update first to merge latest changes from main
     log.cli("Updating session with latest changes from main...");
     try {
       await updateSessionFromParams({
@@ -1021,7 +1022,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
         json: false,
       });
       log.cli("Session updated successfully");
-    } catch (___error) {
+    } catch {
       throw new MinskyError(
         `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -1029,7 +1030,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
 
     // STEP 6: Now proceed with PR creation
     const result = await preparePrFromParams({
-      session: sessionName,
+      _session: sessionName,
       title: params.title,
       body: bodyContent,
       baseBranch: params.baseBranch,
@@ -1047,7 +1048,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
-        } catch (___error) {
+        } catch {
           log.warn(
             `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
           );
@@ -1056,9 +1057,9 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     }
 
     return result;
-  } catch (___error) {
+  } catch {
     log.error("Error creating PR for session", {
-      session: params.session,
+      _session: params.session,
       task: params.task,
       bodyPath: params.bodyPath,
       error: error instanceof Error ? error.message : String(error),
@@ -1209,7 +1210,7 @@ export async function approveSessionFromParams(
         workingDirectory,
         `git push origin --delete ${prBranch}`
       );
-    } catch (___error) {
+    } catch {
       // Remote branch doesn't exist, which is fine - just log it
       log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
     }
@@ -1230,7 +1231,7 @@ export async function approveSessionFromParams(
       try {
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
         log.cli(`Updated task ${taskId} status to DONE`);
-      } catch (___error) {
+      } catch {
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
         log.error(errorMsg, { taskId, error });
@@ -1240,12 +1241,12 @@ export async function approveSessionFromParams(
     }
 
     return mergeInfo;
-  } catch (___error) {
+  } catch {
     if (error instanceof MinskyError) {
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to approve _session: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -1364,7 +1365,7 @@ export async function sessionReviewFromParams(
       if (sessionContext) {
         sessionNameToUse = sessionContext;
       }
-    } catch (___error) {
+    } catch {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from repo path", {
         error: error instanceof Error ? error.message : String(error),
@@ -1381,7 +1382,7 @@ export async function sessionReviewFromParams(
       if (sessionContext) {
         sessionNameToUse = sessionContext;
       }
-    } catch (___error) {
+    } catch {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
         error: error instanceof Error ? error.message : String(error),
@@ -1440,7 +1441,7 @@ export async function sessionReviewFromParams(
       } else {
         log.debug("Task service does not support getTaskSpecData method");
       }
-    } catch (___error) {
+    } catch {
       log.debug("Error getting task specification", {
         error: error instanceof Error ? error.message : String(error),
         taskId,
@@ -1486,7 +1487,7 @@ export async function sessionReviewFromParams(
         result.prDescription = prDescription;
       }
     }
-  } catch (___error) {
+  } catch {
     log.debug("Error getting PR description", {
       error: error instanceof Error ? error.message : String(error),
       prBranch: prBranchToUse,
@@ -1523,7 +1524,7 @@ export async function sessionReviewFromParams(
     );
 
     result.diff = diffOutput;
-  } catch (___error) {
+  } catch {
     log.debug("Error getting diff information", {
       error: error instanceof Error ? error.message : String(error),
       baseBranch,

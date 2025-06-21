@@ -68,7 +68,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       if (!validBackends.includes(config.backends.default)) {
         errors.push({
           field: "backends.default",
-          message: `Invalid backend: ${config.backends.default}. Valid options: ${validBackends.join(", ")}`,
+          message: `Invalid backend: ${config.backends.default}. Valid _options: ${validBackends.join(", ")}`,
           code: "INVALID_BACKEND"
         });
       }
@@ -129,7 +129,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       if (!validSources.includes(github.source)) {
         errors.push({
           field: "credentials.github.source",
-          message: `Invalid credential source: ${github.source}. Valid options: ${validSources.join(", ")}`,
+          message: `Invalid credential source: ${github.source}. Valid _options: ${validSources.join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE"
         });
       }

@@ -123,7 +123,7 @@ export interface CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): SharedCommand | undefined;
+  getCommand(_id: string): SharedCommand | undefined;
 
   /**
    * Get all commands in a specific category
@@ -156,7 +156,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    */
   registerCommand<T extends CommandParameterMap, R>(
     commandDef: CommandDefinition<T, R>,
-    options: { allowOverwrite?: boolean } = {}
+    _options: { allowOverwrite?: boolean } = {}
   ): void {
     if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
@@ -171,7 +171,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(id: string): SharedCommand | undefined {
+  getCommand(_id: string): SharedCommand | undefined {
     return this.commands.get(id);
   }
 
@@ -200,7 +200,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns True if command is registered, false otherwise
    */
-  hasCommand(id: string): boolean {
+  hasCommand(_id: string): boolean {
     return this.commands.has(id);
   }
 

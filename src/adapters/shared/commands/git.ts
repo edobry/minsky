@@ -189,7 +189,7 @@ const prCommandParams: CommandParameterMap = {
 export function registerGitCommands(): void {
   // Register git commit command
   sharedCommandRegistry.registerCommand({
-    id: "git.commit",
+    _id: "git.commit",
     category: CommandCategory.GIT,
     name: "commit",
     description: "Commit changes to the repository",
@@ -203,7 +203,7 @@ export function registerGitCommands(): void {
         amend: params.amend,
         noStage: params.noStage,
         repo: params.repo,
-        session: params.session,
+        _session: params.session,
       });
 
       return {
@@ -216,7 +216,7 @@ export function registerGitCommands(): void {
 
   // Register git push command
   sharedCommandRegistry.registerCommand({
-    id: "git.push",
+    _id: "git.push",
     category: CommandCategory.GIT,
     name: "push",
     description: "Push changes to the remote repository",
@@ -226,7 +226,7 @@ export function registerGitCommands(): void {
 
       const result = await pushFromParams({
         repo: params.repo,
-        session: params.session,
+        _session: params.session,
         remote: params.remote,
         force: params.force,
         debug: params.debug,
@@ -241,7 +241,7 @@ export function registerGitCommands(): void {
 
   // Register git clone command
   sharedCommandRegistry.registerCommand({
-    id: "git.clone",
+    _id: "git.clone",
     category: CommandCategory.GIT,
     name: "clone",
     description: "Clone a Git repository",
@@ -251,7 +251,7 @@ export function registerGitCommands(): void {
 
       const result = await cloneFromParams({
         url: params.url,
-        session: params.session,
+        _session: params.session,
         destination: params.destination,
         branch: params.branch,
       });
@@ -266,7 +266,7 @@ export function registerGitCommands(): void {
 
   // Register git branch command
   sharedCommandRegistry.registerCommand({
-    id: "git.branch",
+    _id: "git.branch",
     category: CommandCategory.GIT,
     name: "branch",
     description: "Create a new branch",
@@ -275,7 +275,7 @@ export function registerGitCommands(): void {
       log.debug("Executing git.branch command", { params, context });
 
       const result = await branchFromParams({
-        session: params.session,
+        _session: params.session,
         name: params.name,
       });
 
@@ -289,7 +289,7 @@ export function registerGitCommands(): void {
 
   // Register git pr command
   sharedCommandRegistry.registerCommand({
-    id: "git.pr",
+    _id: "git.pr",
     category: CommandCategory.GIT,
     name: "pr",
     description: "Create a new pull request",
@@ -298,7 +298,7 @@ export function registerGitCommands(): void {
       log.debug("Executing git.pr command", { params, context });
 
       const result = await createPullRequestFromParams({
-        session: params.session,
+        _session: params.session,
         repo: params.repo,
         branch: params.branch,
         taskId: params.task,

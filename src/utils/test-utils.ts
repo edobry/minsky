@@ -78,7 +78,7 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
  * Handles cleanup automatically via afterEach
  */
 export function setupTestEnvironment(
-  options: {
+  _options: {
     mockDate?: boolean;
     createTempDir?: boolean;
   } = {}

@@ -26,7 +26,7 @@ export { normalizeRepoName };
  * Uses dependency injection for better testability
  */
 export async function resolveRepoPath(
-  options: RepoResolutionOptions,
+  _options: RepoResolutionOptions,
   depsInput?: Partial<RepoUtilsDependencies>
 ): Promise<string> {
   // Set up default dependencies if not provided
@@ -52,7 +52,7 @@ export async function resolveRepoPath(
   try {
     const { stdout } = await deps.execCwd("git rev-parse --show-toplevel");
     return stdout.trim();
-  } catch (___error) {
+  } catch {
     // If git command fails, fall back to process.cwd()
     return deps.getCurrentDirectory();
   }

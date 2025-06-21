@@ -161,7 +161,7 @@ function resetSharedState(): void {
     if (registryModule?.sharedCommandRegistry?.commands) {
       (registryModule.sharedCommandRegistry as any).commands = new Map();
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
@@ -179,7 +179,7 @@ function resetSharedState(): void {
         bridge.categoryCustomizations.clear();
       }
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist
   }
 
@@ -190,7 +190,7 @@ function resetSharedState(): void {
       // Reset any cached error state
       // Note: Most error handlers are stateless, but included for completeness
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist
   }
 
@@ -200,7 +200,7 @@ function resetSharedState(): void {
     if (compatModule?.resetAllMocks) {
       compatModule.resetAllMocks();
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist
   }
 
@@ -210,7 +210,7 @@ function resetSharedState(): void {
     if (jestCompatModule?.jest?.resetModules) {
       jestCompatModule.jest.resetModules();
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist
   }
 
@@ -224,7 +224,7 @@ function resetSharedState(): void {
         // Note: This is defensive - proper tests should restore their own mocks
       }
     }
-  } catch (___error) {
+  } catch {
     // Ignore errors if the module doesn't exist
   }
 }
@@ -251,7 +251,7 @@ function resetSharedState(): void {
  *
  * // Use in tests
  * const user = userService.getUser("123");
- * expect(user).toEqual({ id: "123", name: "Test User" });
+ * expect(user).toEqual({ _id: "123", name: "Test User" });
  * expect(userService.getUser).toHaveBeenCalledWith("123");
  *
  * @example
@@ -466,9 +466,9 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
  * @example
  * // Define an interface
  * interface UserService {
- *   getUser(id: string): Promise<User | null>;
- *   updateUser(id: string, data: any): Promise<boolean>;
- *   deleteUser(id: string): Promise<boolean>;
+ *   getUser(_id: string): Promise<User | null>;
+ *   updateUser(_id: string, data: any): Promise<boolean>;
+ *   deleteUser(_id: string): Promise<boolean>;
  * }
  *
  * // Create a partial mock with only some methods implemented

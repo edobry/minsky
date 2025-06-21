@@ -25,7 +25,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (___error) {
+  } catch {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
@@ -50,7 +50,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (___e) {
+  } catch {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

@@ -55,17 +55,17 @@ export interface TaskServiceInterface {
   /**
    * Get a task by ID
    */
-  getTask(id: string): Promise<Task | null>;
+  getTask(_id: string): Promise<Task | null>;
 
   /**
    * Get the status of a task
    */
-  getTaskStatus(id: string): Promise<string | null>;
+  getTaskStatus(_id: string): Promise<string | null>;
 
   /**
    * Set the status of a task
    */
-  setTaskStatus(id: string, status: string): Promise<void>;
+  setTaskStatus(_id: string, status: string): Promise<void>;
 
   /**
    * Get the workspace path for the current backend
@@ -102,12 +102,12 @@ export interface Task {
 export interface TaskBackend {
   name: string;
   listTasks(options?: TaskListOptions): Promise<Task[]>;
-  getTask(id: string): Promise<Task | null>;
-  getTaskStatus(id: string): Promise<string | null>;
-  setTaskStatus(id: string, status: string): Promise<void>;
+  getTask(_id: string): Promise<Task | null>;
+  getTaskStatus(_id: string): Promise<string | null>;
+  setTaskStatus(_id: string, status: string): Promise<void>;
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  setTaskMetadata?(id: string, metadata: any): Promise<void>;
+  setTaskMetadata?(_id: string, metadata: any): Promise<void>;
 }
 
 export interface TaskListOptions {
@@ -138,7 +138,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return tasks;
   }
 
-  async getTask(id: string): Promise<Task | null> {
+  async getTask(_id: string): Promise<Task | null> {
     const tasks = await this.parseTasks();
 
     // First try exact match
@@ -161,12 +161,12 @@ export class MarkdownTaskBackend implements TaskBackend {
     return null;
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(_id: string): Promise<string | null> {
     const task = await this.getTask(id);
     return task ? task.status : null;
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(_id: string, status: string): Promise<void> {
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
       throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
@@ -274,7 +274,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         });
       }
       return tasks;
-    } catch (___error) {
+    } catch {
       log.error("Error reading tasks file", { error, filePath: this.filePath });
       return [];
     }
@@ -284,12 +284,12 @@ export class MarkdownTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
     const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     try {
       await fs.access(fullSpecPath);
-    } catch (___error) {
+    } catch {
       throw new Error(`Spec file not found: ${specPath}`);
     }
 
@@ -390,7 +390,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const tasksDir = join(this.workspacePath, "process", "tasks");
       try {
         await fs.mkdir(tasksDir, { recursive: true });
-      } catch (___error) {
+      } catch {
         // Ignore if directory already exists
       }
 
@@ -400,7 +400,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (!options.force) {
           throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
         }
-      } catch (___error) {
+      } catch {
         // File doesn't exist, which is fine
       }
 
@@ -412,12 +412,12 @@ export class MarkdownTaskBackend implements TaskBackend {
         try {
           await fs.access(fullSpecPath);
           await fs.unlink(fullSpecPath);
-        } catch (___error) {
+        } catch {
           // If file doesn't exist or can't be deleted, just log it
-          log.warn("Could not delete original spec file", { error, path: fullSpecPath });
+          log.warn("Could not delete original spec file", { error, _path: fullSpecPath });
         }
       }
-    } catch (___error) {
+    } catch {
       throw new Error(
         `Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -446,7 +446,7 @@ export class MarkdownTaskBackend implements TaskBackend {
    * @param id Task ID
    * @param metadata Task metadata to update
    */
-  async setTaskMetadata(id: string, metadata: any): Promise<void> {
+  async setTaskMetadata(_id: string, metadata: any): Promise<void> {
     // First verify the task exists
     const task = await this.getTask(id);
     if (!task) {
@@ -482,7 +482,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       await fs.writeFile(specFilePath, updatedContent, "utf8");
 
       log.debug("Updated task metadata", { id, specFilePath, metadata });
-    } catch (___error) {
+    } catch {
       log.error("Failed to update task metadata", {
         error: error instanceof Error ? error.message : String(error),
         id,
@@ -509,17 +509,17 @@ export class GitHubTaskBackend implements TaskBackend {
     return [];
   }
 
-  async getTask(id: string): Promise<Task | null> {
+  async getTask(_id: string): Promise<Task | null> {
     log.debug("GitHub task backend not fully implemented", { method: "getTask", id });
     return null;
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(_id: string): Promise<string | null> {
     log.debug("GitHub task backend not fully implemented", { method: "getTaskStatus", id });
     return null;
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(_id: string, status: string): Promise<void> {
     log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, status });
   }
 
@@ -527,7 +527,7 @@ export class GitHubTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     // Implementation needed
     throw new Error("Method not implemented");
   }
@@ -542,7 +542,7 @@ export class TaskService {
   private backends: TaskBackend[] = [];
   private currentBackend: TaskBackend;
 
-  constructor(options: TaskServiceOptions = {}) {
+  constructor(_options: TaskServiceOptions = {}) {
     const { workspacePath = process.cwd(), backend = "markdown" } = options;
 
     // Initialize backends
@@ -566,15 +566,15 @@ export class TaskService {
     return this.currentBackend.listTasks(options);
   }
 
-  async getTask(id: string): Promise<Task | null> {
+  async getTask(_id: string): Promise<Task | null> {
     return this.currentBackend.getTask(id);
   }
 
-  async getTaskStatus(id: string): Promise<string | null> {
+  async getTaskStatus(_id: string): Promise<string | null> {
     return this.currentBackend.getTaskStatus(id);
   }
 
-  async setTaskStatus(id: string, status: string): Promise<void> {
+  async setTaskStatus(_id: string, status: string): Promise<void> {
     return this.currentBackend.setTaskStatus(id, status);
   }
 
@@ -582,7 +582,7 @@ export class TaskService {
     return this.currentBackend.getWorkspacePath();
   }
 
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     return this.currentBackend.createTask(specPath, options);
   }
 
@@ -591,7 +591,7 @@ export class TaskService {
    * @param id Task ID
    * @returns The appropriate task backend for the task, or null if not found
    */
-  async getBackendForTask(id: string): Promise<TaskBackend | null> {
+  async getBackendForTask(_id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {

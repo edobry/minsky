@@ -96,7 +96,7 @@ const patterns = {
 };
 
 interface TestFileAnalysis {
-  path: string;
+  _path: string;
   relativePath: string;
   size: number;
   counts: {
@@ -629,7 +629,7 @@ async function main() {
         `Vitest: ${report.categoryCounts.frameworkDependency.vitest}, ` +
         `None: ${report.categoryCounts.frameworkDependency.none}`
     );
-  } catch (___error) {
+  } catch {
     log.cliError("Error running test analyzer:", error);
     process.exit(1);
   }

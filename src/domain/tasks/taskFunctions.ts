@@ -90,7 +90,7 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
  * @param id Task ID to find
  * @returns Found task or null
  */
-export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
+export function getTaskById(tasks: TaskData[], _id: string): TaskData | null {
   if (!tasks || !id) return null;
 
   // First try exact match
@@ -120,7 +120,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @param id Task ID to normalize
  * @returns Normalized task ID or null if invalid
  */
-export function normalizeTaskId(id: string): string | null {
+export function normalizeTaskId(_id: string): string | null {
   if (!id) return null;
 
   // If already in #XXX format, validate and return
@@ -165,7 +165,7 @@ export function getNextTaskId(tasks: TaskData[]): string {
  * @param status New status
  * @returns New array with the updated task
  */
-export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
+export function setTaskStatus(tasks: TaskData[], _id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
   const normalizedId = normalizeTaskId(id);

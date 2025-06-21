@@ -35,7 +35,7 @@ export function createSpecCommand(): Command {
   command.action(
     async (
       taskId: string,
-      options: {
+      _options: {
         section?: string;
         session?: string;
         repo?: string;
@@ -102,7 +102,7 @@ export function createSpecCommand(): Command {
             }
           },
         });
-      } catch (___error) {
+      } catch {
         handleCliError(error);
       }
     }

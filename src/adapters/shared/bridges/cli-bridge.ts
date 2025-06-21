@@ -91,14 +91,14 @@ export class CliCommandBridge {
   /**
    * Register command customization options
    */
-  registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
+  registerCommandCustomization(commandId: string, _options: CliCommandOptions): void {
     this.customizations.set(commandId, options);
   }
 
   /**
    * Register category customization options
    */
-  registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
+  registerCategoryCustomization(category: CommandCategory, _options: CategoryCommandOptions): void {
     this.categoryCustomizations.set(category, options);
   }
 
@@ -217,7 +217,7 @@ export class CliCommandBridge {
             });
           }
         }
-      } catch (___error) {
+      } catch {
         // Handle any errors using the CLI error handler
         handleCliError(error);
       }
@@ -349,7 +349,7 @@ export class CliCommandBridge {
    */
   private createCommandParameterMappings(
     commandDef: SharedCommand,
-    options: CliCommandOptions
+    _options: CliCommandOptions
   ): ParameterMapping[] {
     const mappings = createParameterMappings(commandDef.parameters, options.parameters || {});
 
@@ -372,7 +372,7 @@ export class CliCommandBridge {
    */
   private extractRawParameters(
     parameters: CommandParameterMap,
-    options: Record<string, any>,
+    _options: Record<string, any>,
     positionalArgs: unknown[],
     mappings: ParameterMapping[]
   ): Record<string, any> {
@@ -497,7 +497,7 @@ export class CliCommandBridge {
   /**
    * Format session details for human-readable output
    */
-  private formatSessionDetails(session: Record<string, unknown>): void {
+  private formatSessionDetails(_session: Record<string, unknown>): void {
     if (!session) return;
 
     // Display session information in a user-friendly format
@@ -516,7 +516,7 @@ export class CliCommandBridge {
   /**
    * Format session summary for list views
    */
-  private formatSessionSummary(session: Record<string, unknown>): void {
+  private formatSessionSummary(_session: Record<string, unknown>): void {
     if (!session) return;
 
     const sessionName = session.session || "unknown";

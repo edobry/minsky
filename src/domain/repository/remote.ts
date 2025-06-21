@@ -75,7 +75,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(session: string): string {
+  private getSessionWorkdir(_session: string): string {
     // Use the new path structure with sessions subdirectory
     return join(this.baseDir, this.repoName, "sessions", session);
   }
@@ -85,7 +85,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(session: string): Promise<CloneResult> {
+  async clone(_session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
@@ -110,7 +110,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
 
       // Provide more informative error messages for common Git issues
@@ -132,7 +132,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
@@ -144,7 +144,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir,
         branch,
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to create branch in Git repository: ${error.message}`);
     }
@@ -155,7 +155,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Repository status information
    */
-  async getStatus(session: string): Promise<RepoStatus> {
+  async getStatus(_session: string): Promise<RepoStatus> {
     const workdir = this.getSessionWorkdir(session);
 
     try {
@@ -200,7 +200,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         clean: !dirty,
         changes: [],
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get Git repository status: ${error.message}`);
     }
@@ -211,7 +211,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the repository
    */
-  async getPath(session: string): Promise<string> {
+  async getPath(_session: string): Promise<string> {
     return this.getSessionWorkdir(session);
   }
 
@@ -252,7 +252,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Git repository URL validated successfully",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -331,7 +331,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Successfully pushed changes to remote repository",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -409,7 +409,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         success: true,
         message: "Successfully pulled changes from remote repository",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,

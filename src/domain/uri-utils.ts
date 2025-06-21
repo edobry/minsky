@@ -3,6 +3,7 @@
  * Provides functions for normalizing, validating, and converting repository URIs.
  */
 import { existsSync } from "fs";
+import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { basename } from "path";
 import { ValidationError } from "../errors/index.js";
 /**
@@ -81,7 +82,7 @@ const DEFAULT_URI_OPTIONS: UriOptions = {
  */
 export function normalizeRepositoryUri(
   uri: string,
-  options: UriOptions = DEFAULT_URI_OPTIONS
+  _options: UriOptions = DEFAULT_URI_OPTIONS
 ): RepositoryUri {
   if (!uri) {
     throw new ValidationError("Repository URI cannot be empty");
@@ -157,7 +158,7 @@ export function normalizeRepositoryUri(
       format = UriFormat.FILE;
     }
   }
-  // 5. Handle GitHub shorthand notation (org/repo)
+  // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
   else if (normalizedUri.match(/^[^\/]+\/[^\/]+$/)) {
     format = UriFormat.SHORTHAND;
     // Shorthand is already in org/repo format
@@ -192,7 +193,7 @@ export function normalizeRepositoryUri(
  */
 export function validateRepositoryUri(
   uri: string,
-  options: UriOptions = DEFAULT_URI_OPTIONS
+  _options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
   normalizeRepositoryUri(uri, options);
@@ -273,7 +274,7 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     const { execAsync } = await import("../utils/exec.js");
     const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
     return stdout.trim();
-  } catch (___error) {
+  } catch {
     // Not in a Git repository
     return undefined;
   }

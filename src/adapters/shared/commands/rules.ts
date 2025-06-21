@@ -227,7 +227,7 @@ const rulesSearchCommandParams: CommandParameterMap = {
 export function registerRulesCommands(): void {
   // Register rules list command
   sharedCommandRegistry.registerCommand({
-    id: "rules.list",
+    _id: "rules.list",
     category: CommandCategory.RULES,
     name: "list",
     description: "List all rules in the workspace",
@@ -254,7 +254,7 @@ export function registerRulesCommands(): void {
           success: true,
           rules,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to list rules", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -265,7 +265,7 @@ export function registerRulesCommands(): void {
 
   // Register rules get command
   sharedCommandRegistry.registerCommand({
-    id: "rules.get",
+    _id: "rules.get",
     category: CommandCategory.RULES,
     name: "get",
     description: "Get a specific rule by ID",
@@ -291,7 +291,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to get rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -303,7 +303,7 @@ export function registerRulesCommands(): void {
 
   // Register rules create command
   sharedCommandRegistry.registerCommand({
-    id: "rules.create",
+    _id: "rules.create",
     category: CommandCategory.RULES,
     name: "create",
     description: "Create a new rule",
@@ -346,7 +346,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to create rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -358,7 +358,7 @@ export function registerRulesCommands(): void {
 
   // Register rules update command
   sharedCommandRegistry.registerCommand({
-    id: "rules.update",
+    _id: "rules.update",
     category: CommandCategory.RULES,
     name: "update",
     description: "Update an existing rule",
@@ -410,7 +410,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to update rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -422,7 +422,7 @@ export function registerRulesCommands(): void {
 
   // Register rules search command
   sharedCommandRegistry.registerCommand({
-    id: "rules.search",
+    _id: "rules.search",
     category: CommandCategory.RULES,
     name: "search",
     description: "Search for rules by content or metadata",
@@ -451,7 +451,7 @@ export function registerRulesCommands(): void {
           query: params.query,
           matchCount: rules.length,
         };
-      } catch (___error) {
+      } catch {
         log.error("Failed to search rules", {
           error: error instanceof Error ? error.message : String(error),
           query: params.query,

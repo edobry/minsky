@@ -140,7 +140,7 @@ export function addForceOptions(command: Command): Command {
  * @param options CLI repository options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeRepoOptions(options: RepoOptions): {
+export function normalizeRepoOptions(_options: RepoOptions): {
   session?: string;
   repo?: string;
   workspace?: string;
@@ -158,7 +158,7 @@ export function normalizeRepoOptions(options: RepoOptions): {
  * @param options CLI output options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeOutputOptions(options: OutputOptions): {
+export function normalizeOutputOptions(_options: OutputOptions): {
   json?: boolean;
   debug?: boolean;
 } {
@@ -174,7 +174,7 @@ export function normalizeOutputOptions(options: OutputOptions): {
  * @param options CLI task options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeTaskOptions(options: TaskOptions): {
+export function normalizeTaskOptions(_options: TaskOptions): {
   task?: string;
 } {
   // If task ID is provided, normalize it
@@ -193,7 +193,7 @@ export function normalizeTaskOptions(options: TaskOptions): {
  * @returns Normalized parameter object for task domain functions
  */
 export function normalizeTaskParams<T extends RepoOptions & OutputOptions & BackendOptions>(
-  options: T
+  _options: T
 ): {
   session?: string;
   repo?: string;
@@ -215,7 +215,7 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
  * @returns Normalized parameter object for session domain functions
  */
 export function normalizeSessionParams<T extends RepoOptions & OutputOptions & TaskOptions>(
-  options: T
+  _options: T
 ): {
   session?: string;
   repo?: string;

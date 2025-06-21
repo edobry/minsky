@@ -32,7 +32,7 @@ export interface LocalSessionProviderInterface {
   /**
    * Get a specific session by name
    */
-  getSession(session: string): Promise<SessionRecord | null>;
+  getSession(_session: string): Promise<SessionRecord | null>;
 
   /**
    * Get a specific session by task ID
@@ -47,12 +47,12 @@ export interface LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  updateSession(session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+  updateSession(_session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
 
   /**
    * Delete a session by name
    */
-  deleteSession(session: string): Promise<boolean>;
+  deleteSession(_session: string): Promise<boolean>;
 
   /**
    * Get the repository path for a session
@@ -121,7 +121,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get a session by name
    */
-  async getSession(session: string): Promise<SessionRecord | null> {
+  async getSession(_session: string): Promise<SessionRecord | null> {
     await this.readDb();
     return getSessionFn(this.state, session);
   }
@@ -147,7 +147,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    * Update an existing session
    */
   async updateSession(
-    session: string,
+    _session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
     await this.readDb();
@@ -158,7 +158,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Delete a session
    */
-  async deleteSession(session: string): Promise<boolean> {
+  async deleteSession(_session: string): Promise<boolean> {
     await this.readDb();
     const originalLength = this.state.sessions.length;
     const newState = deleteSessionFn(this.state, session);

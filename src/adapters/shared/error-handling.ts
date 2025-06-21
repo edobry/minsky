@@ -160,7 +160,7 @@ export class SharedErrorHandler {
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  static handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
@@ -187,7 +187,7 @@ export class CliErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
@@ -255,7 +255,7 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response

@@ -27,7 +27,7 @@ export function createConfigShowCommand(): Command {
         } else {
           displayResolvedConfiguration(result.resolved);
         }
-      } catch (___error) {
+      } catch {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         process.exit(1);
       }

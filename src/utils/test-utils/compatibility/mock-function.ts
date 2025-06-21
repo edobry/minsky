@@ -221,7 +221,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
       });
 
       return result;
-    } catch (___error) {
+    } catch {
       // Track the error
       state.results.push({
         type: "throw",

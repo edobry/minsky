@@ -40,7 +40,7 @@ async function readContentFromFileIfExists(_contentPath: string): Promise<string
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (___error) {
+  } catch {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
@@ -65,7 +65,7 @@ function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (___e) {
+  } catch {
     // If JSON parsing fails, fall back to comma-separated string
   }
 
@@ -121,7 +121,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     name: "rules.get",
     description: "Get a specific rule by ID",
     parameters: z.object({
-      id: requiredString("Rule ID"),
+      _id: requiredString("Rule ID"),
       format: ruleFormatParam,
       debug: debugParam,
     }),
@@ -155,7 +155,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     name: "rules.create",
     description: "Create a new rule",
     parameters: z.object({
-      id: requiredString("ID of the rule to create"),
+      _id: requiredString("ID of the rule to create"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,
@@ -226,7 +226,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     name: "rules.update",
     description: "Update an existing rule",
     parameters: z.object({
-      id: requiredString("ID of the rule to update"),
+      _id: requiredString("ID of the rule to update"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
       name: ruleNameParam,

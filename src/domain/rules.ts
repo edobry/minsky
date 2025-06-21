@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
@@ -8,7 +9,7 @@ import * as jsYaml from "js-yaml";
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
 
 // Create a custom stringify function that doesn't add unnecessary quotes
-function customMatterStringify(_content: string, data: any): string {
+function customMatterStringify(_content: string, _data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
   const yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
@@ -83,7 +84,7 @@ export class RuleService {
   /**
    * List all rules in the workspace
    */
-  async listRules(options: RuleOptions = {}): Promise<Rule[]> {
+  async listRules(_options: RuleOptions = {}): Promise<Rule[]> {
     const rules: Rule[] = [];
     const formats: RuleFormat[] = options.format ? [options.format] : ["cursor", "generic"];
 
@@ -112,7 +113,7 @@ export class RuleService {
             }
 
             if (rule) rules.push(rule);
-          } catch (___error) {
+          } catch {
             log.error("Error processing rule file", {
               file,
               originalError: error instanceof Error ? error.message : String(error),
@@ -120,7 +121,7 @@ export class RuleService {
             });
           }
         }
-      } catch (___error) {
+      } catch {
         // Directory might not exist, which is fine
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
@@ -138,12 +139,12 @@ export class RuleService {
   /**
    * Get a specific rule by id
    */
-  async getRule(id: string, options: RuleOptions = {}): Promise<Rule> {
+  async getRule(_id: string, options: RuleOptions = {}): Promise<Rule> {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
     if (options.debug) {
-      log.debug("Getting rule", { id: bareId, requestedFormat: options.format });
+      log.debug("Getting rule", { _id: bareId, requestedFormat: options.format });
     }
 
     // If a specific format is requested, try that first
@@ -198,7 +199,7 @@ export class RuleService {
             log.error("Error parsing frontmatter", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, 200), // Log the first 200 chars for debugging
+              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
@@ -219,7 +220,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (___error) {
+      } catch {
         // Rule not found in the requested format
         if (options.debug) {
           log.debug("File not found in requested format", {
@@ -307,7 +308,7 @@ export class RuleService {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, 200), // Log the first 200 chars for debugging
+              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
@@ -325,7 +326,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (___error) {
+      } catch {
         // File doesn't exist in this format, try the next one
         if (options.debug) {
           log.debug("File not found in alternative format", {
@@ -339,7 +340,7 @@ export class RuleService {
 
     // If we reach here, the rule was not found in any format
     if (options.debug) {
-      log.error("Rule not found in any format", { id: bareId, requestedFormat: options.format });
+      log.error("Rule not found in any format", { _id: bareId, requestedFormat: options.format });
     }
 
     if (options.format) {
@@ -355,7 +356,7 @@ export class RuleService {
    * Create a new rule
    */
   async createRule(
-    id: string,
+    _id: string,
     content: string,
     meta: RuleMeta,
     options: CreateRuleOptions = {}
@@ -387,7 +388,7 @@ export class RuleService {
     await fs.writeFile(filePath, fileContent, "utf-8");
 
     log.debug("Rule created/updated", {
-      path: filePath,
+      _path: filePath,
       id,
       format,
       globs: cleanMeta.globs,
@@ -407,7 +408,7 @@ export class RuleService {
    * Update an existing rule
    */
   async updateRule(
-    id: string,
+    _id: string,
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
@@ -451,7 +452,7 @@ export class RuleService {
     await fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug("Rule updated", {
-      path: rule.path,
+      _path: rule.path,
       id,
       format: rule.format,
       contentChanged: !!options.content,
@@ -464,7 +465,7 @@ export class RuleService {
   /**
    * Search for rules by content or metadata
    */
-  async searchRules(options: SearchRuleOptions = {}): Promise<Rule[]> {
+  async searchRules(_options: SearchRuleOptions = {}): Promise<Rule[]> {
     // Get all rules first (with format filtering if specified)
     const rules = await this.listRules({
       format: options.format,

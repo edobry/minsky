@@ -64,7 +64,7 @@ export async function isSessionWorkspace(
     }
 
     return false;
-  } catch (___error) {
+  } catch {
     return false;
   }
 }
@@ -144,7 +144,7 @@ export async function getSessionFromWorkspace(
       session: sessionName,
       upstreamRepository: sessionRecord.repoUrl,
     };
-  } catch (___error) {
+  } catch {
     return null;
   }
 }
@@ -175,9 +175,9 @@ export async function resolveWorkspacePath(
       const processDir = join(options.workspace, "process");
       await access(processDir);
       return options.workspace;
-    } catch (___error) {
+    } catch {
       throw new Error(
-        `Invalid workspace path: ${options.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace _path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }
@@ -251,7 +251,7 @@ export async function getCurrentSessionContext(
       sessionId: currentSessionName,
       taskId: sessionRecord.taskId,
     };
-  } catch (___error) {
+  } catch {
     log.error("Error fetching session record", {
       sessionName: currentSessionName,
       error: error instanceof Error ? error.message : String(error),
@@ -270,17 +270,17 @@ export interface WorkspaceUtilsInterface {
   /**
    * Check if the current directory is a Minsky workspace
    */
-  isWorkspace(path: string): Promise<boolean>;
+  isWorkspace(_path: string): Promise<boolean>;
 
   /**
    * Check if the current directory is a session workspace
    */
-  isSessionWorkspace(path: string): Promise<boolean>;
+  isSessionWorkspace(_path: string): Promise<boolean>;
 
   /**
    * Get the current session name if in a session workspace
    */
-  getCurrentSession(repoPath: string): Promise<string | null>;
+  getCurrentSession(_repoPath: string): Promise<string | null>;
 
   /**
    * Get the session name from a workspace path
@@ -290,7 +290,7 @@ export interface WorkspaceUtilsInterface {
   /**
    * Resolve a workspace path from inputs
    */
-  resolveWorkspacePath(options: { workspace?: string; sessionRepo?: string }): Promise<string>;
+  resolveWorkspacePath(_options: { workspace?: string; sessionRepo?: string }): Promise<string>;
 }
 
 /**
@@ -301,20 +301,20 @@ export interface WorkspaceUtilsInterface {
  */
 export function createWorkspaceUtils(): WorkspaceUtilsInterface {
   return {
-    isWorkspace: async (path: string): Promise<boolean> => {
+    isWorkspace: async (_path: string): Promise<boolean> => {
       try {
         // A workspace is valid if it contains a process directory
         const processDir = join(path, "process");
         await fs.access(processDir);
         return true;
-      } catch (___error) {
+      } catch {
         return false;
       }
     },
 
     isSessionWorkspace,
 
-    getCurrentSession: async (repoPath: string): Promise<string | null> => {
+    getCurrentSession: async (_repoPath: string): Promise<string | null> => {
       return getCurrentSession(repoPath);
     },
 
@@ -323,7 +323,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       return result ? result.session : null;
     },
 
-    resolveWorkspacePath: async (options: {
+    resolveWorkspacePath: async (_options: {
       workspace?: string;
       sessionRepo?: string;
     }): Promise<string> => {

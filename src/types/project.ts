@@ -33,7 +33,7 @@ export function validateRepositoryPath(_repositoryPath: string): boolean {
   try {
     // Check if the path exists and is a directory
     return fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory();
-  } catch (___error) {
+  } catch {
     return false;
   }
 }

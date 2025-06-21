@@ -1,4 +1,5 @@
 import { join } from "path";
+import { HTTP_OK } from "../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
@@ -85,7 +86,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(session: string): string {
+  private getSessionWorkdir(_session: string): string {
     // Use the new path structure with sessions subdirectory
     return join(this.baseDir, this.repoName, "sessions", session);
   }
@@ -95,7 +96,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(session: string): Promise<CloneResult> {
+  async clone(_session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
@@ -116,7 +117,7 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
 
       // Provide more informative error messages for common GitHub issues
@@ -142,7 +143,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
@@ -154,7 +155,7 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         branch,
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to create branch in GitHub repository: ${error.message}`);
     }
@@ -247,7 +248,7 @@ export class GitHubBackend implements RepositoryBackend {
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to get GitHub repository status: ${error.message}`);
     }
@@ -258,7 +259,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatusForSession(session: string): Promise<RepositoryStatus> {
+  async getStatusForSession(_session: string): Promise<RepositoryStatus> {
     const workdir = this.getSessionWorkdir(session);
     return this.getStatus(); // Reuse the existing implementation
   }
@@ -284,7 +285,7 @@ export class GitHubBackend implements RepositoryBackend {
       if (repoSession) {
         return this.getSessionWorkdir(repoSession.session);
       }
-    } catch (___err) {
+    } catch {
       // If we can't find a session, just return the base directory
     }
 
@@ -330,7 +331,7 @@ export class GitHubBackend implements RepositoryBackend {
             issues: ["GitHub API rate limit or permissions issue. The repo may still be valid."],
             message: "GitHub API rate limit or permissions issue. The repo may still be valid.",
           };
-        } else if (statusCode !== 200) {
+        } else if (statusCode !== HTTP_OK) {
           return {
             valid: false,
             success: false,
@@ -345,7 +346,7 @@ export class GitHubBackend implements RepositoryBackend {
         success: true,
         message: "GitHub repository validated successfully",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         valid: false,
@@ -379,7 +380,7 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        session: sessionName,
+        _session: sessionName,
         repoPath: workdir,
         remote: "origin",
       });
@@ -390,7 +391,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -429,7 +430,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -444,7 +445,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name to checkout
    * @returns Promise resolving to void
    */
-  async checkout(branch: string): Promise<void> {
+  async checkout(_branch: string): Promise<void> {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
@@ -460,9 +461,9 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
-    } catch (___err) {
+    } catch {
       const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to checkout branch: ${error.message}`);
+      throw new Error(`Failed to checkout _branch: ${error.message}`);
     }
   }
 

@@ -30,7 +30,7 @@ export interface SessionDbState {
 /**
  * Initialize a new SessionDB state object
  */
-export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
+export function initializeSessionDbState(_options: { baseDir?: string } = {}): SessionDbState {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
 
