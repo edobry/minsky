@@ -55,7 +55,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (result: any) => void;
+  outputFormatter?: (result: unknown) => void;
 }
 
 /**
@@ -373,7 +373,7 @@ export class CliCommandBridge {
   private extractRawParameters(
     parameters: CommandParameterMap,
     options: Record<string, any>,
-    positionalArgs: any[],
+    positionalArgs: unknown[],
     mappings: ParameterMapping[]
   ): Record<string, any> {
     const result = { ...options };
@@ -401,9 +401,9 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+  private getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
     // Very simple default formatter
-    return (result: any) => {
+    return (result: unknown) => {
       if (Array.isArray(result)) {
         // Handle arrays specifically
         if (result.length === 0) {

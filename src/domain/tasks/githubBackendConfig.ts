@@ -112,7 +112,7 @@ export async function createGitHubLabels(
         });
         log.debug(`Label ${labelName} already exists`);
         continue;
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Label doesn't exist, continue to create it
         if (error.status !== 404) {
           throw error;

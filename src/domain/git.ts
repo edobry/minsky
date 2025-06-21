@@ -1153,7 +1153,7 @@ export class GitService implements GitServiceInterface {
     try {
       await execAsync(pushCmd);
       return { workdir, pushed: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Provide helpful error messages for common issues
       if (err.stderr && err.stderr.includes("[rejected]")) {
         throw new Error(
@@ -1759,7 +1759,7 @@ export class GitService implements GitServiceInterface {
     try {
       await deps.execAsync(pushCmd);
       return { workdir, pushed: true };
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Provide helpful error messages for common issues
       if (err.stderr && err.stderr.includes("[rejected]")) {
         throw new Error(

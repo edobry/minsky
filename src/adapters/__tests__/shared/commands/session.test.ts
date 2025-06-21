@@ -21,8 +21,8 @@ import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 setupTestMocks();
 
 // Custom matcher helper functions
-const arrayContaining = (arr: any[]) => ({
-  asymmetricMatch: (actual: any[]) =>
+const arrayContaining = (arr: unknown[]) => ({
+  asymmetricMatch: (actual: unknown[]) =>
     Array.isArray(actual) &&
     arr.every((item) =>
       actual.some((actualItem) => JSON.stringify(actualItem).includes(JSON.stringify(item)))

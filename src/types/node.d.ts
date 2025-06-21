@@ -63,6 +63,6 @@ declare namespace jest {
   interface Matchers<R> {
     not: Matchers<R>;
     toHaveBeenCalled(): R;
-    toHaveBeenCalledWith(...args: any[]): R;
+    toHaveBeenCalledWith(...args: unknown[]): R;
   }
 }

@@ -106,7 +106,7 @@ function displayConfigurationSources(sources: ConfigurationSources) {
   displayConfigSection(sources.defaults);
 }
 
-function displayResolvedConfiguration(resolved: any) {
+function displayResolvedConfiguration(resolved: unknown) {
   log.debug(`Backend: ${resolved.backend}`);
   
   if (Object.keys(resolved.backendConfig).length > 0) {
@@ -145,7 +145,7 @@ function displayResolvedConfiguration(resolved: any) {
   }
 }
 
-function displayConfigSection(config: any) {
+function displayConfigSection(config: unknown) {
   if (!config || Object.keys(config).length === 0) {
     log.debug("  (empty)");
     return;

@@ -22,7 +22,7 @@ export interface ParameterMappingOptions {
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
-  validator?: (value: any) => boolean;
+  validator?: (value: unknown) => boolean;
   /** Custom error message for validation failures */
   errorMessage?: string;
   /** Custom parser for the value */

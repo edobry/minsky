@@ -18,11 +18,11 @@ import {
 
 // Define interfaces for mock object types
 interface MockRuleService {
-  listRules: (options?: any) => Promise<any[]>;
+  listRules: (options?: unknown) => Promise<any[]>;
   getRule: (id: string, options?: any) => Promise<any>;
   createRule: (id: string, content: string, meta: any, options?: any) => Promise<any>;
   updateRule: (id: string, updates: any, options?: any) => Promise<any>;
-  searchRules: (options?: any) => Promise<any[]>;
+  searchRules: (options?: unknown) => Promise<any[]>;
 }
 
 describe("Shared Rules Commands", () => {
@@ -51,7 +51,7 @@ describe("Shared Rules Commands", () => {
 
     // Create mock object for methods
     mockRuleService = {
-      listRules: (options?: any) =>
+      listRules: (options?: unknown) =>
         Promise.resolve([
           {
             id: "test-rule-1",
@@ -107,7 +107,7 @@ describe("Shared Rules Commands", () => {
           globs: updates.meta?.globs || ["*.ts"],
           tags: updates.meta?.tags || ["test"],
         }),
-      searchRules: (options?: any) =>
+      searchRules: (options?: unknown) =>
         Promise.resolve([
           {
             id: "test-search-rule",

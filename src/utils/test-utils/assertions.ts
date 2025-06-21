@@ -39,7 +39,7 @@ export function expectToBeInstanceOf(value: any, constructor: Function): void {
  * Custom matcher to replicate Jest's not.toBeNull functionality
  * @param value The value to test
  */
-export function expectToNotBeNull(value: any): void {
+export function expectToNotBeNull(value: unknown): void {
   expect(value !== null).toBeTruthy();
 }
 
@@ -47,7 +47,7 @@ export function expectToNotBeNull(value: any): void {
  * Custom matcher to replicate Jest's toHaveBeenCalled functionality
  * @param mockFn The mock function to check
  */
-export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): void {
+export function expectToHaveBeenCalled(mockFn: { mock?: { calls: unknown[][] } }): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 }
 
@@ -57,8 +57,8 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): v
  * @param expectedArgs The expected arguments
  */
 export function expectToHaveBeenCalledWith(
-  mockFn: { mock?: { calls: any[][] } },
-  ...expectedArgs: any[]
+  mockFn: { mock?: { calls: unknown[][] } },
+  ...expectedArgs: unknown[]
 ): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 
@@ -85,10 +85,10 @@ export function expectToHaveBeenCalledWith(
  * @returns The argument at the specified position
  */
 export function getMockCallArg(
-  mockFn: { mock?: { calls: any[][] } },
+  mockFn: { mock?: { calls: unknown[][] } },
   callIndex = 0,
   argIndex = 0
-): any {
+): unknown {
   return mockFn.mock?.calls[callIndex]?.[argIndex];
 }
 
@@ -133,7 +133,7 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
  * @param received The array to test
  * @param expected The item that should be found in the array
  */
-export function expectToContainEqual(received: any[], expected: any): void {
+export function expectToContainEqual(received: unknown[], expected: any): void {
   const found = received.some((item) => {
     try {
       expect(item).toEqual(expected);
@@ -151,8 +151,8 @@ export function expectToContainEqual(received: any[], expected: any): void {
  * @param testFn The test function to execute with enhanced assertions
  * @returns A wrapped test function with enhanced assertions
  */
-export function withEnhancedAssertions<T extends (...args: any[]) => any>(testFn: T): T {
-  return function (this: any, ...args: any[]) {
+export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
+  return function (this: any, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);
   } as any;

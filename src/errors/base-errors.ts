@@ -6,7 +6,7 @@
 // Add declaration for captureStackTrace which might not be in the default Error type
 declare global {
   interface ErrorConstructor {
-    captureStackTrace(error: Error, constructor: (...args: any[]) => any): void;
+    captureStackTrace(error: Error, constructor: (...args: unknown[]) => any): void;
   }
 }
 
