@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 /**
  * Multi-Stage Smart Fixer
  * Stage 1: Use ESLint's --fix (AST-based guaranteed safe)  

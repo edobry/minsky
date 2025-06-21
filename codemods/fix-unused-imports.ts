@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 /**
  * Simple script to remove specific unused imports from session.test.ts
  * This serves as a proof of concept for automated unused import removal

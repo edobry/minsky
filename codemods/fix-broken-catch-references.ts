@@ -1,6 +1,5 @@
 import { test  } from "bun:test";
 // console is a global
-#!/usr/bin/env bun
 import { readFileSync, writeFileSync, readdirSync, statSync  } from 'fs';
 import { resolve, join, extname  } from 'path';
 

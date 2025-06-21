@@ -1,7 +1,6 @@
 import { test  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 /**
  * Phase 2 cleanup - targets additional patterns: unused constants type imports complex variable patterns
  */

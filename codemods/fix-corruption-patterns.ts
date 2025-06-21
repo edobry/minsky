@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 
 import { readdir, readFile, writeFile  } from "fs/promises";
 import { join  } from "path";

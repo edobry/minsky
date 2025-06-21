@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, it  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 
 /**
  * Fix Parsing Errors - Focused

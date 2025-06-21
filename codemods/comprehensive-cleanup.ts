@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 
 import { readFileSync, writeFileSync  } from "fs";
 import { execSync  } from "child_process";

@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 /**
  * Automated script to parse ESLint output and systematically remove ALL unused imports
  * across the entire codebase. This scales our proven approach to the full scope.

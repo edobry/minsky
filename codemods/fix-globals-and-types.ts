@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 
 import { readFileSync, writeFileSync, readdirSync, statSync  } from 'fs';
 import { join  } from 'path';

@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 
 /**
  * Final Unused Variables Cleanup

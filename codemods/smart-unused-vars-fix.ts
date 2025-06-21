@@ -1,7 +1,6 @@
 import { test  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 /**
  * Smart unused variables fix - only prefixes parameters that are truly unused
  */
