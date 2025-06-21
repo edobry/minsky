@@ -1,5 +1,4 @@
 // console is a global
-#!/usr/bin/env bun
 /**
  * Simple script to remove specific unused imports based on ESLint output
  * This targets the exact patterns ESLint reports as unused

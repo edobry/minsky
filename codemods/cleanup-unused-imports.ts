@@ -1,6 +1,5 @@
 import { test  } from "bun:test";
 // console is a global
-#!/usr/bin/env bun
 /**
  * Improved script to systematically remove unused imports from TypeScript files
  * Usage: bun run cleanup-unused-imports.ts [file1] [file2] ...

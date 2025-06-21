@@ -1,6 +1,5 @@
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 
 /**
  * Fix Unused Variables - Final Cleanup

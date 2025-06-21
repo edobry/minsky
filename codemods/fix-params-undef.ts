@@ -1,6 +1,5 @@
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 /**
  * Fix the most common no-undef pattern: params is not defined
  * This happens when functions have _params but use params inside

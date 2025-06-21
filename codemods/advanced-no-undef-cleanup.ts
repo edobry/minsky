@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 
 /**
  * Advanced No-Undef Cleanup

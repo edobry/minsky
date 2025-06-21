@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 
 /**
  * Fix Common Parsing Patterns

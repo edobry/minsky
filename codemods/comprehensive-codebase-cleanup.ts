@@ -1,7 +1,6 @@
 import { test  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 /**
  * Comprehensive codebase cleanup - fixes unused imports and variables across all TypeScript files
  */

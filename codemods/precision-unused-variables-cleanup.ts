@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 
 /**
  * Precision Unused Variables Cleanup

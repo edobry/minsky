@@ -1,7 +1,6 @@
 import { expect  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 
 /**
  * Fix Final Parsing Errors

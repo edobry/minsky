@@ -1,7 +1,6 @@
 import { test  } from "bun:test";
 // console is a global
 // process is a global
-#!/usr/bin/env bun
 /**
  * Focused unused parameter fixer - prefixes unused function parameters with underscore
  */
