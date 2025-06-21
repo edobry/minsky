@@ -13,7 +13,7 @@ describe("Session File Tools", () => {
     registerSessionFileTools(mockCommandMapper as any);
 
     // Should register 4 session file tools
-    expect(mockCommandMapper.addCommand).toHaveBeenCalledTimes(4);
+    expect(mockCommandMapper.addCommand.mock.calls.length).toBe(4);
 
     const calls = mockCommandMapper.addCommand.mock.calls;
 
@@ -27,11 +27,13 @@ describe("Session File Tools", () => {
     // Verify each command has proper structure
     calls.forEach((call: any) => {
       const command = call[0];
-      expect(command).toHaveProperty("name");
-      expect(command).toHaveProperty("description");
-      expect(command).toHaveProperty("inputSchema");
+      expect(command.name).toBeDefined();
+      expect(command.description).toBeDefined();
+      expect(command.parameters).toBeDefined();
+      expect(command.execute).toBeDefined();
       expect(typeof command.name).toBe("string");
       expect(typeof command.description).toBe("string");
+      expect(typeof command.execute).toBe("function");
     });
   });
 });
