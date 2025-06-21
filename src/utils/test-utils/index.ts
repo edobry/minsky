@@ -35,7 +35,7 @@ export {
 } from "../test-utils";
 
 // Export types commonly used in tests
-export interface MockFn<T extends (...args: any[]) => any> {
+export interface MockFn<T extends (...args: unknown[]) => any> {
   (...args: Parameters<T>): ReturnType<T>;
   mock: {
     calls: Array<Parameters<T>>;

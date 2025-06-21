@@ -35,7 +35,7 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  formatter?: (result: any) => void;
+  formatter?: (result: unknown) => void;
 }
 
 /**

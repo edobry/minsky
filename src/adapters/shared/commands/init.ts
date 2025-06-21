@@ -94,7 +94,7 @@ export function registerInitCommands() {
         const mcpOnly = params.mcpOnly ?? false;
         const overwrite = params.overwrite ?? false;
         // Map MCP options
-        let mcp: any = undefined;
+        let mcp: unknown = undefined;
         if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
@@ -112,7 +112,7 @@ export function registerInitCommands() {
           overwrite,
         });
         return { success: true, message: "Project initialized successfully." };
-      } catch (error: any) {
+      } catch (error: unknown) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error

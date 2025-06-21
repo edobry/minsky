@@ -16,7 +16,7 @@ describe("RuleService", () => {
   async function createTestRule(
     id: string,
     content: string,
-    meta: any = {},
+    meta: unknown = {},
     format: RuleFormat = "cursor"
   ): Promise<string> {
     const dir = format === "cursor" ? cursorRulesDir : genericRulesDir;

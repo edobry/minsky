@@ -98,7 +98,7 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  * @param task Legacy Task object
  * @returns TaskData object
  */
-export function toTaskData(task: any): TaskData {
+export function toTaskData(task: unknown): TaskData {
   return {
     id: task.id,
     title: task.title,
@@ -115,7 +115,7 @@ export function toTaskData(task: any): TaskData {
  * @param taskData TaskData object
  * @returns Legacy Task object
  */
-export function fromTaskData(taskData: TaskData): any {
+export function fromTaskData(taskData: TaskData): unknown {
   return {
     id: taskData.id,
     title: taskData.title,

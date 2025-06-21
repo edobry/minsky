@@ -67,7 +67,7 @@ class AnythingMatcher extends AsymmetricMatcherBase {
 class AnyMatcher extends AsymmetricMatcherBase {
   private readonly expectedType: any;
 
-  constructor(expectedType: any) {
+  constructor(expectedType: unknown) {
     super("Any");
     this.expectedType = expectedType;
   }
@@ -296,9 +296,9 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
  * Matcher that matches arrays containing specific items
  */
 class ArrayContainingMatcher extends AsymmetricMatcherBase {
-  private readonly expectedItems: any[];
+  private readonly expectedItems: unknown[];
 
-  constructor(expectedItems: any[]) {
+  constructor(expectedItems: unknown[]) {
     super("ArrayContaining");
     this.expectedItems = expectedItems;
   }
@@ -346,7 +346,7 @@ export const asymmetricMatchers = {
    *
    * @param constructor The constructor to match instances of
    */
-  any(constructor: any): AsymmetricMatcher {
+  any(constructor: unknown): AsymmetricMatcher {
     return new AnyMatcher(constructor);
   },
 
@@ -382,7 +382,7 @@ export const asymmetricMatchers = {
    *
    * @param items The items that should exist in the array
    */
-  arrayContaining(items: any[]): AsymmetricMatcher {
+  arrayContaining(items: unknown[]): AsymmetricMatcher {
     return new ArrayContainingMatcher(items);
   },
 };
@@ -392,7 +392,7 @@ export const asymmetricMatchers = {
  *
  * @param expectObj The expect object to enhance
  */
-export function registerAsymmetricMatchers(expectObj: any): void {
+export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
     if (!(key in expectObj)) {
@@ -404,7 +404,7 @@ export function registerAsymmetricMatchers(expectObj: any): void {
 /**
  * Check if an object is an asymmetric matcher
  */
-export function isAsymmetricMatcher(obj: any): obj is AsymmetricMatcher {
+export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
   return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
 }
 

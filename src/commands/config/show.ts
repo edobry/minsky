@@ -34,7 +34,7 @@ export function createConfigShowCommand(): Command {
     });
 }
 
-function displayResolvedConfiguration(resolved: any) {
+function displayResolvedConfiguration(resolved: unknown) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
   process.stdout.write("=".repeat(40) + "\n");
   

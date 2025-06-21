@@ -53,7 +53,7 @@ async function createTempDir() {
 
 // Custom TestGitHubBackend class that allows us to inject our mocks
 class TestGitHubBackend extends GitHubBackend {
-  constructor(config: any) {
+  constructor(config: unknown) {
     super(config);
     // @ts-ignore - Override private property for testing
     this.sessionDb = mockSessionDB;

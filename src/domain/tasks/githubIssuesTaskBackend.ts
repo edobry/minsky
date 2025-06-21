@@ -266,7 +266,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   parseTasks(content: string): TaskData[] {
     try {
       const issues = JSON.parse(content);
-      return issues.map((issue: any) => this.convertIssueToTaskData(issue));
+      return issues.map((issue: unknown) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
         error: error instanceof Error ? error.message : String(error),
@@ -409,7 +409,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
 
   // ---- Private Helper Methods ----
 
-  private convertIssueToTaskData(issue: any): TaskData {
+  private convertIssueToTaskData(issue: unknown): TaskData {
     const taskId = this.extractTaskIdFromIssue(issue);
     const status = this.getTaskStatusFromIssue(issue);
     
@@ -422,7 +422,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     };
   }
 
-  private convertTaskDataToIssueFormat(task: TaskData): any {
+  private convertTaskDataToIssueFormat(task: TaskData): unknown {
     return {
       title: task.title,
       body: task.description,
@@ -431,7 +431,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     };
   }
 
-  private extractTaskIdFromIssue(issue: any): string {
+  private extractTaskIdFromIssue(issue: unknown): string {
     // Try to extract task ID from title or body
     const titleMatch = issue.title.match(/#(\d+)/);
     if (titleMatch) {
@@ -447,12 +447,12 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return `#${issue.number}`;
   }
 
-  private getTaskStatusFromIssue(issue: any): string {
+  private getTaskStatusFromIssue(issue: unknown): string {
     // Check labels for status
     const labels = issue.labels || [];
     
     for (const [status, labelName] of Object.entries(this.statusLabels)) {
-      if (labels.some((label: any) => {
+      if (labels.some((label: unknown) => {
         const name = typeof label === "string" ? label : label.name;
         return name === labelName;
       })) {

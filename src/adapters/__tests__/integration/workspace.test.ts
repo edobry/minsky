@@ -276,7 +276,7 @@ describe("Workspace Domain Methods", () => {
       let errorThrown = false;
       try {
         await resolveWorkspacePath(options, { access: accessMock });
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Type error as any to access error.message
         errorThrown = true;
         expect(error.message).toContain("Invalid workspace path");

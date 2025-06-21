@@ -20,23 +20,23 @@ const mockExecOutput = {
 };
 
 // Manual mock function utility
-function createMockFn<T extends (...args: any[]) => any>(
+function createMockFn<T extends (...args: unknown[]) => any>(
   impl?: T
 ): T & {
-  calls: any[];
-  mockResolvedValue?: (v: any) => void;
+  calls: unknown[];
+  mockResolvedValue?: (v: unknown) => void;
   mockImplementation?: (_fn: T) => void;
   _impl?: T;
   _resolvedValue?: any;
 } {
-  const fn: any = (..._args: any[]) => {
+  const fn: unknown = (..._args: unknown[]) => {
     fn.calls.push(_args);
     if (typeof fn._impl === "function") return fn._impl(..._args);
     if (fn._resolvedValue !== undefined) return Promise.resolve(fn._resolvedValue);
     return undefined;
   };
   fn.calls = [];
-  fn.mockResolvedValue = (_v: any) => {
+  fn.mockResolvedValue = (_v: unknown) => {
     fn._resolvedValue = _v;
   };
   fn.mockImplementation = (_fn: T) => {
@@ -48,8 +48,8 @@ function createMockFn<T extends (...args: any[]) => any>(
 }
 
 // Mock the exec function
-const mockExecAsync = createMockFn((..._args: any[]) => {
-  const p: any = Promise.resolve({
+const mockExecAsync = createMockFn((..._args: unknown[]) => {
+  const p: unknown = Promise.resolve({
     stdout: mockExecOutput.stdout,
     stderr: mockExecOutput.stderr,
   });

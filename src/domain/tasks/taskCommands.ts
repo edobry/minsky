@@ -97,7 +97,7 @@ export async function listTasksFromParams(
       backend: validParams.backend,
     });
 
-    let tasks: any[];
+    let tasks: unknown[];
 
     // If status filter is explicitly provided, use it
     if (validParams.filter) {

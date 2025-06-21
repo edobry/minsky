@@ -13,7 +13,7 @@
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
 
-type MockFnType = <T extends (...args: any[]) => any>(implementation?: T) => any;
+type MockFnType = <T extends (...args: unknown[]) => any>(implementation?: T) => any;
 
 // Define a MockFunction type to replace jest.Mock
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
@@ -45,7 +45,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const result = mockGreet("World"); // TypeScript knows this returns string
  */
-export function mockFunction<T extends (...args: any[]) => any>(implementation?: T) {
+export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
   return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
@@ -75,7 +75,7 @@ export function mockFunction<T extends (...args: any[]) => any>(implementation?:
  * mockFn.mockImplementation(() => "new result");
  * expect(mockFn()).toBe("new result");
  */
-export function createMock<T extends (...args: any[]) => any>(implementation?: T) {
+export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
 }
@@ -265,7 +265,7 @@ function resetSharedState(): void {
  */
 export function createMockObject<T extends string>(
   methods: T[],
-  implementations: Partial<Record<T, (...args: any[]) => any>> = {}
+  implementations: Partial<Record<T, (...args: unknown[]) => any>> = {}
 ): Record<T, ReturnType<typeof createMock>> {
   return methods.reduce(
     (obj, method) => {
@@ -564,7 +564,7 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const mockFn = mock((...args: any[]) => {
+  const mockFn = mock((...args: unknown[]) => {
     return (original as Function).apply(obj, args);
   });
 

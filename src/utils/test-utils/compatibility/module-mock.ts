@@ -50,7 +50,7 @@ const defaultOptions: MockModuleOptions = {
  * @param actualModule The actual module to base mocks on
  * @returns A mocked version of the module
  */
-function createAutoMock(modulePath: string, actualModule: any): any {
+function createAutoMock(modulePath: string, actualModule: any): unknown {
   const mockExports: Record<string, any> = {};
 
   // Create a mock for each export
@@ -163,7 +163,7 @@ export function restoreAllModules(): void {
  * @param modulePath The path to the mocked module
  * @returns The mock implementation of the module or undefined if not mocked
  */
-export function getMockModule(modulePath: string): any {
+export function getMockModule(modulePath: string): unknown {
   return mockedModules.get(modulePath);
 }
 
@@ -177,7 +177,7 @@ export function getMockModule(modulePath: string): any {
 export function mockModuleFunction(
   modulePath: string,
   exportName: string,
-  mockImplementation: (...args: any[]) => any
+  mockImplementation: (...args: unknown[]) => any
 ): void {
   // Get the original module if we have it
   const originalModule = originalModules.get(modulePath);

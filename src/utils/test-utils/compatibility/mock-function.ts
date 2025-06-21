@@ -31,7 +31,7 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
   /**
    * The instances created when the mock was used as a constructor.
    */
-  instances: any[];
+  instances: unknown[];
 
   /**
    * The order of invocations of the mock function relative to other mocks.
@@ -86,7 +86,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
     /**
      * The instances created when the mock was used as a constructor.
      */
-    instances: any[];
+    instances: unknown[];
 
     /**
      * The order of invocations of the mock function relative to other mocks.
@@ -147,12 +147,12 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a promise return value that rejects with the given value.
    */
-  mockRejectedValue(value: any): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValue(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 
   /**
    * Sets a one-time promise return value that rejects with the given value.
    */
-  mockRejectedValueOnce(value: any): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValueOnce(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 }
 
 // Global counter for tracking invocation order
@@ -181,7 +181,7 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
  * @param implementation Optional initial implementation
  * @returns A Jest/Vitest compatible mock function
  */
-export function createCompatMock<T extends (...args: any[]) => any>(
+export function createCompatMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> {
   // Create the state object for tracking
@@ -359,7 +359,7 @@ export function createCompatMock<T extends (...args: any[]) => any>(
  * @param implementation Optional initial implementation
  * @returns A strongly typed mock function
  */
-export function createTypedMock<T extends (...args: any[]) => any>(
+export function createTypedMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> & T {
   return createCompatMock(implementation) as CompatMockFunction<ReturnType<T>, Parameters<T>> & T;
@@ -381,7 +381,7 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const mockFn = createCompatMock((...args: any[]) => {
+  const mockFn = createCompatMock((...args: unknown[]) => {
     if (typeof original === "function") {
       return (original as Function).apply(object, args);
     }
