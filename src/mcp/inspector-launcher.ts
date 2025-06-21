@@ -106,10 +106,10 @@ export function launchInspector(_options: InspectorOptions): InspectorLaunchResu
       args.push("--http-stream", `${mcpHost || "localhost"}:${mcpPort}`);
     }
 
-    log.debug("Launching MCP Inspector with arguments", { args });
+    log.debug("Launching MCP Inspector with arguments", { _args });
 
     // Spawn the inspector process
-    const inspectorProcess = spawn("mcp-inspector", args, {
+    const inspectorProcess = spawn("mcp-inspector", _args, {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });

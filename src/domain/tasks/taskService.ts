@@ -96,18 +96,18 @@ export class TaskService {
    * @param options Options for filtering tasks
    * @returns Promise resolving to array of tasks
    */
-  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
+  async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
     const result = await this.currentBackend.getTasksData();
-    if (!result.success || !result.content) {
+    if (!result.success || !result._content) {
       return [];
     }
 
     // Parse data using pure function
-    let tasks = this.currentBackend.parseTasks(result.content);
+    let tasks = this.currentBackend.parseTasks(result._content);
 
     // Apply filters if provided
-    if (options?.status) {
+    if (_options?.status) {
       tasks = tasks.filter((task) => task.status === options.status);
     }
 
@@ -176,12 +176,12 @@ export class TaskService {
 
     // Get all tasks
     const result = await this.currentBackend.getTasksData();
-    if (!result.success || !result.content) {
+    if (!result.success || !result._content) {
       throw new Error(`Failed to read tasks _data: ${result.error?.message}`);
     }
 
     // Parse tasks
-    const tasks = this.currentBackend.parseTasks(result.content);
+    const tasks = this.currentBackend.parseTasks(result._content);
 
     // Update the task status in the array
     const updatedTasks = tasks.map((t) => (t.id === task.id ? { ...t, status } : t));
@@ -213,19 +213,19 @@ export class TaskService {
   async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<TaskData> {
     // Read the spec file
     const specResult = await this.currentBackend.getTaskSpecData(specPath);
-    if (!specResult.success || !specResult.content) {
+    if (!specResult.success || !specResult._content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
 
     // Parse the spec
-    const spec = this.currentBackend.parseTaskSpec(specResult.content);
+    const spec = this.currentBackend.parseTaskSpec(specResult._content);
 
     // Generate task ID if not provided
     let taskId: string;
     if (spec.id) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(spec.id);
-      if (existingTask && !options.force) {
+      if (existingTask && !_options.force) {
         throw new Error(`Task ${spec.id} already exists. Use --force to overwrite.`);
       }
       taskId = spec.id;
@@ -244,7 +244,7 @@ export class TaskService {
       // BUG FIX: Preserve original content, only update the title line with task ID
       // This prevents content truncation caused by formatTaskSpec generating templates
       const originalContent = specResult.content;
-      const specPath = this.currentBackend.getTaskSpecPath(taskId, spec.title);
+      const specPath = this.currentBackend.getTaskSpecPath(_taskId, spec.title);
 
       // Find and replace the title line to add the task ID
       // Support both "# Task: Title" and "# Task #XXX: Title" formats
@@ -268,14 +268,14 @@ export class TaskService {
       title: spec.title,
       description: spec.description,
       status: "TODO",
-      specPath: this.currentBackend.getTaskSpecPath(taskId, spec.title),
+      specPath: this.currentBackend.getTaskSpecPath(_taskId, spec.title),
     };
 
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
     let tasks: TaskData[] = [];
-    if (tasksResult.success && tasksResult.content) {
-      tasks = this.currentBackend.parseTasks(tasksResult.content);
+    if (tasksResult.success && tasksResult._content) {
+      tasks = this.currentBackend.parseTasks(tasksResult._content);
     }
 
     // Add or replace the task
@@ -312,12 +312,12 @@ export class TaskService {
     for (const backend of this.backends) {
       // Get raw data
       const result = await backend.getTasksData();
-      if (!result.success || !result.content) {
+      if (!result.success || !result._content) {
         continue;
       }
 
       // Parse tasks
-      const tasks = backend.parseTasks(result.content);
+      const tasks = backend.parseTasks(result._content);
 
       // Check if task exists in this backend
       const taskExists = tasks.some((task) => task.id === normalizedId);
@@ -350,12 +350,12 @@ export class TaskService {
 
     // Read the spec file
     const specResult = await this.currentBackend.getTaskSpecData(task.specPath);
-    if (!specResult.success || !specResult.content) {
+    if (!specResult.success || !specResult._content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
 
     // Parse the spec
-    const spec = this.currentBackend.parseTaskSpec(specResult.content);
+    const spec = this.currentBackend.parseTaskSpec(specResult._content);
 
     // Update the metadata
     spec.metadata = {
@@ -395,7 +395,7 @@ export class TaskService {
 
     // Read the spec file
     const specResult = await this.currentBackend.getTaskSpecData(task.specPath);
-    if (!specResult.success || !specResult.content) {
+    if (!specResult.success || !specResult._content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
 
@@ -442,7 +442,7 @@ export class TaskService {
  * @returns TaskService instance
  */
 export function createTaskService(_options: TaskServiceOptions = {}): TaskService {
-  return new TaskService(options);
+  return new TaskService(_options);
 }
 
 /**
@@ -457,7 +457,7 @@ export async function createConfiguredTaskService(_options: TaskServiceOptions =
 
   // If backend is explicitly provided, use the original function
   if (backend) {
-    return createTaskService(options);
+    return createTaskService(_options);
   }
 
   try {

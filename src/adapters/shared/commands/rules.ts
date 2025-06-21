@@ -233,7 +233,7 @@ export function registerRulesCommands(): void {
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.list command", { params, context });
+      log.debug("Executing rules.list _command", { params, context });
 
       try {
         // Resolve workspace path
@@ -271,7 +271,7 @@ export function registerRulesCommands(): void {
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.get command", { params, context });
+      log.debug("Executing rules.get _command", { params, context });
 
       try {
         // Resolve workspace path
@@ -309,7 +309,7 @@ export function registerRulesCommands(): void {
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.create command", { params, context });
+      log.debug("Executing rules.create _command", { params, context });
 
       try {
         // Resolve workspace path
@@ -317,7 +317,7 @@ export function registerRulesCommands(): void {
         const ruleService = new RuleService(workspacePath);
 
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(params.content);
+        const content = await readContentFromFileIfExists(params._content);
 
         // Process globs and tags
         const globs = parseGlobs(params.globs);
@@ -337,7 +337,7 @@ export function registerRulesCommands(): void {
         const format = params.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.createRule(params.id, content, meta, {
+        const rule = await ruleService.createRule(params.id, _content, meta, {
           format,
           overwrite: params.overwrite,
         });
@@ -364,7 +364,7 @@ export function registerRulesCommands(): void {
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.update command", { params, context });
+      log.debug("Executing rules.update _command", { params, context });
 
       try {
         // Resolve workspace path
@@ -373,7 +373,7 @@ export function registerRulesCommands(): void {
 
         // Process content if provided (could be file path)
         const content = params.content
-          ? await readContentFromFileIfExists(params.content)
+          ? await readContentFromFileIfExists(params._content)
           : undefined;
 
         // Process globs and tags
@@ -397,7 +397,7 @@ export function registerRulesCommands(): void {
         const rule = await ruleService.updateRule(
           params.id,
           {
-            content,
+            _content,
             meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
           {
@@ -425,10 +425,10 @@ export function registerRulesCommands(): void {
     _id: "rules.search",
     category: CommandCategory.RULES,
     name: "search",
-    description: "Search for rules by content or metadata",
+    description: "Search for rules by _content or metadata",
     parameters: rulesSearchCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.search command", { params, context });
+      log.debug("Executing rules.search _command", { params, context });
 
       try {
         // Resolve workspace path

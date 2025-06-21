@@ -69,13 +69,13 @@ export function addArgumentsFromMappings(_command: Command, mappings: ParameterM
       const argName = formatArgumentName(
         mapping.name,
         mapping.paramDef.required,
-        mapping.options.variadic
+        mapping._options.variadic
       );
 
       // Add the argument to the command
       command.argument(
         argName,
-        mapping.options.description || mapping.paramDef.description || "",
+        mapping._options.description || mapping.paramDef.description || "",
         mapping.options.parser
       );
     });
@@ -87,28 +87,28 @@ export function addArgumentsFromMappings(_command: Command, mappings: ParameterM
  * Creates a Commander.js Option from a parameter mapping
  */
 function createOptionFromMapping(_mapping: ParameterMapping): Option {
-  const { name, paramDef, options } = mapping;
+  const { name, paramDef, _options } = mapping;
 
   // Get schema type for proper option definition
   const schemaType = getZodSchemaType(paramDef.schema);
 
   // Format option flag
-  const flag = formatOptionFlag(name, options.alias, schemaType);
+  const flag = formatOptionFlag(name, _options.alias, schemaType);
 
   // Create the option
-  const option = new Option(flag, options.description || paramDef.description || "");
+  const option = new Option(flag, _options.description || paramDef.description || "");
 
   // Apply additional configuration
-  if (options.hidden) {
+  if (_options.hidden) {
     option.hideHelp();
   }
 
-  if (paramDef.defaultValue !== undefined || options.defaultValue !== undefined) {
-    option.default(options.defaultValue ?? paramDef.defaultValue);
+  if (paramDef.defaultValue !== undefined || _options.defaultValue !== undefined) {
+    option.default(_options.defaultValue ?? paramDef.defaultValue);
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(option, schemaType, options.parser);
+  addTypeHandlingToOption(option, schemaType, _options.parser);
 
   return option;
 }
@@ -231,7 +231,7 @@ export function createParameterMappings(
     name,
     paramDef,
     _options: {
-      // Apply default options
+      // Apply default _options
       hidden: paramDef.cliHidden,
 
       // Override with custom options if available

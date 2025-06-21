@@ -47,7 +47,7 @@ export interface TaskBackend {
    * @param content Raw content to parse
    * @returns Array of task data objects
    */
-  parseTasks(content: string): TaskData[];
+  parseTasks(_content: string): TaskData[];
 
   /**
    * Format task data objects into raw content
@@ -61,7 +61,7 @@ export interface TaskBackend {
    * @param content Raw task specification content
    * @returns Parsed task specification data
    */
-  parseTaskSpec(content: string): TaskSpecData;
+  parseTaskSpec(_content: string): TaskSpecData;
 
   /**
    * Format task specification data into raw content
@@ -77,7 +77,7 @@ export interface TaskBackend {
    * @param content Formatted tasks content
    * @returns Promise resolving to operation result
    */
-  saveTasksData(content: string): Promise<TaskWriteOperationResult>;
+  saveTasksData(_content: string): Promise<TaskWriteOperationResult>;
 
   /**
    * Save task specification data
@@ -85,7 +85,7 @@ export interface TaskBackend {
    * @param content Formatted task specification content
    * @returns Promise resolving to operation result
    */
-  saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult>;
+  saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult>;
 
   // ---- Helper Methods ----
 
@@ -101,7 +101,7 @@ export interface TaskBackend {
    * @param title Task title
    * @returns Task specification file path
    */
-  getTaskSpecPath(taskId: string, title: string): string;
+  getTaskSpecPath(_taskId: string, title: string): string;
 
   /**
    * Check if file exists

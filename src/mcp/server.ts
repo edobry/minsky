@@ -93,7 +93,7 @@ export class MinskyMCPServer {
     // Create the MCP server
     this.server = new Server(
       {
-        name: this.options.name,
+        name: this._options.name,
         version: this.options.version,
       },
       {
@@ -221,7 +221,7 @@ export class MinskyMCPServer {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (_request: unknown) => {
-      const { name, arguments: args } = request.params;
+      const { name, arguments: _args } = request.params;
 
       try {
         let result: any;
@@ -231,19 +231,19 @@ export class MinskyMCPServer {
             result = await this.handleGitStatus();
             break;
           case "git.log":
-            result = await this.handleGitLog(args?.maxCount as number | undefined);
+            result = await this.handleGitLog(_args?.maxCount as number | undefined);
             break;
           case "tasks.list":
             result = await this.handleTasksList();
             break;
           case "tasks.create":
-            result = await this.handleTasksCreate(args?.title as string, args?.description as string | undefined);
+            result = await this.handleTasksCreate(_args?.title as string, args?.description as string | undefined);
             break;
           case "tasks.update":
-            result = await this.handleTasksUpdate(args?.id as string, args?.title as string | undefined, args?.description as string | undefined);
+            result = await this.handleTasksUpdate(_args?.id as string, args?.title as string | undefined, args?.description as string | undefined);
             break;
           case "session.create":
-            result = await this.handleSessionCreate(args?.taskId as string);
+            result = await this.handleSessionCreate(_args?.taskId as string);
             break;
           case "session.list":
             result = await this.handleSessionList();
@@ -300,7 +300,7 @@ export class MinskyMCPServer {
     return `Updated task ${id}${title ? ` with title: ${title}` : ""}${description ? ` and description: ${description}` : ""}`;
   }
 
-  private async handleSessionCreate(taskId: string): Promise<string> {
+  private async handleSessionCreate(_taskId: string): Promise<string> {
     return `Created session for task: ${taskId}`;
   }
 
@@ -316,24 +316,24 @@ export class MinskyMCPServer {
    * Start the MCP server with the configured transport
    */
   async start(): Promise<void> {
-    log.agent(`Starting Minsky MCP Server (${this.options.name}) with ${this.options.transportType} transport`);
+    log.agent(`Starting Minsky MCP Server (${this._options.name}) with ${this.options.transportType} transport`);
 
-    if (this.options.transportType === "stdio") {
+    if (this._options.transportType === "stdio") {
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
       log.agent("MCP Server started with stdio transport");
-    } else if (this.options.transportType === "sse") {
+    } else if (this._options.transportType === "sse") {
       const transport = new SSEServerTransport(
-        this.options.sse.path ?? "/sse",
+        this._options.sse.path ?? "/sse",
         {
           port: this.options.sse.port,
           host: this.options.sse.host,
         }
       );
       await this.server.connect(transport);
-      log.agent(`MCP Server started with SSE transport on ${this.options.sse.host ?? "localhost"}:${this.options.sse.port}${this.options.sse.path ?? "/sse"}`);
+      log.agent(`MCP Server started with SSE transport on ${this._options.sse.host ?? "localhost"}:${this.options.sse.port}${this.options.sse.path ?? "/sse"}`);
     } else {
-      throw new Error(`Unsupported transport type: ${this.options.transportType}`);
+      throw new Error(`Unsupported transport type: ${this._options.transportType}`);
     }
   }
 

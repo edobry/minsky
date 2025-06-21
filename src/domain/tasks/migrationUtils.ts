@@ -75,7 +75,7 @@ export class BackendMigrationUtils {
     log.debug("Starting task migration", {
       from: sourceBackend.name,
       to: targetBackend.name,
-      options,
+      _options,
     });
 
     let backupData: BackupData | null = null;
@@ -98,17 +98,17 @@ export class BackendMigrationUtils {
 
       // Get source tasks
       const sourceDataResult = await sourceBackend.getTasksData();
-      if (!sourceDataResult.success || !sourceDataResult.content) {
+      if (!sourceDataResult.success || !sourceDataResult._content) {
         throw new Error("Failed to get source tasks data");
       }
-      const sourceTasks = sourceBackend.parseTasks(sourceDataResult.content);
+      const sourceTasks = sourceBackend.parseTasks(sourceDataResult._content);
 
       // Get target tasks to check for conflicts
       const targetDataResult = await targetBackend.getTasksData();
-      if (!targetDataResult.success || !targetDataResult.content) {
+      if (!targetDataResult.success || !targetDataResult._content) {
         throw new Error("Failed to get target tasks data");
       }
-      const targetTasks = targetBackend.parseTasks(targetDataResult.content);
+      const targetTasks = targetBackend.parseTasks(targetDataResult._content);
 
       // Resolve ID conflicts and transform tasks
       const transformedTasks = await this.transformTasks(
@@ -218,7 +218,7 @@ export class BackendMigrationUtils {
     const backupPath = `migration-backup-${backend.name}-${timestamp}`;
     
     const dataResult = await backend.getTasksData();
-    if (!dataResult.success || !dataResult.content) {
+    if (!dataResult.success || !dataResult._content) {
       throw new Error("Failed to get data for backup");
     }
     
@@ -275,8 +275,8 @@ export class BackendMigrationUtils {
         // Handle ID conflicts
         let finalTask = { ...task };
         
-        if (options.preserveIds && targetIds.has(task.id)) {
-          switch (options.idConflictStrategy) {
+        if (_options.preserveIds && targetIds.has(task.id)) {
+          switch (_options.idConflictStrategy) {
           case "skip":
             skipped.push(task);
             continue;
@@ -294,13 +294,13 @@ export class BackendMigrationUtils {
           task.status,
           sourceBackend.name,
           targetBackend.name,
-          options.statusMapping
+          _options.statusMapping
         );
 
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
       } catch {
-        log.warn("Failed to transform task", { taskId: task.id, error });
+        log.warn("Failed to transform task", { _taskId: task.id, error });
         skipped.push(task);
       }
     }
@@ -368,7 +368,7 @@ export class BackendMigrationUtils {
     _options: MigrationOptions
   ): Promise<MigrationResult> {
     return this.migrateTasksBetweenBackends(sourceBackend, targetBackend, {
-      ...options,
+      ..._options,
       dryRun: true,
       createBackup: false,
     });

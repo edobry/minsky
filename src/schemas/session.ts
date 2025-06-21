@@ -166,7 +166,7 @@ export const sessionPrParamsSchema = z
     title: z.string().min(1).describe("PR title (required)"),
     body: z.string().optional().describe("PR body text"),
     bodyPath: z.string().optional().describe("Path to file containing PR body text"),
-    baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
+    baseBranch: z.string().optional().describe("Base _branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
   })
@@ -190,7 +190,7 @@ export const sessionReviewParamsSchema = z
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),
-    prBranch: z.string().optional().describe("PR branch name (defaults to 'pr/<session>')"),
+    prBranch: z.string().optional().describe("PR _branch name (defaults to 'pr/<session>')"),
   })
   .merge(commonCommandOptionsSchema);
 

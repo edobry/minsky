@@ -143,13 +143,13 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(_session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
 
       return {
         workdir,
@@ -157,7 +157,7 @@ export class GitHubBackend implements RepositoryBackend {
       };
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create branch in GitHub repository: ${error.message}`);
+      throw new Error(`Failed to create _branch in GitHub repository: ${error.message}`);
     }
   }
 
@@ -314,7 +314,7 @@ export class GitHubBackend implements RepositoryBackend {
         // Note: Using public API without token for validation only
         const command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
 
-        const { stdout } = await execAsync(command);
+        const { stdout } = await execAsync(_command);
         const statusCode = parseInt(stdout.trim(), 10);
 
         if (statusCode === 404) {
@@ -460,7 +460,7 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
-      await execAsync(`git -C ${workdir} checkout ${branch}`);
+      await execAsync(`git -C ${workdir} checkout ${_branch}`);
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to checkout _branch: ${error.message}`);

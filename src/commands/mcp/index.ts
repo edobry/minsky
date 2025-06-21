@@ -44,21 +44,21 @@ export function createMCPCommand(): Command {
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
     .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
-    .action(async (options) => {
+    .action(async (_options) => {
       try {
         // Determine transport type based on options
         let transportType: "stdio" | "httpStream" = "stdio";
-        if (options.httpStream) {
+        if (_options.httpStream) {
           transportType = "httpStream";
         }
 
         // Set port (used for HTTP Stream)
-        const port = parseInt(options.port, 10);
+        const port = parseInt(_options.port, 10);
 
         // Validate and prepare repository path if provided
         let projectContext;
-        if (options.repo) {
-          const repositoryPath = path.resolve(options.repo);
+        if (_options.repo) {
+          const repositoryPath = path.resolve(_options.repo);
           // Validate that the path exists and is a directory
           if (!fs.existsSync(repositoryPath)) {
             log.cliError(`Repository path does not exist: ${repositoryPath}`);
@@ -71,7 +71,7 @@ export function createMCPCommand(): Command {
 
           try {
             projectContext = createProjectContext(repositoryPath);
-            log.debug("Using repository path from command line", {
+            log.debug("Using repository path from _command line", {
               repositoryPath,
             });
           } catch {
@@ -86,7 +86,7 @@ export function createMCPCommand(): Command {
         log.debug("Starting MCP server", {
           transportType,
           port,
-          host: options.host,
+          host: _options.host,
           repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
@@ -127,18 +127,18 @@ export function createMCPCommand(): Command {
           log.cli(`Repository _path: ${projectContext.repositoryPath}`);
         }
         if (transportType !== "stdio") {
-          log.cli(`Listening on ${options.host}:${port}`);
+          log.cli(`Listening on ${_options.host}:${port}`);
         }
 
         // Launch inspector if requested
-        if (options.withInspector) {
+        if (_options.withInspector) {
           // Check if inspector is available
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
             );
           } else {
-            const inspectorPort = parseInt(options.inspectorPort, 10);
+            const inspectorPort = parseInt(_options.inspectorPort, 10);
 
             // Launch the inspector
             const inspectorResult = launchInspector({
@@ -146,7 +146,7 @@ export function createMCPCommand(): Command {
               openBrowser: true,
               mcpTransportType: transportType,
               mcpPort: transportType !== "stdio" ? port : undefined,
-              mcpHost: transportType !== "stdio" ? options.host : undefined,
+              mcpHost: transportType !== "stdio" ? _options.host : undefined,
             });
 
             if (inspectorResult.success) {
@@ -177,7 +177,7 @@ export function createMCPCommand(): Command {
       } catch {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: options.httpStream ? "httpStream" : "stdio",
+          transportType: _options.httpStream ? "httpStream" : "stdio",
           port: options.port,
           host: options.host,
           withInspector: options.withInspector || false,
@@ -187,8 +187,8 @@ export function createMCPCommand(): Command {
 
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
-          const port = parseInt(options.port, 10);
-          const networkError = createNetworkError(error, port, options.host);
+          const port = parseInt(_options.port, 10);
+          const networkError = createNetworkError(error, port, _options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions

@@ -66,7 +66,7 @@ class CliCommandFactory {
    */
   customizeCommand(commandId: ValidCommandId, _options: CliCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCommandCustomization(commandId, options);
+    cliBridge.registerCommandCustomization(commandId, _options);
   }
 
   /**
@@ -77,7 +77,7 @@ class CliCommandFactory {
    */
   customizeCategory(category: CommandCategory, _options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCategoryCustomization(category, options);
+    cliBridge.registerCategoryCustomization(category, _options);
   }
 
   /**
@@ -138,7 +138,7 @@ const cliFactory = new CliCommandFactory();
  * @deprecated Use cliFactory.customizeCommand() instead
  */
 export function customizeCommand(commandId: string, _options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId, options);
+  cliFactory.customizeCommand(commandId, _options);
 }
 
 /**
@@ -149,7 +149,7 @@ export function customizeCategory(
   category: CommandCategory,
   _options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, options);
+  cliFactory.customizeCategory(category, _options);
 }
 
 /**
@@ -212,9 +212,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
-          taskId: {
+          _taskId: {
             asArgument: true,
-            description: "ID of the task to retrieve specification content for",
+            description: "ID of the task to retrieve specification _content for",
           },
           section: {
             description: "Specific section of the specification to retrieve",

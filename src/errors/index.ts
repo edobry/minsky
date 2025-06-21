@@ -81,7 +81,7 @@ export class ConfigurationError extends MinskyError {
 export class GitOperationError extends MinskyError {
   constructor(
     message: string,
-    public readonly command?: string,
+    public readonly _command?: string,
     cause?: unknown
   ) {
     super(message, cause);

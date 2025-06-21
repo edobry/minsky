@@ -132,13 +132,13 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(_session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
     try {
       // Create the branch in the specified session's repo
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
 
       return {
         workdir,
@@ -146,7 +146,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       };
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create branch in Git repository: ${error.message}`);
+      throw new Error(`Failed to create _branch in Git repository: ${error.message}`);
     }
   }
 
@@ -302,7 +302,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           const branch = branchOutput.trim();
 
           // Push to remote
-          await execAsync(`git -C ${workdir} push origin ${branch}`);
+          await execAsync(`git -C ${workdir} push origin ${_branch}`);
         } catch (___pushError) {
           const error = pushError instanceof Error ? pushError : new Error(String(pushError));
           if (error.message.includes("Authentication failed")) {
@@ -380,7 +380,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           const branch = branchOutput.trim();
 
           // Pull from remote
-          await execAsync(`git -C ${workdir} pull origin ${branch}`);
+          await execAsync(`git -C ${workdir} pull origin ${_branch}`);
         } catch (___pullError) {
           const error = pullError instanceof Error ? pullError : new Error(String(pullError));
           if (error.message.includes("Authentication failed")) {

@@ -127,7 +127,7 @@ export const NO_STATUS_UPDATE_DESCRIPTION = "Skip updating task status";
 /**
  * Description for rule content option
  */
-export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing content)";
+export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing _content)";
 
 /**
  * Description for rule description option

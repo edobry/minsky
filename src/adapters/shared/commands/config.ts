@@ -67,7 +67,7 @@ const configListRegistration = {
   name: "list",
   description: "Show all configuration from all sources",
   parameters: configListParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     const workspacePath = params.workspace || process.cwd();
     
     try {
@@ -101,7 +101,7 @@ const configShowRegistration = {
   name: "show",
   description: "Show the final resolved configuration",
   parameters: configShowParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
+  execute: async (params, _ctx: CommandExecutionContext) => {
     const workspacePath = params.workspace || process.cwd();
     
     try {

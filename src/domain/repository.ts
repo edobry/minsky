@@ -190,17 +190,17 @@ export interface RepositoryBackend {
 
   /**
    * Push changes to the remote repository.
-   * @param branch Branch to push (defaults to current branch)
+   * @param branch Branch to push (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  push(branch?: string): Promise<any>;
+  push(_branch?: string): Promise<any>;
 
   /**
    * Pull changes from the remote repository.
-   * @param branch Branch to pull (defaults to current branch)
+   * @param branch Branch to pull (defaults to current _branch)
    * @returns Result of the operation (may be void or a more detailed result)
    */
-  pull(branch?: string): Promise<any>;
+  pull(_branch?: string): Promise<any>;
 
   /**
    * Create a new branch and switch to it.
@@ -344,7 +344,7 @@ export async function createRepositoryBackend(
         };
       },
 
-      push: async (branch?: string): Promise<void> => {
+      push: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -364,7 +364,7 @@ export async function createRepositoryBackend(
         });
       },
 
-      pull: async (branch?: string): Promise<void> => {
+      pull: async (_branch?: string): Promise<void> => {
         // Find an existing session for this repository
         const sessionDb = new (await import("./session.js")).SessionDB();
         const sessions = await sessionDb.listSessions();
@@ -409,7 +409,7 @@ export async function createRepositoryBackend(
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} checkout ${branch}`
+          `git -C ${workdir} checkout ${_branch}`
         );
       },
 
@@ -447,7 +447,7 @@ export async function createRepositoryBackend(
 export async function resolveRepository(
   _options: RepositoryResolutionOptions = {}
 ): Promise<ResolvedRepository> {
-  const { uri, session, taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
+  const { uri, session, _taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
   let repositoryUri: string | undefined;
   let backendType = RepositoryBackendType.LOCAL;
@@ -468,12 +468,12 @@ export async function resolveRepository(
       (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 3. Try to resolve from task ID
-  else if (taskId) {
+  else if (_taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
     const sessionDb = new SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
-      throw new ValidationError(`No session found for task: ${taskId}`);
+      throw new ValidationError(`No session found for task: ${_taskId}`);
     }
     repositoryUri = sessionRecord.repoUrl;
     backendType =
@@ -547,7 +547,7 @@ export async function resolveRepoPath(_options: {
 
   try {
     const repository = await resolveRepository({
-      uri: options.repo,
+      uri: _options.repo,
       _session: options.session,
       autoDetect: true,
     });

@@ -151,9 +151,9 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @param testFn The test function to execute with enhanced assertions
  * @returns A wrapped test function with enhanced assertions
  */
-export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
-  return function (this: any, ...args: unknown[]) {
+export function withEnhancedAssertions<T extends (..._args: unknown[]) => any>(testFn: T): T {
+  return function (this: any, ..._args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
-    return testFn.apply(this, args);
+    return testFn.apply(this, _args);
   } as any;
 }

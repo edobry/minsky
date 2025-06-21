@@ -163,27 +163,27 @@ export const getSessionFromRepo = getSessionFromWorkspace;
  * 3. Use current directory as workspace
  */
 export async function resolveWorkspacePath(
-  options?: WorkspaceResolutionOptions,
+  _options?: WorkspaceResolutionOptions,
   deps: TestDependencies = {}
 ): Promise<string> {
   const { access = fs.access } = deps;
 
   // If workspace path is explicitly provided, use it
-  if (options?.workspace) {
+  if (_options?.workspace) {
     // Validate if it's a valid workspace
     try {
-      const processDir = join(options.workspace, "process");
+      const processDir = join(_options.workspace, "process");
       await access(processDir);
       return options.workspace;
     } catch {
       throw new Error(
-        `Invalid workspace _path: ${options.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace _path: ${_options.workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }
 
   // For backward compatibility, use sessionRepo if provided
-  if (options?.sessionRepo) {
+  if (_options?.sessionRepo) {
     return options.sessionRepo;
   }
 
@@ -327,7 +327,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       workspace?: string;
       sessionRepo?: string;
     }): Promise<string> => {
-      return resolveWorkspacePath(options);
+      return resolveWorkspacePath(_options);
     },
   };
 }

@@ -30,7 +30,7 @@ export function registerInitTools(commandMapper: CommandMapper): void {
           host: z.string().optional().describe("Host for MCP network transports"),
         })
         .optional()
-        .describe("MCP configuration options"),
+        .describe("MCP configuration _options"),
       mcpOnly: z
         .boolean()
         .optional()

@@ -39,7 +39,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       destination: z.string().optional().describe("Target directory for the clone"),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
     }),
-    async (args) => {
+    async (_args) => {
       const params = {
         ...args,
       };
@@ -56,13 +56,13 @@ export function registerGitTools(commandMapper: CommandMapper): void {
 
   // Git branch command
   commandMapper.addGitCommand(
-    "branch",
+    "_branch",
     "Create a branch in a repository",
     z.object({
       _session: z.string().describe(SESSION_DESCRIPTION),
-      name: z.string().describe("Name of the branch to create"),
+      name: z.string().describe("Name of the _branch to create"),
     }),
-    async (args) => {
+    async (_args) => {
       const params = {
         ...args,
       };
@@ -87,7 +87,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       force: z.boolean().optional().describe(GIT_FORCE_DESCRIPTION),
     }),
-    async (args) => {
+    async (_args) => {
       const params = {
         ...args,
         debug: true, // Enable debugging for MCP commands
@@ -115,7 +115,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
       noStatusUpdate: z.boolean().optional().describe(NO_STATUS_UPDATE_DESCRIPTION),
     }),
-    async (args) => {
+    async (_args) => {
       const params = {
         ...args,
         taskId: args.task, // Map task parameter to taskId for domain function
@@ -144,7 +144,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       all: z.boolean().optional().describe("Stage all changes"),
       noStage: z.boolean().optional().describe("Skip staging changes"),
     }),
-    async (args) => {
+    async (_args) => {
       const params = {
         ...args,
       };

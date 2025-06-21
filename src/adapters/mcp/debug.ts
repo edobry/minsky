@@ -46,10 +46,10 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
         // Allow any additional properties for flexible testing
       })
       .passthrough(),
-    execute: async (args) => {
+    execute: async (_args) => {
       // Log the echo request
       log.debug("Debug echo request", {
-        args,
+        _args,
       });
 
       // Return the provided arguments with a timestamp

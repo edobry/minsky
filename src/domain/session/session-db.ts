@@ -57,7 +57,7 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
 /**
  * Get a specific session by task ID
  */
-export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
+export function getSessionByTaskIdFn(state: SessionDbState, _taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
   return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;

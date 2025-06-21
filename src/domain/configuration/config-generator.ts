@@ -27,7 +27,7 @@ export class ConfigurationGenerator {
   /**
    * Generate and write repository configuration file
    */
-  generateRepositoryConfig(workingDir: string, _options: RepositoryConfigOptions): void {
+  generateRepositoryConfig(_workingDir: string, _options: RepositoryConfigOptions): void {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
@@ -36,8 +36,8 @@ export class ConfigurationGenerator {
     };
 
     // Add GitHub-specific configuration
-    if (options.backend === "github-issues") {
-      if (!options.githubOwner || !options.githubRepo) {
+    if (_options.backend === "github-issues") {
+      if (!_options.githubOwner || !options.githubRepo) {
         throw new Error("GitHub owner and repo are required for github-issues backend");
       }
       config.backends!["github-issues"] = {
@@ -56,7 +56,7 @@ export class ConfigurationGenerator {
       ]
     };
 
-    this.writeRepositoryConfig(workingDir, config);
+    this.writeRepositoryConfig(_workingDir, config);
   }
 
   /**
@@ -67,14 +67,14 @@ export class ConfigurationGenerator {
       version: 1
     };
 
-    if (options.githubToken || options.githubTokenSource) {
+    if (_options.githubToken || options.githubTokenSource) {
       config.credentials = {
         github: {
           source: options.githubTokenSource || "file"
         }
       };
 
-      if (options.githubToken && options.githubTokenSource === "file") {
+      if (_options.githubToken && options.githubTokenSource === "file") {
         config.credentials.github.token = options.githubToken;
       }
     }
@@ -85,8 +85,8 @@ export class ConfigurationGenerator {
   /**
    * Write repository configuration file
    */
-  private writeRepositoryConfig(workingDir: string, config: RepositoryConfig): void {
-    const configDir = join(workingDir, ".minsky");
+  private writeRepositoryConfig(_workingDir: string, config: RepositoryConfig): void {
+    const configDir = join(_workingDir, ".minsky");
     const configPath = join(configDir, "config.yaml");
 
     // Ensure .minsky directory exists
@@ -148,8 +148,8 @@ export class ConfigurationGenerator {
   /**
    * Get the repository configuration file path
    */
-  static getRepositoryConfigPath(workingDir: string): string {
-    return join(workingDir, CONFIG_PATHS.REPOSITORY);
+  static getRepositoryConfigPath(_workingDir: string): string {
+    return join(_workingDir, CONFIG_PATHS.REPOSITORY);
   }
 
   /**

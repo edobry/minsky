@@ -39,7 +39,7 @@ import type {
 // These will eventually be moved to the tasks.js schema file
 export const taskSpecContentParamsSchema = z
   .object({
-    taskId: z.string().min(1).describe("ID of the task to retrieve specification content for"),
+    _taskId: z.string().min(1).describe("ID of the task to retrieve specification _content for"),
     section: z
       .string()
       .optional()
@@ -72,7 +72,7 @@ export async function listTasksFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (_options) => await createConfiguredTaskService(_options),
   }
 ): Promise<any[]> {
   try {
@@ -138,15 +138,15 @@ export async function getTaskFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (_options) => await createConfiguredTaskService(_options),
   }
 ): Promise<any> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId(params._taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -173,11 +173,11 @@ export async function getTaskFromParams(
     });
 
     // Get the task
-    const task = await taskService.getTask(validParams.taskId);
+    const task = await taskService.getTask(validParams._taskId);
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
+        `Task ${validParams._taskId} not found`,
         "task",
         validParams.taskId
       );
@@ -207,15 +207,15 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createTaskService: async (_options) => await createConfiguredTaskService(_options),
   }
 ): Promise<string> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId(params._taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -242,11 +242,11 @@ export async function getTaskStatusFromParams(
     });
 
     // Get the task status
-    const status = await taskService.getTaskStatus(validParams.taskId);
+    const status = await taskService.getTaskStatus(validParams._taskId);
 
     if (!status) {
       throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found or has no status`,
+        `Task ${validParams._taskId} not found or has no status`,
         "task",
         validParams.taskId
       );
@@ -279,15 +279,15 @@ export async function setTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: (_options) => createTaskService(_options),
   }
 ): Promise<void> {
   try {
     // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId(params._taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -314,17 +314,17 @@ export async function setTaskStatusFromParams(
     });
 
     // Verify the task exists before setting status
-    const task = await taskService.getTask(validParams.taskId);
+    const task = await taskService.getTask(validParams._taskId);
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
+        `Task ${validParams._taskId} not found`,
         "task",
         validParams.taskId
       );
     }
 
     // Set the task status
-    await taskService.setTaskStatus(validParams.taskId, validParams.status);
+    await taskService.setTaskStatus(validParams._taskId, validParams.status);
   } catch {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -352,7 +352,7 @@ export async function createTaskFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: (_options) => createTaskService(_options),
   }
 ): Promise<any> {
   try {
@@ -406,7 +406,7 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (options) => createTaskService(options),
+    createTaskService: (_options) => createTaskService(_options),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
   try {
@@ -432,10 +432,10 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Get the task
-    const task = await taskService.getTask(validParams.taskId);
+    const task = await taskService.getTask(validParams._taskId);
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
+        `Task ${validParams._taskId} not found`,
         "task",
         validParams.taskId
       );
@@ -445,7 +445,7 @@ export async function getTaskSpecContentFromParams(
     const specPath = task.specPath;
     if (!specPath) {
       throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} has no specification file`,
+        `Task ${validParams._taskId} has no specification file`,
         "task",
         validParams.taskId
       );

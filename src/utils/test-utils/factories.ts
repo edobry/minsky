@@ -57,7 +57,7 @@ export function createTaskDataArray(
 export function createSessionData(
   overrides: {
     session?: string;
-    taskId?: string;
+    _taskId?: string;
     repoName?: string;
     repoPath?: string;
     branch?: string;
@@ -92,7 +92,7 @@ export function createSessionDataArray(
     .map((_, index) => {
       const taskId = `${100 + index}`;
       return createSessionData({
-        taskId,
+        _taskId,
         ...commonOverrides,
       });
     });

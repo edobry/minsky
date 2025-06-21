@@ -20,7 +20,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
-        throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
+        throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
       }
     }
     // If path doesn't exist, return the original string as content
@@ -32,7 +32,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
     }
 
     // For other errors, throw a clear error message
-    throw new Error(`Failed to read content from file ${contentPath}: ${error}`);
+    throw new Error(`Failed to read _content from file ${contentPath}: ${error}`);
   }
 }
 

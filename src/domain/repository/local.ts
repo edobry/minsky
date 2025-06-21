@@ -103,12 +103,12 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(_session: string, branch: string): Promise<BranchResult> {
+  async branch(_session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
 
     // Create the branch in the specified session's repo
-    await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+    await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
 
     return {
       workdir,

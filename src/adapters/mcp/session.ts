@@ -35,7 +35,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "list",
     "List all sessions",
     z.object({}),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -55,7 +55,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session to retrieve"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -83,7 +83,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       // Always set quiet to true as required by project rules
       const params = {
         ...args,
@@ -113,14 +113,14 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
-      if (!args.name && !args.task) {
+      if (!_args.name && !args.task) {
         throw new Error("Either session name or task ID must be provided");
       }
 
       // Special handling for task-based deletion
-      if (args.task && !args.name) {
+      if (_args.task && !args.name) {
         // Find the session by task ID first using getSessionFromParams
         const taskParams = {
           task: args.task,
@@ -129,7 +129,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
 
         const session = await getSessionFromParams(taskParams);
         if (!session) {
-          throw new Error(`No session found for task ${args.task}`);
+          throw new Error(`No session found for task ${_args.task}`);
         }
 
         // Now we can delete with the session name
@@ -173,7 +173,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true,
@@ -192,7 +192,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session update command
   commandMapper.addSessionCommand(
     "update",
-    "Update a session with the latest changes from the main branch",
+    "Update a session with the latest changes from the main _branch",
     z.object({
       name: z.string().describe("Name of the session to update"),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
@@ -201,7 +201,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    async (_args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         noStash: args.noStash || false,

@@ -96,7 +96,7 @@ export interface ValidationWarning {
 export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
-  loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult>;
+  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
   validateRepositoryConfig(config: RepositoryConfig): ValidationResult;
   validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult;
 }
@@ -108,9 +108,9 @@ export interface CredentialManager {
 }
 
 export interface BackendDetector {
-  detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string>;
-  githubRemoteExists(workingDir: string): Promise<boolean>;
-  tasksMdExists(workingDir: string): Promise<boolean>;
+  detectBackend(_workingDir: string, rules: DetectionRule[]): Promise<string>;
+  githubRemoteExists(_workingDir: string): Promise<boolean>;
+  tasksMdExists(_workingDir: string): Promise<boolean>;
 }
 
 // Default configuration values

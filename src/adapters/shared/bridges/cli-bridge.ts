@@ -92,14 +92,14 @@ export class CliCommandBridge {
    * Register command customization options
    */
   registerCommandCustomization(commandId: string, _options: CliCommandOptions): void {
-    this.customizations.set(commandId, options);
+    this.customizations.set(commandId, _options);
   }
 
   /**
    * Register category customization options
    */
   registerCategoryCustomization(category: CommandCategory, _options: CategoryCommandOptions): void {
-    this.categoryCustomizations.set(category, options);
+    this.categoryCustomizations.set(category, _options);
   }
 
   /**
@@ -129,7 +129,7 @@ export class CliCommandBridge {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
-        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
+        `[CLI Bridge] Direct usage detected for _command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
@@ -144,21 +144,21 @@ export class CliCommandBridge {
     const command = new Command(commandDef.name).description(commandDef.description);
 
     // Add aliases if specified
-    if (options.aliases?.length) {
-      command.aliases(options.aliases);
+    if (_options.aliases?.length) {
+      command.aliases(_options.aliases);
     }
 
     // Hide from help if specified
-    if (options.hidden) {
+    if (_options.hidden) {
       // Alternative approach: use a special prefix that can be filtered out
-      command.description(`[HIDDEN] ${command.description()}`);
+      command.description(`[HIDDEN] ${_command.description()}`);
     }
 
     // Create parameter mappings
-    const mappings = this.createCommandParameterMappings(commandDef, options);
+    const mappings = this.createCommandParameterMappings(commandDef, _options);
 
     // Add arguments to the command
-    addArgumentsFromMappings(command, mappings);
+    addArgumentsFromMappings(_command, mappings);
 
     // Add options to the command
     createOptionsFromMappings(mappings).forEach((option) => {
@@ -166,11 +166,11 @@ export class CliCommandBridge {
     });
 
     // Add action handler
-    command.action(async (...args) => {
+    command.action(async (..._args) => {
       // Last argument is always the Command instance in Commander.js
       const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, args.length - 1);
+      const positionalArgs = args.slice(0, _args.length - 1);
 
       try {
         // Create combined parameters from options and arguments
@@ -199,7 +199,7 @@ export class CliCommandBridge {
         const result = await commandDef.execute(normalizedParams, context);
 
         // Handle output
-        if (options.outputFormatter) {
+        if (_options.outputFormatter) {
           // Use custom formatter if provided
           options.outputFormatter(result);
         } else {
@@ -283,7 +283,7 @@ export class CliCommandBridge {
         const childName = nameParts[1];
 
         if (!parentName || !childName) {
-          log.warn(`Invalid command name structure: ${commandDef.name}`);
+          log.warn(`Invalid _command name structure: ${commandDef.name}`);
           return;
         }
 
@@ -304,7 +304,7 @@ export class CliCommandBridge {
         }
       } else {
         // More complex nesting - handle it recursively or warn
-        log.warn(`Complex command nesting not yet supported: ${commandDef.name}`);
+        log.warn(`Complex _command nesting not yet supported: ${commandDef.name}`);
         const subcommand = this.generateCommand(commandDef.id, context);
         if (subcommand) {
           categoryCommand.addCommand(subcommand);
@@ -351,10 +351,10 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     _options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(commandDef.parameters, options.parameters || {});
+    const mappings = createParameterMappings(commandDef.parameters, _options.parameters || {});
 
     // If automatic argument generation is enabled
-    if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
+    if (_options.useFirstRequiredParamAsArgument && !options.forceOptions) {
       // Find the first required parameter to use as an argument
       const firstRequiredIndex = mappings.findIndex((mapping) => mapping.paramDef.required);
 
@@ -502,10 +502,10 @@ export class CliCommandBridge {
 
     // Display session information in a user-friendly format
     if (session.session) log.cli(`Session: ${session.session}`);
-    if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
+    if (session._taskId) log.cli(`Task ID: ${session._taskId}`);
     if (session.repoName) log.cli(`Repository: ${session.repoName}`);
     if (session.repoPath) log.cli(`Session Path: ${session.repoPath}`);
-    if (session.branch) log.cli(`Branch: ${session.branch}`);
+    if (session._branch) log.cli(`Branch: ${session._branch}`);
     if (session.createdAt) log.cli(`Created: ${session.createdAt}`);
     if (session.backendType) log.cli(`Backend: ${session.backendType}`);
     if (session.repoUrl && session.repoUrl !== session.repoName) {
@@ -520,10 +520,10 @@ export class CliCommandBridge {
     if (!session) return;
 
     const sessionName = session.session || "unknown";
-    const taskId = session.taskId ? ` (${session.taskId})` : "";
+    const taskId = session.taskId ? ` (${session._taskId})` : "";
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
-    log.cli(`${sessionName}${taskId}${repoName}`);
+    log.cli(`${sessionName}${_taskId}${repoName}`);
   }
 
   /**
@@ -591,8 +591,8 @@ export function registerCategorizedCliCommands(
       const commands = sharedCommandRegistry.getCommandsByCategory(category);
       commands.forEach((commandDef) => {
         const command = cliBridge.generateCommand(commandDef.id);
-        if (command) {
-          program.addCommand(command);
+        if (_command) {
+          program.addCommand(_command);
         }
       });
     });

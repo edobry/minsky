@@ -34,7 +34,7 @@ export type GitCloneParams = z.infer<typeof gitCloneParamsSchema>;
  */
 export const gitBranchParamsSchema = z
   .object({
-    name: z.string().min(1).describe("Name of the branch to create"),
+    name: z.string().min(1).describe("Name of the _branch to create"),
     repo: repoPathSchema.optional().describe("Path to the git repository"),
   })
   .merge(commonCommandOptionsSchema);

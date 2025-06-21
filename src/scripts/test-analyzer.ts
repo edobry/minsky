@@ -168,7 +168,7 @@ function extractImports(_content: string): string[] {
   const imports: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = importRegex.exec(content)) !== null) {
+  while ((match = importRegex.exec(_content)) !== null) {
     const importPath = match[1];
     if (importPath) {
       imports.push(importPath);
@@ -186,7 +186,7 @@ function extractMockDependencies(_content: string): string[] {
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = mockRegex.exec(content)) !== null) {
+  while ((match = mockRegex.exec(_content)) !== null) {
     const dependency = match[1];
     if (dependency) {
       dependencies.push(dependency);
@@ -219,8 +219,8 @@ async function analyzeTestFile(_path: string): Promise<TestFileAnalysis> {
   }
 
   // Extract imports and mock dependencies
-  const imports = extractImports(content);
-  const mockDependencies = extractMockDependencies(content);
+  const imports = extractImports(_content);
+  const mockDependencies = extractMockDependencies(_content);
 
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);

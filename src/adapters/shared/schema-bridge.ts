@@ -198,7 +198,7 @@ export function parameterToOptionFlag(
  * @returns The command with options added
  */
 export function addOptionsToCommand(
-  command: Command,
+  _command: Command,
   parameters: CommandParameterMap,
   shortFlags: Record<string, string> = {}
 ): Command {

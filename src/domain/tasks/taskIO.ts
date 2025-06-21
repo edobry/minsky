@@ -44,10 +44,10 @@ export async function readTasksFile(_filePath: string): Promise<TaskReadOperatio
  */
 export async function writeTasksFile(
   filePath: string,
-  content: string
+  _content: string
 ): Promise<TaskWriteOperationResult> {
   try {
-    await fs.writeFile(filePath, content, "utf-8");
+    await fs.writeFile(filePath, _content, "utf-8");
     return {
       success: true,
       filePath,
@@ -95,13 +95,13 @@ export async function readTaskSpecFile(_filePath: string): Promise<TaskReadOpera
  */
 export async function writeTaskSpecFile(
   filePath: string,
-  content: string
+  _content: string
 ): Promise<TaskWriteOperationResult> {
   try {
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
 
-    await fs.writeFile(filePath, content, "utf-8");
+    await fs.writeFile(filePath, _content, "utf-8");
     return {
       success: true,
       filePath,

@@ -26,7 +26,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options?: ErrorHandlingOptions): never;
+  handleError(error: unknown, _options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -88,7 +88,7 @@ export class SharedErrorHandler {
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
-      if (error.command) {
+      if (error._command) {
         result.command = error.command;
       }
     } else if (error instanceof MinskyError) {
@@ -210,8 +210,8 @@ export class CliErrorHandler implements ErrorHandler {
       log.cliError(`Path: ${error.path}`);
     } else if (error instanceof ConfigurationError && error.configKey) {
       log.cliError(`Key: ${error.configKey}`);
-    } else if (error instanceof GitOperationError && error.command) {
-      log.cliError(`Command: ${error.command}`);
+    } else if (error instanceof GitOperationError && error._command) {
+      log.cliError(`Command: ${error._command}`);
     }
 
     // Add debug information if in debug mode
