@@ -20,6 +20,7 @@ import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerDebugTools } from "../../adapters/mcp/debug";
+import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 
 /**
  * Create the MCP command
@@ -121,6 +122,7 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
+        registerSessionFileTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
