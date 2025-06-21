@@ -50,7 +50,7 @@ export function mockRmSync(
 
 export function mockWriteFileSync(_path: string, data: string, _options?: WriteFileOptions): void {
   log.debug(`[MOCK] Writing to file ${path}`);
-  virtualFS.set(path, { isDirectory: false, content: data });
+  virtualFS.set(path, { isDirectory: false, _content: data });
 
   // Ensure the directory exists
   const dir = dirname(path);

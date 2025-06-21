@@ -136,7 +136,7 @@ export class DefaultCredentialManager implements CredentialManager {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as GlobalUserConfig;
+      return parseYaml(_content) as GlobalUserConfig;
     } catch {
       return null;
     }

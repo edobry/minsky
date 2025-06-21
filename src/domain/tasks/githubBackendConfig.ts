@@ -59,7 +59,7 @@ function extractGitHubRepoFromRemote(
  */
 export function getGitHubBackendConfig(
   workspacePath: string,
-  options?: { logErrors?: boolean }
+  _options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
 

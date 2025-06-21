@@ -34,7 +34,7 @@ export class ConfigurationLoader {
    * Load configuration from all sources with proper precedence
    */
   async loadConfiguration(
-    workingDir: string,
+    _workingDir: string,
     cliFlags: Partial<ResolvedConfig> = {}
   ): Promise<ConfigurationLoadResult> {
     // Load from all sources
@@ -42,7 +42,7 @@ export class ConfigurationLoader {
       cliFlags,
       environment: this.loadEnvironmentConfig(),
       globalUser: await this.loadGlobalUserConfig(),
-      repository: await this.loadRepositoryConfig(workingDir),
+      repository: await this.loadRepositoryConfig(_workingDir),
       defaults: DEFAULT_CONFIG
     };
 
@@ -91,7 +91,7 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as GlobalUserConfig;
+      return parseYaml(_content) as GlobalUserConfig;
     } catch {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
       log.error(`Failed to load global user config from ${configPath}:`, error);
@@ -102,8 +102,8 @@ export class ConfigurationLoader {
   /**
    * Load repository configuration
    */
-  private async loadRepositoryConfig(workingDir: string): Promise<RepositoryConfig | null> {
-    const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
+  private async loadRepositoryConfig(_workingDir: string): Promise<RepositoryConfig | null> {
+    const configPath = join(_workingDir, CONFIG_PATHS.REPOSITORY);
     
     if (!existsSync(configPath)) {
       return null;
@@ -111,7 +111,7 @@ export class ConfigurationLoader {
 
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
-      return parseYaml(content) as RepositoryConfig;
+      return parseYaml(_content) as RepositoryConfig;
     } catch {
       // Silently fail - configuration loading should be resilient
       return null;

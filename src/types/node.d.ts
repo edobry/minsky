@@ -21,9 +21,9 @@ declare module "path" {
 // Declare Node.js fs module
 declare module "fs" {
   export function existsSync(_path: string): boolean;
-  export function mkdirSync(_path: string, options?: any): void;
-  export function readFileSync(_path: string, options?: any): string | Buffer;
-  export function writeFileSync(_path: string, data: any, options?: any): void;
+  export function mkdirSync(_path: string, _options?: any): void;
+  export function readFileSync(_path: string, _options?: any): string | Buffer;
+  export function writeFileSync(_path: string, data: any, _options?: any): void;
   export type PathLike = string | Buffer;
   export type WriteFileOptions = object;
   export type MakeDirectoryOptions = object;
@@ -32,16 +32,16 @@ declare module "fs" {
 
 // Declare Node.js fs/promises module
 declare module "fs/promises" {
-  export function readFile(_path: string, options?: any): Promise<string | Buffer>;
-  export function writeFile(_path: string, data: any, options?: any): Promise<void>;
-  export function mkdir(_path: string, options?: any): Promise<void>;
+  export function readFile(_path: string, _options?: any): Promise<string | Buffer>;
+  export function writeFile(_path: string, data: any, _options?: any): Promise<void>;
+  export function mkdir(_path: string, _options?: any): Promise<void>;
   export function access(_path: string, mode?: number): Promise<void>;
   export function rename(oldPath: string, newPath: string): Promise<void>;
 }
 
 // Declare Node.js child_process module
 declare module "child_process" {
-  export function execSync(command: string, options?: any): Buffer;
+  export function execSync(_command: string, _options?: any): Buffer;
 }
 
 // Declare Node.js process global
@@ -63,6 +63,6 @@ declare namespace jest {
   interface Matchers<R> {
     not: Matchers<R>;
     toHaveBeenCalled(): R;
-    toHaveBeenCalledWith(...args: unknown[]): R;
+    toHaveBeenCalledWith(..._args: unknown[]): R;
   }
 }

@@ -46,17 +46,17 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
   /**
    * The current implementation of the mock function.
    */
-  implementation: ((...args: TArgs) => TReturn) | null;
+  implementation: ((..._args: TArgs) => TReturn) | null;
 
   /**
    * Queue of one-time implementations to use before falling back to the default implementation.
    */
-  implementationsOnce: ((...args: TArgs) => TReturn)[];
+  implementationsOnce: ((..._args: TArgs) => TReturn)[];
 
   /**
    * The original implementation of the mocked function (if created with spyOn).
    */
-  originalImplementation: ((...args: TArgs) => TReturn) | null;
+  originalImplementation: ((..._args: TArgs) => TReturn) | null;
 };
 
 /**
@@ -67,7 +67,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Mock function that can be called with arguments.
    */
-  (...args: TArgs): TReturn;
+  (..._args: TArgs): TReturn;
 
   /**
    * Mock metadata and tracking information.
@@ -181,7 +181,7 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
  * @param implementation Optional initial implementation
  * @returns A Jest/Vitest compatible mock function
  */
-export function createCompatMock<T extends (...args: unknown[]) => any>(
+export function createCompatMock<T extends (..._args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> {
   // Create the state object for tracking
@@ -193,10 +193,10 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   }
 
   // Create our implementation function
-  const implementationFn = (...args: Parameters<T>): ReturnType<T> => {
+  const implementationFn = (..._args: Parameters<T>): ReturnType<T> => {
     try {
       // Track the call
-      state.calls.push(args as Parameters<T>);
+      state.calls.push(_args as Parameters<T>);
       state.lastCall = args as Parameters<T>;
       state.invocationCallOrder.push(++globalInvocationCount);
 
@@ -205,10 +205,10 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
       if (state.implementationsOnce.length > 0) {
         // Use a one-time implementation
         const implOnce = state.implementationsOnce.shift()!;
-        result = implOnce(...args);
+        result = implOnce(..._args);
       } else if (state.implementation) {
         // Use the current implementation
-        result = state.implementation(...args);
+        result = state.implementation(..._args);
       } else {
         // Default implementation returns undefined
         result = undefined as unknown as ReturnType<T>;
@@ -236,9 +236,9 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Instead of trying to modify Bun's mock function directly (which may be read-only),
   // create a new function that delegates to it
-  const mockFn = function (...args: Parameters<T>): ReturnType<T> {
+  const mockFn = function (..._args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
-    return implementationFn(...args);
+    return implementationFn(..._args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
 
   // Add the mock property
@@ -359,7 +359,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
  * @param implementation Optional initial implementation
  * @returns A strongly typed mock function
  */
-export function createTypedMock<T extends (...args: unknown[]) => any>(
+export function createTypedMock<T extends (..._args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> & T {
   return createCompatMock(implementation) as CompatMockFunction<ReturnType<T>, Parameters<T>> & T;
@@ -381,9 +381,9 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const mockFn = createCompatMock((...args: unknown[]) => {
+  const mockFn = createCompatMock((..._args: unknown[]) => {
     if (typeof original === "function") {
-      return (original as Function).apply(object, args);
+      return (original as Function).apply(object, _args);
     }
     return undefined;
   });

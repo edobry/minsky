@@ -13,9 +13,9 @@ import type { TaskStatus } from "./taskConstants.js";
  * @param content Markdown content with task entries
  * @returns Array of task data objects
  */
-export function parseTasksFromMarkdown(content: string): TaskData[] {
+export function parseTasksFromMarkdown(_content: string): TaskData[] {
   const tasks: TaskData[] = [];
-  if (!content) return tasks;
+  if (!_content) return tasks;
 
   // Split into lines and track code block state
   const lines = content.split("\n");
@@ -285,8 +285,8 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
  * @param content Markdown content of a task specification
  * @returns Parsed task specification data
  */
-export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
-  if (!content) {
+export function parseTaskSpecFromMarkdown(_content: string): TaskSpecData {
+  if (!_content) {
     return { title: "", description: "" };
   }
 
@@ -399,9 +399,9 @@ export function formatTaskStateToMarkdown(state: TaskState): string {
  * @param content Markdown content
  * @returns Task state object
  */
-export function parseMarkdownToTaskState(content: string): TaskState {
+export function parseMarkdownToTaskState(_content: string): TaskState {
   return {
-    tasks: parseTasksFromMarkdown(content),
+    tasks: parseTasksFromMarkdown(_content),
     lastUpdated: new Date().toISOString(),
   };
 }

@@ -328,7 +328,7 @@ export function registerSessionCommands(): void {
     description: "List all sessions",
     parameters: sessionListCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.list command", { params, context });
+      log.debug("Executing session.list _command", { params, context });
 
       try {
         const sessions = await listSessionsFromParams({
@@ -357,7 +357,7 @@ export function registerSessionCommands(): void {
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.get command", { params, context });
+      log.debug("Executing session.get _command", { params, context });
 
       try {
         const session = await getSessionFromParams({
@@ -395,7 +395,7 @@ export function registerSessionCommands(): void {
     description: "Start a new session",
     parameters: sessionStartCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.start command", { params, context });
+      log.debug("Executing session.start _command", { params, context });
 
       // Validate that either name or task is provided
       if (!params.name && !params.task) {
@@ -406,7 +406,7 @@ export function registerSessionCommands(): void {
         const session = await startSessionFromParams({
           name: params.name,
           task: params.task,
-          _branch: params.branch,
+          _branch: params._branch,
           repo: params.repo,
           session: params.session,
           json: params.json,
@@ -439,7 +439,7 @@ export function registerSessionCommands(): void {
     description: "Get the directory of a session",
     parameters: sessionDirCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.dir command", { params, context });
+      log.debug("Executing session.dir _command", { params, context });
 
       try {
         const directory = await getSessionDirFromParams({
@@ -472,7 +472,7 @@ export function registerSessionCommands(): void {
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.delete command", { params, context });
+      log.debug("Executing session.delete _command", { params, context });
 
       try {
         const deleted = await deleteSessionFromParams({
@@ -504,14 +504,14 @@ export function registerSessionCommands(): void {
     description: "Update a session",
     parameters: sessionUpdateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.update command", { params, context });
+      log.debug("Executing session.update _command", { params, context });
 
       try {
         await updateSessionFromParams({
           name: params.session,
           task: params.task,
           repo: params.repo,
-          _branch: params.branch,
+          _branch: params._branch,
           noStash: params.noStash,
           noPush: params.noPush,
           force: params.force,
@@ -541,7 +541,7 @@ export function registerSessionCommands(): void {
     description: "Approve a session pull request",
     parameters: sessionApproveCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.approve command", { params, context });
+      log.debug("Executing session.approve _command", { params, context });
 
       try {
         const result = await approveSessionFromParams({
@@ -574,7 +574,7 @@ export function registerSessionCommands(): void {
     description: "Create a pull request for a session",
     parameters: sessionPrCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.pr command", { params, context });
+      log.debug("Executing session.pr _command", { params, context });
 
       try {
         const result = await sessionPrFromParams({
@@ -618,7 +618,7 @@ export function registerSessionCommands(): void {
       },
     },
     execute: async (_params: unknown) => {
-      log.debug("Executing session.inspect command", { params, context });
+      log.debug("Executing session.inspect _command", { params, context });
 
       try {
         const session = await inspectSessionFromParams({

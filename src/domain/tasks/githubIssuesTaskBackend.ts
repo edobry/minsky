@@ -117,7 +117,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
-      auth: options.githubToken,
+      auth: _options.githubToken,
       userAgent: "minsky-cli",
       request: {
         // Add retry logic for rate limiting
@@ -214,13 +214,13 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
-        return issue.title.includes(taskId) || issue.body?.includes(taskId);
+        return issue.title.includes(_taskId) || issue.body?.includes(_taskId);
       });
 
       if (!issue) {
         return {
           success: false,
-          error: new Error(`No GitHub issue found for task ${taskId}`),
+          error: new Error(`No GitHub issue found for task ${_taskId}`),
         };
       }
 
@@ -263,9 +263,9 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
 
   // ---- Pure Operations ----
 
-  parseTasks(content: string): TaskData[] {
+  parseTasks(_content: string): TaskData[] {
     try {
-      const issues = JSON.parse(content);
+      const issues = JSON.parse(_content);
       return issues.map((_issue: unknown) => this.convertIssueToTaskData(issue));
     } catch {
       log.error("Failed to parse GitHub issues data", {
@@ -281,7 +281,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return JSON.stringify(tasks.map(task => this.convertTaskDataToIssueFormat(task)));
   }
 
-  parseTaskSpec(content: string): TaskSpecData {
+  parseTaskSpec(_content: string): TaskSpecData {
     // Parse markdown content to extract task specification
     const lines = content.split("\n");
     let title = "";
@@ -344,10 +344,10 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
 
   // ---- Side Effects ----
 
-  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
+  async saveTasksData(_content: string): Promise<TaskWriteOperationResult> {
     try {
       // Parse the task data and sync to GitHub
-      const tasks = JSON.parse(content);
+      const tasks = JSON.parse(_content);
       
       for (const taskData of tasks) {
         await this.syncTaskToGitHub(taskData);
@@ -366,7 +366,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     }
   }
 
-  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
     try {
       // For GitHub backend, we don't typically save spec files locally
       // The spec content is managed through GitHub issues
@@ -392,7 +392,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return this.workspacePath;
   }
 
-  getTaskSpecPath(taskId: string, title: string): string {
+  getTaskSpecPath(_taskId: string, title: string): string {
     const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
@@ -418,7 +418,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
       title: issue.title,
       description: issue.body || "",
       status,
-      specPath: this.getTaskSpecPath(taskId, issue.title),
+      specPath: this.getTaskSpecPath(_taskId, issue.title),
     };
   }
 
@@ -489,7 +489,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
       });
     } catch {
       log.error("Failed to sync task to GitHub", {
-        taskId: taskData.id,
+        _taskId: taskData.id,
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;

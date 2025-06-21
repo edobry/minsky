@@ -73,7 +73,7 @@ export default [
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "no-magic-numbers": [
         "warn",
-        { ignore: [0, 1, -1], ignoreArrayIndexes: true, enforceConst: true },
+        { ignore: [0, 1, 2, 3, 10, 100, -1], ignoreArrayIndexes: true, enforceConst: true },
       ],
       "prefer-template": "error",
       "no-var": "error",

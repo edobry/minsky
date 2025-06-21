@@ -70,8 +70,8 @@ export function handleCliError(_error: unknown): never {
     }
   } else if (error instanceof GitOperationError) {
     log.cliError(`Git operation failed: ${normalizedError.message}`);
-    if (error.command) {
-      log.cliError(`Command: ${error.command}`);
+    if (error._command) {
+      log.cliError(`Command: ${error._command}`);
     }
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${normalizedError.message}`);
@@ -126,7 +126,7 @@ export function outputResult<T>(
   result: T,
   _options: { json?: boolean; formatter?: (_result: unknown) => void }
 ): void {
-  if (options.json) {
+  if (_options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
@@ -136,7 +136,7 @@ export function outputResult<T>(
       // In human mode or when json is explicitly requested, write directly to stdout
       log.cli(JSON.stringify(result, null, 2));
     }
-  } else if (options.formatter) {
+  } else if (_options.formatter) {
     options.formatter(result);
   } else {
     log.cli(String(result));

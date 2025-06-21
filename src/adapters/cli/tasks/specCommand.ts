@@ -20,21 +20,21 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
  */
 export function createSpecCommand(): Command {
   const command = new Command("spec")
-    .description("Get task specification content")
-    .argument("<task-id>", "ID of the task to retrieve specification content for")
+    .description("Get task specification _content")
+    .argument("<task-id>", "ID of the task to retrieve specification _content for")
     .option(
       "--section <section>",
       "Specific section of the specification to retrieve (e.g., 'requirements')"
     );
 
   // Add shared options
-  addRepoOptions(command);
-  addOutputOptions(command);
-  addBackendOptions(command);
+  addRepoOptions(_command);
+  addOutputOptions(_command);
+  addBackendOptions(_command);
 
   command.action(
     async (
-      taskId: string,
+      _taskId: string,
       _options: {
         section?: string;
         session?: string;
@@ -46,15 +46,15 @@ export function createSpecCommand(): Command {
     ) => {
       try {
         // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(taskId);
+        const normalizedTaskId = normalizeTaskId(_taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 
         // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options);
+        const normalizedParams = normalizeTaskParams(_options);
 
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
@@ -68,7 +68,7 @@ export function createSpecCommand(): Command {
 
         // Format and display the result
         outputResult(result, {
-          json: options.json,
+          json: _options.json,
           formatter: (_data: unknown) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
@@ -92,13 +92,13 @@ export function createSpecCommand(): Command {
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);
-                log.cli("\nFull specification content:");
-                log.cli(data.content);
+                log.cli("\nFull specification _content:");
+                log.cli(data._content);
               }
             } else {
               // Display the full content
-              log.cli("\nSpecification content:");
-              log.cli(data.content);
+              log.cli("\nSpecification _content:");
+              log.cli(data._content);
             }
           },
         });

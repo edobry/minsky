@@ -16,9 +16,9 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Detect the most appropriate backend based on detection rules
    */
-  async detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string> {
+  async detectBackend(_workingDir: string, rules: DetectionRule[]): Promise<string> {
     for (const rule of rules) {
-      const matches = await this.checkCondition(workingDir, rule.condition);
+      const matches = await this.checkCondition(_workingDir, rule.condition);
       if (matches) {
         return rule.backend;
       }
@@ -31,16 +31,16 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Check if JSON file exists
    */
-  async jsonFileExists(workingDir: string): Promise<boolean> {
-    const jsonFilePath = join(workingDir, ".minsky", "tasks.json");
+  async jsonFileExists(_workingDir: string): Promise<boolean> {
+    const jsonFilePath = join(_workingDir, ".minsky", "tasks.json");
     return existsSync(jsonFilePath);
   }
 
   /**
    * Check if tasks.md file exists
    */
-  async tasksMdExists(workingDir: string): Promise<boolean> {
-    const tasksMdPath = join(workingDir, "process", "tasks.md");
+  async tasksMdExists(_workingDir: string): Promise<boolean> {
+    const tasksMdPath = join(_workingDir, "process", "tasks.md");
     return existsSync(tasksMdPath);
   }
 
@@ -48,14 +48,14 @@ export class DefaultBackendDetector implements BackendDetector {
    * Check a specific detection condition
    */
   private async checkCondition(
-    workingDir: string,
+    _workingDir: string,
     condition: "json_file_exists" | "tasks_md_exists" | "always"
   ): Promise<boolean> {
     switch (condition) {
       case "json_file_exists":
-        return this.jsonFileExists(workingDir);
+        return this.jsonFileExists(_workingDir);
       case "tasks_md_exists":
-        return this.tasksMdExists(workingDir);
+        return this.tasksMdExists(_workingDir);
       case "always":
         return true;
       default:

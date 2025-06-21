@@ -60,14 +60,14 @@ export interface DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  getEntity(_id: string, options?: DatabaseQueryOptions): Promise<T | null>;
+  getEntity(_id: string, _options?: DatabaseQueryOptions): Promise<T | null>;
 
   /**
    * Get all entities that match the query options
    * @param options Query options
    * @returns Promise resolving to array of entities
    */
-  getEntities(options?: DatabaseQueryOptions): Promise<T[]>;
+  getEntities(_options?: DatabaseQueryOptions): Promise<T[]>;
 
   /**
    * Create a new entity in the database

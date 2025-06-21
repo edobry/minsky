@@ -36,14 +36,14 @@ export async function resolveRepoPath(
     getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };
 
-  if (options.repo) {
+  if (_options.repo) {
     return options.repo;
   }
 
-  if (options.session) {
-    const record = await deps.sessionProvider.getSession(options.session);
+  if (_options.session) {
+    const record = await deps.sessionProvider.getSession(_options.session);
     if (!record) {
-      throw new Error(`Session '${options.session}' not found.`);
+      throw new Error(`Session '${_options.session}' not found.`);
     }
     return record.repoUrl;
   }

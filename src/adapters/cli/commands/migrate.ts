@@ -51,8 +51,8 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
   try {
     // Parse status mapping
     const statusMapping: Record<string, string> = {};
-    if (options.mapStatus) {
-      for (const mapping of options.mapStatus) {
+    if (_options.mapStatus) {
+      for (const mapping of _options.mapStatus) {
         const [from, to] = mapping.split("=");
         if (from && to) {
           statusMapping[from.trim()] = to.trim();
@@ -62,16 +62,16 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
 
     // Validate backend names
     const validBackends = ["markdown", "json-file", "github-issues"];
-    if (!validBackends.includes(options.from)) {
-      throw new Error(`Invalid source backend: ${options.from}. Valid _options: ${validBackends.join(", ")}`);
+    if (!validBackends.includes(_options.from)) {
+      throw new Error(`Invalid source backend: ${_options.from}. Valid _options: ${validBackends.join(", ")}`);
     }
-    if (!validBackends.includes(options.to)) {
-      throw new Error(`Invalid target backend: ${options.to}. Valid _options: ${validBackends.join(", ")}`);
+    if (!validBackends.includes(_options.to)) {
+      throw new Error(`Invalid target backend: ${_options.to}. Valid _options: ${validBackends.join(", ")}`);
     }
 
     // Create task services for source and target backends
-    const sourceService = new TaskService({ backend: options.from });
-    const targetService = new TaskService({ backend: options.to });
+    const sourceService = new TaskService({ backend: _options.from });
+    const targetService = new TaskService({ backend: _options.to });
 
     // For proper backend access, we need to access the internal backends
     // This is a bit of a hack, but necessary given the current architecture
@@ -86,9 +86,9 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
     const migrationUtils = new BackendMigrationUtils();
 
     // Interactive confirmation if requested
-    if (options.interactive && !options.dryRun) {
+    if (_options.interactive && !options.dryRun) {
       const confirmed = await promptConfirmation(
-        `Migrate tasks from ${options.from} to ${options.to}?`
+        `Migrate tasks from ${_options.from} to ${options.to}?`
       );
       if (!confirmed) {
         log.cli("Migration cancelled by user");
@@ -97,7 +97,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
     }
 
     // Perform migration
-    log.cli(`Starting migration from ${options.from} to ${options.to}...`);
+    log.cli(`Starting migration from ${_options.from} to ${options.to}...`);
 
     const migrationOptions = {
       preserveIds: options.preserveIds ?? true,

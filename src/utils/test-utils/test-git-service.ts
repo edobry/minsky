@@ -32,10 +32,10 @@ export class TestGitService extends GitService {
    * @param command - Command string
    * @returns Mock response
    */
-  async execAsync(command: string): Promise<{ stdout: string; stderr: string }> {
+  async execAsync(_command: string): Promise<{ stdout: string; stderr: string }> {
     // Check if we have a registered mock response for this command
     for (const [pattern, response] of this.mockResponses.entries()) {
-      if (command.includes(pattern)) {
+      if (_command.includes(pattern)) {
         return response;
       }
     }
@@ -47,8 +47,8 @@ export class TestGitService extends GitService {
   /**
    * Override execInRepository to use our mock execAsync
    */
-  async execInRepository(workdir: string, command: string): Promise<string> {
-    const result = await this.execAsync(`git -C ${workdir} ${command}`);
+  async execInRepository(workdir: string, _command: string): Promise<string> {
+    const result = await this.execAsync(`git -C ${workdir} ${_command}`);
     return result.stdout.trim();
   }
 }

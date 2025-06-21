@@ -13,11 +13,11 @@
  */
 import { mock, afterEach } from "bun:test"; // Import mock from bun:test
 
-type MockFnType = <T extends (...args: unknown[]) => any>(implementation?: T) => any;
+type MockFnType = <T extends (..._args: unknown[]) => any>(implementation?: T) => any;
 
 // Define a MockFunction type to replace jest.Mock
 export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
-  (...args: TArgs): TReturn;
+  (..._args: TArgs): TReturn;
   mock: {
     calls: TArgs[];
     results: Array<{
@@ -45,7 +45,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
  * const result = mockGreet("World"); // TypeScript knows this returns string
  */
-export function mockFunction<T extends (...args: unknown[]) => any>(implementation?: T) {
+export function mockFunction<T extends (..._args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
   return createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T;
 }
@@ -75,7 +75,7 @@ export function mockFunction<T extends (...args: unknown[]) => any>(implementati
  * mockFn.mockImplementation(() => "new result");
  * expect(mockFn()).toBe("new result");
  */
-export function createMock<T extends (...args: unknown[]) => any>(implementation?: T) {
+export function createMock<T extends (..._args: unknown[]) => any>(implementation?: T) {
   // Use Bun's mock directly instead of trying to access mock.fn
   return implementation ? mock(implementation) : mock(() => {});
 }
@@ -157,7 +157,7 @@ function resetSharedState(): void {
   try {
     // Reset the shared command registry if it exists
     // Use dynamic import to avoid circular dependencies
-    const registryModule = require("../../adapters/shared/command-registry");
+    const registryModule = require("../../adapters/shared/_command-registry");
     if (registryModule?.sharedCommandRegistry?.commands) {
       (registryModule.sharedCommandRegistry as any).commands = new Map();
     }
@@ -265,7 +265,7 @@ function resetSharedState(): void {
  */
 export function createMockObject<T extends string>(
   methods: T[],
-  implementations: Partial<Record<T, (...args: unknown[]) => any>> = {}
+  implementations: Partial<Record<T, (..._args: unknown[]) => any>> = {}
 ): Record<T, ReturnType<typeof createMock>> {
   return methods.reduce(
     (obj, method) => {
@@ -290,7 +290,7 @@ export function createMockObject<T extends string>(
  * mockModule("child_process", () => ({
  *   execSync: createMockExecSync({
  *     "ls": "file1.txt\nfile2.txt",
- *     "git status": "On branch main\nnothing to commit",
+ *     "git status": "On _branch main\nnothing to commit",
  *     "git log": "commit abc123\nAuthor: Test User"
  *   }),
  *   // other exports if needed...
@@ -300,7 +300,7 @@ export function createMockObject<T extends string>(
  * // Now in your test, any child_process.execSync calls will return the matching response
  * const { execSync } = require("child_process");
  * expect(execSync("ls -la")).toBe("file1.txt\nfile2.txt"); // Matches on "ls" substring
- * expect(execSync("git status --short")).toBe("On branch main\nnothing to commit"); // Matches on "git status" substring
+ * expect(execSync("git status --short")).toBe("On _branch main\nnothing to commit"); // Matches on "git status" substring
  */
 export function createMockExecSync(
   commandResponses: Record<string, string>
@@ -308,7 +308,7 @@ export function createMockExecSync(
   return createMock((_command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
-      if (command.includes(pattern)) {
+      if (_command.includes(pattern)) {
         return response;
       }
     }
@@ -329,7 +329,7 @@ export function createMockExecSync(
  * import { mockModule, createMockFileSystem } from "../utils/test-utils";
  *
  * const mockFS = createMockFileSystem({
- *   "/path/to/file.txt": "Initial content",
+ *   "/path/to/file.txt": "Initial _content",
  *   "/path/to/config.json": JSON.stringify({ setting: true })
  * });
  *
@@ -348,12 +348,12 @@ export function createMockExecSync(
  *
  * // Reading files
  * expect(fs.existsSync("/path/to/file.txt")).toBe(true);
- * expect(fs.readFileSync("/path/to/file.txt", "utf8")).toBe("Initial content");
+ * expect(fs.readFileSync("/path/to/file.txt", "utf8")).toBe("Initial _content");
  *
  * // Writing files
- * fs.writeFileSync("/path/to/new-file.txt", "New content");
+ * fs.writeFileSync("/path/to/new-file.txt", "New _content");
  * expect(fs.existsSync("/path/to/new-file.txt")).toBe(true);
- * expect(fs.readFileSync("/path/to/new-file.txt")).toBe("New content");
+ * expect(fs.readFileSync("/path/to/new-file.txt")).toBe("New _content");
  *
  * // Creating directories
  * fs.mkdirSync("/path/to/dir");
@@ -371,8 +371,8 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
   const directories = new Set<string>();
 
   // Initialize with provided files
-  Object.entries(initialFiles).forEach(([path, content]) => {
-    files.set(path, content);
+  Object.entries(initialFiles).forEach(([path, _content]) => {
+    files.set(path, _content);
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -438,7 +438,7 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
     mkdir: createMock(async (_path: unknown) => {
       directories.add(path);
       // If recursive option, add all parent directories
-      if (options?.recursive) {
+      if (_options?.recursive) {
         const parts = path.split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
@@ -564,8 +564,8 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const mockFn = mock((...args: unknown[]) => {
-    return (original as Function).apply(obj, args);
+  const mockFn = mock((..._args: unknown[]) => {
+    return (original as Function).apply(obj, _args);
   });
 
   // Replace the original method with our mock

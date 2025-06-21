@@ -144,7 +144,7 @@ async function createDirectoryIfNotExists(
  */
 async function createFileIfNotExists(
   filePath: string,
-  content: string,
+  _content: string,
   overwrite = false,
   fileSystem: FileSystem = fs
 ): Promise<void> {
@@ -160,7 +160,7 @@ async function createFileIfNotExists(
   await createDirectoryIfNotExists(dirPath, fileSystem);
 
   // Write the file
-  fileSystem.writeFileSync(filePath, content);
+  fileSystem.writeFileSync(filePath, _content);
 }
 
 /**
@@ -395,8 +395,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--stdio"],
+            _command: "minsky",
+            _args: ["mcp", "start", "--stdio"],
           },
         },
       },
@@ -411,8 +411,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
+            _command: "minsky",
+            _args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
           },
         },
       },
@@ -427,8 +427,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
+            _command: "minsky",
+            _args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
           },
         },
       },
@@ -442,8 +442,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
     {
       mcpServers: {
         "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--stdio"],
+          _command: "minsky",
+          _args: ["mcp", "start", "--stdio"],
         },
       },
     },

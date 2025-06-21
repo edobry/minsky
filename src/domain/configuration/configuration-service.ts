@@ -24,12 +24,12 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Load configuration with full resolution and backend detection
    */
-  async loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult> {
+  async loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult> {
     // Load base configuration from all sources
-    const result = await this.loader.loadConfiguration(workingDir);
+    const result = await this.loader.loadConfiguration(_workingDir);
     
     // Apply backend auto-detection if enabled
-    const resolved = await this.applyBackendDetection(workingDir, result.resolved);
+    const resolved = await this.applyBackendDetection(_workingDir, result.resolved);
     
     // Resolve credentials
     const finalResolved = await this.resolveCredentials(resolved);
@@ -153,7 +153,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Apply backend auto-detection if enabled
    */
-  private async applyBackendDetection(workingDir: string, config: ResolvedConfig): Promise<ResolvedConfig> {
+  private async applyBackendDetection(_workingDir: string, config: ResolvedConfig): Promise<ResolvedConfig> {
     // If backend is already explicitly set or auto-detection is disabled, use as-is
     if (!config.detectionRules || config.detectionRules.length === 0) {
       return config;
@@ -166,7 +166,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // Run detection
-    const detectedBackend = await this.backendDetector.detectBackend(workingDir, config.detectionRules);
+    const detectedBackend = await this.backendDetector.detectBackend(_workingDir, config.detectionRules);
     
     return {
       ...config,

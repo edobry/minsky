@@ -89,7 +89,7 @@ export class TaskMigrationUtils {
 
       // Read and parse tasks.md
       const content = (await readFile(tasksFilePath, "utf8")) as string;
-      const tasks = this.parseMarkdownTasks(content);
+      const tasks = this.parseMarkdownTasks(_content);
 
       if (tasks.length === 0) {
         log.debug("No tasks found in tasks.md to migrate");
@@ -104,7 +104,7 @@ export class TaskMigrationUtils {
       // Create backup if requested
       if (this.createBackup) {
         backupFile = `${tasksFilePath}.backup.${Date.now()}`;
-        await writeFile(backupFile, content, "utf8");
+        await writeFile(backupFile, _content, "utf8");
         log.debug(`Created backup at ${backupFile}`);
       }
 
@@ -281,7 +281,7 @@ export class TaskMigrationUtils {
       let markdownTasks: TaskData[] = [];
       try {
         const content = (await readFile(tasksFilePath, "utf8")) as string;
-        markdownTasks = this.parseMarkdownTasks(content);
+        markdownTasks = this.parseMarkdownTasks(_content);
       } catch {
         // tasks.md doesn't exist or can't be read
       }
@@ -342,7 +342,7 @@ export class TaskMigrationUtils {
    * @returns Array of task data
    * @private
    */
-  private parseMarkdownTasks(content: string): TaskData[] {
+  private parseMarkdownTasks(_content: string): TaskData[] {
     const tasks: TaskData[] = [];
     const lines = content.split("\n");
 
@@ -520,11 +520,11 @@ export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUti
  */
 export async function migrateWorkspaceToJson(
   workspacePath: string,
-  options?: Partial<MigrationConfig>
+  _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
     workspacePath,
-    ...options,
+    ..._options,
   });
   return utils.migrateToJson();
 }
@@ -537,11 +537,11 @@ export async function migrateWorkspaceToJson(
  */
 export async function migrateWorkspaceFromJson(
   workspacePath: string,
-  options?: Partial<MigrationConfig>
+  _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
     workspacePath,
-    ...options,
+    ..._options,
   });
   return utils.migrateFromJson();
 }

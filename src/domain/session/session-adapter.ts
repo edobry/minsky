@@ -37,7 +37,7 @@ export interface LocalSessionProviderInterface {
   /**
    * Get a specific session by task ID
    */
-  getSessionByTaskId(taskId: string): Promise<SessionRecord | null>;
+  getSessionByTaskId(_taskId: string): Promise<SessionRecord | null>;
 
   /**
    * Add a new session to the database
@@ -129,9 +129,9 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get a session by task ID
    */
-  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+  async getSessionByTaskId(_taskId: string): Promise<SessionRecord | null> {
     await this.readDb();
-    return getSessionByTaskIdFn(this.state, taskId);
+    return getSessionByTaskIdFn(this.state, _taskId);
   }
 
   /**

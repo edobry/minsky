@@ -193,7 +193,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  async getEntity(_id: string, options?: DatabaseQueryOptions): Promise<T | null> {
+  async getEntity(_id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;
@@ -211,7 +211,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to array of entities
    */
-  async getEntities(options?: DatabaseQueryOptions): Promise<T[]> {
+  async getEntities(_options?: DatabaseQueryOptions): Promise<T[]> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return [];
@@ -220,13 +220,13 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
     const state = result.data;
     const entities = this.getEntitiesFromState(state);
 
-    if (!options) {
+    if (!_options) {
       return entities;
     }
 
     // Filter entities based on query options
     return entities.filter((entity) => {
-      for (const [key, value] of Object.entries(options)) {
+      for (const [key, value] of Object.entries(_options)) {
         if ((entity as any)[key] !== value) {
           return false;
         }
@@ -437,5 +437,5 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 export function createJsonFileStorage<T, S>(
   _options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
-  return new JsonFileStorage<T, S>(options);
+  return new JsonFileStorage<T, S>(_options);
 }

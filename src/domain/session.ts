@@ -85,7 +85,7 @@ export interface SessionProviderInterface {
   /**
    * Get a specific session by task ID
    */
-  getSessionByTaskId(taskId: string): Promise<SessionRecord | null>;
+  getSessionByTaskId(_taskId: string): Promise<SessionRecord | null>;
 
   /**
    * Add a new session to the database
@@ -207,7 +207,7 @@ export class SessionDB implements SessionProviderInterface {
     }
   }
 
-  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+  async getSessionByTaskId(_taskId: string): Promise<SessionRecord | null> {
     try {
       // Normalize both stored and input task IDs to allow matching with or without #
       const normalize = (_id: unknown) => {
@@ -215,8 +215,8 @@ export class SessionDB implements SessionProviderInterface {
         return id.startsWith("#") ? id : `#${id}`;
       };
       const sessions = await this.readDb();
-      const normalizedInput = normalize(taskId);
-      const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
+      const normalizedInput = normalize(_taskId);
+      const found = sessions.find((s) => normalize(s._taskId) === normalizedInput);
       return found || null; // Ensure we return null, not undefined
     } catch {
       log.error(
@@ -477,7 +477,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
-  const { name, repo, task, branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
+  const { name, repo, task, _branch, noStatusUpdate, quiet, json, skipInstall, packageManager } =
     params;
 
   // Create dependencies with defaults
@@ -498,7 +498,7 @@ export async function startSessionFromParams(
     log.debug("Starting session with params", {
       name,
       task,
-      inputBranch: branch,
+      inputBranch: _branch,
       noStatusUpdate,
       quiet,
       json,
@@ -531,15 +531,15 @@ export async function startSessionFromParams(
     let sessionName = name;
     let taskId: string | undefined = task;
 
-    if (taskId && !sessionName) {
+    if (_taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      const normalizedTaskId = taskIdSchema.parse(taskId);
+      const normalizedTaskId = taskIdSchema.parse(_taskId);
       taskId = normalizedTaskId;
 
       // Verify the task exists
       const taskObj = await deps.taskService.getTask(normalizedTaskId);
       if (!taskObj) {
-        throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+        throw new ResourceNotFoundError(`Task ${_taskId} not found`, "task", taskId);
       }
 
       // Use the task ID as the session name
@@ -557,7 +557,7 @@ export async function startSessionFromParams(
     }
 
     // Check if a session already exists for this task
-    if (taskId) {
+    if (_taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
       const taskSession = existingSessions.find((_s: unknown) => {
         const normalizedSessionTaskId = s.taskId?.startsWith("#") ? s.taskId : `#${s.taskId}`;
@@ -567,7 +567,7 @@ export async function startSessionFromParams(
 
       if (taskSession) {
         throw new MinskyError(
-          `A session for task ${taskId} already exists: '${taskSession.session}'`
+          `A session for task ${_taskId} already exists: '${taskSession.session}'`
         );
       }
     }
@@ -625,7 +625,7 @@ export async function startSessionFromParams(
     const branchName = branch || sessionName;
     const branchResult = await deps.gitService.branch({
       _session: sessionName,
-      branch: branchName,
+      _branch: branchName,
     });
 
     // Install dependencies if not skipped
@@ -652,23 +652,23 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
     }
 
     // Update task status to IN-PROGRESS if requested and if we have a task ID
-    if (taskId && !noStatusUpdate) {
+    if (_taskId && !noStatusUpdate) {
       try {
         // Get the current status first
-        const previousStatus = await deps.taskService.getTaskStatus(taskId);
+        const previousStatus = await deps.taskService.getTaskStatus(_taskId);
 
         // Update the status to IN-PROGRESS
-        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
+        await deps.taskService.setTaskStatus(_taskId, TASK_STATUS.IN_PROGRESS);
       } catch {
         // Log the error but don't fail the session creation
         log.cliWarn(
-          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Warning: Failed to update status for task ${_taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
 
     if (!quiet) {
-      log.debug(`Started session for task ${taskId}`, { _session: sessionName });
+      log.debug(`Started session for task ${_taskId}`, { _session: sessionName });
     }
 
     return {
@@ -787,7 +787,7 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, branch, remote, noStash, noPush, force } = params;
+  const { name, _branch, remote, noStash, noPush, force } = params;
 
   // Input validation
   if (!name) {
@@ -906,7 +906,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     const isSessionWorkspace = currentDir.includes("/sessions/");
     if (!isSessionWorkspace) {
       throw new MinskyError(
-        "session pr command must be run from within a session workspace. Use 'minsky session start' first."
+        "session pr _command must be run from within a session workspace. Use 'minsky session start' first."
       );
     }
 
@@ -914,14 +914,14 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     const gitService = createGitService();
     const currentBranch = await gitService.getCurrentBranch(currentDir);
 
-    // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* branch)
+    // STEP 2: Ensure we're NOT on a PR branch (should fail if on pr/* _branch)
     if (currentBranch.startsWith("pr/")) {
       throw new MinskyError(
-        `Cannot run session pr from PR branch '${currentBranch}'. Switch to your session branch first.`
+        `Cannot run session pr from PR _branch '${currentBranch}'. Switch to your session branch first.`
       );
     }
 
-    // STEP 3: Verify we're in a session directory (no branch format restriction)
+    // STEP 3: Verify we're in a session directory (no _branch format restriction)
     // The session name will be detected from the directory path or provided explicitly
     // Both task#XXX and named sessions are supported
 
@@ -974,11 +974,11 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     // If no session name provided but task ID is, try to find the session by task ID
     if (!sessionName && params.task) {
       const taskId = params.task;
-      const sessionRecord = await sessionDb.getSessionByTaskId(taskId);
+      const sessionRecord = await sessionDb.getSessionByTaskId(_taskId);
       if (sessionRecord) {
         sessionName = sessionRecord.session;
       } else {
-        throw new MinskyError(`No session found for task ID ${taskId}`);
+        throw new MinskyError(`No session found for task ID ${_taskId}`);
       }
     }
 
@@ -1040,14 +1040,14 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
       const sessionRecord = await sessionDb.getSession(sessionName);
-      if (sessionRecord?.taskId) {
+      if (sessionRecord?._taskId) {
         try {
           const taskService = new TaskService({
             workspacePath: process.cwd(),
             backend: "markdown",
           });
-          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+          await taskService.setTaskStatus(sessionRecord._taskId, TASK_STATUS.IN_REVIEW);
+          log.cli(`Updated task #${sessionRecord._taskId} status to IN-REVIEW`);
         } catch {
           log.warn(
             `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
@@ -1163,7 +1163,7 @@ export async function approveSessionFromParams(
   };
 
   // If no taskId from params, use the one from session record
-  if (!taskId && sessionRecord.taskId) {
+  if (!_taskId && sessionRecord.taskId) {
     taskId = sessionRecord.taskId;
   }
 
@@ -1212,7 +1212,7 @@ export async function approveSessionFromParams(
       );
     } catch {
       // Remote branch doesn't exist, which is fine - just log it
-      log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
+      log.debug(`Remote PR _branch ${prBranch} doesn't exist, skipping deletion`);
     }
 
     // Create merge info
@@ -1227,14 +1227,14 @@ export async function approveSessionFromParams(
     };
 
     // Update task status to DONE if we have a task ID
-    if (taskId && deps.taskService.setTaskStatus) {
+    if (_taskId && deps.taskService.setTaskStatus) {
       try {
-        await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-        log.cli(`Updated task ${taskId} status to DONE`);
+        await deps.taskService.setTaskStatus(_taskId, TASK_STATUS.DONE);
+        log.cli(`Updated task ${_taskId} status to DONE`);
       } catch {
         // BUG FIX: Use proper logging instead of console.error and make error visible
         const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
-        log.error(errorMsg, { taskId, error });
+        log.error(errorMsg, { _taskId, error });
         log.cli(`Warning: ${errorMsg}`);
         // Still don't fail the whole operation, but now errors are visible
       }
@@ -1256,9 +1256,9 @@ export async function approveSessionFromParams(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
+export function createSessionProvider(_options?: { dbPath?: string }): SessionProviderInterface {
   // Use the new functional implementation
-  return new SessionDB(options?.dbPath);
+  return new SessionDB(_options?.dbPath);
 }
 
 /**
@@ -1407,7 +1407,7 @@ export async function sessionReviewFromParams(
   }
 
   // If no taskId from params, use the one from session record
-  if (!taskId && sessionRecord.taskId) {
+  if (!_taskId && sessionRecord.taskId) {
     taskId = sessionRecord.taskId;
   }
 
@@ -1427,7 +1427,7 @@ export async function sessionReviewFromParams(
   };
 
   // 1. Get task specification if available
-  if (taskId) {
+  if (_taskId) {
     try {
       const taskService = deps.taskService;
 
@@ -1436,7 +1436,7 @@ export async function sessionReviewFromParams(
         "getTaskSpecData" in taskService &&
         typeof (taskService as any).getTaskSpecData === "function"
       ) {
-        const taskSpec = await (taskService as any).getTaskSpecData(taskId);
+        const taskSpec = await (taskService as any).getTaskSpecData(_taskId);
         result.taskSpec = taskSpec;
       } else {
         log.debug("Task service does not support getTaskSpecData method");
@@ -1449,7 +1449,7 @@ export async function sessionReviewFromParams(
     }
   }
 
-  // 2. Get PR description (from git log of the PR branch)
+  // 2. Get PR description (from git log of the PR _branch)
   try {
     // First check if the branch exists remotely
     const remoteBranchOutput = await deps.gitService.execInRepository(

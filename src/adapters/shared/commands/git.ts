@@ -195,7 +195,7 @@ export function registerGitCommands(): void {
     description: "Commit changes to the repository",
     parameters: commitCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git.commit command", { params, context });
+      log.debug("Executing git.commit _command", { params, context });
 
       const result = await commitChangesFromParams({
         message: params.message,
@@ -222,7 +222,7 @@ export function registerGitCommands(): void {
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git.push command", { params, context });
+      log.debug("Executing git.push _command", { params, context });
 
       const result = await pushFromParams({
         repo: params.repo,
@@ -247,13 +247,13 @@ export function registerGitCommands(): void {
     description: "Clone a Git repository",
     parameters: cloneCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git.clone command", { params, context });
+      log.debug("Executing git.clone _command", { params, context });
 
       const result = await cloneFromParams({
         url: params.url,
         _session: params.session,
         destination: params.destination,
-        branch: params.branch,
+        _branch: params._branch,
       });
 
       return {
@@ -266,13 +266,13 @@ export function registerGitCommands(): void {
 
   // Register git branch command
   sharedCommandRegistry.registerCommand({
-    _id: "git.branch",
+    _id: "git._branch",
     category: CommandCategory.GIT,
     name: "branch",
     description: "Create a new branch",
     parameters: branchCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git.branch command", { params, context });
+      log.debug("Executing git._branch command", { params, context });
 
       const result = await branchFromParams({
         _session: params.session,
@@ -295,12 +295,12 @@ export function registerGitCommands(): void {
     description: "Create a new pull request",
     parameters: prCommandParams,
     execute: async (params, context) => {
-      log.debug("Executing git.pr command", { params, context });
+      log.debug("Executing git.pr _command", { params, context });
 
       const result = await createPullRequestFromParams({
         _session: params.session,
         repo: params.repo,
-        branch: params.branch,
+        _branch: params._branch,
         taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,

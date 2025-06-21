@@ -202,21 +202,21 @@ export const log = {
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (_message: unknown) => programLogger.info(message, ...args),
-  cliWarn: (_message: unknown) => programLogger.warn(message, ...args),
-  cliError: (_message: unknown) => programLogger.error(message, ...args),
+  cli: (_message: unknown) => programLogger.info(message, ..._args),
+  cliWarn: (_message: unknown) => programLogger.warn(message, ..._args),
+  cliError: (_message: unknown) => programLogger.error(message, ..._args),
   // Add ability to set log level
   setLevel: (_level: unknown) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (_message: unknown) => programLogger.debug(message, ...args),
+  cliDebug: (_message: unknown) => programLogger.debug(message, ..._args),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
   systemDebug: (_message: unknown) => {
     // Always log to programLogger (stderr) regardless of mode
-    programLogger.debug(message, ...args);
+    programLogger.debug(message, ..._args);
   },
   // Expose log mode information
   mode: currentLogMode,

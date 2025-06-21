@@ -116,16 +116,16 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   // ---- Pure Operations ----
 
-  parseTasks(content: string): TaskData[] {
+  parseTasks(_content: string): TaskData[] {
     // Try to parse as JSON first
     try {
-      const data = JSON.parse(content);
+      const data = JSON.parse(_content);
       if (data.tasks && Array.isArray(data.tasks)) {
         return data.tasks;
       }
     } catch {
       // If JSON parsing fails, fall back to markdown parsing
-      return this.parseMarkdownTasks(content);
+      return this.parseMarkdownTasks(_content);
     }
 
     return [];
@@ -141,7 +141,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return JSON.stringify(state, null, 2);
   }
 
-  parseTaskSpec(content: string): TaskSpecData {
+  parseTaskSpec(_content: string): TaskSpecData {
     // Basic parsing of task spec content
     const lines = content.split("\n");
     let title = "";
@@ -187,10 +187,10 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   // ---- Side Effects ----
 
-  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
+  async saveTasksData(_content: string): Promise<TaskWriteOperationResult> {
     try {
       // Parse the content to get tasks
-      const tasks = this.parseTasks(content);
+      const tasks = this.parseTasks(_content);
 
       // Create state object
       const state: TaskState = {
@@ -221,7 +221,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
   }
 
-  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
     try {
       const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
@@ -230,7 +230,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await mkdir(dir, { recursive: true });
 
       // Write file
-      await writeFile(fullPath, content, "utf8");
+      await writeFile(fullPath, _content, "utf8");
 
       return {
         success: true,
@@ -253,7 +253,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  getTaskSpecPath(taskId: string, title: string): string {
+  getTaskSpecPath(_taskId: string, title: string): string {
     const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
@@ -376,7 +376,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @returns Array of task data
    * @private
    */
-  private parseMarkdownTasks(content: string): TaskData[] {
+  private parseMarkdownTasks(_content: string): TaskData[] {
     const tasks: TaskData[] = [];
     const lines = content.split("\n");
 

@@ -165,15 +165,15 @@ const tasksStatusGetRegistration = {
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId(params._taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const status = await getTaskStatusFromParams({
       ...params,
-      taskId: normalizedTaskId,
+      _taskId: normalizedTaskId,
     });
     return {
       success: true,
@@ -193,20 +193,20 @@ const tasksStatusSetRegistration = {
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+    if (!params._taskId) throw new ValidationError("Missing required parameter: _taskId");
 
     // Normalize and validate task ID first
-    const normalizedTaskId = normalizeTaskId(params.taskId);
+    const normalizedTaskId = normalizeTaskId(params._taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
     // Verify the task exists before prompting for status and get current status
     // This will throw ResourceNotFoundError if task doesn't exist
     const previousStatus = await getTaskStatusFromParams({
-      taskId: normalizedTaskId,
+      _taskId: normalizedTaskId,
       repo: params.repo,
       workspace: params.workspace,
       _session: params.session,
@@ -256,7 +256,7 @@ const tasksStatusSetRegistration = {
     if (!status) throw new ValidationError("Missing required parameter: status");
 
     await setTaskStatusFromParams({
-      taskId: normalizedTaskId,
+      _taskId: normalizedTaskId,
       status: status,
       repo: params.repo,
       workspace: params.workspace,
@@ -284,15 +284,15 @@ const tasksSpecRegistration = {
   parameters: tasksSpecParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId(params.taskId);
+      const normalizedTaskId = normalizeTaskId(params._taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
         ...params,
-        taskId: normalizedTaskId,
+        _taskId: normalizedTaskId,
       });
       return result;
     } catch {
@@ -446,7 +446,7 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
@@ -469,10 +469,10 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params, ctx) => {
-    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+  execute: async (params, _ctx) => {
+    if (!params._taskId) throw new ValidationError("Missing required parameter: _taskId");
     return await getTaskFromParams({
-      taskId: params.taskId,
+      _taskId: params._taskId,
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
@@ -490,7 +490,7 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task from a specification document",
   parameters: tasksCreateParams,
-  execute: async (params, ctx) => {
+  execute: async (params, _ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
     return await createTaskFromParams({
       specPath: params.specPath,
@@ -666,7 +666,7 @@ const tasksMigrateRegistration = {
       if (cliResult.conflicts && cliResult.conflicts.length > 0) {
         log.cliWarn("\n⚠️  ID Conflicts detected:");
         cliResult.conflicts.forEach((conflict) => {
-          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
+          log.cliWarn(`   • Task ${conflict._taskId}: ${conflict.resolution}`);
         });
       }
 

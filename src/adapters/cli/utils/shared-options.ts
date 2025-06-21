@@ -87,7 +87,7 @@ export interface ForceOptions {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addRepoOptions(command: Command): Command {
+export function addRepoOptions(_command: Command): Command {
   return command
     .option("--session <session>", SESSION_DESCRIPTION)
     .option("--repo <repositoryUri>", REPO_DESCRIPTION)
@@ -99,7 +99,7 @@ export function addRepoOptions(command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addOutputOptions(command: Command): Command {
+export function addOutputOptions(_command: Command): Command {
   return command.option("--json", JSON_DESCRIPTION).option("--debug", DEBUG_DESCRIPTION);
 }
 
@@ -108,8 +108,8 @@ export function addOutputOptions(command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addTaskOptions(command: Command): Command {
-  return command.option("--task <taskId>", TASK_ID_DESCRIPTION);
+export function addTaskOptions(_command: Command): Command {
+  return command.option("--task <_taskId>", TASK_ID_DESCRIPTION);
 }
 
 /**
@@ -117,7 +117,7 @@ export function addTaskOptions(command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addBackendOptions(command: Command): Command {
+export function addBackendOptions(_command: Command): Command {
   return command.option("-b, --backend <backend>", BACKEND_DESCRIPTION);
 }
 
@@ -126,7 +126,7 @@ export function addBackendOptions(command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addForceOptions(command: Command): Command {
+export function addForceOptions(_command: Command): Command {
   return command.option("-f, --force", FORCE_DESCRIPTION);
 }
 
@@ -179,7 +179,7 @@ export function normalizeTaskOptions(_options: TaskOptions): {
 } {
   // If task ID is provided, normalize it
   // normalizeTaskId can return null, so handle that case
-  const taskId = options.task ? normalizeTaskId(options.task) : undefined;
+  const taskId = options.task ? normalizeTaskId(_options.task) : undefined;
 
   return {
     task: taskId || undefined,
@@ -202,8 +202,8 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options),
-    ...normalizeOutputOptions(options),
+    ...normalizeRepoOptions(_options),
+    ...normalizeOutputOptions(_options),
     backend: options.backend,
   };
 }
@@ -224,8 +224,8 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(options),
-    ...normalizeOutputOptions(options),
-    ...normalizeTaskOptions(options),
+    ...normalizeRepoOptions(_options),
+    ...normalizeOutputOptions(_options),
+    ...normalizeTaskOptions(_options),
   };
 }

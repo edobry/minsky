@@ -63,7 +63,7 @@ export function getInstallCommand(_packageManager: PackageManager): string | und
  */
 export async function installDependencies(
   _repoPath: string,
-  options: {
+  _options: {
     packageManager?: PackageManager;
     quiet?: boolean;
   } = {}
@@ -89,14 +89,14 @@ export async function installDependencies(
     }
 
     // Log installation start unless quiet
-    if (!options.quiet) {
+    if (!_options.quiet) {
       log.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
     // Execute the install command
     const result = execSync(installCmd, {
       cwd: repoPath,
-      stdio: options.quiet ? "ignore" : "inherit",
+      stdio: _options.quiet ? "ignore" : "inherit",
     });
 
     // Handle the case where execSync returns null when stdio is "ignore"
@@ -106,7 +106,7 @@ export async function installDependencies(
   } catch {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (!options.quiet) {
+    if (!_options.quiet) {
       log.error(`Failed to install dependencies: ${errorMessage}`);
     }
 

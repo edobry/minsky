@@ -20,9 +20,9 @@ export function createConfigShowCommand(): Command {
     .action(async (_options: unknown) => {
       try {
         const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
+        const result = await configurationService.loadConfiguration(_workingDir);
         
-        if (options.json) {
+        if (_options.json) {
           process.stdout.write(JSON.stringify(result.resolved, null, 2) + "\n");
         } else {
           displayResolvedConfiguration(result.resolved);

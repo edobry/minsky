@@ -23,9 +23,9 @@ export function createConfigListCommand(): Command {
     .action(async (_options: unknown) => {
       try {
         const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
+        const result = await configurationService.loadConfiguration(_workingDir);
         
-        if (options.json) {
+        if (_options.json) {
           log.debug(JSON.stringify(result, null, 2));
         } else {
           displayConfigurationSources(result.sources);

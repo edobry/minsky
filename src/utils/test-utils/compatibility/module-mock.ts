@@ -177,7 +177,7 @@ export function getMockModule(_modulePath: string): unknown {
 export function mockModuleFunction(
   modulePath: string,
   exportName: string,
-  mockImplementation: (...args: unknown[]) => any
+  mockImplementation: (..._args: unknown[]) => any
 ): void {
   // Get the original module if we have it
   const originalModule = originalModules.get(modulePath);
@@ -199,7 +199,7 @@ export function createJestMock() {
     factory?: () => any,
     options?: MockModuleOptions
   ): void {
-    mockModule(modulePath, factory, options);
+    mockModule(modulePath, factory, _options);
   };
 }
 
