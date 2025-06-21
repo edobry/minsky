@@ -57,7 +57,7 @@ describe("GitService", () => {
     });
 
     // Mock execInRepository to avoid actual git commands
-    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
+    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (_workdir, command) => {
       if (command === "rev-parse --abbrev-ref HEAD") {
         return "main";
       }
@@ -109,7 +109,7 @@ describe("GitService", () => {
   test("execInRepository should propagate errors", async () => {
     // Override the mock implementation to simulate an error
     const execInRepoMock = spyOn(GitService.prototype, "execInRepository");
-    execInRepoMock.mockImplementation(async (workdir, command) => {
+    execInRepoMock.mockImplementation(async (_workdir, command) => {
       throw new Error("Command execution failed");
     });
 

@@ -16,7 +16,7 @@ import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
 /**
  * Description for session option
  */
-export const SESSION_DESCRIPTION = "Name of the session to use";
+export const _SESSION_DESCRIPTION = "Name of the session to use";
 
 /**
  * Description for repository URI option

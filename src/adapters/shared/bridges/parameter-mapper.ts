@@ -63,7 +63,7 @@ export function addArgumentsFromMappings(_command: Command, mappings: ParameterM
     })
     .forEach((mapping) => {
       // Get schema type for proper argument definition
-      const schemaType = getZodSchemaType(mapping.paramDef.schema);
+      const _schemaType = getZodSchemaType(mapping.paramDef.schema);
 
       // Format the argument name
       const argName = formatArgumentName(
@@ -90,7 +90,7 @@ function createOptionFromMapping(_mapping: ParameterMapping): Option {
   const { name, paramDef, _options } = mapping;
 
   // Get schema type for proper option definition
-  const schemaType = getZodSchemaType(paramDef.schema);
+  const _schemaType = getZodSchemaType(paramDef.schema);
 
   // Format option flag
   const flag = formatOptionFlag(name, _options.alias, schemaType);

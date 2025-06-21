@@ -520,7 +520,7 @@ export class CliCommandBridge {
     if (!session) return;
 
     const sessionName = session.session || "unknown";
-    const taskId = session.taskId ? ` (${session._taskId})` : "";
+    const _taskId = session.taskId ? ` (${session._taskId})` : "";
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
     log.cli(`${sessionName}${_taskId}${repoName}`);

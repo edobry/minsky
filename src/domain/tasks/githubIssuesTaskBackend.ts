@@ -202,7 +202,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         throw new Error(`Invalid spec path format: ${specPath}`);
       }
 
-      const taskId = `#${taskIdMatch[1]}`;
+      const _taskId = `#${taskIdMatch[1]}`;
       
       // Try to find the corresponding GitHub issue
       const response = await this.octokit.rest.issues.listForRepo({
@@ -410,7 +410,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   // ---- Private Helper Methods ----
 
   private convertIssueToTaskData(issue: unknown): TaskData {
-    const taskId = this.extractTaskIdFromIssue(issue);
+    const _taskId = this.extractTaskIdFromIssue(issue);
     const status = this.getTaskStatusFromIssue(issue);
     
     return {

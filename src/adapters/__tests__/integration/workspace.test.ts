@@ -256,7 +256,7 @@ describe("Workspace Domain Methods", () => {
       const accessMock = async () => {};
 
       // Act
-      const result = await resolveWorkspacePath(options, { access: accessMock });
+      const result = await resolveWorkspacePath(_options, { access: accessMock });
 
       // Assert
       expect(result).toBe(workspacePath);
@@ -275,7 +275,7 @@ describe("Workspace Domain Methods", () => {
       // This test needs special handling for Bun
       let errorThrown = false;
       try {
-        await resolveWorkspacePath(options, { access: accessMock });
+        await resolveWorkspacePath(_options, { access: accessMock });
       } catch (error: unknown) {
         // Type error as any to access error.message
         errorThrown = true;

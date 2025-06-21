@@ -221,7 +221,7 @@ export class TaskService {
     const spec = this.currentBackend.parseTaskSpec(specResult._content);
 
     // Generate task ID if not provided
-    let taskId: string;
+    let _taskId: string;
     if (spec.id) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(spec.id);

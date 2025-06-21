@@ -256,10 +256,10 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const result = await mockUpdateRule(ruleId, options, ruleOptions);
+      const result = await mockUpdateRule(ruleId, _options, ruleOptions);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options, ruleOptions);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options, ruleOptions);
       expect(result.content).toBe(updatedContent);
       expect(result.id).toBe(ruleId);
     });

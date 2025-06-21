@@ -64,7 +64,7 @@ export function createSessionData(
     createdAt?: string;
   } = {}
 ): unknown {
-  const taskId = overrides.taskId || "123";
+  const _taskId = overrides.taskId || "123";
   const session = overrides.session || `task#${taskId}`;
 
   return {
@@ -90,7 +90,7 @@ export function createSessionDataArray(
   return Array(count)
     .fill(0)
     .map((_, index) => {
-      const taskId = `${100 + index}`;
+      const _taskId = `${100 + index}`;
       return createSessionData({
         _taskId,
         ...commonOverrides,

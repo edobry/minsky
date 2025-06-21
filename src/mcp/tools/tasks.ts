@@ -29,7 +29,7 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command with appropriate options
-        let command = "minsky tasks list";
+        let _command = "minsky tasks list";
         if (_args.filter) {
           command += ` --filter ${args.filter}`;
         }
