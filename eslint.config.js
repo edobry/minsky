@@ -31,6 +31,31 @@ export default [
         __dirname: "readonly",
         __filename: "readonly",
         globalThis: "readonly",
+        console: "readonly",
+        setTimeout: "readonly",
+        setInterval: "readonly",
+        clearTimeout: "readonly",
+        clearInterval: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        URLSearchParams: "readonly",
+        FormData: "readonly",
+        Headers: "readonly",
+        Request: "readonly",
+        Response: "readonly",
+        AbortController: "readonly",
+        AbortSignal: "readonly",
+        TextEncoder: "readonly",
+        TextDecoder: "readonly",
+        atob: "readonly",
+        btoa: "readonly",
+        crypto: "readonly",
+        performance: "readonly",
+        structuredClone: "readonly",
+        jest: "readonly",
+        module: "readonly",
+        exports: "readonly",
+        require: "readonly",
       },
     },
     plugins: {
@@ -63,6 +88,14 @@ export default [
       "import/no-unresolved": ["off", { ignore: [".ts"] }],
       "no-useless-escape": "off",
       "@typescript-eslint/ban-types": "off",
+      "no-undef": "off", // TypeScript handles this better
+      "no-unused-vars": ["warn", { argsIgnorePattern: "^_+", varsIgnorePattern: "^_+" }],
+    },
+  },
+  {
+    files: ["**/*.ts"],
+    rules: {
+      "no-undef": "off", // TypeScript handles this better
     },
   },
   {
@@ -75,6 +108,7 @@ export default [
     files: ["**/test/**", "**/*.test.ts", "**/__tests__/**"],
     rules: {
       "no-console": "warn",
+      "@typescript-eslint/no-explicit-any": "off", // Allow any in test files for mocking
     },
   },
 ];
