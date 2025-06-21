@@ -1255,8 +1255,18 @@ export async function approveSessionFromParams(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
-  // Use the new functional implementation
+export function createSessionProvider(options?: { 
+  dbPath?: string; 
+  workingDir?: string; 
+  useNewBackend?: boolean;
+}): SessionProviderInterface {
+  // Use new configuration-based backend by default, but allow fallback
+  if (options?.useNewBackend !== false) {
+    const { SessionDbAdapter } = require("./session/session-db-adapter");
+    return new SessionDbAdapter(options?.workingDir);
+  }
+  
+  // Fallback to legacy JSON file implementation
   return new SessionDB(options?.dbPath);
 }
 
