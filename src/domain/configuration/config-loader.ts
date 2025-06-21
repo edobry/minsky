@@ -21,7 +21,7 @@ import {
   GlobalUserConfig,
   BackendConfig,
   CredentialConfig,
-  DetectionRule,
+  StorageConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
   ENV_VARS
@@ -74,6 +74,28 @@ export class ConfigurationLoader {
       };
     }
 
+    // Storage configuration overrides
+    const storageConfig: Partial<StorageConfig> = {};
+    if (process.env[ENV_VARS.STORAGE_BACKEND]) {
+      const backend = process.env[ENV_VARS.STORAGE_BACKEND];
+      if (backend === "json" || backend === "sqlite" || backend === "postgres") {
+        storageConfig.backend = backend;
+      }
+    }
+    if (process.env[ENV_VARS.SQLITE_PATH]) {
+      storageConfig.dbPath = process.env[ENV_VARS.SQLITE_PATH];
+    }
+    if (process.env[ENV_VARS.POSTGRES_URL]) {
+      storageConfig.connectionString = process.env[ENV_VARS.POSTGRES_URL];
+    }
+    if (process.env[ENV_VARS.BASE_DIR]) {
+      storageConfig.baseDir = process.env[ENV_VARS.BASE_DIR];
+    }
+
+    if (Object.keys(storageConfig).length > 0) {
+      config.storage = storageConfig as StorageConfig;
+    }
+
     return config;
   }
 
@@ -88,11 +110,12 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, "utf8");
       return parseYaml(content) as GlobalUserConfig;
-    } catch (error) {
+    } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
+      // eslint-disable-next-line no-console
+      console.error(`Failed to load global user config from ${configPath}:`, _error);
       return null;
     }
   }
@@ -108,9 +131,9 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, "utf8");
       return parseYaml(content) as RepositoryConfig;
-    } catch (error) {
+    } catch (_error) {
       // Silently fail - configuration loading should be resilient
       return null;
     }
@@ -127,7 +150,8 @@ export class ConfigurationLoader {
       backend: defaults.backend || "json-file",
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
-      detectionRules: [...(defaults.detectionRules || [])]
+      detectionRules: [...(defaults.detectionRules || [])],
+      storage: { ...defaults.storage } as StorageConfig
     };
 
     // Apply repository config
@@ -148,6 +172,11 @@ export class ConfigurationLoader {
       if (repository.repository?.detection_rules) {
         resolved.detectionRules = repository.repository.detection_rules;
       }
+
+      // Merge storage config from repository
+      if (repository.storage) {
+        resolved.storage = this.mergeStorageConfig(resolved.storage, repository.storage);
+      }
     }
 
     // Apply global user config
@@ -156,6 +185,9 @@ export class ConfigurationLoader {
         resolved.credentials,
         globalUser.credentials
       );
+    }
+    if (globalUser?.storage) {
+      resolved.storage = this.mergeStorageConfig(resolved.storage, globalUser.storage);
     }
 
     // Apply environment overrides
@@ -167,6 +199,9 @@ export class ConfigurationLoader {
         resolved.credentials,
         environment.credentials
       );
+    }
+    if (environment.storage) {
+      resolved.storage = this.mergeStorageConfig(resolved.storage, environment.storage);
     }
 
     // Apply CLI flags (highest priority)
@@ -181,6 +216,9 @@ export class ConfigurationLoader {
         resolved.credentials,
         cliFlags.credentials
       );
+    }
+    if (cliFlags.storage) {
+      resolved.storage = this.mergeStorageConfig(resolved.storage, cliFlags.storage);
     }
 
     return resolved;
@@ -216,6 +254,21 @@ export class ConfigurationLoader {
     }
 
     return merged;
+  }
+
+  /**
+   * Merge storage configurations
+   */
+  private mergeStorageConfig(
+    existing: StorageConfig,
+    newStorage: Partial<StorageConfig>
+  ): StorageConfig {
+    return {
+      backend: newStorage.backend || existing.backend,
+      baseDir: newStorage.baseDir || existing.baseDir,
+      dbPath: newStorage.dbPath || existing.dbPath,
+      connectionString: newStorage.connectionString || existing.connectionString,
+    };
   }
 
   /**
