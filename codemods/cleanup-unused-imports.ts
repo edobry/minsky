@@ -1,11 +1,13 @@
+import { test  } from "bun:test";
+// console is a global
 #!/usr/bin/env bun
 /**
  * Improved script to systematically remove unused imports from TypeScript files
  * Usage: bun run cleanup-unused-imports.ts [file1] [file2] ...
- * If no files specified, processes all TypeScript files with known unused import patterns
+ * If no files specified processes all TypeScript files with known unused import patterns
  */
 
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync  } from "fs";
 
 interface UnusedImportPattern {
   importName: string;
@@ -30,8 +32,7 @@ class UnusedImportCleaner {
    */
   cleanFile(filePath: string): FileCleanupResult {
     const result: FileCleanupResult = {
-      filePath,
-      removedImports: [],
+      filePath removedImports: [],
       errors: [],
       success: false
     };
@@ -56,13 +57,13 @@ class UnusedImportCleaner {
       
       if (cleanedContent !== content) {
         writeFileSync(filePath, cleanedContent);
-        result.removedImports = unusedImports.map(imp => imp.importName);
+        result.removedImports = unusedImports.map(imp =>, imp.importName);
         result.success = true;
         this.totalChanges += unusedImports.length;
       }
       
     } catch (error) {
-      result.errors.push(`Error processing ${filePath}: ${error}`);
+      result.errors.push(`Error processing ${filePath}:, ${error}`);
     }
 
     this.processedFiles++;
@@ -79,40 +80,40 @@ class UnusedImportCleaner {
       const line = lines[i].trim();
       
       // Skip non-import lines
-      if (!line.startsWith("import ")) continue;
+      if (!line.startsWith("import, ")) continue;
       
       // Handle different import patterns
-      if (line.includes("import type")) {
-        // Type imports: import type { Type1, Type2 } from "module"
-        const typeMatches = line.match(/import type \{([^}]+)\}/);
+      if (line.includes("import, type")) {
+        // Type imports: import type { Type1 Type2 } from "module"
+        const typeMatches = line.match(/import type, \{([^}]+)\}/);
         if (typeMatches) {
-          const types = typeMatches[1].split(",").map(t => t.trim());
+          const types = typeMatches[1].split(",").map(t =>, t.trim());
           types.forEach(type => {
-            imports.push({ importName: type, isType: true });
+            imports.push({ importName: type isType: true, });
           });
         }
-      } else if (line.includes("import {")) {
+      } else if (line.includes("import {, ")) {
         // Named imports: import { func1, func2 } from "module"
-        const namedMatches = line.match(/import \{([^}]+)\}/);
+        const namedMatches = line.match(/import, \{([^}]+)\}/);
         if (namedMatches) {
-          const names = namedMatches[1].split(",").map(n => n.trim());
+          const names = namedMatches[1].split(",").map(n =>, n.trim());
           names.forEach(name => {
             // Handle "import as" patterns
-            const actualName = name.includes(" as ") ? name.split(" as ")[1] : name;
-            imports.push({ importName: actualName.trim() });
+            const actualName = name.includes(" as, ") ? name.split(" as, ")[1] : name;
+            imports.push({ importName:, actualName.trim() });
           });
         }
-      } else if (line.includes("import * as")) {
+      } else if (line.includes("import *, as")) {
         // Namespace imports: import * as Module from "module"  
-        const namespaceMatch = line.match(/import \* as (\w+)/);
+        const namespaceMatch = line.match(/import \* as, (\w+)/);
         if (namespaceMatch) {
-          imports.push({ importName: namespaceMatch[1], isNamespace: true });
+          imports.push({ importName: namespaceMatch[1] isNamespace: true, });
         }
-      } else if (line.match(/^import \w+/)) {
+      } else if (line.match(/^import, \w+/)) {
         // Default imports: import Module from "module"
-        const defaultMatch = line.match(/^import (\w+)/);
+        const defaultMatch = line.match(/^import, (\w+)/);
         if (defaultMatch) {
-          imports.push({ importName: defaultMatch[1], isDefault: true });
+          imports.push({ importName: defaultMatch[1] isDefault: true, });
         }
       }
     }
@@ -127,7 +128,7 @@ class UnusedImportCleaner {
     const lines = content.split("\n");
     const unusedImports: UnusedImportPattern[] = [];
     
-    for (const imp of imports) {
+    for (const imp, of, imports) {
       if (!this.isImportUsed(lines, imp)) {
         unusedImports.push(imp);
       }
@@ -146,7 +147,7 @@ class UnusedImportCleaner {
       const line = lines[i];
       
       // Skip import lines themselves
-      if (line.trim().startsWith("import ")) continue;
+      if (line.trim().startsWith("import, ")) continue;
       
       // Look for usage patterns
       if (line.includes(importName)) {
@@ -165,22 +166,22 @@ class UnusedImportCleaner {
   /**
    * Remove unused imports from content
    */
-  private removeUnusedImports(content: string, unusedImports: UnusedImportPattern[]): string {
+  private removeUnusedImports(content: string unusedImports: UnusedImportPattern[]): string {
     let lines = content.split("\n");
-    const unusedNames = new Set(unusedImports.map(imp => imp.importName));
+    const unusedNames = new Set(unusedImports.map(imp =>, imp.importName));
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       
-      if (!line.trim().startsWith("import ")) continue;
+      if (!line.trim().startsWith("import, ")) continue;
       
-      if (line.includes("import {")) {
+      if (line.includes("import, {")) {
         // Handle named imports
-        const match = line.match(/import \{([^}]+)\} from (.+)/);
+        const match = line.match(/import, \{([^}]+)\} from (.+)/);
         if (match) {
-          const imports = match[1].split(",").map(imp => imp.trim());
+          const imports = match[1].split(",").map(imp =>, imp.trim());
           const usedImports = imports.filter(imp => {
-            const actualName = imp.includes(" as ") ? imp.split(" as ")[1].trim() : imp;
+            const actualName = imp.includes(" as, ") ? imp.split(" as, ")[1].trim() : imp;
             return !unusedNames.has(actualName);
           });
           
@@ -192,12 +193,12 @@ class UnusedImportCleaner {
             lines[i] = `import { ${usedImports.join(", ")} } from ${match[2]}`;
           }
         }
-      } else if (line.includes("import type {")) {
+      } else if (line.includes("import type, {")) {
         // Handle type imports similarly
-        const match = line.match(/import type \{([^}]+)\} from (.+)/);
+        const match = line.match(/import type, \{([^}]+)\} from (.+)/);
         if (match) {
-          const types = match[1].split(",").map(t => t.trim());
-          const usedTypes = types.filter(type => !unusedNames.has(type));
+          const types = match[1].split(",").map(t =>, t.trim());
+          const usedTypes = types.filter(type =>, !unusedNames.has(type));
           
           if (usedTypes.length === 0) {
             lines[i] = "";
@@ -207,7 +208,7 @@ class UnusedImportCleaner {
         }
       } else {
         // Handle default and namespace imports
-        for (const imp of unusedImports) {
+        for (const imp, of, unusedImports) {
           if ((imp.isDefault || imp.isNamespace) && line.includes(imp.importName)) {
             lines[i] = "";
             break;
@@ -222,7 +223,7 @@ class UnusedImportCleaner {
         // Keep empty line if it's not between imports
         const prevLine = lines[index - 1];
         const nextLine = lines[index + 1];
-        return !(prevLine?.trim().startsWith("import ") || nextLine?.trim().startsWith("import "));
+        return !(prevLine?.trim().startsWith("import, ") || nextLine?.trim().startsWith("import, "));
       }
       return true;
     });
@@ -236,17 +237,17 @@ class UnusedImportCleaner {
   processFiles(filePaths: string[]): FileCleanupResult[] {
     const results: FileCleanupResult[] = [];
     
-    for (const filePath of filePaths) {
+    for (const filePath, of, filePaths) {
       const result = this.cleanFile(filePath);
       results.push(result);
       
       if (result.success && result.removedImports.length > 0) {
-        console.log(`✅ ${filePath}: Removed ${result.removedImports.length} unused imports`);
+        console.log(`✅ ${filePath}: Removed ${result.removedImports.length} unused, imports`);
         console.log(`   🗑️  ${result.removedImports.join(", ")}`);
       } else if (result.errors.length > 0) {
         console.log(`❌ ${filePath}: ${result.errors.join(", ")}`);
       } else {
-        console.log(`ℹ️  ${filePath}: No unused imports found`);
+        console.log(`ℹ️  ${filePath}: No unused imports, found`);
       }
     }
     
@@ -257,7 +258,7 @@ class UnusedImportCleaner {
    * Get summary stats
    */
   getSummary(): string {
-    return `Processed ${this.processedFiles} files, removed ${this.totalChanges} unused imports`;
+    return `Processed ${this.processedFiles} files removed ${this.totalChanges} unused imports`;
   }
 }
 
@@ -270,28 +271,28 @@ async function main() {
   if (filePaths.length === 0) {
     // Default to files we know have unused imports
     filePaths = [
-      "src/adapters/__tests__/integration/rules.test.ts",
-      "src/adapters/__tests__/integration/tasks-mcp.test.ts", 
-      "src/adapters/__tests__/integration/tasks.test.ts",
-      "src/adapters/__tests__/integration/workspace.test.ts",
+      "src/adapters/tests__/integration/rules.test.ts",
+      "src/adapters/tests__/integration/tasks-mcp.test.ts", 
+      "src/adapters/tests__/integration/tasks.test.ts",
+      "src/adapters/tests__/integration/workspace.test.ts",
       "src/domain/tasks.test.ts",
       "src/domain/storage/json-file-storage.ts",
       "codemods/remove-unused-imports.ts" // Clean up our own file
     ];
   }
   
-  console.log(`🧹 Starting unused import cleanup for ${filePaths.length} files...`);
+  console.log(`🧹 Starting unused import cleanup for ${filePaths.length}, files...`);
   
   const results = cleaner.processFiles(filePaths);
   
-  console.log(`\n📊 ${cleaner.getSummary()}`);
+  console.log(`\n📊, ${cleaner.getSummary()}`);
   
-  const successCount = results.filter(r => r.success).length;
-  const errorCount = results.filter(r => r.errors.length > 0).length;
+  const successCount = results.filter(r =>, r.success).length;
+  const errorCount = results.filter(r => r.errors.length >, 0).length;
   
-  console.log(`✅ ${successCount} files processed successfully`);
+  console.log(`✅ ${successCount} files processed, successfully`);
   if (errorCount > 0) {
-    console.log(`❌ ${errorCount} files had errors`);
+    console.log(`❌ ${errorCount} files had, errors`);
   }
 }
 
