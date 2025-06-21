@@ -76,7 +76,7 @@ The storage backend can be configured through Minsky's existing configuration sy
 ### Repository Configuration (`.minsky/config.yaml`)
 ```yaml
 version: 1
-storage:
+sessiondb:
   backend: sqlite  # json, sqlite, postgres
   sqlite:
     path: ".minsky/sessions.db"
@@ -88,7 +88,7 @@ storage:
 ### Global User Configuration (`~/.config/minsky/config.yaml`)
 ```yaml
 version: 1
-storage:
+sessiondb:
   sqlite:
     path: "~/.local/state/minsky/sessions.db"
   base_dir: "~/.local/state/minsky/git"
@@ -99,10 +99,10 @@ credentials:
 
 ### Environment Variables (Override)
 ```bash
-export MINSKY_STORAGE_BACKEND=sqlite
-export MINSKY_SQLITE_PATH=/path/to/sessions.db
-export MINSKY_POSTGRES_URL=postgresql://user:pass@localhost/minsky
-export MINSKY_BASE_DIR=/path/to/sessions
+export MINSKY_SESSIONDB_BACKEND=sqlite
+export MINSKY_SESSIONDB_SQLITE_PATH=/path/to/sessions.db
+export MINSKY_SESSIONDB_POSTGRES_URL=postgresql://user:pass@localhost/minsky
+export MINSKY_SESSIONDB_BASE_DIR=/path/to/sessions
 ```
 
 The configuration follows the same precedence as other Minsky settings:
@@ -168,7 +168,7 @@ const sqliteStorage = StorageBackendFactory.createFromConfig({
 // Repository-level config (committed to repo)
 const repoConfig = {
   version: 1,
-  storage: {
+  sessiondb: {
     backend: 'sqlite',
     sqlite: { path: '.minsky/sessions.db' }
   }

@@ -10,7 +10,7 @@ import { JsonFileStorage } from "./backends/json-file-storage";
 import { SqliteStorage } from "./backends/sqlite-storage";
 import { PostgresStorage } from "./backends/postgres-storage";
 import { configurationService } from "../configuration";
-import { StorageConfig } from "../configuration/types";
+import { SessionDbConfig } from "../configuration/types";
 
 export class StorageBackendFactory {
   /**
@@ -18,13 +18,13 @@ export class StorageBackendFactory {
    */
   static async create(workingDir?: string): Promise<DatabaseStorage<any, any>> {
     const config = await configurationService.loadConfiguration(workingDir || process.cwd());
-    return this.createFromConfig(config.resolved.storage);
+    return this.createFromConfig(config.resolved.sessiondb);
   }
 
   /**
    * Create a storage backend from resolved storage configuration
    */
-  static createFromConfig(config: StorageConfig): DatabaseStorage<any, any> {
+  static createFromConfig(config: SessionDbConfig): DatabaseStorage<any, any> {
     switch (config.backend) {
     case "sqlite":
       return new SqliteStorage(config.dbPath, config.baseDir);
@@ -44,7 +44,7 @@ export class StorageBackendFactory {
   /**
    * Validate backend configuration
    */
-  static validateConfig(config: StorageConfig): string[] {
+  static validateConfig(config: SessionDbConfig): string[] {
     const errors: string[] = [];
 
     if (!config.backend) {

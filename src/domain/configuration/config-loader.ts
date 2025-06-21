@@ -21,7 +21,7 @@ import {
   GlobalUserConfig,
   BackendConfig,
   CredentialConfig,
-  StorageConfig,
+  SessionDbConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
   ENV_VARS
@@ -74,26 +74,26 @@ export class ConfigurationLoader {
       };
     }
 
-    // Storage configuration overrides
-    const storageConfig: Partial<StorageConfig> = {};
-    if (process.env[ENV_VARS.STORAGE_BACKEND]) {
-      const backend = process.env[ENV_VARS.STORAGE_BACKEND];
+    // SessionDB configuration overrides
+    const sessionDbConfig: Partial<SessionDbConfig> = {};
+    if (process.env[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = process.env[ENV_VARS.SESSIONDB_BACKEND];
       if (backend === "json" || backend === "sqlite" || backend === "postgres") {
-        storageConfig.backend = backend;
+        sessionDbConfig.backend = backend;
       }
     }
-    if (process.env[ENV_VARS.SQLITE_PATH]) {
-      storageConfig.dbPath = process.env[ENV_VARS.SQLITE_PATH];
+    if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH];
     }
-    if (process.env[ENV_VARS.POSTGRES_URL]) {
-      storageConfig.connectionString = process.env[ENV_VARS.POSTGRES_URL];
+    if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL];
     }
-    if (process.env[ENV_VARS.BASE_DIR]) {
-      storageConfig.baseDir = process.env[ENV_VARS.BASE_DIR];
+    if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR];
     }
 
-    if (Object.keys(storageConfig).length > 0) {
-      config.storage = storageConfig as StorageConfig;
+    if (Object.keys(sessionDbConfig).length > 0) {
+      config.sessiondb = sessionDbConfig as SessionDbConfig;
     }
 
     return config;
@@ -151,7 +151,7 @@ export class ConfigurationLoader {
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
       detectionRules: [...(defaults.detectionRules || [])],
-      storage: { ...defaults.storage } as StorageConfig
+      sessiondb: { ...defaults.sessiondb } as SessionDbConfig
     };
 
     // Apply repository config
@@ -173,9 +173,9 @@ export class ConfigurationLoader {
         resolved.detectionRules = repository.repository.detection_rules;
       }
 
-      // Merge storage config from repository
-      if (repository.storage) {
-        resolved.storage = this.mergeStorageConfig(resolved.storage, repository.storage);
+      // Merge sessiondb config from repository
+      if (repository.sessiondb) {
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repository.sessiondb);
       }
     }
 
@@ -186,8 +186,8 @@ export class ConfigurationLoader {
         globalUser.credentials
       );
     }
-    if (globalUser?.storage) {
-      resolved.storage = this.mergeStorageConfig(resolved.storage, globalUser.storage);
+    if (globalUser?.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalUser.sessiondb);
     }
 
     // Apply environment overrides
@@ -200,8 +200,8 @@ export class ConfigurationLoader {
         environment.credentials
       );
     }
-    if (environment.storage) {
-      resolved.storage = this.mergeStorageConfig(resolved.storage, environment.storage);
+    if (environment.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
     // Apply CLI flags (highest priority)
@@ -217,8 +217,8 @@ export class ConfigurationLoader {
         cliFlags.credentials
       );
     }
-    if (cliFlags.storage) {
-      resolved.storage = this.mergeStorageConfig(resolved.storage, cliFlags.storage);
+    if (cliFlags.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -257,17 +257,17 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Merge storage configurations
+   * Merge sessiondb configurations
    */
-  private mergeStorageConfig(
-    existing: StorageConfig,
-    newStorage: Partial<StorageConfig>
-  ): StorageConfig {
+  private mergeSessionDbConfig(
+    existing: SessionDbConfig,
+    newSessionDb: Partial<SessionDbConfig>
+  ): SessionDbConfig {
     return {
-      backend: newStorage.backend || existing.backend,
-      baseDir: newStorage.baseDir || existing.baseDir,
-      dbPath: newStorage.dbPath || existing.dbPath,
-      connectionString: newStorage.connectionString || existing.connectionString,
+      backend: newSessionDb.backend || existing.backend,
+      baseDir: newSessionDb.baseDir || existing.baseDir,
+      dbPath: newSessionDb.dbPath || existing.dbPath,
+      connectionString: newSessionDb.connectionString || existing.connectionString,
     };
   }
 
