@@ -529,7 +529,7 @@ export async function startSessionFromParams(
 
     // Determine the session name using task ID if provided
     let sessionName = name;
-    let taskId: string | undefined = task;
+    let _taskId: string | undefined = task;
 
     if (_taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
@@ -973,7 +973,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
 
     // If no session name provided but task ID is, try to find the session by task ID
     if (!sessionName && params.task) {
-      const taskId = params.task;
+      const _taskId = params.task;
       const sessionRecord = await sessionDb.getSessionByTaskId(_taskId);
       if (sessionRecord) {
         sessionName = sessionRecord.session;
@@ -1099,7 +1099,7 @@ export async function approveSessionFromParams(
   taskId?: string;
 }> {
   let sessionNameToUse = params.session;
-  let taskId: string | undefined;
+  let _taskId: string | undefined;
 
   // Set up session provider (use injected one or create default)
   const sessionDB = depsInput?.sessionDB || createSessionProvider();
@@ -1339,7 +1339,7 @@ export async function sessionReviewFromParams(
   };
 
   let sessionNameToUse = params.session;
-  let taskId: string | undefined;
+  let _taskId: string | undefined;
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {

@@ -37,7 +37,7 @@ describe("Shared Git Commands", () => {
     pushSpy = spyOn(gitDomain, "pushFromParams").mockImplementation(() =>
       Promise.resolve({
         pushed: true,
-        workdir: "/mocked/workdir",
+        _workdir: "/mocked/workdir",
       })
     );
 
@@ -137,7 +137,7 @@ describe("Shared Git Commands", () => {
     // Verify result
     expect(result).toEqual({
       success: true,
-      workdir: "/mocked/workdir",
+      _workdir: "/mocked/workdir",
     });
   });
 });

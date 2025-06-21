@@ -420,7 +420,7 @@ export class GitService implements GitServiceInterface {
       const workdir = await this.determineWorkingDirectory(_options, deps);
       const branch = await this.determineCurrentBranch(_workdir, _options, deps);
 
-      const taskId = await this.determineTaskId(_options, _workdir, _branch, deps);
+      const _taskId = await this.determineTaskId(_options, _workdir, _branch, deps);
 
       if (_taskId && !_options.noStatusUpdate) {
         try {
@@ -1197,7 +1197,7 @@ export class GitService implements GitServiceInterface {
     // 3. Try to extract taskId from branch name
     const taskIdMatch = branch.match(/task[#-]?(\d+)/i);
     if (taskIdMatch) {
-      const taskId = taskIdMatch[1];
+      const _taskId = taskIdMatch[1];
       log.debug("Parsed task ID from _branch name", { _taskId, _branch });
       return taskId;
     }

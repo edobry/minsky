@@ -22,7 +22,7 @@ describe("GitService Default Branch Detection", () => {
     // Use project's test utilities for mocking
     originalExecInRepository = GitService.prototype.execInRepository;
     GitService.prototype.execInRepository = createMock(() => Promise.resolve("")) as unknown as (
-      workdir: string,
+      _workdir: string,
       command: string
     ) => Promise<string>;
     execMock = GitService.prototype.execInRepository;

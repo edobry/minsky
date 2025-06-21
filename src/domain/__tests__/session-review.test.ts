@@ -51,7 +51,7 @@ describe("sessionReviewFromParams", () => {
       return "";
     }),
     // Add other required methods with minimal implementations
-    clone: mock(() => Promise.resolve({ workdir: "", session: "" })),
+    clone: mock(() => Promise.resolve({ _workdir: "", session: "" })),
     branch: mock(() => Promise.resolve({ branch: "" })),
     stashChanges: mock(() => Promise.resolve()),
     pullLatest: mock(() => Promise.resolve()),

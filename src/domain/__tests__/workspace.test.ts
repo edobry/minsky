@@ -16,7 +16,7 @@ describe("resolveWorkspacePath", () => {
       access: mockAccess,
     };
 
-    const result = await resolveWorkspacePath(options, mockDeps);
+    const result = await resolveWorkspacePath(_options, mockDeps);
 
     expect(mockAccess).toHaveBeenCalledWith(join("/test/workspace", "process"));
     expect(result).toBe("/test/workspace");
@@ -57,7 +57,7 @@ describe("resolveWorkspacePath", () => {
       access: mockAccess,
     };
 
-    await expect(resolveWorkspacePath(options, mockDeps)).rejects.toThrow(
+    await expect(resolveWorkspacePath(_options, mockDeps)).rejects.toThrow(
       "Invalid workspace path: /invalid/workspace"
     );
   });

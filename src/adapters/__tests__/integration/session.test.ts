@@ -47,7 +47,7 @@ describe("Session Domain Methods", () => {
   );
 
   const mockGitService = createMockObject(["clone", "checkout", "getBranch", "getSessionRecord"], {
-    clone: () => ({ workdir: "/mock/path/to/repo" }),
+    clone: () => ({ _workdir: "/mock/path/to/repo" }),
     getBranch: () => "main",
   });
 

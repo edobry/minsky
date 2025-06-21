@@ -354,7 +354,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // If we have an existing task ID, validate it doesn't conflict with existing tasks
-    let taskId: string;
+    let _taskId: string;
     if (hasTaskId && existingId) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(existingId);

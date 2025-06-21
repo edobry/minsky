@@ -29,7 +29,7 @@ describe("Shared CLI Options", () => {
   describe("Option Application Functions", () => {
     it("should add repository options to a command", () => {
       const command = new Command();
-      const spy = spyOn(command, "option");
+      const spy = spyOn(_command, "option");
 
       addRepoOptions(command);
 
@@ -48,7 +48,7 @@ describe("Shared CLI Options", () => {
 
     it("should add output format options to a command", () => {
       const command = new Command();
-      const spy = spyOn(command, "option");
+      const spy = spyOn(_command, "option");
 
       addOutputOptions(command);
 
@@ -60,7 +60,7 @@ describe("Shared CLI Options", () => {
 
     it("should add task identification options to a command", () => {
       const command = new Command();
-      const spy = spyOn(command, "option");
+      const spy = spyOn(_command, "option");
 
       addTaskOptions(command);
 
@@ -74,7 +74,7 @@ describe("Shared CLI Options", () => {
 
     it("should add backend options to a command", () => {
       const command = new Command();
-      const spy = spyOn(command, "option");
+      const spy = spyOn(_command, "option");
 
       addBackendOptions(command);
 
