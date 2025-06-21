@@ -9,11 +9,16 @@ import { MinskyError } from "../../errors/base-errors.js";
 /**
  * Session path resolver - handles secure path resolution within session workspaces
  */
-class SessionPathResolver {
+export class SessionPathResolver {
   private sessionDb: SessionDB;
+  private getCurrentSessionFn: () => Promise<string | null>;
 
-  constructor(sessionDb: SessionDB = new SessionDB()) {
+  constructor(
+    sessionDb: SessionDB = new SessionDB(),
+    getCurrentSessionFn: () => Promise<string | null> = getCurrentSession
+  ) {
     this.sessionDb = sessionDb;
+    this.getCurrentSessionFn = getCurrentSessionFn;
   }
 
   /**
@@ -50,7 +55,7 @@ class SessionPathResolver {
    * Get current session from working directory
    */
   async getCurrentSessionId(): Promise<string> {
-    const currentSession = await getCurrentSession();
+    const currentSession = await this.getCurrentSessionFn();
     if (!currentSession) {
       throw new MinskyError(
         "Not in a session workspace. Session file operations can only be used within session workspaces."
@@ -63,8 +68,11 @@ class SessionPathResolver {
 /**
  * Registers session file operation tools with the MCP command mapper
  */
-export function registerSessionFileTools(commandMapper: CommandMapper): void {
-  const pathResolver = new SessionPathResolver();
+export function registerSessionFileTools(
+  commandMapper: CommandMapper, 
+  pathResolver?: SessionPathResolver
+): void {
+  const resolver = pathResolver || new SessionPathResolver();
 
   // Session read file tool
   commandMapper.addCommand({
@@ -76,8 +84,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     execute: async (args: { path: string; session?: string }) => {
       try {
-        const sessionId = args.session || await pathResolver.getCurrentSessionId();
-        const absolutePath = await pathResolver.resolveSessionPath(sessionId, args.path);
+        const sessionId = args.session || await resolver.getCurrentSessionId();
+        const absolutePath = await resolver.resolveSessionPath(sessionId, args.path);
         
         const content = await fs.readFile(absolutePath, "utf-8");
         
@@ -115,8 +123,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     execute: async (args: { path: string; content: string; createDirectories?: boolean; session?: string }) => {
       try {
-        const sessionId = args.session || await pathResolver.getCurrentSessionId();
-        const absolutePath = await pathResolver.resolveSessionPath(sessionId, args.path);
+        const sessionId = args.session || await resolver.getCurrentSessionId();
+        const absolutePath = await resolver.resolveSessionPath(sessionId, args.path);
         
         // Create parent directories if requested
         if (args.createDirectories) {
@@ -157,9 +165,9 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     execute: async (args: { path?: string; session?: string }) => {
       try {
-        const sessionId = args.session || await pathResolver.getCurrentSessionId();
+        const sessionId = args.session || await resolver.getCurrentSessionId();
         const directoryPath = args.path || ".";
-        const absolutePath = await pathResolver.resolveSessionPath(sessionId, directoryPath);
+        const absolutePath = await resolver.resolveSessionPath(sessionId, directoryPath);
         
         const entries = await fs.readdir(absolutePath, { withFileTypes: true });
         
@@ -214,8 +222,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
     }),
     execute: async (args: { path: string; session?: string }) => {
       try {
-        const sessionId = args.session || await pathResolver.getCurrentSessionId();
-        const absolutePath = await pathResolver.resolveSessionPath(sessionId, args.path);
+        const sessionId = args.session || await resolver.getCurrentSessionId();
+        const absolutePath = await resolver.resolveSessionPath(sessionId, args.path);
         
         try {
           const stats = await fs.stat(absolutePath);
