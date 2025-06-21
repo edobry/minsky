@@ -56,13 +56,7 @@ This affects the markdown tasks backend implementation and undermines the reliab
    - Each workspace updates its local view based on events
    - Evaluate event delivery reliability and ordering
 
-   **Approach D: Database-Like Backend**
-
-   - Replace file-based task storage with a proper database backend
-   - All workspaces connect to the same database instance
-   - Investigate SQLite, JSON database, or in-memory solutions
-
-   **Approach E: File Watching + Lock Coordination**
+   **Approach D: File Watching + Lock Coordination**
 
    - Use file watchers to detect task file changes
    - Implement file locking to prevent concurrent modifications
@@ -133,14 +127,6 @@ This affects the markdown tasks backend implementation and undermines the reliab
 - Session management system
 - File I/O and git operations
 - Potentially new synchronization libraries or tools
-
-## Estimated Effort
-
-**Investigation Phase**: 1-2 days
-**Implementation Phase**: 3-5 days
-**Testing & Integration**: 1-2 days
-
-**Total**: 5-9 days
 
 ## Notes
 
