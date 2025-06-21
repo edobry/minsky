@@ -174,7 +174,7 @@
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
-- [ ] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+- [+] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
 - [x] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
