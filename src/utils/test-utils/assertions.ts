@@ -5,7 +5,7 @@
  * methods that are not directly available in Bun"s test framework.
  */
 
-import { expect } from \"bun:test\";
+import { expect } from "bun:test";
 
 /**
  * Custom matcher to replicate Jest"s toMatch functionality
