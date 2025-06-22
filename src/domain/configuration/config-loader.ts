@@ -1,6 +1,6 @@
 /**
  * Configuration loader for Minsky
- * 
+ *
  * Implements the 5-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
@@ -24,7 +24,7 @@ import {
   SessionDbConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
-  ENV_VARS
+  ENV_VARS,
 } from "./types";
 
 export class ConfigurationLoader {
@@ -41,7 +41,7 @@ export class ConfigurationLoader {
       environment: this.loadEnvironmentConfig(),
       globalUser: await this.loadGlobalUserConfig(),
       repository: await this.loadRepositoryConfig(workingDir),
-      defaults: DEFAULT_CONFIG
+      defaults: DEFAULT_CONFIG,
     };
 
     // Merge with precedence: CLI > env > global user > repo > defaults
@@ -49,7 +49,7 @@ export class ConfigurationLoader {
 
     return {
       resolved,
-      sources
+      sources,
     };
   }
 
@@ -69,8 +69,8 @@ export class ConfigurationLoader {
       config.credentials = {
         github: {
           token: process.env[ENV_VARS.GITHUB_TOKEN],
-          source: "environment"
-        }
+          source: "environment",
+        },
       };
     }
 
@@ -104,7 +104,7 @@ export class ConfigurationLoader {
    */
   private async loadGlobalUserConfig(): Promise<GlobalUserConfig | null> {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
-    
+
     if (!existsSync(configPath)) {
       return null;
     }
@@ -125,7 +125,7 @@ export class ConfigurationLoader {
    */
   private async loadRepositoryConfig(workingDir: string): Promise<RepositoryConfig | null> {
     const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
-    
+
     if (!existsSync(configPath)) {
       return null;
     }
@@ -151,7 +151,6 @@ export class ConfigurationLoader {
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
       detectionRules: [...(defaults.detectionRules || [])],
-      sessiondb: { ...defaults.sessiondb } as SessionDbConfig
     };
 
     // Apply repository config
@@ -181,10 +180,7 @@ export class ConfigurationLoader {
 
     // Apply global user config
     if (globalUser?.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        globalUser.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
     }
     if (globalUser?.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalUser.sessiondb);
@@ -195,10 +191,7 @@ export class ConfigurationLoader {
       resolved.backend = environment.backend;
     }
     if (environment.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        environment.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, environment.credentials);
     }
     if (environment.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
@@ -212,10 +205,7 @@ export class ConfigurationLoader {
       resolved.backendConfig = { ...resolved.backendConfig, ...cliFlags.backendConfig };
     }
     if (cliFlags.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        cliFlags.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, cliFlags.credentials);
     }
     if (cliFlags.sessiondb) {
       resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
@@ -280,4 +270,4 @@ export class ConfigurationLoader {
     }
     return filePath;
   }
-} 
+}

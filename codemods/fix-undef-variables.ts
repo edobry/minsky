@@ -13,66 +13,38 @@ for (const file of files) {
   let newContent = content;
   let fileChanges = 0;
 
-  // Fix common parameter name patterns
+  // Fix common parameter name patterns where underscore prefixed versions are used but non-prefixed are referenced
   const fixes = [
     // Fix _error patterns - change to error
     { pattern: /\b_error\b/g, replacement: "error" },
+    // Fix _err patterns - change to err
+    { pattern: /\b_err\b/g, replacement: "err" },
     // Fix _params patterns - change to params
     { pattern: /\b_params\b/g, replacement: "params" },
     // Fix _args patterns - change to args
     { pattern: /\b_args\b/g, replacement: "args" },
-    // Fix _path patterns - change to path
-    { pattern: /\b_path\b/g, replacement: "path" },
     // Fix _options patterns - change to options
     { pattern: /\b_options\b/g, replacement: "options" },
-    // Fix _id patterns - change to id
-    { pattern: /\b_id\b/g, replacement: "id" },
+    // Fix _command patterns - change to command
+    { pattern: /\b_command\b/g, replacement: "command" },
     // Fix _result patterns - change to result
     { pattern: /\b_result\b/g, replacement: "result" },
+    // Fix _sources patterns - change to sources
+    { pattern: /\b_sources\b/g, replacement: "sources" },
     // Fix _data patterns - change to data
     { pattern: /\b_data\b/g, replacement: "data" },
     // Fix _config patterns - change to config
     { pattern: /\b_config\b/g, replacement: "config" },
     // Fix _context patterns - change to context
     { pattern: /\b_context\b/g, replacement: "context" },
-    // Fix _this patterns - change to this
-    { pattern: /\b_this\b/g, replacement: "this" },
     // Fix _value patterns - change to value
     { pattern: /\b_value\b/g, replacement: "value" },
-    // Fix _fn patterns - change to fn
-    { pattern: /\b_fn\b/g, replacement: "fn" },
-    // Fix _meta patterns - change to meta
-    { pattern: /\b_meta\b/g, replacement: "meta" },
     // Fix _content patterns - change to content
     { pattern: /\b_content\b/g, replacement: "content" },
     // Fix _session patterns - change to session
     { pattern: /\b_session\b/g, replacement: "session" },
-    // Fix _command patterns - change to command
-    { pattern: /\b_command\b/g, replacement: "command" },
     // Fix _taskId patterns - change to taskId
     { pattern: /\b_taskId\b/g, replacement: "taskId" },
-    // Fix _updates patterns - change to updates
-    { pattern: /\b_updates\b/g, replacement: "updates" },
-    // Fix _backend patterns - change to backend
-    { pattern: /\b_backend\b/g, replacement: "backend" },
-    // Fix _debug patterns - change to debug
-    { pattern: /\b_debug\b/g, replacement: "debug" },
-    // Fix _index patterns - change to index
-    { pattern: /\b_index\b/g, replacement: "index" },
-    // Fix _mcp patterns - change to mcp
-    { pattern: /\b_mcp\b/g, replacement: "mcp" },
-    // Fix _normalizedError patterns - change to normalizedError
-    { pattern: /\b_normalizedError\b/g, replacement: "normalizedError" },
-    // Fix _ruleFormat patterns - change to ruleFormat
-    { pattern: /\b_ruleFormat\b/g, replacement: "ruleFormat" },
-    // Fix _newState patterns - change to newState
-    { pattern: /\b_newState\b/g, replacement: "newState" },
-    // Fix _ensureFullyQualified patterns - change to ensureFullyQualified
-    { pattern: /\b_ensureFullyQualified\b/g, replacement: "ensureFullyQualified" },
-    // Fix _CommandExecutionContext patterns - change to CommandExecutionContext
-    { pattern: /\b_CommandExecutionContext\b/g, replacement: "CommandExecutionContext" },
-    // Fix _CommandCategory patterns - change to CommandCategory
-    { pattern: /\b_CommandCategory\b/g, replacement: "CommandCategory" },
   ];
 
   for (const fix of fixes) {

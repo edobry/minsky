@@ -2,11 +2,26 @@
  * Drizzle Schema for Session Records
  *
  * This module defines the database schema for session records using Drizzle ORM.
+<<<<<<< HEAD
  * It supports both SQLite and PostgreSQL databases with schemas matching SessionRecord.
  */
 
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, text as pgText, timestamp } from "drizzle-orm/pg-core";
+=======
+ * It supports both SQLite and PostgreSQL databases with identical schemas.
+ */
+
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import {
+  pgTable,
+  varchar,
+  text as pgText,
+  timestamp,
+  uuid,
+  integer as pgInteger,
+} from "drizzle-orm/pg-core";
+>>>>>>> origin/main
 import type { SessionRecord } from "../../session/session-db";
 
 // SQLite Schema
@@ -20,7 +35,11 @@ export const sqliteSessions = sqliteTable("sessions", {
   repoPath: text("repo_path"),
 });
 
+<<<<<<< HEAD
 // PostgreSQL Schema  
+=======
+// PostgreSQL Schema
+>>>>>>> origin/main
 export const postgresSessions = pgTable("sessions", {
   session: varchar("session", { length: 255 }).primaryKey(),
   repoName: varchar("repo_name", { length: 255 }).notNull(),
@@ -95,4 +114,8 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     branch: record.branch,
     repoPath: record.repoPath || undefined,
   };
+<<<<<<< HEAD
 } 
+=======
+}
+>>>>>>> origin/main
