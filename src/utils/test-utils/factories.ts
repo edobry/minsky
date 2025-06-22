@@ -3,7 +3,7 @@
  * This module provides functions to create test data for various domain entities
  */
 import type { TaskData } from "../../types/tasks/taskData";
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
+
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults
@@ -57,14 +57,14 @@ export function createTaskDataArray(
 export function createSessionData(
   overrides: {
     session?: string;
-    _taskId?: string;
+    taskId?: string;
     repoName?: string;
     repoPath?: string;
-    _branch?: string;
+    branch?: string;
     createdAt?: string;
   } = {}
 ): unknown {
-  const _taskId = overrides.taskId || "123";
+  const taskId = overrides.taskId || "123";
   const session = overrides.session || `task#${taskId}`;
 
   return {
@@ -173,9 +173,9 @@ export function createFieldData(fieldName: string): unknown {
   case "id":
     return createRandomId();
   case "name":
-    return `Test ${createRandomString(DEFAULT_RETRY_COUNT)}`;
+    return `Test ${createRandomString(5)}`;
   case "email":
-    return `test.${createRandomString(DEFAULT_RETRY_COUNT)}@example.com`;
+    return `test.${createRandomString(5)}@example.com`;
   case "date":
   case "createdat":
   case "updatedat":
@@ -184,7 +184,7 @@ export function createFieldData(fieldName: string): unknown {
   case "active":
   case "enabled":
   case "visible":
-    return Math.random() > 0.DEFAULT_RETRY_COUNT;
+    return Math.random() > 0.5;
   case "count":
   case "age":
   case "quantity":
@@ -193,6 +193,6 @@ export function createFieldData(fieldName: string): unknown {
   case "amount":
     return parseFloat((Math.random() * 100).toFixed(2));
   default:
-    return `Test ${fieldName} ${createRandomString(DEFAULT_RETRY_COUNT)}`;
+    return `Test ${fieldName} ${createRandomString(5)}`;
   }
 }
