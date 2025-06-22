@@ -1,10 +1,16 @@
-import { sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { pgTable, varchar, text as pgText } from "drizzle-orm/pg-core";
-
 /**
- * SQLite schema for sessions
+ * Drizzle Schema for Session Records
+ *
+ * This module defines the database schema for session records using Drizzle ORM.
+ * It supports both SQLite and PostgreSQL databases with schemas matching SessionRecord.
  */
-export const sessionsTableSqlite = sqliteTable("sessions", {
+
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { pgTable, varchar, text as pgText, timestamp } from "drizzle-orm/pg-core";
+import type { SessionRecord } from "../../session/session-db";
+
+// SQLite Schema
+export const sqliteSessions = sqliteTable("sessions", {
   session: text("session").primaryKey(),
   repoName: text("repo_name").notNull(),
   repoUrl: text("repo_url").notNull(),
@@ -14,23 +20,79 @@ export const sessionsTableSqlite = sqliteTable("sessions", {
   repoPath: text("repo_path"),
 });
 
-/**
- * PostgreSQL schema for sessions
- */
-export const sessionsTablePostgres = pgTable("sessions", {
+// PostgreSQL Schema  
+export const postgresSessions = pgTable("sessions", {
   session: varchar("session", { length: 255 }).primaryKey(),
   repoName: varchar("repo_name", { length: 255 }).notNull(),
-  repoUrl: pgText("repo_url").notNull(),
-  createdAt: varchar("created_at", { length: 50 }).notNull(),
+  repoUrl: varchar("repo_url", { length: 1000 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }).notNull(),
   branch: varchar("branch", { length: 255 }).notNull(),
-  repoPath: pgText("repo_path"),
+  repoPath: varchar("repo_path", { length: 1000 }),
 });
 
+// Type exports for better type inference
+export type SqliteSessionRecord = typeof sqliteSessions.$inferSelect;
+export type SqliteSessionInsert = typeof sqliteSessions.$inferInsert;
+export type PostgresSessionRecord = typeof postgresSessions.$inferSelect;
+export type PostgresSessionInsert = typeof postgresSessions.$inferInsert;
+
 /**
- * Type inference for session records from both schemas
+ * Convert SessionRecord to SQLite insert format
  */
-export type SessionRecordSqlite = typeof sessionsTableSqlite.$inferSelect;
-export type SessionRecordPostgres = typeof sessionsTablePostgres.$inferSelect;
-export type NewSessionSqlite = typeof sessionsTableSqlite.$inferInsert;
-export type NewSessionPostgres = typeof sessionsTablePostgres.$inferInsert; 
+export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
+  return {
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
+    createdAt: record.createdAt,
+    taskId: record.taskId,
+    branch: record.branch,
+    repoPath: record.repoPath || null,
+  };
+}
+
+/**
+ * Convert SQLite record to SessionRecord format
+ */
+export function fromSqliteSelect(record: SqliteSessionRecord): SessionRecord {
+  return {
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
+    createdAt: record.createdAt,
+    taskId: record.taskId,
+    branch: record.branch,
+    repoPath: record.repoPath || undefined,
+  };
+}
+
+/**
+ * Convert SessionRecord to PostgreSQL insert format
+ */
+export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
+  return {
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
+    createdAt: new Date(record.createdAt),
+    taskId: record.taskId,
+    branch: record.branch,
+    repoPath: record.repoPath || null,
+  };
+}
+
+/**
+ * Convert PostgreSQL record to SessionRecord format
+ */
+export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord {
+  return {
+    session: record.session,
+    repoName: record.repoName,
+    repoUrl: record.repoUrl,
+    createdAt: record.createdAt.toISOString(),
+    taskId: record.taskId,
+    branch: record.branch,
+    repoPath: record.repoPath || undefined,
+  };
+} 
