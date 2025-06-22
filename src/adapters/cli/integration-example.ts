@@ -48,17 +48,7 @@ export function createIntegratedCliProgram(): Command {
   return program;
 }
 
-/**
- * Example of how you might run the integrated CLI
- * This is not meant to be run directly, but shows how
- * the integration would work in the main CLI entry point.
- */
-function _runIntegratedCli(): void {
-  const program = createIntegratedCliProgram();
-
-  // Parse command line arguments
-  program.parse(process.argv);
-}
+// Example function removed as it was unused
 
 // Export the CLI program creation function for use in tests
 export default createIntegratedCliProgram;
