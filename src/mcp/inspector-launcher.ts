@@ -78,7 +78,7 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(_options: InspectorOptions): InspectorLaunchResult {
-  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
+  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = _options;
 
   if (!isInspectorAvailable()) {
     return {
@@ -102,14 +102,12 @@ export function launchInspector(_options: InspectorOptions): InspectorLaunchResu
       args.push("--stdio");
     } else if (mcpTransportType === "httpStream" && mcpPort) {
       args.push("--sse", `${mcpHost || "localhost"}:${mcpPort}`);
-    } else if (mcpTransportType === "httpStream" && mcpPort) {
-      args.push("--http-stream", `${mcpHost || "localhost"}:${mcpPort}`);
     }
 
-    log.debug("Launching MCP Inspector with arguments", { _args });
+    log.debug("Launching MCP Inspector with arguments", { args });
 
     // Spawn the inspector process
-    const inspectorProcess = spawn("mcp-inspector", _args, {
+    const inspectorProcess = spawn("mcp-inspector", args, {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
@@ -144,7 +142,7 @@ export function launchInspector(_options: InspectorOptions): InspectorLaunchResu
       process: inspectorProcess,
       url: `http://localhost:${port}`,
     };
-  } catch {
+  } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: error instanceof Error ? error.message : String(error),
