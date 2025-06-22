@@ -25,7 +25,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
       value: TReturn | Error;
     }>;
   };
-  mockImplementation: (_fn: unknown) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockImplementation: (fn: (...args: any[]) => TReturn) => MockFunction<TReturn, TArgs>;
   mockReturnValue: (_value: unknown) => MockFunction<TReturn, TArgs>;
   mockResolvedValue: <U>(_value: unknown) => MockFunction<Promise<U>, TArgs>;
   mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
@@ -81,38 +81,13 @@ export function createMock<T extends (..._args: unknown[]) => any>(implementatio
 }
 
 /**
- * Mocks a module with a custom implementation.
- * This is a wrapper around Bun's `mock.module()` function with improved TypeScript support.
- *
- * Note: Module mocking effects persist across tests unless explicitly restored.
- * Use with `setupTestMocks()` to ensure automatic cleanup.
- *
- * @param modulePath - The import path of the module to mock
- * @param factory - Factory function that returns the mock implementation
- *
+ * Mock a module with a factory function.
+ * 
  * @example
- * // Mock a simple module
- * mockModule("path/to/module", () => ({
- *   someFunction: createMock(() => "mocked result"),
- *   someValue: "mocked value"
- * }));
- *
- * @example
- * // Mock fs module with specific behavior
- * mockModule("fs", () => ({
- *   readFileSync: createMock((path) => {
- *     if (path === "/test.txt") return "test content";
- *     throw new Error(`File not found: ${path}`);
- *   }),
- *   existsSync: createMock((path) => path === "/test.txt")
- * }));
- *
- * @example
- * // Later imports will use the mock implementation
- * const { someFunction } = await import("path/to/module");
+ * mockModule("./utils", () => ({ helper: vi.fn() }));
  * expect(someFunction()).toBe("mocked result");
  */
-export function mockModule(__modulePath: unknown) => any): void {
+export function mockModule(modulePath: string, factory: () => any): void {
   mock.module(modulePath, factory); // Use mock.module for module mocking
 }
 
