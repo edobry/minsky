@@ -172,7 +172,7 @@ export async function resolveWorkspacePath(
   if (_options?.workspace) {
     // Validate if it"s a valid workspace
     try {
-      const processDir = join(_options.workspace, \"process\");
+      const processDir = join(options.workspace, "process");
       await access(processDir);
       return options.workspace;
     } catch {

@@ -172,7 +172,7 @@ export const sessionPrParamsSchema = z
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.body || data.bodyPath, {
-    message: "Either "body" or "bodyPath" must be provided",
+    message: "Either 'body' or 'bodyPath' must be provided",
     path: ["body"],
   });
 
