@@ -20,6 +20,16 @@ export interface RepositoryConfig {
     auto_detect_backend?: boolean;
     detection_rules?: DetectionRule[];
   };
+  sessiondb?: {
+    backend?: "json" | "sqlite" | "postgres";
+    sqlite?: {
+      path?: string;
+    };
+    postgres?: {
+      connection_string?: string;
+    };
+    base_dir?: string;
+  };
 }
 
 export interface GlobalUserConfig {
@@ -30,6 +40,15 @@ export interface GlobalUserConfig {
       token?: string;
       token_file?: string;
     };
+    postgres?: {
+      connection_string?: string;
+    };
+  };
+  sessiondb?: {
+    sqlite?: {
+      path?: string;
+    };
+    base_dir?: string;
   };
   // Future: user preferences
 }
@@ -44,6 +63,7 @@ export interface ResolvedConfig {
   backendConfig: BackendConfig;
   credentials: CredentialConfig;
   detectionRules: DetectionRule[];
+  sessiondb: SessionDbConfig;
 }
 
 export interface BackendConfig {
@@ -60,6 +80,16 @@ export interface CredentialConfig {
     token?: string;
     source: "environment" | "file" | "prompt";
   };
+  postgres?: {
+    connection_string?: string;
+  };
+}
+
+export interface SessionDbConfig {
+  backend: "json" | "sqlite" | "postgres";
+  dbPath?: string;
+  baseDir?: string;
+  connectionString?: string;
 }
 
 export interface ConfigurationLoadResult {
@@ -96,21 +126,21 @@ export interface ValidationWarning {
 export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
-  loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult;
+  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
+  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
+  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
 }
 
 export interface CredentialManager {
-  getCredential(service: "github"): Promise<string | null>;
-  setGlobalCredential(service: "github", source: CredentialSource, value?: string): Promise<void>;
-  promptForCredential(service: "github"): Promise<string>;
+  getCredential(_service: "github"): Promise<string | null>;
+  setGlobalCredential(_service: "github", _source: CredentialSource, _value?: string): Promise<void>;
+  promptForCredential(_service: "github"): Promise<string>;
 }
 
 export interface BackendDetector {
-  detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string>;
-  githubRemoteExists(workingDir: string): Promise<boolean>;
-  tasksMdExists(workingDir: string): Promise<boolean>;
+  detectBackend(_workingDir: string, _rules: DetectionRule[]): Promise<string>;
+  githubRemoteExists(_workingDir: string): Promise<boolean>;
+  tasksMdExists(_workingDir: string): Promise<boolean>;
 }
 
 // Default configuration values
@@ -123,6 +153,12 @@ export const DEFAULT_CONFIG: Partial<ResolvedConfig> = {
     { condition: "json_file_exists", backend: "json-file" },
     { condition: "always", backend: "json-file" },
   ],
+  sessiondb: {
+    backend: "json",
+    baseDir: undefined,
+    dbPath: undefined,
+    connectionString: undefined,
+  },
 };
 
 // Configuration file paths
@@ -135,4 +171,8 @@ export const CONFIG_PATHS = {
 export const ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
+  SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
+  SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH", 
+  SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
+  SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
 } as const;

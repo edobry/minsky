@@ -21,7 +21,7 @@ import {
   GlobalUserConfig,
   BackendConfig,
   CredentialConfig,
-  DetectionRule,
+  SessionDbConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
   ENV_VARS,
@@ -74,6 +74,28 @@ export class ConfigurationLoader {
       };
     }
 
+    // SessionDB configuration overrides
+    const sessionDbConfig: Partial<SessionDbConfig> = {};
+    if (process.env[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = process.env[ENV_VARS.SESSIONDB_BACKEND];
+      if (backend === "json" || backend === "sqlite" || backend === "postgres") {
+        sessionDbConfig.backend = backend;
+      }
+    }
+    if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR];
+    }
+
+    if (Object.keys(sessionDbConfig).length > 0) {
+      config.sessiondb = sessionDbConfig as SessionDbConfig;
+    }
+
     return config;
   }
 
@@ -88,11 +110,12 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, "utf8");
       return parseYaml(content) as GlobalUserConfig;
-    } catch (error) {
+    } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
+      // eslint-disable-next-line no-console
+      console.error(`Failed to load global user config from ${configPath}:`, _error);
       return null;
     }
   }
@@ -108,9 +131,9 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, { encoding: "utf8" });
+      const content = readFileSync(configPath, "utf8");
       return parseYaml(content) as RepositoryConfig;
-    } catch (error) {
+    } catch (_error) {
       // Silently fail - configuration loading should be resilient
       return null;
     }
@@ -148,11 +171,19 @@ export class ConfigurationLoader {
       if (repository.repository?.detection_rules) {
         resolved.detectionRules = repository.repository.detection_rules;
       }
+
+      // Merge sessiondb config from repository
+      if (repository.sessiondb) {
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repository.sessiondb);
+      }
     }
 
     // Apply global user config
     if (globalUser?.credentials) {
       resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
+    }
+    if (globalUser?.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalUser.sessiondb);
     }
 
     // Apply environment overrides
@@ -161,6 +192,9 @@ export class ConfigurationLoader {
     }
     if (environment.credentials) {
       resolved.credentials = this.mergeCredentials(resolved.credentials, environment.credentials);
+    }
+    if (environment.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
     // Apply CLI flags (highest priority)
@@ -172,6 +206,9 @@ export class ConfigurationLoader {
     }
     if (cliFlags.credentials) {
       resolved.credentials = this.mergeCredentials(resolved.credentials, cliFlags.credentials);
+    }
+    if (cliFlags.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -207,6 +244,21 @@ export class ConfigurationLoader {
     }
 
     return merged;
+  }
+
+  /**
+   * Merge sessiondb configurations
+   */
+  private mergeSessionDbConfig(
+    existing: SessionDbConfig,
+    newSessionDb: Partial<SessionDbConfig>
+  ): SessionDbConfig {
+    return {
+      backend: newSessionDb.backend || existing.backend,
+      baseDir: newSessionDb.baseDir || existing.baseDir,
+      dbPath: newSessionDb.dbPath || existing.dbPath,
+      connectionString: newSessionDb.connectionString || existing.connectionString,
+    };
   }
 
   /**

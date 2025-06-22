@@ -1241,7 +1241,11 @@ export class GitService implements GitServiceInterface {
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
       workdir = this.getSessionWorkdir(repoName, options.session);
-      sourceBranch = options.session; // Session branch is named after the session
+      // Get current branch from repo instead of assuming session name is branch name
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = branchOut.trim();
     } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
@@ -1310,7 +1314,9 @@ export class GitService implements GitServiceInterface {
       }
 
       // Write commit message to file for git merge -F
-      await execAsync(`echo '${commitMessage.replace(/'/g, "\\'")}' > ${commitMsgFile}`);
+      // Use fs.writeFile instead of echo to avoid shell parsing issues
+      const fs = await import("fs/promises");
+      await fs.writeFile(commitMsgFile, commitMessage, "utf8");
       log.debug("Created commit message file for prepared merge commit");
 
       // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
