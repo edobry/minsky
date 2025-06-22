@@ -15,6 +15,8 @@ import {
   getMockCallArg,
 } from "../../../../utils/test-utils/assertions.js";
 
+const EXPECTED_TASKS_COMMANDS_COUNT = 7;
+
 describe("Shared Tasks Commands", () => {
   // Set up spies for domain functions
   let getTaskStatusSpy: ReturnType<typeof spyOn>;
@@ -49,7 +51,7 @@ describe("Shared Tasks Commands", () => {
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, 7); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
+    expectToHaveLength(tasksCommands, EXPECTED_TASKS_COMMANDS_COUNT); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
 
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");

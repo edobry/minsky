@@ -17,6 +17,8 @@ import {
 } from "../../../../utils/test-utils/assertions.js";
 import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 
+const EXPECTED_SESSION_COMMANDS_COUNT = 9;
+
 // Set up automatic mock cleanup
 setupTestMocks();
 
@@ -134,7 +136,7 @@ describe("Shared Session Commands", () => {
 
     // Verify commands were registered
     const sessionCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.SESSION);
-    expectToHaveLength(sessionCommands, 9);
+    expectToHaveLength(sessionCommands, EXPECTED_SESSION_COMMANDS_COUNT);
 
     // Verify individual commands
     const expectedCommands = [
