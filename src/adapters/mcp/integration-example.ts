@@ -15,7 +15,7 @@ import {
 } from "../../../utils/option-descriptions.js";
 
 // Define local type for CommandSchema since @minsky/core isn't available in this context
-interface CommandSchema<Params, Result> {
+interface CommandSchema<_Params, Result> {
   name: string;
   description: string;
   parameters: Record<

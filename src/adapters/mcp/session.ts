@@ -6,7 +6,6 @@ import { z } from "zod";
 
 // Import centralized descriptions
 import {
-  SESSION_DESCRIPTION,
   REPO_DESCRIPTION,
   TASK_ID_DESCRIPTION,
   GIT_BRANCH_DESCRIPTION,

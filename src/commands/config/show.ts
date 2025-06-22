@@ -7,6 +7,8 @@
 import { Command } from "commander";
 import { configurationService } from "../../domain/configuration";
 
+const SHOW_SEPARATOR_LENGTH = 40;
+
 interface ShowOptions {
   json?: boolean;
   workingDir?: string;
@@ -36,7 +38,7 @@ export function createConfigShowCommand(): Command {
 
 function displayResolvedConfiguration(_resolved: unknown) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
-  process.stdout.write(`${"=".repeat(40)  }\n`);
+  process.stdout.write(`${"=".repeat(SHOW_SEPARATOR_LENGTH)  }\n`);
   
   process.stdout.write(`Backend: ${resolved.backend}\n`);
   
