@@ -245,7 +245,7 @@ describe("Rules Domain Methods", () => {
       // Arrange
       const ruleId = "test-rule-1";
       const updatedContent = "# Updated Rule Content\n\nThis content has been updated";
-      const options = { content: updatedContent };
+      const _options = { content: updatedContent };
       const ruleOptions = { format: "cursor" as const };
 
       const updatedRule = {
@@ -272,7 +272,7 @@ describe("Rules Domain Methods", () => {
         description: "Updated rule description",
         globs: ["**/*.tsx", "**/*.jsx"],
       };
-      const options = { meta: updatedMeta };
+      const _options = { meta: updatedMeta };
 
       const updatedRule = {
         ...mockRules[0],
@@ -282,10 +282,10 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const result = await mockUpdateRule(ruleId, options);
+      const result = await mockUpdateRule(ruleId, _options);
 
       // Assert
-      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, options);
+      expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);
       expect(result.name).toBe(updatedMeta.name);
       expect(result.description).toBe(updatedMeta.description);
       expect(result.globs).toEqual(updatedMeta.globs);
