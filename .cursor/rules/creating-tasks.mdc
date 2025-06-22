@@ -9,25 +9,27 @@ alwaysApply: false
 
 - The ONLY supported method for creating new tasks is via the `minsky tasks create` command.
 - Manual edits to `process/tasks.md` or direct creation of spec files are NOT permitted except as a last resort (e.g., CLI is broken), and this must be documented in the commit message or task log.
+- **NEVER create task specification files directly** - this bypasses ID assignment and can create duplicates
 - All contributors and automations (including AI) MUST use the following workflow:
 
 ### Task Creation Workflow
 
-1. Draft your task specification as a temporary file (e.g., `process/tasks/temp-task-spec.md`).
-2. Run:
+1. **Check for existing tasks first**: Run `minsky tasks list | grep "relevant-keywords"` to verify no duplicate exists
+2. Draft your task specification as a temporary file (e.g., `process/tasks/temp-task-spec.md`).
+3. Run:
    ```bash
    minsky tasks create process/tasks/temp-task-spec.md
    ```
-3. The CLI will:
+4. The CLI will:
    - Assign the next available task ID.
    - Add the task to `process/tasks.md` in the correct format.
    - Output the assigned ID and new file path.
-4. Rename the spec file as instructed by the CLI (e.g., `process/tasks/042-task-title.md`).
-5. Verify the task appears in `process/tasks.md` and the spec file is correctly named and linked.
+5. Rename the spec file as instructed by the CLI (e.g., `process/tasks/042-task-title.md`).
+6. Verify the task appears in `process/tasks.md` and the spec file is correctly named and linked.
 
 **Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
 
-> **This process is mandatory. Skipping the CLI or editing files directly is a process violation.**
+> **This process is mandatory. Skipping the CLI or editing files directly is a process violation that can cause duplicate tasks and tracking inconsistencies.**
 
 ### Viewing Task Specifications
 
