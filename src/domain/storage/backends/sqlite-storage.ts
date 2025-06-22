@@ -1,219 +1,293 @@
 /**
- * SqliteStorage Backend
- * 
- * This module implements the DatabaseStorage interface for SQLite database storage
- * using Drizzle ORM.
+ * SQLite Storage Backend for Sessions
+ *
+ * This module implements the DatabaseStorage interface using SQLite database
+ * with Drizzle ORM for session record management.
  */
 
-import { join } from "path";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { eq, and } from "drizzle-orm";
 import Database from "better-sqlite3";
-import type { DatabaseStorage, DatabaseReadResult, DatabaseWriteResult, DatabaseQueryOptions } from "../database-storage";
-import type { SessionRecord, SessionDbState } from "../../session/session-db";
-import { sessionsTableSqlite } from "../schemas/session-schema";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { eq } from "drizzle-orm";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { existsSync, mkdirSync } from "fs";
+import { dirname } from "path";
 import { log } from "../../../utils/logger";
+import type {
+  DatabaseStorage,
+  DatabaseReadResult,
+  DatabaseWriteResult,
+  DatabaseQueryOptions,
+} from "../database-storage";
+import type { SessionRecord, SessionDbState } from "../../session/session-db";
+import {
+  sqliteSessions,
+  toSqliteInsert,
+  fromSqliteSelect,
+} from "../schemas/session-schema";
 
 /**
- * SQLite Storage implementation for session records
+ * SQLite storage configuration
+ */
+export interface SqliteStorageConfig {
+  /**
+   * Path to SQLite database file
+   */
+  dbPath: string;
+  
+  /**
+   * Whether to enable WAL mode (default: true)
+   */
+  enableWAL?: boolean;
+  
+  /**
+   * Connection timeout in milliseconds (default: 5000)
+   */
+  timeout?: number;
+}
+
+/**
+ * SQLite storage implementation
  */
 export class SqliteStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
+  private db: Database.Database;
+  private drizzle: ReturnType<typeof drizzle>;
   private readonly dbPath: string;
-  private readonly baseDir: string;
-  private db: Database.Database | null = null;
-  private drizzleDb: ReturnType<typeof drizzle> | null = null;
 
-  constructor(dbPath?: string, baseDir?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  constructor(config: SqliteStorageConfig) {
+    this.dbPath = config.dbPath;
     
-    this.dbPath = dbPath || join(xdgStateHome, "minsky", "sessions.db");
-    this.baseDir = baseDir || join(xdgStateHome, "minsky", "git");
-  }
-
-  private async ensureConnection(): Promise<ReturnType<typeof drizzle>> {
-    if (!this.db || !this.drizzleDb) {
-      this.db = new Database(this.dbPath);
-      this.drizzleDb = drizzle(this.db);
-      
-      // Run migrations if needed
-      try {
-        migrate(this.drizzleDb, { migrationsFolder: "./src/domain/storage/migrations" });
-      } catch (error) {
-        log.warn(`Migration error (may be expected): ${error instanceof Error ? error.message : String(error)}`);
-      }
+    // Ensure directory exists
+    const dbDir = dirname(this.dbPath);
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
     }
-    return this.drizzleDb;
-  }
 
-  async readState(): Promise<DatabaseReadResult<SessionDbState>> {
+    // Initialize SQLite database
+    this.db = new Database(this.dbPath, {
+      timeout: config.timeout || 5000,
+    });
+
+    // Configure SQLite for better performance
+    this.db.pragma("journal_mode = WAL");
+    if (config.enableWAL !== false) {
+      this.db.pragma("synchronous = NORMAL");
+    }
+    this.db.pragma("cache_size = 1000");
+    this.db.pragma("temp_store = memory");
+
+    // Initialize Drizzle
+    this.drizzle = drizzle(this.db);
+
+    // Run migrations
     try {
-      const db = await this.ensureConnection();
-      const sessions = await db.select().from(sessionsTableSqlite);
-      
-      return {
-        success: true,
-        data: {
-          sessions,
-          baseDir: this.baseDir,
-        },
-      };
+      migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations" });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error reading SQLite database: ${err.message}`);
-      return {
-        success: false,
-        error: err,
-      };
+      log.warn("Migration error (may be expected for new database):", error);
     }
   }
 
-  async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
-    try {
-      const db = await this.ensureConnection();
-      
-      // Clear existing sessions and insert new ones
-      await db.delete(sessionsTableSqlite);
-      
-      if (state.sessions.length > 0) {
-        await db.insert(sessionsTableSqlite).values(state.sessions);
-      }
-      
-      return {
-        success: true,
-        bytesWritten: state.sessions.length,
-      };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error writing SQLite database: ${err.message}`);
-      return {
-        success: false,
-        error: err,
-      };
-    }
-  }
-
-  async getEntity(id: string): Promise<SessionRecord | null> {
-    try {
-      const db = await this.ensureConnection();
-      const result = await db.select().from(sessionsTableSqlite).where(eq(sessionsTableSqlite.session, id));
-      
-      return result.length > 0 ? result[0] : null;
-    } catch (error) {
-      log.error(`Error getting entity: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
-  }
-
-  async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
-    try {
-      const db = await this.ensureConnection();
-      let query = db.select().from(sessionsTableSqlite);
-      
-      // Apply filters if provided
-      if (options) {
-        const conditions = [];
-        
-        if (options.taskId) {
-          const normalizedTaskId = options.taskId.replace(/^#/, "");
-          conditions.push(eq(sessionsTableSqlite.taskId, normalizedTaskId));
-        }
-        if (options.repoName) {
-          conditions.push(eq(sessionsTableSqlite.repoName, options.repoName));
-        }
-        if (options.branch) {
-          conditions.push(eq(sessionsTableSqlite.branch, options.branch));
-        }
-        
-        if (conditions.length > 0) {
-          query = query.where(and(...conditions));
-        }
-      }
-      
-      return await query;
-    } catch (error) {
-      log.error(`Error getting entities: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    }
-  }
-
-  async createEntity(entity: SessionRecord): Promise<SessionRecord> {
-    try {
-      const db = await this.ensureConnection();
-      await db.insert(sessionsTableSqlite).values(entity);
-      return entity;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error creating entity: ${err.message}`);
-      throw new Error(`Failed to create entity: ${err.message}`);
-    }
-  }
-
-  async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
-    try {
-      const db = await this.ensureConnection();
-      
-      // Filter out the session property from updates
-      const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
-      Object.entries(updates).forEach(([key, value]) => {
-        if (key !== "session") {
-          (safeUpdates as any)[key] = value;
-        }
-      });
-      
-      const result = await db.update(sessionsTableSqlite)
-        .set(safeUpdates)
-        .where(eq(sessionsTableSqlite.session, id))
-        .returning();
-      
-      return result.length > 0 ? result[0] : null;
-    } catch (error) {
-      log.error(`Error updating entity: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
-  }
-
-  async deleteEntity(id: string): Promise<boolean> {
-    try {
-      const db = await this.ensureConnection();
-      const result = await db.delete(sessionsTableSqlite)
-        .where(eq(sessionsTableSqlite.session, id))
-        .returning();
-      
-      return result.length > 0;
-    } catch (error) {
-      log.error(`Error deleting entity: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-
-  async entityExists(id: string): Promise<boolean> {
-    const entity = await this.getEntity(id);
-    return entity !== null;
-  }
-
-  getStorageLocation(): string {
-    return this.dbPath;
-  }
-
+  /**
+   * Initialize the storage (create tables if needed)
+   */
   async initialize(): Promise<boolean> {
     try {
-      await this.ensureConnection();
+      // Create table if it doesn't exist
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS sessions (
+          session TEXT PRIMARY KEY,
+          repo_name TEXT NOT NULL,
+          repo_url TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          repo_path TEXT
+        )
+      `);
+
       return true;
     } catch (error) {
-      log.error(`Error initializing SQLite storage: ${error instanceof Error ? error.message : String(error)}`);
+      log.error("Failed to initialize SQLite storage:", error);
       return false;
     }
   }
 
   /**
-   * Close the database connection
+   * Read the entire database state
    */
-  async close(): Promise<void> {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-      this.drizzleDb = null;
+  async readState(): Promise<DatabaseReadResult<SessionDbState>> {
+    try {
+      const sessions = await this.getEntities();
+      const state: SessionDbState = {
+        sessions,
+        baseDir: dirname(this.dbPath),
+      };
+      
+      return { success: true, data: state };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      log.error("Failed to read SQLite state:", typedError);
+      return { success: false, error: typedError };
     }
   }
+
+  /**
+   * Write the entire database state
+   */
+  async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
+    try {
+      // Begin transaction
+      const transaction = this.db.transaction(() => {
+        // Clear existing sessions
+        this.drizzle.delete(sqliteSessions).run();
+        
+        // Insert all sessions
+        for (const session of state.sessions) {
+          const insertData = toSqliteInsert(session);
+          this.drizzle.insert(sqliteSessions).values(insertData).run();
+        }
+      });
+
+      transaction();
+      
+      return { success: true, bytesWritten: state.sessions.length };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      log.error("Failed to write SQLite state:", typedError);
+      return { success: false, error: typedError };
+    }
+  }
+
+  /**
+   * Get a single session by ID
+   */
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+    try {
+      const result = this.drizzle
+        .select()
+        .from(sqliteSessions)
+        .where(eq(sqliteSessions.session, id))
+        .get();
+
+      return result ? fromSqliteSelect(result) : null;
+    } catch (error) {
+      log.error("Failed to get session from SQLite:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all sessions that match the query options
+   */
+  async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
+    try {
+      const results = this.drizzle.select().from(sqliteSessions).all();
+      return results.map(fromSqliteSelect);
+    } catch (error) {
+      log.error("Failed to get sessions from SQLite:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Create a new session
+   */
+  async createEntity(entity: SessionRecord): Promise<SessionRecord> {
+    try {
+      const insertData = toSqliteInsert(entity);
+      this.drizzle.insert(sqliteSessions).values(insertData).run();
+      return entity;
+    } catch (error) {
+      log.error("Failed to create session in SQLite:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing session
+   */
+  async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
+    try {
+      // Get existing session
+      const existing = await this.getEntity(id);
+      if (!existing) {
+        return null;
+      }
+
+      // Merge updates
+      const updated = { ...existing, ...updates };
+      const updateData = toSqliteInsert(updated);
+
+      // Update in database
+      this.drizzle
+        .update(sqliteSessions)
+        .set(updateData)
+        .where(eq(sqliteSessions.session, id))
+        .run();
+
+      return updated;
+    } catch (error) {
+      log.error("Failed to update session in SQLite:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a session by ID
+   */
+  async deleteEntity(id: string): Promise<boolean> {
+    try {
+      const result = this.drizzle
+        .delete(sqliteSessions)
+        .where(eq(sqliteSessions.session, id))
+        .run();
+
+      return result.changes > 0;
+    } catch (error) {
+      log.error("Failed to delete session from SQLite:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a session exists
+   */
+  async entityExists(id: string): Promise<boolean> {
+    try {
+      const result = this.drizzle
+        .select({ session: sqliteSessions.session })
+        .from(sqliteSessions)
+        .where(eq(sqliteSessions.session, id))
+        .get();
+
+      return result !== undefined;
+    } catch (error) {
+      log.error("Failed to check session existence in SQLite:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get storage location
+   */
+  getStorageLocation(): string {
+    return this.dbPath;
+  }
+
+  /**
+   * Close the database connection
+   */
+  close(): void {
+    try {
+      this.db.close();
+    } catch (error) {
+      log.error("Error closing SQLite database:", error);
+    }
+  }
+}
+
+/**
+ * Create a new SQLite storage instance
+ */
+export function createSqliteStorage(config: SqliteStorageConfig): DatabaseStorage<SessionRecord, SessionDbState> {
+  return new SqliteStorage(config);
 } 
