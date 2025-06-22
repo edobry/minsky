@@ -14,6 +14,9 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
 import { expectToBeInstanceOf } from "../../utils/test-utils/assertions.js";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
+
+const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
+
 // Set up automatic mock cleanup
 setupTestMocks();
 
@@ -140,7 +143,7 @@ describe("interface-agnostic task functions", () => {
       // This simulates the updated MarkdownTaskBackend.getTask behavior
       mockTaskService.getTask.mockImplementation((id) =>
         Promise.resolve(
-          parseInt(id.replace(/^#/, ""), 10) === 23 ? { ...mockTask, id: "#023" } : null
+          parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS ? { ...mockTask, id: "#023" } : null
         )
       );
 
