@@ -15,6 +15,9 @@ import { mkdtemp, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
 
+// Constants
+const TEST_TIMEOUT_MS = 30000; // 30 second timeout for git operations
+
 // Test utilities for file handling and git operations
 async function initGitRepo(repoPath: string) {
   // Initialize a git repository using direct execSync calls
@@ -72,7 +75,7 @@ describe.skip("Git Integration Tests", () => {
 
     // Assert
     expect(result).toContain("Initial commit");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("getSessionWorkdir returns the correct workdir path", () => {
     // Arrange
@@ -86,7 +89,7 @@ describe.skip("Git Integration Tests", () => {
     expect(workdir).toContain(repoName);
     expect(workdir).toContain(sessionName);
     expect(workdir).toContain("sessions");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("getStatus returns correct file status", async () => {
     // Arrange - create various file states
@@ -103,7 +106,7 @@ describe.skip("Git Integration Tests", () => {
     // Assert
     expect(status.untracked).toContain("untracked.txt");
     expect(status.modified).toContain("modified.txt");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("commit creates a commit with the provided message", async () => {
     // Arrange
@@ -118,7 +121,7 @@ describe.skip("Git Integration Tests", () => {
     // Assert
     const logResult = execGit("log -1 --pretty=%B", repoPath);
     expect(logResult.trim()).toBe(commitMessage);
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("stageAll adds all files to staging", async () => {
     // Arrange
@@ -132,7 +135,7 @@ describe.skip("Git Integration Tests", () => {
     const status = execGit("status --porcelain", repoPath);
     expect(status).toContain("A  staged1.txt");
     expect(status).toContain("A  staged2.txt");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("getCommitsOnBranch gets formatted commits", async () => {
     // Arrange - create multiple commits
@@ -153,7 +156,7 @@ describe.skip("Git Integration Tests", () => {
     // Assert
     expect(result).toContain("Add file2");
     expect(result).toContain("Add file1");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   // Skip tests that require stashing for now, as they're more complex
 });
