@@ -18,11 +18,11 @@ import {
 
 // Define interfaces for mock object types
 interface MockRuleService {
-  listRules: (options?: unknown) => Promise<any[]>;
+  listRules: (_options?: unknown) => Promise<any[]>;
   getRule: (_id: unknown) => Promise<any>;
   createRule: (_id: unknown) => Promise<any>;
   updateRule: (_id: unknown) => Promise<any>;
-  searchRules: (options?: unknown) => Promise<any[]>;
+  searchRules: (_options?: unknown) => Promise<any[]>;
 }
 
 describe("Shared Rules Commands", () => {

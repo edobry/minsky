@@ -248,7 +248,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
       }
 
       // Process content if provided
-      let _content: string | undefined;
+      let content: string | undefined;
       if (isString(_args._content)) {
         content = await readContentFromFileIfExists(_args._content);
       }
