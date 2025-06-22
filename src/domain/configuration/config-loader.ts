@@ -1,27 +1,20 @@
 /**
  * Configuration loader for Minsky
  * 
- * Implements the DEFAULT_RETRY_COUNT-level configuration hierarchy:
+ * Implements the 5-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
- * DEFAULT_RETRY_COUNT. Built-in defaults (lowest priority)
+ * 5. Built-in defaults (lowest priority)
  */
 
 import { existsSync, readFileSync } from "fs";
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { homedir } from "os";
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { parse as parseYaml } from "yaml";
 import { log } from "../../utils/logger";
 import {
-import { join } from "path";
-import { parse as parseYaml } from "yaml";
-import { log } from "../../utils/logger";import { existsSync, readFileSync } from "fs";
   ConfigurationLoadResult,
   ConfigurationSources,
   ResolvedConfig,
