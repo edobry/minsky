@@ -392,7 +392,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return this.workspacePath;
   }
 
-  getTaskSpecPath(_taskId: string, title: string): string {
+  getTaskSpecPath(taskId: string, title: string): string {
     const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
