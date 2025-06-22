@@ -17,6 +17,8 @@ import {
 } from "../../../../utils/test-utils/assertions.js";
 import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 
+const EXPECTED_GIT_COMMANDS_COUNT = 5;
+
 // Set up automatic mock cleanup
 setupTestMocks();
 
@@ -57,7 +59,7 @@ describe("Shared Git Commands", () => {
 
     // Verify commands were registered
     const gitCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.GIT);
-    expectToHaveLength(gitCommands, 5);
+    expectToHaveLength(gitCommands, EXPECTED_GIT_COMMANDS_COUNT);
 
     // Verify commit command
     const commitCommand = sharedCommandRegistry.getCommand("git.commit");

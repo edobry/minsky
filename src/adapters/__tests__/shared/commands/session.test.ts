@@ -20,22 +20,7 @@ import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Custom matcher helper functions
-const _arrayContaining = (_arr: unknown) => ({
-  asymmetricMatch: (_actual: unknown) =>
-    Array.isArray(actual) &&
-    arr.every((item) =>
-      actual.some((actualItem) => JSON.stringify(actualItem).includes(JSON.stringify(item)))
-    ),
-});
-
-const _objectContaining = (_obj: unknown) => ({
-  asymmetricMatch: (_actual: unknown) =>
-    typeof actual === "object" &&
-    Object.entries(obj).every(
-      ([key, value]) => key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))
-    ),
-});
+// Custom matcher helper functions have been removed as they were unused
 
 describe("Shared Session Commands", () => {
   // Set up spies for domain functions
