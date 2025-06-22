@@ -9,6 +9,9 @@ import { configurationService } from "../../domain/configuration";
 import { ConfigurationSources } from "../../domain/configuration/types";
 import { log } from "../utils/logger.js";
 
+const SEPARATOR_LENGTH = 60;
+const TOKEN_MASK_LENGTH = 20;
+
 interface ListOptions {
   json?: boolean;
   workingDir?: string;
@@ -29,9 +32,9 @@ export function createConfigListCommand(): Command {
           log.debug(JSON.stringify(result, null, 2));
         } else {
           displayConfigurationSources(result.sources);
-          log.debug(`\n${  "=".repeat(60)}`);
+          log.debug(`\n${  "=".repeat(SEPARATOR_LENGTH)}`);
           log.debug("RESOLVED CONFIGURATION");
-          log.debug("=".repeat(60));
+          log.debug("=".repeat(SEPARATOR_LENGTH));
           displayResolvedConfiguration(result.resolved);
         }
       } catch {
@@ -43,7 +46,7 @@ export function createConfigListCommand(): Command {
 
 function displayConfigurationSources(_sources: ConfigurationSources) {
   log.debug("CONFIGURATION SOURCES");
-  log.debug("=".repeat(60));
+  log.debug("=".repeat(SEPARATOR_LENGTH));
 
   // CLI Flags
   log.debug("\n1. CLI Flags (highest priority):");
