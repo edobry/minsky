@@ -30,7 +30,7 @@ export function getCurrentWorkingDirectory(): string {
  * @param mockImpl The mock implementation to use
  * @returns A function to restore the original implementation
  */
-export function mockCurrentWorkingDirectory(__mockImpl: unknown) => string): () => void {
+export function mockCurrentWorkingDirectory(mockImpl: () => string): () => void {
   const originalImpl = currentWorkingDirectoryImpl;
   currentWorkingDirectoryImpl = mockImpl;
 
