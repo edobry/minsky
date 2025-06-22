@@ -1,131 +1,105 @@
 # Task 136: Fix all ESLint warnings and errors across the codebase
 
-## CURRENT STATUS: IN-PROGRESS - Systematic Reduction via Targeted Codemods
+## Current Status: IN-PROGRESS
 
-### Current Status: **516 problems** (86% reduction achieved)
-- **Session**: Working in `/Users/edobry/.local/state/minsky/git/local-minsky/sessions/136`
-- **Strategy**: Systematic ESLint configuration fixes + targeted codemods
-- **Progress**: From ~3,700 → 516 issues via multiple targeted approaches
+### Session Progress Summary
 
-### Original Work Preservation
-- **Branch**: `task136-original-fixes` 
-- **Achievement**: 91% reduction (2,158+ → 193 issues)
-- **Key commits preserved**:
-  - `769e349d`: Major systematic linter cleanup
-  - `35a80da8`: Standard linting cleanup (194 fixes)  
-  - `8467eab2`: Import and test declaration fixes (114 fixes)
-  - `6c3e1d21`: Function declaration comma fixes (107 fixes)
+**Starting Baseline (after main branch merge)**: ~3,700 total linting issues
+**Previous session end**: 686 issues (81% reduction)
+**Current Status**: 532 problems (14 errors, 518 warnings) - increase due to parsing error investigation
+**Overall Progress**: 86% reduction from baseline
+**Approach**: Systematic codemods targeting biggest issue types first
 
-### Latest Session Progress: Comprehensive Codemod Application
+### Current Session Work - Parsing Error Focus
 
-**Latest Commits**: 
-- `7e45f4c1` - Applied comprehensive linter fixes (270+ changes)
-- `0a880af0` - Targeted unused variables fixes (45+ changes)
+**Parsing Error Investigation and Fixes:**
 
-**Major Categories Addressed:**
-1. **Unused Variables Cleanup**: 199 changes across 27 files
-   - Comprehensive unused parameter fixes with underscore prefixes
-   - Function parameter pattern recognition and fixing
-   - Variable assignment cleanup
+1. **Critical Parsing Errors Identified**: 19 → 9 errors (53% reduction)
 
-2. **ESLint Autofix Application**: Fixed ~95 automatically correctable issues
-   - Indentation consistency
-   - Quote style standardization (single → double quotes)
-   - General formatting improvements
+   - `src/domain/configuration/config-loader.ts`: Line 22 identifier expected
+   - `src/schemas/session.ts`: Line 193 comma issue (FIXED - trailing comma in refine)
+   - `src/utils/process.ts`: Line 33 function signature issue
+   - `src/utils/repository-utils.ts`: Line 53 function signature issue
+   - `src/utils/test-utils/assertions.ts`: Line 8 invalid character
+   - `src/utils/test-utils/compatibility/index.ts`: Line 31 semicolon expected
+   - `src/utils/test-utils/compatibility/mock-function.ts`: Line 120 colon expected
+   - `src/utils/test-utils/factories.ts`: Line 187 numeric literal issue
+   - `src/utils/test-utils/mocking.ts`: Line 28 semicolon expected
 
-3. **Triple-Underscore Variable Cleanup**: 40 changes across 24 files
-   - Removed remaining `___error`, `___e`, `___cloneErr` patterns
-   - Converted catch blocks to parameterless syntax
-   - Cleaned up dead code patterns
+2. **Applied Fixes**:
+   - Created `fix-all-parsing-errors.ts` codemod with targeted fixes
+   - Applied manual fix to `session.ts` trailing comma issue
+   - Attempted comprehensive parsing error resolution
 
-**Results Achieved:**
-- **no-unused-vars**: 105 → 80 issues (-25, 24% reduction) 
-- **Total issues**: 686 → 516 issues (-170, 25% reduction)
-- **Overall reduction**: 86% from original baseline (~3,700)
+**Current Metrics** (Commit: a2dd22c1):
 
-### Current Issue Breakdown (516 total)
-- **80 `no-unused-vars`**: Remaining function parameters needing underscore prefixes (15% of remaining)
-- **59 `@typescript-eslint/no-unused-vars`**: TypeScript-specific unused variables (11%)
-- **32 `no-magic-numbers`**: Domain-specific hardcoded numbers (6%)
-- **32 `@typescript-eslint/no-explicit-any`**: Explicit any types (6%)
-- **Parsing errors**: 19 files with syntax issues requiring manual fixes (4%)
-- **313 other issues**: Various minor linting rules (61%)
+- **Total Issues**: 532 problems (14 errors, 518 warnings)
+- **Parsing Errors**: 9 remaining (down from 19)
+- **Issue Count Change**: +16 from previous 516 (investigation added issues)
 
-### Applied Solutions (Session Work)
+### Previous Session Achievement Summary
 
-**Phase 1: ESLint Configuration Breakthrough**
-- Added missing globals (console, setTimeout, fetch, etc.)
-- Disabled no-undef for TypeScript files 
-- Configured unused variable patterns with underscore prefixes
-- Added overrides for debug/test scripts
+**Major Codemods Applied (686 → 516 reduction):**
 
-**Phase 2: Targeted Codemods (1,502+ changes across 173+ files)**
-1. **Unused Variables Cleanup**: 605 + 897 changes
-   - Removed unused ___error, ___err, ___e declarations
-   - Fixed catch blocks to parameterless syntax
-   - Prefixed unused function parameters with underscores
-2. **Domain Constants**: 49 changes
-   - Created src/utils/constants.ts with domain-specific values
-   - Replaced ports (8080), timeouts (30000), retry counts (5), etc.
-3. **Magic Numbers Config**: Added 2, 3, 10, 100 to ignored values
+1. **Unused Variables Cleanup**: Applied `fix-unused-vars-comprehensive.ts` (115 changes, 27 files)
+2. **Quote Standardization**: Applied `fix-quotes-to-double.ts` (20 changes, 8 files)
+3. **ESLint Autofix**: Multiple runs of `bun run lint --fix`
+4. **Triple-Underscore Cleanup**: Applied `cleanup-triple-underscore-vars.ts` (40 changes, 24 files)
+5. **Specific Unused Variables**: Applied `fix-remaining-specific-unused-vars.ts` (45 changes, 25 files)
 
-**Phase 3: Comprehensive Codemod Application (Latest Session)**
-1. **Advanced Unused Variables**: 199 changes across 27 files
-   - Targeted function parameter patterns
-   - Variable assignment cleanup
-   - Destructuring pattern fixes
-2. **Quote Standardization**: 20 changes across 8 files
-   - Single quotes → double quotes conversion
-3. **ESLint Autofix**: Applied built-in fixes for formatting issues
-4. **Triple-Underscore Cleanup**: 40 changes across 24 files
-    - Final cleanup of dead error handling patterns
+**Progress Tracking:**
 
-**Phase 4: Targeted Pattern Fixes (Latest Session)**
-1. **Specific Unused Variables**: 45 changes across 25 files
-   - Function parameters (options, workdir, command, program)
-   - Variable assignments (arrayContaining, objectContaining, etc.)
-   - Import and destructuring pattern fixes
-2. **Additional ESLint Autofix**: 5 issue reduction
-   - Continued cleanup of automatically fixable patterns
+- Session start: 686 issues
+- After comprehensive fixes: 516 issues
+- After parsing investigation: 532 issues
+- Overall reduction: 86% from ~3,700 baseline
 
-### Remaining Work (516 issues)
+### Technical Approach
 
-**Priority 1: Parsing Errors** (19 errors)
-- Critical syntax issues blocking proper linting analysis
-- Files with corrupted imports, quotes, or TypeScript syntax
-- Manual fixes required for complex structural issues
+**Methodology:**
 
-**Priority 2: Remaining Unused Variables** (139 total)
-- **no-unused-vars**: 80 issues - Complex function parameter patterns
-- **@typescript-eslint/no-unused-vars**: 59 issues - TypeScript-specific cases
+- Using proven codemods from successful session work
+- Applying fixes in order of biggest issue types first
+- Systematic pattern-based regex replacements for efficient bulk fixes
+- Commit after each major codemod application
+- Focus on parsing errors blocking automated analysis
 
-**Priority 3: Code Quality** (358 total) 
-- **@typescript-eslint/no-explicit-any**: 32 issues - Type improvements needed
-- **no-magic-numbers**: 32 issues - Domain-specific values to extract  
-- **Other rules**: 313 various linting issues
+**Session Workspace**: `/Users/edobry/.local/state/minsky/git/local-minsky/sessions/136`
 
-### Methodology Proven Effective
-- **Systematic codemods**: Pattern-based fixes scale effectively
-- **ESLint autofix**: Built-in fixes handle formatting/style issues
-- **Targeted cleanup**: Focus on highest-impact categories first
-- **Incremental progress**: 86% overall reduction through systematic approach
+### Next Actions
 
-### Key Learnings from Sessions
-- **Configuration fixes first**: Environment setup enables other fixes
-- **Pattern recognition**: Automated fixes work best with clear patterns
-- **Order matters**: Environment → syntax → type → cleanup sequence
-- **Validation essential**: Regular linting checks verify progress
+**Priority Issues to Address:**
 
-### Reference Materials Available
-- All original codemods accessible via `git show task136-original-fixes:codemods/[filename]`
-- Latest session codemods in session workspace
-- Detailed progress tracking in commit messages
-- Proven regex patterns and transformation rules
+1. **Complete Parsing Error Resolution** (9 remaining errors)
 
-## Progress Log
+   - Manually investigate complex syntax issues in remaining 9 files
+   - Fix function signature and interface issues
+   - Resolve character encoding and syntax problems
 
-### Session: Comprehensive Codemod Application
-- **Starting point**: 686 problems after configuration fixes
-- **Applied**: 3 major codemod categories + ESLint autofix
-- **Current**: 516 problems (86% overall reduction)
-- **Next**: Parsing errors are blocking further analysis - manual fixes needed
+2. **Continue No-Unused-Vars Reduction** (major category)
+
+   - Apply additional unused variable codemods
+   - Target remaining function parameters and variable declarations
+
+3. **Address TypeScript Issues**
+
+   - Handle @typescript-eslint/no-unused-vars warnings
+   - Fix explicit-any type annotations where appropriate
+
+4. **Magic Numbers and Other Categories**
+   - Extract constants for frequently used numbers
+   - Apply remaining automated fixes for smaller issue categories
+
+### Repository Context
+
+- Working in session workspace with absolute paths
+- Changes committed progressively for tracking (latest: a2dd22c1)
+- Parsing error fixes partially applied, investigation ongoing
+- Current work focuses on eliminating blocking errors before automated cleanup
+
+## Requirements
+
+- Fix all ESLint warnings and errors across the codebase
+- Use systematic automated approach where possible
+- Maintain code functionality while improving quality
+- Document progress and methodology
