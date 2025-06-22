@@ -72,15 +72,15 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
     switch (normalizedInfo.format) {
     case UriFormat.HTTPS:
       components.type = RepositoryURIType.HTTPS;
-      components.scheme = \"https\";
+      components.scheme = "https";
       break;
     case UriFormat.SSH:
       components.type = RepositoryURIType.SSH;
-      components.scheme = \"ssh\";
+      components.scheme = "ssh";
       break;
     case UriFormat.FILE:
       components.type = RepositoryURIType.LOCAL_FILE;
-      components.scheme = \"file\";
+      components.scheme = "file";
       break;
     case UriFormat.PATH:
       components.type = RepositoryURIType.LOCAL_PATH;
@@ -114,7 +114,7 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
     } else {
       // For local repositories, extract path
       if (components.type === RepositoryURIType.LOCAL_FILE) {
-        components.path = normalizedInfo.uri.replace(/^file:\/\//, \"\");
+        components.path = normalizedInfo.uri.replace(/^file:\/\//, "");
       } else {
         components.path = normalizedInfo.uri;
       }

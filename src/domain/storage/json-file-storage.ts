@@ -48,7 +48,7 @@ export interface JsonFileStorageOptions<S> {
 class FileOperationLock {
   private static locks = new Map<string, Promise<any>>();
 
-  static async withLock<T>(_filePath: unknown) => Promise<T>): Promise<T> {
+  static async withLock<T>(filePath: string, operation: () => Promise<T>): Promise<T> {
     // If there's already a lock for this file, wait for it
     while (this.locks.has(filePath)) {
       await this.locks.get(filePath);
