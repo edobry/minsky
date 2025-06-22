@@ -11,7 +11,7 @@ export * from "./RepositoryBackend";
 // Import RepositoryStatus but define our own ValidationResult
 import type { RepositoryStatus } from "../repository.js";
 
-import { DEFAULT_TIMEOUT_MS } from "../utils/constants";
+import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -212,7 +212,7 @@ export async function createRepositoryBackend(
 
   // Backend-specific validation
   switch (config.type) {
-  case RepositoryBackendType.LOCAL:
+  case RepositoryBackendType.LOCAL: {
     // For local repositories, validate the path exists (if it's a local path)
     if (!config.repoUrl.includes("://") && !config.repoUrl.includes("@")) {
       try {
@@ -225,10 +225,10 @@ export async function createRepositoryBackend(
         if (stdout.trim() === "not exists") {
           throw new Error(`Repository path does not exist: ${config.repoUrl}`);
         }
-      } catch {
+      } catch (error) {
         throw new Error(
           `Failed to validate local repository _path: ${
-            err instanceof Error ? err.message : String(err)
+            error instanceof Error ? error.message : String(error)
           }`
         );
       }
@@ -236,8 +236,9 @@ export async function createRepositoryBackend(
 
     const { LocalGitBackend } = await import("./local");
     return new LocalGitBackend(config);
+  }
 
-  case RepositoryBackendType.REMOTE:
+  case RepositoryBackendType.REMOTE: {
     // For remote repositories, validate URL format and required options
     if (
       !config.repoUrl.startsWith("http://") &&
@@ -269,8 +270,9 @@ export async function createRepositoryBackend(
 
     const { RemoteGitBackend } = await import("./remote");
     return new RemoteGitBackend(config);
+  }
 
-  case RepositoryBackendType.GITHUB:
+  case RepositoryBackendType.GITHUB: {
     // For GitHub repositories, validate GitHub-specific options
     if (config.github) {
       // If owner and repo are provided, validate them
@@ -289,6 +291,7 @@ export async function createRepositoryBackend(
 
     const { GitHubBackend } = await import("./github");
     return new GitHubBackend(config);
+  }
 
   default:
     throw new Error(`Unsupported repository backend type: ${config.type}`);
