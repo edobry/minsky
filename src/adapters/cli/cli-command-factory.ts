@@ -180,7 +180,7 @@ export function registerAllCommands(_program: Command): void {
  * Helper function to setup common CLI command customizations
  * @param program Optional Command instance to apply customizations to
  */
-export function setupCommonCommandCustomizations(program?: Command): void {
+export function setupCommonCommandCustomizations(_program?: Command): void {
   // Initialize the factory if not already done
   if (!cliFactory["initialized"]) {
     cliFactory.initialize();

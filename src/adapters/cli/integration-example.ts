@@ -40,7 +40,7 @@ export function createIntegratedCliProgram(): Command {
 
   // Bridge the commands to CLI
   registerCategorizedCliCommands(
-    _program,
+    program,
     [CommandCategory.GIT, CommandCategory.TASKS, CommandCategory.SESSION, CommandCategory.RULES],
     true // Create subcommands for categories
   );
@@ -53,7 +53,7 @@ export function createIntegratedCliProgram(): Command {
  * This is not meant to be run directly, but shows how
  * the integration would work in the main CLI entry point.
  */
-function runIntegratedCli(): void {
+function _runIntegratedCli(): void {
   const program = createIntegratedCliProgram();
 
   // Parse command line arguments
