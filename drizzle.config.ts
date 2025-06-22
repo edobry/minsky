@@ -1,3 +1,12 @@
+<<<<<<< HEAD
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  out: "./src/domain/storage/migrations",
+  schema: "./src/domain/storage/schemas/*.ts",
+  dialect: "sqlite",
+}); 
+=======
 import type { Config } from "drizzle-kit";
 
 export default {
@@ -8,3 +17,4 @@ export default {
     url: "file:sessions.db",
   },
 } satisfies Config;
+>>>>>>> origin/main
