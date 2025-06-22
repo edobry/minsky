@@ -28,7 +28,7 @@ export interface JestGlobal {
   /**
    * Mocks a module with a factory function
    */
-  mock: (_modulePath: unknown) => any, options?: unknown) => void;
+  mock: (modulePath: string, factory: () => any, options?: unknown) => void;
 
   /**
    * Restores a mocked module to its original implementation
