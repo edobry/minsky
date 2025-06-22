@@ -1,67 +1,217 @@
 /**
  * Storage Backend Factory
- * 
- * Creates appropriate storage backend instances based on configuration.
- * Supports JSON file, SQLite, and PostgreSQL storage backends.
+ *
+ * This module provides a factory for creating different storage backends
+ * based on configuration and environment settings.
  */
 
-import { DatabaseStorage } from "./database-storage";
-import { JsonFileStorage } from "./backends/json-file-storage";
-import { SqliteStorage } from "./backends/sqlite-storage";
-import { PostgresStorage } from "./backends/postgres-storage";
-import { configurationService } from "../configuration";
-import { SessionDbConfig } from "../configuration/types";
+import { join } from "path";
+import { log } from "../../utils/logger";
+import type { DatabaseStorage } from "./database-storage";
+import type { SessionRecord, SessionDbState } from "../session/session-db";
+import { createJsonFileStorage } from "./json-file-storage";
+import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
+import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
 
-export class StorageBackendFactory {
+/**
+ * Available storage backend types
+ */
+export type StorageBackendType = "json" | "sqlite" | "postgres";
+
+/**
+ * Storage configuration options
+ */
+export interface StorageConfig {
   /**
-   * Create a storage backend instance based on configuration
+   * Backend type to use
    */
-  static async create(workingDir?: string): Promise<DatabaseStorage<any, any>> {
-    const config = await configurationService.loadConfiguration(workingDir || process.cwd());
-    return this.createFromConfig(config.resolved.sessiondb);
+  backend: StorageBackendType;
+  
+  /**
+   * Configuration for JSON file storage
+   */
+  json?: {
+    filePath?: string;
+  };
+  
+  /**
+   * Configuration for SQLite storage
+   */
+  sqlite?: Omit<SqliteStorageConfig, 'dbPath'> & {
+    dbPath?: string;
+  };
+  
+  /**
+   * Configuration for PostgreSQL storage
+   */
+  postgres?: PostgresStorageConfig;
+}
+
+/**
+ * Default storage configuration
+ */
+export function getDefaultStorageConfig(): StorageConfig {
+  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  
+  return {
+    backend: "json",
+    json: {
+      filePath: join(xdgStateHome, "minsky", "sessions.json"),
+    },
+    sqlite: {
+      dbPath: join(xdgStateHome, "minsky", "sessions.db"),
+      enableWAL: true,
+      timeout: 5000,
+    },
+    postgres: {
+      connectionUrl: process.env.MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
+      maxConnections: 10,
+      connectTimeout: 30,
+      idleTimeout: 600,
+    },
+  };
+}
+
+/**
+ * Load storage configuration from environment and config
+ */
+export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageConfig {
+  const defaults = getDefaultStorageConfig();
+  
+  // Override backend from environment variable
+  const envBackend = process.env.MINSKY_SESSION_BACKEND as StorageBackendType;
+  if (envBackend && ["json", "sqlite", "postgres"].includes(envBackend)) {
+    defaults.backend = envBackend;
   }
+  
+  // Override SQLite path from environment
+  if (process.env.MINSKY_SQLITE_PATH) {
+    defaults.sqlite!.dbPath = process.env.MINSKY_SQLITE_PATH;
+  }
+  
+  // Override PostgreSQL URL from environment
+  if (process.env.MINSKY_POSTGRES_URL) {
+    defaults.postgres!.connectionUrl = process.env.MINSKY_POSTGRES_URL;
+  }
+  
+  // Apply any additional overrides
+  return {
+    ...defaults,
+    ...overrides,
+  };
+}
 
-  /**
-   * Create a storage backend from resolved storage configuration
-   */
-  static createFromConfig(config: SessionDbConfig): DatabaseStorage<any, any> {
-    switch (config.backend) {
+/**
+ * Create a storage backend instance
+ */
+export function createStorageBackend(
+  config?: Partial<StorageConfig>
+): DatabaseStorage<SessionRecord, SessionDbState> {
+  const storageConfig = loadStorageConfig(config);
+  
+  log.info(`Creating storage backend: ${storageConfig.backend}`);
+  
+  switch (storageConfig.backend) {
+    case "json":
+      return createJsonFileStorage<SessionRecord, SessionDbState>({
+        filePath: storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!,
+        entitiesField: "sessions",
+        idField: "session",
+        initializeState: () => ({
+          sessions: [],
+          baseDir: join(process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"), "minsky", "git"),
+        }),
+        prettyPrint: true,
+      });
+      
     case "sqlite":
-      return new SqliteStorage(config.dbPath, config.baseDir);
+      const sqliteConfig: SqliteStorageConfig = {
+        dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
+        enableWAL: storageConfig.sqlite?.enableWAL ?? true,
+        timeout: storageConfig.sqlite?.timeout ?? 5000,
+      };
+      return createSqliteStorage(sqliteConfig);
       
     case "postgres":
-      if (!config.connectionString) {
-        throw new Error("PostgreSQL connection string is required for postgres backend");
+      if (!storageConfig.postgres?.connectionUrl) {
+        throw new Error("PostgreSQL connection URL is required for postgres backend");
       }
-      return new PostgresStorage(config.connectionString, config.baseDir);
+      return createPostgresStorage(storageConfig.postgres);
       
-    case "json":
     default:
-      return new JsonFileStorage(config.dbPath, config.baseDir);
-    }
+      throw new Error(`Unsupported storage backend: ${storageConfig.backend}`);
   }
+}
 
+/**
+ * Storage Backend Factory class for advanced usage
+ */
+export class StorageBackendFactory {
+  private static instance: StorageBackendFactory;
+  private backends: Map<string, DatabaseStorage<SessionRecord, SessionDbState>> = new Map();
+  
   /**
-   * Validate backend configuration
+   * Get singleton instance
    */
-  static validateConfig(config: SessionDbConfig): string[] {
-    const errors: string[] = [];
-
-    if (!config.backend) {
-      errors.push("Storage backend is required");
+  static getInstance(): StorageBackendFactory {
+    if (!StorageBackendFactory.instance) {
+      StorageBackendFactory.instance = new StorageBackendFactory();
     }
-
-    if (config.backend === "postgres" && !config.connectionString) {
-      errors.push("PostgreSQL connection string is required for postgres backend");
-    }
-
-    return errors;
+    return StorageBackendFactory.instance;
   }
-
+  
   /**
-   * Get available backends
+   * Create or get cached storage backend
    */
-  static getAvailableBackends(): string[] {
-    return ["json", "sqlite", "postgres"];
+  getBackend(config?: Partial<StorageConfig>): DatabaseStorage<SessionRecord, SessionDbState> {
+    const storageConfig = loadStorageConfig(config);
+    const key = this.getBackendKey(storageConfig);
+    
+    if (!this.backends.has(key)) {
+      const backend = createStorageBackend(storageConfig);
+      this.backends.set(key, backend);
+    }
+    
+    return this.backends.get(key)!;
+  }
+  
+  /**
+   * Clear all cached backends
+   */
+  clearCache(): void {
+    this.backends.clear();
+  }
+  
+  /**
+   * Close all backends (for cleanup)
+   */
+  async closeAll(): Promise<void> {
+    for (const backend of this.backends.values()) {
+      try {
+        // Try to close if the backend has a close method
+        if ('close' in backend && typeof backend.close === 'function') {
+          await (backend as any).close();
+        }
+      } catch (error) {
+        log.warn("Error closing storage backend:", error);
+      }
+    }
+    this.backends.clear();
+  }
+  
+  /**
+   * Generate a unique key for backend caching
+   */
+  private getBackendKey(config: StorageConfig): string {
+    switch (config.backend) {
+      case "json":
+        return `json:${config.json?.filePath}`;
+      case "sqlite":
+        return `sqlite:${config.sqlite?.dbPath}`;
+      case "postgres":
+        return `postgres:${config.postgres?.connectionUrl}`;
+      default:
+        return config.backend;
+    }
   }
 } 

@@ -1,192 +1,298 @@
 /**
- * PostgresStorage Backend
- * 
- * This module implements the DatabaseStorage interface for PostgreSQL database storage
- * using Drizzle ORM.
+ * PostgreSQL Storage Backend for Sessions
+ *
+ * This module implements the DatabaseStorage interface using PostgreSQL database
+ * with Drizzle ORM for session record management.
  */
 
-import { join } from "path";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import { eq } from "drizzle-orm";
-import { Pool } from "pg";
-import type { DatabaseStorage, DatabaseReadResult, DatabaseWriteResult, DatabaseQueryOptions } from "../database-storage";
-import type { SessionRecord, SessionDbState } from "../../session/session-db";
-import { sessionsTablePostgres } from "../schemas/session-schema";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
 import { log } from "../../../utils/logger";
+import type {
+  DatabaseStorage,
+  DatabaseReadResult,
+  DatabaseWriteResult,
+  DatabaseQueryOptions,
+} from "../database-storage";
+import type { SessionRecord, SessionDbState } from "../../session/session-db";
+import {
+  postgresSessions,
+  toPostgresInsert,
+  fromPostgresSelect,
+} from "../schemas/session-schema";
 
 /**
- * PostgreSQL Storage implementation for session records
+ * PostgreSQL storage configuration
+ */
+export interface PostgresStorageConfig {
+  /**
+   * PostgreSQL connection URL
+   */
+  connectionUrl: string;
+  
+  /**
+   * Maximum number of connections in pool (default: 10)
+   */
+  maxConnections?: number;
+  
+  /**
+   * Connection timeout in seconds (default: 30)
+   */
+  connectTimeout?: number;
+  
+  /**
+   * Idle timeout in seconds (default: 600)
+   */
+  idleTimeout?: number;
+}
+
+/**
+ * PostgreSQL storage implementation
  */
 export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
-  private readonly connectionString: string;
-  private readonly baseDir: string;
-  private pool: Pool | null = null;
+  private sql: ReturnType<typeof postgres>;
+  private drizzle: ReturnType<typeof drizzle>;
+  private readonly connectionUrl: string;
 
-  constructor(connectionString?: string, baseDir?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  constructor(config: PostgresStorageConfig) {
+    this.connectionUrl = config.connectionUrl;
     
-    this.connectionString = connectionString || process.env.MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky";
-    this.baseDir = baseDir || join(xdgStateHome, "minsky", "git");
+    // Initialize PostgreSQL connection
+    this.sql = postgres(this.connectionUrl, {
+      max: config.maxConnections || 10,
+      connect_timeout: config.connectTimeout || 30,
+      idle_timeout: config.idleTimeout || 600,
+      // Enable connection pooling
+      prepare: false,
+    });
+
+    // Initialize Drizzle
+    this.drizzle = drizzle(this.sql);
+
+    // Run migrations
+    this.runMigrations().catch((error) => {
+      log.warn("Migration error (may be expected for new database):", error);
+    });
   }
 
-  private async getConnection() {
-    if (!this.pool) {
-      this.pool = new Pool({
-        connectionString: this.connectionString,
-        max: 20,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
-      });
-    }
-    return drizzle(this.pool);
-  }
-
-  async readState(): Promise<DatabaseReadResult<SessionDbState>> {
+  /**
+   * Run database migrations
+   */
+  private async runMigrations(): Promise<void> {
     try {
-      const db = await this.getConnection();
-      const sessions = await db.select().from(sessionsTablePostgres);
-      
-      return {
-        success: true,
-        data: {
-          sessions: sessions as SessionRecord[],
-          baseDir: this.baseDir,
-        },
-      };
+      await migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations" });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error reading PostgreSQL database: ${err.message}`);
-      return {
-        success: false,
-        error: err,
-      };
+      // Log but don't throw - migrations may not exist yet
+      log.debug("Migration attempt failed:", error);
     }
   }
 
-  async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
-    try {
-      const db = await this.getConnection();
-      
-      // Clear existing sessions and insert new ones
-      await db.delete(sessionsTablePostgres);
-      
-      if (state.sessions.length > 0) {
-        await db.insert(sessionsTablePostgres).values(state.sessions);
-      }
-      
-      return {
-        success: true,
-        bytesWritten: state.sessions.length,
-      };
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error writing PostgreSQL database: ${err.message}`);
-      return {
-        success: false,
-        error: err,
-      };
-    }
-  }
-
-  async getEntity(id: string): Promise<SessionRecord | null> {
-    try {
-      const db = await this.getConnection();
-      const result = await db.select().from(sessionsTablePostgres).where(eq(sessionsTablePostgres.session, id));
-      
-      return result.length > 0 ? (result[0] as SessionRecord) : null;
-    } catch (error) {
-      log.error(`Error getting entity: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
-  }
-
-  async getEntities(): Promise<SessionRecord[]> {
-    try {
-      const db = await this.getConnection();
-      const sessions = await db.select().from(sessionsTablePostgres);
-      return sessions as SessionRecord[];
-    } catch (error) {
-      log.error(`Error getting entities: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    }
-  }
-
-  async createEntity(entity: SessionRecord): Promise<SessionRecord> {
-    try {
-      const db = await this.getConnection();
-      await db.insert(sessionsTablePostgres).values(entity);
-      return entity;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error creating entity: ${err.message}`);
-      throw new Error(`Failed to create entity: ${err.message}`);
-    }
-  }
-
-  async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
-    try {
-      const db = await this.getConnection();
-      
-      // Filter out the session property from updates
-      const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
-      Object.entries(updates).forEach(([key, value]) => {
-        if (key !== "session") {
-          (safeUpdates as any)[key] = value;
-        }
-      });
-      
-      const result = await db.update(sessionsTablePostgres)
-        .set(safeUpdates)
-        .where(eq(sessionsTablePostgres.session, id))
-        .returning();
-      
-      return result.length > 0 ? (result[0] as SessionRecord) : null;
-    } catch (error) {
-      log.error(`Error updating entity: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
-  }
-
-  async deleteEntity(id: string): Promise<boolean> {
-    try {
-      const db = await this.getConnection();
-      const result = await db.delete(sessionsTablePostgres)
-        .where(eq(sessionsTablePostgres.session, id))
-        .returning();
-      
-      return result.length > 0;
-    } catch (error) {
-      log.error(`Error deleting entity: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
-    }
-  }
-
-  async entityExists(id: string): Promise<boolean> {
-    const entity = await this.getEntity(id);
-    return entity !== null;
-  }
-
-  getStorageLocation(): string {
-    return this.connectionString;
-  }
-
+  /**
+   * Initialize the storage (create tables if needed)
+   */
   async initialize(): Promise<boolean> {
     try {
-      await this.getConnection();
+      // Create table if it doesn't exist
+      await this.sql`
+        CREATE TABLE IF NOT EXISTS sessions (
+          session VARCHAR(255) PRIMARY KEY,
+          repo_name VARCHAR(255) NOT NULL,
+          repo_url VARCHAR(1000) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+          task_id VARCHAR(100) NOT NULL,
+          branch VARCHAR(255) NOT NULL,
+          repo_path VARCHAR(1000)
+        )
+      `;
+
       return true;
     } catch (error) {
-      log.error(`Error initializing PostgreSQL storage: ${error instanceof Error ? error.message : String(error)}`);
+      log.error("Failed to initialize PostgreSQL storage:", error);
       return false;
     }
   }
 
   /**
-   * Close the database connection pool
+   * Read the entire database state
    */
-  async close(): Promise<void> {
-    if (this.pool) {
-      await this.pool.end();
-      this.pool = null;
+  async readState(): Promise<DatabaseReadResult<SessionDbState>> {
+    try {
+      const sessions = await this.getEntities();
+      const state: SessionDbState = {
+        sessions,
+        baseDir: "/tmp/postgres-sessions", // PostgreSQL doesn't have a filesystem base
+      };
+      
+      return { success: true, data: state };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      log.error("Failed to read PostgreSQL state:", typedError);
+      return { success: false, error: typedError };
     }
   }
+
+  /**
+   * Write the entire database state
+   */
+  async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
+    try {
+      // Begin transaction
+      await this.sql.begin(async (sql) => {
+        // Clear existing sessions
+        await sql`DELETE FROM sessions`;
+        
+        // Insert all sessions
+        for (const session of state.sessions) {
+          const insertData = toPostgresInsert(session);
+          await sql`
+            INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
+            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl}, 
+                   ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
+          `;
+        }
+      });
+      
+      return { success: true, bytesWritten: state.sessions.length };
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error));
+      log.error("Failed to write PostgreSQL state:", typedError);
+      return { success: false, error: typedError };
+    }
+  }
+
+  /**
+   * Get a single session by ID
+   */
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+    try {
+      const result = await this.drizzle
+        .select()
+        .from(postgresSessions)
+        .where(eq(postgresSessions.session, id))
+        .limit(1);
+
+      return result.length > 0 ? fromPostgresSelect(result[0]) : null;
+    } catch (error) {
+      log.error("Failed to get session from PostgreSQL:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Get all sessions that match the query options
+   */
+  async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
+    try {
+      const results = await this.drizzle.select().from(postgresSessions);
+      return results.map(fromPostgresSelect);
+    } catch (error) {
+      log.error("Failed to get sessions from PostgreSQL:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Create a new session
+   */
+  async createEntity(entity: SessionRecord): Promise<SessionRecord> {
+    try {
+      const insertData = toPostgresInsert(entity);
+      await this.drizzle.insert(postgresSessions).values(insertData);
+      return entity;
+    } catch (error) {
+      log.error("Failed to create session in PostgreSQL:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing session
+   */
+  async updateEntity(id: string, updates: Partial<SessionRecord>): Promise<SessionRecord | null> {
+    try {
+      // Get existing session
+      const existing = await this.getEntity(id);
+      if (!existing) {
+        return null;
+      }
+
+      // Merge updates
+      const updated = { ...existing, ...updates };
+      const updateData = toPostgresInsert(updated);
+
+      // Update in database
+      await this.drizzle
+        .update(postgresSessions)
+        .set(updateData)
+        .where(eq(postgresSessions.session, id));
+
+      return updated;
+    } catch (error) {
+      log.error("Failed to update session in PostgreSQL:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a session by ID
+   */
+  async deleteEntity(id: string): Promise<boolean> {
+    try {
+      const result = await this.drizzle
+        .delete(postgresSessions)
+        .where(eq(postgresSessions.session, id));
+
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      log.error("Failed to delete session from PostgreSQL:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a session exists
+   */
+  async entityExists(id: string): Promise<boolean> {
+    try {
+      const result = await this.drizzle
+        .select({ session: postgresSessions.session })
+        .from(postgresSessions)
+        .where(eq(postgresSessions.session, id))
+        .limit(1);
+
+      return result.length > 0;
+    } catch (error) {
+      log.error("Failed to check session existence in PostgreSQL:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get storage location
+   */
+  getStorageLocation(): string {
+    // Return masked connection URL for security
+    const url = new URL(this.connectionUrl);
+    return `postgresql://${url.host}${url.pathname}`;
+  }
+
+  /**
+   * Close the database connection
+   */
+  async close(): Promise<void> {
+    try {
+      await this.sql.end();
+    } catch (error) {
+      log.error("Error closing PostgreSQL connection:", error);
+    }
+  }
+}
+
+/**
+ * Create a new PostgreSQL storage instance
+ */
+export function createPostgresStorage(config: PostgresStorageConfig): DatabaseStorage<SessionRecord, SessionDbState> {
+  return new PostgresStorage(config);
 }
