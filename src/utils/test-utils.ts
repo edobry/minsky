@@ -13,7 +13,7 @@ export * from "./test-utils/mocking";
 // Make TypeScript happy with Node.js global objects
 declare const global: {
   Date: DateConstructor;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 /**

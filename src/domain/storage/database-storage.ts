@@ -5,8 +5,8 @@
  * It"s designed to be implementation-agnostic, supporting various backends
  * such as JSON files, SQLite, PostgreSQL, etc.
  *
- * T = The data entity type (e.g., TaskData, SessionRecord)
- * S = The state container type (e.g., TaskState, SessionDbState)
+ * T = The data entity type (e.g.)
+ * S = The state container type (e.g., SessionDbState)
  */
 
 /**
@@ -31,14 +31,14 @@ export interface DatabaseWriteResult {
  * Options for querying database entities
  */
 export interface DatabaseQueryOptions {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
  * Generic database storage interface
  *
- * T = Entity type (e.g., TaskData)
- * S = State type (e.g., TaskState containing entities array)
+ * T = Entity type (e.g.)
+ * S = State type (e.g.containing entities array)
  */
 export interface DatabaseStorage<T, S> {
   /**
@@ -82,7 +82,7 @@ export interface DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  updateEntity(_id: string, updates: Partial<T>): Promise<T | null>;
+  updateEntity(_id: string, _updates: Partial<T>): Promise<T | null>;
 
   /**
    * Delete an entity by ID

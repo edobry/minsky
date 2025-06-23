@@ -25,7 +25,7 @@ describe("GitService PR Functionality", () => {
       execSync: () => Buffer.from("mocked output"),
       exec: (_command: unknown) => {
         callback(null, "mocked output", "");
-        return { command };
+        return { _command };
       },
     }));
   });
@@ -42,7 +42,7 @@ describe("GitService PR Functionality", () => {
 
   test("should create a PR description", async () => {
     // Execute the PR functionality with minimum required parameters
-    const result = await gitService.pr({
+    const _result = await gitService.pr({
       repoPath: "/tmp/mock-repo-path",
     });
 

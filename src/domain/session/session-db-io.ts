@@ -6,7 +6,7 @@
 import { join, dirname } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { normalizeRepoName } from "../repository-uri";
-import type { SessionDbState, SessionRecord } from "./session-db";
+import type { SessionDbState} from "./session-db";
 import { initializeSessionDbState } from "./session-db";
 import { log } from "../../utils/logger";
 

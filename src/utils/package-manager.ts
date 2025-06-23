@@ -94,7 +94,7 @@ export async function installDependencies(
     }
 
     // Execute the install command
-    const result = execSync(installCmd, {
+    const _result = execSync(installCmd, {
       cwd: repoPath,
       stdio: _options.quiet ? "ignore" : "inherit",
     });

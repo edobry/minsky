@@ -61,7 +61,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
 /**
  * Status validation helper
  */
-export function isValidTaskStatus(status: string): status is TaskStatus {
+export function isValidTaskStatus(_status: string): status is TaskStatus {
   return Object.values(TASK_STATUS).includes(status as TaskStatus);
 }
 
@@ -116,12 +116,12 @@ export const TASK_PARSING_UTILS = {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
     if (!match) return null;
 
-    const [, checkbox, title, idNum] = match;
+    const [, checkbox, _title, idNum] = match;
     if (!checkbox || !title || !idNum) return null;
 
     return {
       checkbox: checkbox,
-      title: title.trim(),
+      _title: title.trim(),
       id: `#${idNum}`,
     };
   },
@@ -151,7 +151,7 @@ export const TASK_PARSING_UTILS = {
    * @param status The task status
    * @returns Checkbox character
    */
-  getCheckboxFromStatus(status: TaskStatus): string {
+  getCheckboxFromStatus(_status: TaskStatus): string {
     return TASK_STATUS_CHECKBOX[status];
   },
 

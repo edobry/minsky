@@ -116,7 +116,7 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     return {
       success: true,
       taskId: params.taskId,
-      status: "TODO", // Example status
+      _status: "TODO", // Example _status
     };
   },
 };

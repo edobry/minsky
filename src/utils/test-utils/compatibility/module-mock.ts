@@ -51,7 +51,7 @@ const defaultOptions: MockModuleOptions = {
  * @returns A mocked version of the module
  */
 function createAutoMock(_modulePath: string, actualModule: any): unknown {
-  const mockExports: Record<string, any> = {};
+  const mockExports: Record<string, unknown> = {};
 
   // Create a mock for each export
   for (const key in actualModule) {

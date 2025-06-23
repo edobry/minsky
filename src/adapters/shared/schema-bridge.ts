@@ -6,7 +6,7 @@
  */
 import { Command } from "commander";
 import { z } from "zod";
-import type { CommandParameter, CommandParameterMap } from "./command-registry.js";
+import type { CommandParameter} from "./command-registry.js";
 /**
  * Type for CLI option flag definition
  */
@@ -199,11 +199,10 @@ export function parameterToOptionFlag(
  */
 export function addOptionsToCommand(
   _command: Command,
-  parameters: CommandParameterMap,
-  shortFlags: Record<string, string> = {}
+  _parameters:shortFlags: Record<string, string> = {}
 ): Command {
   // For each parameter, add an option to the command
-  Object.entries(parameters).forEach(([name, param]) => {
+  Object.entries(_parameters).forEach(([name, param]) => {
     const { flag, description, defaultValue } = parameterToOptionFlag(
       name,
       param,
@@ -233,10 +232,10 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
   parameters: T
 ): { [K in keyof T]: z.infer<T[K]["schema"]> } {
   // Create result object
-  const result: Record<string, unknown> = {};
+  const _result: Record<string, unknown> = {};
 
   // For each parameter, validate and convert the option
-  Object.entries(parameters).forEach(([name, param]) => {
+  Object.entries(_parameters).forEach(([name, param]) => {
     const optionName = paramNameToFlag(name).replace(/-/g, "");
     const value = options[optionName];
 

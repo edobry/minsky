@@ -65,8 +65,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
  * Represents a command execution handler function
  */
 export type CommandExecutionHandler<
-  T extends CommandParameterMap = CommandParameterMap,
-  R = unknown,
+  T extends CommandParameterMap =R = unknown,
 > = (
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
   context: CommandExecutionContext
@@ -76,8 +75,7 @@ export type CommandExecutionHandler<
  * Represents a command registration in the shared registry
  */
 export interface CommandDefinition<
-  T extends CommandParameterMap = CommandParameterMap,
-  R = unknown,
+  T extends CommandParameterMap =R = unknown,
 > {
   /** Unique command identifier */
   id: string;
@@ -115,7 +113,7 @@ export interface CommandRegistry {
    *
    * @param commandDef Command definition to register
    */
-  registerCommand<T extends CommandParameterMap, R>(commandDef: CommandDefinition<T, R>): void;
+  registerCommand<T extendsR>(commandDef: CommandDefinition<T, R>): void;
 
   /**
    * Get a command by its identifier
@@ -154,7 +152,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param options Registration options
    * @throws {MinskyError} If command with same ID is already registered and allowOverwrite is false
    */
-  registerCommand<T extends CommandParameterMap, R>(
+  registerCommand<T extendsR>(
     commandDef: CommandDefinition<T, R>,
     _options: { allowOverwrite?: boolean } = {}
   ): void {

@@ -65,7 +65,7 @@ export interface TaskServiceInterface {
   /**
    * Set the status of a task
    */
-  setTaskStatus(_id: string, status: string): Promise<void>;
+  setTaskStatus(_id: string, _status: string): Promise<void>;
 
   /**
    * Get the workspace path for the current backend
@@ -75,7 +75,7 @@ export interface TaskServiceInterface {
   /**
    * Create a task with the given specification path
    */
-  createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task>;
+  createTask(_specPath: string, _options?: CreateTaskOptions): Promise<Task>;
 
   /**
    * Get the backend type for a specific task
@@ -104,10 +104,10 @@ export interface TaskBackend {
   listTasks(_options?: TaskListOptions): Promise<Task[]>;
   getTask(_id: string): Promise<Task | null>;
   getTaskStatus(_id: string): Promise<string | null>;
-  setTaskStatus(_id: string, status: string): Promise<void>;
+  setTaskStatus(_id: string, _status: string): Promise<void>;
   getWorkspacePath(): string;
-  createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task>;
-  setTaskMetadata?(_id: string, metadata: any): Promise<void>;
+  createTask(_specPath: string, _options?: CreateTaskOptions): Promise<Task>;
+  setTaskMetadata?(_id: string, _metadata: any): Promise<void>;
 }
 
 export interface TaskListOptions {
@@ -123,13 +123,13 @@ export class MarkdownTaskBackend implements TaskBackend {
   private filePath: string;
   private workspacePath: string;
 
-  constructor(workspacePath: string) {
+  constructor(_workspacePath: string) {
     this.workspacePath = workspacePath;
-    this.filePath = join(workspacePath, "process", "tasks.md");
+    this.filePath = join(_workspacePath, "process", "tasks.md");
   }
 
   async listTasks(_options?: TaskListOptions): Promise<Task[]> {
-    const tasks = await this.parseTasks();
+    const _tasks = await this.parseTasks();
 
     if (_options?.status) {
       return tasks.filter((task) => task.status === options.status);
@@ -139,7 +139,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTask(_id: string): Promise<Task | null> {
-    const tasks = await this.parseTasks();
+    const _tasks = await this.parseTasks();
 
     // First try exact match
     const exactMatch = tasks.find((task) => task.id === id);
@@ -166,7 +166,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     return task ? task.status : null;
   }
 
-  async setTaskStatus(_id: string, status: string): Promise<void> {
+  async setTaskStatus(_id: string, _status: string): Promise<void> {
     if (!Object.values(TASK_STATUS).includes(status as TaskStatus)) {
       throw new Error(`Status must be one of: ${Object.values(TASK_STATUS).join(", ")}`);
     }
@@ -183,7 +183,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
 
     const _content = await fs.readFile(this.filePath, "utf-8");
-    const newStatusChar = TASK_STATUS_CHECKBOX[status];
+    const _newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.split("\n");
     let inCodeBlock = false;
     const updatedLines = lines.map((line) => {
@@ -201,18 +201,18 @@ export class MarkdownTaskBackend implements TaskBackend {
     await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
   }
 
-  private async validateSpecPath(_taskId: string, title: string): Promise<string | undefined> {
+  private async validateSpecPath(_taskId: string, _title: string): Promise<string | undefined> {
     const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const specPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
-    const fullPath = join(this.workspacePath, specPath);
+    const _specPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+    const fullPath = join(this._workspacePath, _specPath);
 
     try {
       await fs.access(fullPath);
       return specPath; // Return relative path if file exists
     } catch {
       // If file doesn't exist, try looking for any file with the task ID prefix
-      const taskDir = join(this.workspacePath, "process", "tasks");
+      const taskDir = join(this._workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
         const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
@@ -231,7 +231,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const _content = await fs.readFile(this.filePath, "utf-8");
       // Split into lines and track code block state
       const lines = content.split("\n");
-      const tasks: Task[] = [];
+      const _tasks: Task[] = [];
       let inCodeBlock = false;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i] ?? "";
@@ -244,9 +244,9 @@ export class MarkdownTaskBackend implements TaskBackend {
         const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
         if (!parsed) continue;
 
-        const { checkbox, title, id } = parsed;
+        const { checkbox, _title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
+        const _status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
         // Aggregate indented lines as description
         let description = "";
         for (let j = i + 1; j < lines.length; j++) {
@@ -263,14 +263,14 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
 
         // Use the new validateSpecPath function to get the correct path
-        const specPath = await this.validateSpecPath(id, title);
+        const _specPath = await this.validateSpecPath(id, _title);
 
         tasks.push({
           id,
-          title,
-          status,
+          _title,
+          _status,
           description: description.trim(),
-          specPath,
+          _specPath,
         });
       }
       return tasks;
@@ -284,9 +284,9 @@ export class MarkdownTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(_specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     // Validate that the spec file exists
-    const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    const fullSpecPath = specPath.startsWith("/") ? specPath : join(this._workspacePath, _specPath);
     try {
       await fs.access(fullSpecPath);
     } catch {
@@ -311,7 +311,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
     const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
-    let title: string;
+    let _title: string;
     let hasTaskId = false;
     let existingId: string | null = null;
 
@@ -364,7 +364,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       taskId = existingId;
     } else {
       // Find the next available task ID
-      const tasks = await this.parseTasks();
+      const _tasks = await this.parseTasks();
       const maxId = tasks.reduce((max, task) => {
         const id = parseInt(task.id.slice(1));
         return id > max ? id : max;
@@ -377,7 +377,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Generate the standardized filename
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
-    const fullNewPath = join(this.workspacePath, newSpecPath);
+    const fullNewPath = join(this._workspacePath, newSpecPath);
 
     // Update the title in the spec file to use clean format
     let updatedContent = specContent;
@@ -387,7 +387,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Rename and update the spec file
     try {
       // Create the tasks directory if it doesn't exist
-      const tasksDir = join(this.workspacePath, "process", "tasks");
+      const tasksDir = join(this._workspacePath, "process", "tasks");
       try {
         await fs.mkdir(tasksDir, { recursive: true });
       } catch {
@@ -426,10 +426,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Create the task entry
     const task: Task = {
       id: taskId,
-      title,
+      _title,
       description: description.trim(),
       status: TASK_STATUS.TODO,
-      specPath: newSpecPath,
+      _specPath: newSpecPath,
     };
 
     // Add the task to tasks.md
@@ -446,7 +446,7 @@ export class MarkdownTaskBackend implements TaskBackend {
    * @param id Task ID
    * @param metadata Task metadata to update
    */
-  async setTaskMetadata(_id: string, metadata: any): Promise<void> {
+  async setTaskMetadata(_id: string, _metadata: any): Promise<void> {
     // First verify the task exists
     const task = await this.getTask(id);
     if (!task) {
@@ -459,7 +459,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return;
     }
 
-    const specFilePath = join(this.workspacePath, task.specPath);
+    const specFilePath = join(this._workspacePath, task._specPath);
 
     try {
       // Read the spec file
@@ -481,7 +481,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Write back to the file
       await fs.writeFile(specFilePath, updatedContent, "utf8");
 
-      log.debug("Updated task metadata", { id, specFilePath, metadata });
+      log.debug("Updated task metadata", { id, specFilePath, _metadata });
     } catch {
       log.error("Failed to update task metadata", {
         error: error instanceof Error ? error.message : String(error),
@@ -489,7 +489,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         specFilePath,
       });
       throw new Error(
-        `Failed to update task metadata: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to update task _metadata: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -499,7 +499,7 @@ export class GitHubTaskBackend implements TaskBackend {
   name = "github";
   private workspacePath: string;
 
-  constructor(workspacePath: string) {
+  constructor(_workspacePath: string) {
     this.workspacePath = workspacePath;
     // Would initialize GitHub API client here
   }
@@ -519,15 +519,15 @@ export class GitHubTaskBackend implements TaskBackend {
     return null;
   }
 
-  async setTaskStatus(_id: string, status: string): Promise<void> {
-    log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, status });
+  async setTaskStatus(_id: string, _status: string): Promise<void> {
+    log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, _status });
   }
 
   getWorkspacePath(): string {
     return this.workspacePath;
   }
 
-  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
+  async createTask(_specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
     // Implementation needed
     throw new Error("Method not implemented");
   }
@@ -547,9 +547,9 @@ export class TaskService {
 
     // Initialize backends
     this.backends = [
-      new MarkdownTaskBackend(workspacePath),
-      new GitHubTaskBackend(workspacePath),
-      createJsonFileTaskBackend({ name: "json-file", workspacePath }),
+      new MarkdownTaskBackend(_workspacePath),
+      new GitHubTaskBackend(_workspacePath),
+      createJsonFileTaskBackend({ name: "json-file", _workspacePath }),
     ];
 
     // Set current backend
@@ -574,16 +574,16 @@ export class TaskService {
     return this.currentBackend.getTaskStatus(id);
   }
 
-  async setTaskStatus(_id: string, status: string): Promise<void> {
-    return this.currentBackend.setTaskStatus(id, status);
+  async setTaskStatus(_id: string, _status: string): Promise<void> {
+    return this.currentBackend.setTaskStatus(id, _status);
   }
 
   getWorkspacePath(): string {
     return this.currentBackend.getWorkspacePath();
   }
 
-  async createTask(specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
-    return this.currentBackend.createTask(specPath, _options);
+  async createTask(_specPath: string, _options: CreateTaskOptions = {}): Promise<Task> {
+    return this.currentBackend.createTask(_specPath, _options);
   }
 
   /**

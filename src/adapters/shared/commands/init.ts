@@ -2,8 +2,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
-  type CommandExecutionContext,
+  typetype CommandExecutionContext,
 } from "../command-registry.js";
 import { initializeProjectFromParams } from "../../../domain/init.js";
 import { log } from "../../../utils/logger.js";
@@ -84,7 +83,7 @@ export function registerInitCommands() {
     category: CommandCategory.INIT,
     name: "init",
     description: "Initialize a project for Minsky",
-    parameters: initParams,
+    _parameters: initParams,
     execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params

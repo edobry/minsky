@@ -85,8 +85,8 @@ describe("Task Constants and Utilities", () => {
       ];
 
       testCases.forEach(({ line, expected }) => {
-        const result = TASK_PARSING_UTILS.parseTaskLine(line);
-        expect(result).toEqual(expected);
+        const _result = TASK_PARSING_UTILS.parseTaskLine(line);
+        expect(_result).toEqual(expected);
       });
     });
 
@@ -104,8 +104,8 @@ describe("Task Constants and Utilities", () => {
 
     test("should replace checkbox status correctly", () => {
       const originalLine = "- [ ] Test task [#123](path/to/spec.md)";
-      const result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
-      expect(result).toBe("- [~] Test task [#123](path/to/spec.md)");
+      const _result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
+      expect(_result).toBe("- [~] Test task [#123](path/to/spec.md)");
     });
 
     test("should get status from checkbox correctly", () => {

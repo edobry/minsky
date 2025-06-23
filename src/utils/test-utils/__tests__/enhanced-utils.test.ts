@@ -20,8 +20,7 @@ import {
   withMockedDeps,
 } from "../dependencies.js";
 import {
-  createTaskData,
-  createSessionData,
+  createcreateSessionData,
   createRepositoryData,
   createTaskDataArray,
   createRandomId,
@@ -43,10 +42,10 @@ describe("Enhanced Test Utilities", () => {
       const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
 
       // TypeScript now knows that this function takes a string and returns a string
-      const result = mockGreet("World");
+      const _result = mockGreet("World");
 
       // Verify result
-      expect(result).toBe("Hello, World!");
+      expect(_result).toBe("Hello, World!");
 
       // Verify call tracking
       expect(mockGreet).toHaveBeenCalledWith("World");
@@ -60,10 +59,10 @@ describe("Enhanced Test Utilities", () => {
       mockFn.mockImplementation((n) => n * 2);
 
       // Use the mock
-      const result = mockFn(5);
+      const _result = mockFn(5);
 
       // Verify
-      expect(result).toBe(10);
+      expect(_result).toBe(10);
     });
   });
 
@@ -72,7 +71,7 @@ describe("Enhanced Test Utilities", () => {
       // Define an interface
       interface UserService {
         getUser(id: string): Promise<{ id: string; name: string } | null>;
-        updateUser(id: string, data: any): Promise<boolean>;
+        updateUser(id: string, data: unknown): Promise<boolean>;
         deleteUser(id: string): Promise<boolean>;
       }
 
@@ -95,7 +94,7 @@ describe("Enhanced Test Utilities", () => {
   describe("mockReadonlyProperty", () => {
     test("should mock readonly properties", () => {
       // Object with readonly property via getter
-      const config = {
+      const _config = {
         get environment() {
           return "production";
         },
@@ -105,7 +104,7 @@ describe("Enhanced Test Utilities", () => {
       expect(config.environment).toBe("production");
 
       // Mock the property
-      mockReadonlyProperty(config, "environment", "test");
+      mockReadonlyProperty(_config, "environment", "test");
 
       // Verify mocked value
       expect(config.environment).toBe("test");
@@ -128,7 +127,7 @@ describe("Enhanced Test Utilities", () => {
         sessionDB: {
           getSession: createMock(() =>
             Promise.resolve({
-              session: "custom-session",
+              _session: "custom-session",
               repoName: "test/repo",
               taskId: "123",
               repoPath: "/custom/path",
@@ -139,9 +138,9 @@ describe("Enhanced Test Utilities", () => {
       });
 
       // Test the overridden method
-      return deps.sessionDB.getSession("any").then((session) => {
-        expect(session).toBeDefined();
-        expect(session?.session).toBe("custom-session");
+      return deps.sessionDB.getSession("any").then((_session) => {
+        expect(_session).toBeDefined();
+        expect(session?._session).toBe("custom-session");
       });
     });
   });
@@ -152,13 +151,13 @@ describe("Enhanced Test Utilities", () => {
       const originalDeps = createTestDeps();
 
       // Override sessionDB.getSession just for this test
-      const result = withMockedDeps(
+      const _result = withMockedDeps(
         originalDeps,
         {
           sessionDB: {
             getSession: createMock(() =>
               Promise.resolve({
-                session: "temp-session",
+                _session: "temp-session",
                 repoName: "temp/repo",
                 taskId: "999",
                 repoPath: "/temp/path",
@@ -168,14 +167,14 @@ describe("Enhanced Test Utilities", () => {
           },
         },
         async (mockDeps) => {
-          const session = await mockDeps.sessionDB.getSession("any");
+          const _session = await mockDeps.sessionDB.getSession("any");
           return session?.session;
         }
       );
 
       // Verify the result matches our temporary override
-      return result.then((sessionName) => {
-        expect(sessionName).toBe("temp-session");
+      return result.then((_sessionName) => {
+        expect(_sessionName).toBe("temp-session");
       });
     });
   });
@@ -186,42 +185,42 @@ describe("Enhanced Test Utilities", () => {
 
       // Verify task has all required properties
       expect(task.id).toMatch(/^#\d{3}$/);
-      expect(task.title).toBeDefined();
-      expect(task.status).toBeDefined();
+      expect(task._title).toBeDefined();
+      expect(task._status).toBeDefined();
     });
 
     test("should create task data with overrides", () => {
       const task = createTaskData({
         id: "#042",
-        title: "Special Test Task",
-        status: "IN-PROGRESS",
+        _title: "Special Test Task",
+        _status: "IN-PROGRESS",
       });
 
       // Verify overrides are applied
       expect(task.id).toBe("#042");
-      expect(task.title).toBe("Special Test Task");
-      expect(task.status).toBe("IN-PROGRESS");
+      expect(task._title).toBe("Special Test Task");
+      expect(task._status).toBe("IN-PROGRESS");
     });
 
     test("should create an array of task data", () => {
-      const tasks = createTaskDataArray(3, { status: "IN-PROGRESS" });
+      const _tasks = createTaskDataArray(3, { _status: "IN-PROGRESS" });
 
       // Verify we get the right number of tasks
       expect(tasks.length).toBe(3);
 
       // Verify all tasks have the status we specified
       tasks.forEach((task) => {
-        expect(task.status).toBe("IN-PROGRESS");
+        expect(task._status).toBe("IN-PROGRESS");
       });
     });
 
     test("should create session data", () => {
-      const session = createSessionData({
+      const _session = createSessionData({
         taskId: "123",
       });
 
       // Verify session properties
-      expect(session.session).toBe("task#123");
+      expect(session._session).toBe("task#123");
       expect(session.taskId).toBe("123");
       expect(session.repoPath).toContain("/mock/repo/");
     });
@@ -233,14 +232,14 @@ describe("Enhanced Test Utilities", () => {
       const originalDeps = createTestDeps();
 
       // 2. Use withMockedDeps to override specific behaviors for this test
-      const result = await withMockedDeps(
+      const _result = await withMockedDeps(
         originalDeps,
         {
           taskService: {
             getTask: async (_id: unknown) => {
               // Return different tasks based on ID
               if (id === "#123") {
-                return createTaskData({ id: "#123", title: "Important Task" });
+                return createTaskData({ id: "#123", _title: "Important Task" });
               }
               return null;
             },
@@ -248,7 +247,7 @@ describe("Enhanced Test Utilities", () => {
           sessionDB: {
             getSession: async (_name: unknown) => {
               if (name === "task#123") {
-                return createSessionData({ taskId: "123", session: name });
+                return createSessionData({ taskId: "123", _session: name });
               }
               return null;
             },
@@ -257,18 +256,18 @@ describe("Enhanced Test Utilities", () => {
         async (deps) => {
           // 3. Execute code under test with mocked dependencies
           const task = await deps.taskService.getTask("#123");
-          const session = task
+          const _session = task
             ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`)
             : null;
 
-          return { task, session };
+          return { task, _session };
         }
       );
 
       // 4. Verify results
       expect(result.task).toBeDefined();
-      expect(result.task?.title).toBe("Important Task");
-      expect(result.session).toBeDefined();
+      expect(result.task?._title).toBe("Important Task");
+      expect(result._session).toBeDefined();
       expect(result.session?.taskId).toBe("123");
     });
   });

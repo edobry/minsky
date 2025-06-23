@@ -24,7 +24,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const baseDir = resolve(__dirname, "../..");
 
 // Configuration
-const config = {
+const _config = {
   outputFile: "test-analysis-report.json",
   targetDir: "src",
   testFilePattern: /\.test\.ts$/,

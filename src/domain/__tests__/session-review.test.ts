@@ -51,8 +51,8 @@ describe("sessionReviewFromParams", () => {
       return "";
     }),
     // Add other required methods with minimal implementations
-    clone: mock(() => Promise.resolve({ _workdir: "", session: "" })),
-    branch: mock(() => Promise.resolve({ branch: "" })),
+    clone: mock(() => Promise.resolve({ _workdir: "", _session: "" })),
+    branch: mock(() => Promise.resolve({ _branch: "" })),
     stashChanges: mock(() => Promise.resolve()),
     pullLatest: mock(() => Promise.resolve()),
     mergeBranch: mock(() => Promise.resolve({ conflicts: false })),
@@ -160,9 +160,9 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by session name", async () => {
-    const result = await sessionReviewFromParams({ session: "testSession" }, deps);
+    const _result = await sessionReviewFromParams({ _session: "testSession" }, deps);
 
-    expect(result.session).toBe("testSession");
+    expect(result._session).toBe("testSession");
     expect(result.taskId).toBe("#123");
     expect(result.taskSpec).toBe("# Task Specification\n\nThis is a test task");
     expect(result.prDescription).toBe("PR Title\n\nPR Description body");
@@ -182,18 +182,18 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by task ID", async () => {
-    const result = await sessionReviewFromParams({ task: "123" }, deps);
+    const _result = await sessionReviewFromParams({ task: "123" }, deps);
 
-    expect(result.session).toBe("task#123");
+    expect(result._session).toBe("task#123");
     expect(result.taskId).toBe("#123");
     expect((mockSessionDB.getSessionByTaskId as any).mock.calls.length).toBe(1);
     expect((mockSessionDB.getSessionByTaskId as any).mock.calls[0][0]).toBe("#123");
   });
 
   test("auto-detects current session when no parameters provided", async () => {
-    const result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
+    const _result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
 
-    expect(result.session).toBe("testSession");
+    expect(result._session).toBe("testSession");
     expect(mockGetCurrentSession).toHaveBeenCalledWith("/fake/repo/path");
   });
 
@@ -206,7 +206,7 @@ describe("sessionReviewFromParams", () => {
   test("throws error when session not found", async () => {
     (mockSessionDB.getSession as any).mockImplementationOnce(() => null);
 
-    await expect(sessionReviewFromParams({ session: "nonexistent" }, deps)).rejects.toThrow(
+    await expect(sessionReviewFromParams({ _session: "nonexistent" }, deps)).rejects.toThrow(
       ResourceNotFoundError
     );
   });

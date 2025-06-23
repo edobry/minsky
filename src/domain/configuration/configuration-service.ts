@@ -26,7 +26,7 @@ export class DefaultConfigurationService implements ConfigurationService {
    */
   async loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult> {
     // Load base configuration from all sources
-    const result = await this.loader.loadConfiguration(_workingDir);
+    const _result = await this.loader.loadConfiguration(_workingDir);
     
     // Apply backend auto-detection if enabled
     const resolved = await this.applyBackendDetection(_workingDir, result.resolved);
@@ -43,7 +43,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Validate repository configuration
    */
-  validateRepositoryConfig(config: RepositoryConfig): ValidationResult {
+  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult {
     const errors: Array<{ field: string; message: string; code: string }> = [];
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
@@ -102,7 +102,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Validate global user configuration
    */
-  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult {
+  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult {
     const errors: Array<{ field: string; message: string; code: string }> = [];
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
@@ -153,7 +153,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Apply backend auto-detection if enabled
    */
-  private async applyBackendDetection(_workingDir: string, config: ResolvedConfig): Promise<ResolvedConfig> {
+  private async applyBackendDetection(_workingDir: string, _config: ResolvedConfig): Promise<ResolvedConfig> {
     // If backend is already explicitly set or auto-detection is disabled, use as-is
     if (!config.detectionRules || config.detectionRules.length === 0) {
       return config;
@@ -177,7 +177,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Resolve credentials using the credential manager
    */
-  private async resolveCredentials(config: ResolvedConfig): Promise<ResolvedConfig> {
+  private async resolveCredentials(_config: ResolvedConfig): Promise<ResolvedConfig> {
     const resolved = { ...config };
 
     // Resolve GitHub credentials if needed

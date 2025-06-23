@@ -50,7 +50,7 @@ export function listSessionsFn(state: SessionDbState): SessionRecord[] {
 /**
  * Get a specific session by name
  */
-export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
+export function getSessionFn(state: SessionDbState, _sessionName: string): SessionRecord | null {
   return state.sessions.find((s) => s.session === sessionName) || null;
 }
 
@@ -66,7 +66,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, _taskId: string): Se
 /**
  * Add a new session to the state
  */
-export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
+export function addSessionFn(state: SessionDbState, _record: SessionRecord): SessionDbState {
   return {
     ...state,
     sessions: [...state.sessions, record],
@@ -78,8 +78,8 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
  */
 export function updateSessionFn(
   state: SessionDbState,
-  sessionName: string,
-  updates: Partial<Omit<SessionRecord, "session">>
+  _sessionName: string,
+  _updates: Partial<Omit<"session">>
 ): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
@@ -99,7 +99,7 @@ export function updateSessionFn(
 /**
  * Delete a session by name
  */
-export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
+export function deleteSessionFn(state: SessionDbState, _sessionName: string): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
     return state;
@@ -117,7 +117,7 @@ export function deleteSessionFn(state: SessionDbState, sessionName: string): Ses
 /**
  * Get the repository path for a session
  */
-export function getRepoPathFn(state: SessionDbState, record: SessionRecord): string {
+export function getRepoPathFn(state: SessionDbState, _record: SessionRecord): string {
   if (!record) {
     throw new Error("Session record is required");
   }
@@ -127,17 +127,17 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
   }
 
   const repoName = normalizeRepoName(record.repoName || record.repoUrl);
-  return join(state.baseDir, repoName, "sessions", record.session);
+  return join(state.baseDir, repoName, "sessions", record._session);
 }
 
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
-  const session = getSessionFn(state, sessionName);
+export function getSessionWorkdirFn(state: SessionDbState, _sessionName: string): string | null {
+  const _session = getSessionFn(state, _sessionName);
   if (!session) {
     return null;
   }
 
-  return getRepoPathFn(state, session);
+  return getRepoPathFn(state, _session);
 }

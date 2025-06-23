@@ -42,7 +42,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(config: RepositoryConfig) {
+  constructor(_config: RepositoryConfig) {
     // Validate config has required fields for remote
     if (!config.url) {
       throw new RepositoryError("URL is required for remote Git repository");
@@ -95,7 +95,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @returns The repository path
    */
   protected getSessionWorkdir(repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", session);
+    return join(this.baseDir, repoName, "sessions", _session);
   }
 
   /**
@@ -110,7 +110,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       const repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
-      const workdir = this.getSessionWorkdir(repoName, session);
+      const _workdir = this.getSessionWorkdir(repoName, _session);
       await mkdir(dirname(_workdir), { recursive: true });
 
       // Clone options
@@ -129,8 +129,8 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Return the clone result
       return {
-        workdir,
-        session,
+        _workdir,
+        _session,
       };
     } catch {
       throw new RepositoryError(
@@ -305,7 +305,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       return {
         workdir: this.localPath,
-        branch: name,
+        _branch: name,
       };
     } catch {
       throw new RepositoryError(

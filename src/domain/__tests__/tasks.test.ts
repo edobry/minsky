@@ -68,17 +68,17 @@ describe("interface-agnostic task functions", () => {
         all: false,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const _result = await listTasksFromParams(params, mockDeps);
 
-      expect(result).toEqual([mockTask]);
+      expect(_result).toEqual([mockTask]);
       expect(mockResolveRepoPath.mock.calls.length > 0).toBe(true);
       expect(mockResolveWorkspacePath.mock.calls.length > 0).toBe(true);
       expect(mockCreateTaskService).toHaveBeenCalledWith({
-        workspacePath: "/mock/workspace/path",
+        _workspacePath: "/mock/workspace/path",
         backend: "markdown",
       });
       expect(mockTaskService.listTasks).toHaveBeenCalledWith({
-        status: TASK_STATUS.TODO,
+        _status: TASK_STATUS.TODO,
       });
     });
 
@@ -86,13 +86,13 @@ describe("interface-agnostic task functions", () => {
       mockTaskService.listTasks.mockImplementation(() =>
         Promise.resolve([
           { ...mockTask, status: TASK_STATUS.TODO },
-          { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
+          { ...mockTask, id: "#124", _status: TASK_STATUS.DONE },
         ])
       );
 
       const params = { all: false };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const _result = await listTasksFromParams(params, mockDeps);
 
       expect(result.length).toBe(1);
       expect(result[0]?.status === TASK_STATUS.DONE).toBe(false);
@@ -106,9 +106,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const _result = await getTaskFromParams(params, mockDeps);
 
-      expect(result).toEqual(mockTask);
+      expect(_result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
     });
 
@@ -132,9 +132,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const _result = await getTaskFromParams(params, mockDeps);
 
-      expect(result).toEqual(mockTask);
+      expect(_result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
     });
 
@@ -152,9 +152,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const _result = await getTaskFromParams(params, mockDeps);
 
-      expect(result).toEqual({ ...mockTask, id: "#023" });
+      expect(_result).toEqual({ ...mockTask, id: "#023" });
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
     });
   });
@@ -166,9 +166,9 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const _result = await getTaskStatusFromParams(params, mockDeps);
 
-      expect(result).toBe(TASK_STATUS.TODO);
+      expect(_result).toBe(TASK_STATUS.TODO);
       expect(mockTaskService.getTaskStatus).toHaveBeenCalledWith("#123");
     });
 

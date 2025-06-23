@@ -44,7 +44,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(config: RepositoryConfig) {
+  constructor(_config: RepositoryConfig) {
     this.config = {
       ...config,
       type: RepositoryBackendType.LOCAL,
@@ -90,7 +90,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @returns The repository path
    */
   private getSessionWorkdir(repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", session);
+    return join(this.baseDir, repoName, "sessions", _session);
   }
 
   /**
@@ -109,7 +109,7 @@ export class LocalGitBackend implements RepositoryBackend {
       const repoName = normalizeRepoName(this.config.path);
 
       // Create the destination directory
-      const workdir = this.getSessionWorkdir(repoName, session);
+      const _workdir = this.getSessionWorkdir(repoName, _session);
       await mkdir(dirname(_workdir), { recursive: true });
 
       // Clone the repository
@@ -120,8 +120,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Return the clone result
       return {
-        workdir,
-        session,
+        _workdir,
+        _session,
       };
     } catch {
       throw new RepositoryError(
@@ -284,7 +284,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       return {
         workdir: this.localPath,
-        branch: name,
+        _branch: name,
       };
     } catch {
       throw new RepositoryError(

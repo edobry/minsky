@@ -12,7 +12,7 @@ import type { TaskBackend } from "./taskBackend";
  * @returns GitHub backend or null if not available
  */
 export async function tryCreateGitHubBackend(
-  workspacePath: string,
+  _workspacePath: string,
   shouldLogErrors = false
 ): Promise<TaskBackend | null> {
   try {
@@ -22,14 +22,14 @@ export async function tryCreateGitHubBackend(
       import("./githubIssuesTaskBackend"),
     ]);
 
-    const config = getGitHubBackendConfig(workspacePath, { logErrors: shouldLogErrors });
+    const _config = getGitHubBackendConfig(_workspacePath, { logErrors: shouldLogErrors });
     if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
 
     return createGitHubIssuesTaskBackend({
       name: "github-issues",
-      workspacePath,
+      _workspacePath,
       githubToken: config.githubToken,
       owner: config.owner,
       repo: config.repo,
@@ -46,7 +46,7 @@ export async function tryCreateGitHubBackend(
  * @param workspacePath Workspace path
  * @returns True if GitHub backend can be created
  */
-export async function isGitHubBackendAvailable(workspacePath: string): Promise<boolean> {
-  const backend = await tryCreateGitHubBackend(workspacePath);
+export async function isGitHubBackendAvailable(_workspacePath: string): Promise<boolean> {
+  const backend = await tryCreateGitHubBackend(_workspacePath);
   return backend !== null;
 }

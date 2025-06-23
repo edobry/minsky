@@ -36,14 +36,14 @@ describe("CommandMapper", () => {
   });
 
   test("should add tool to server when addCommand is called", () => {
-    const command = {
+    const _command = {
       name: "test-command",
       description: "Test command description",
       parameters: z.object({ test: z.string() }),
       execute: async () => "test result",
     };
 
-    commandMapper.addCommand(command);
+    commandMapper.addCommand(_command);
 
     expect(mockServer.addTool.mock.calls.length).toBe(1);
     const firstCall = mockServer.addTool.mock.calls[0];
@@ -52,7 +52,7 @@ describe("CommandMapper", () => {
     expect(toolConfig).toBeDefined();
     expect(toolConfig?.name).toBe("test_command");
     expect(toolConfig?.description).toBe("Test command description");
-    expect(toolConfig?.parameters).toBe(command.parameters);
+    expect(toolConfig?._parameters).toBe(command._parameters);
     expect(typeof toolConfig?.execute).toBe("function");
   });
 });

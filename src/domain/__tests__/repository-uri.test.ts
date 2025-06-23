@@ -58,7 +58,7 @@ describe("Repository URI Utilities", () => {
   describe("parseRepositoryURI", () => {
     test("parses HTTPS URLs", () => {
       const uri = "https://github.com/org/repo.git";
-      const result = parseRepositoryURI(uri);
+      const _result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.HTTPS);
       expect(result.scheme).toBe("https");
@@ -71,7 +71,7 @@ describe("Repository URI Utilities", () => {
 
     test("parses SSH URLs", () => {
       const uri = "git@github.com:org/repo.git";
-      const result = parseRepositoryURI(uri);
+      const _result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.SSH);
       expect(result.scheme).toBe("ssh");
@@ -84,7 +84,7 @@ describe("Repository URI Utilities", () => {
 
     test("parses GitHub shorthand", () => {
       const uri = "org/repo";
-      const result = parseRepositoryURI(uri);
+      const _result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.GITHUB_SHORTHAND);
       expect(result.owner).toBe("org");
@@ -95,7 +95,7 @@ describe("Repository URI Utilities", () => {
 
     test("handles invalid URLs gracefully", () => {
       const uri = "https://invalid]url";
-      const result = parseRepositoryURI(uri);
+      const _result = parseRepositoryURI(uri);
 
       // Should fall back to treating it as a local path
       expect(result.type).toBe(RepositoryURIType.LOCAL_PATH);
@@ -119,36 +119,36 @@ describe("Repository URI Utilities", () => {
 
   describe("validateRepositoryURI", () => {
     test("returns true for valid HTTPS URLs", () => {
-      const result = validateRepositoryURI("https://github.com/org/repo.git");
+      const _result = validateRepositoryURI("https://github.com/org/repo.git");
       expect(result.valid).toBe(true);
     });
 
     test("returns false for invalid URIs", () => {
-      const result = validateRepositoryURI("/this/path/does/not/exist");
+      const _result = validateRepositoryURI("/this/path/does/not/exist");
       expect(result.valid).toBe(false);
     });
   });
 
   describe("convertRepositoryURI", () => {
     test("converts from GitHub shorthand to HTTPS URL", () => {
-      const result = convertRepositoryURI("org/repo", RepositoryURIType.HTTPS);
-      expect(result).toBe("https://github.com/org/repo");
+      const _result = convertRepositoryURI("org/repo", RepositoryURIType.HTTPS);
+      expect(_result).toBe("https://github.com/org/repo");
     });
 
     test("converts from GitHub shorthand to SSH URL", () => {
-      const result = convertRepositoryURI("org/repo", RepositoryURIType.SSH);
-      expect(result).toBe("git@github.com:org/repo.git");
+      const _result = convertRepositoryURI("org/repo", RepositoryURIType.SSH);
+      expect(_result).toBe("git@github.com:org/repo.git");
     });
 
     test("converts from HTTPS URL to SSH URL", () => {
-      const result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
-      expect(result).toBe("git@github.com:org/repo.git");
+      const _result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
+      expect(_result).toBe("git@github.com:org/repo.git");
     });
 
     test("returns null for incompatible conversions", () => {
       // Can't convert local path to GitHub shorthand
-      const result = convertRepositoryURI(testRepoPath, RepositoryURIType.GITHUB_SHORTHAND);
-      expect(result).toBeNull();
+      const _result = convertRepositoryURI(testRepoPath, RepositoryURIType.GITHUB_SHORTHAND);
+      expect(_result).toBeNull();
     });
   });
 

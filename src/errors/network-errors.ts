@@ -19,7 +19,7 @@ export class NetworkError extends MinskyError {
     public readonly host?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
@@ -28,7 +28,7 @@ export class NetworkError extends MinskyError {
  */
 export class PortInUseError extends NetworkError {
   constructor(port: number, host: string = "localhost", cause?: unknown) {
-    super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, cause);
+    super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, _cause);
   }
 
   /**
@@ -51,7 +51,7 @@ export class PortInUseError extends NetworkError {
  */
 export class NetworkPermissionError extends NetworkError {
   constructor(port: number, host: string = "localhost", cause?: unknown) {
-    super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, cause);
+    super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, _cause);
   }
 
   /**

@@ -60,7 +60,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const session = await getSessionFromParams(params);
+      const _session = await getSessionFromParams(params);
 
       if (!session) {
         throw new Error("Session not found.");
@@ -90,12 +90,12 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         noStatusUpdate: false, // Default value for required parameter
       };
 
-      const session = await startSessionFromParams(params);
+      const _session = await startSessionFromParams(params);
 
       // Format response for MCP
       return {
         success: true,
-        session: session.session,
+        _session: session.session,
         directory: session.repoPath,
         taskId: session.taskId,
         repoName: session.repoName,
@@ -126,7 +126,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           json: true,
         };
 
-        const session = await getSessionFromParams(taskParams);
+        const _session = await getSessionFromParams(taskParams);
         if (!session) {
           throw new Error(`No session found for task ${_args.task}`);
         }
@@ -213,8 +213,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       // Format response for MCP with session details
       return {
         success: true,
-        session: updatedSession.session,
-        branch: updatedSession.branch,
+        _session: updatedSession.session,
+        _branch: updatedSession.branch,
         taskId: updatedSession.taskId,
         repoPath: updatedSession.repoPath,
         message: `Session ${updatedSession.session} updated successfully.`,

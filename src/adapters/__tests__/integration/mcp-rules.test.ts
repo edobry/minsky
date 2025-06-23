@@ -18,7 +18,7 @@ setupTestMocks();
 
 describe("MCP Rules Adapter", () => {
   let commandMapper: CommandMapper;
-  let mockServer: any;
+  let mockServer: unknown;
 
   beforeEach(() => {
     // Create a simple mock server for CommandMapper

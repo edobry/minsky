@@ -6,7 +6,7 @@
  */
 
 import type { TaskBackend } from "./taskBackend";
-import type { TaskData } from "../../types/tasks/taskData";
+import type {} from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
 
 /**
@@ -79,7 +79,7 @@ export class BackendMigrationUtils {
     });
 
     let backupData: BackupData | null = null;
-    const result: MigrationResult = {
+    const _result: MigrationResult = {
       success: false,
       migratedCount: 0,
       skippedCount: 0,
@@ -291,7 +291,7 @@ export class BackendMigrationUtils {
 
         // Map status between backends
         finalTask.status = this.mapTaskStatus(
-          task.status,
+          task._status,
           sourceBackend.name,
           targetBackend.name,
           _options.statusMapping
@@ -312,7 +312,7 @@ export class BackendMigrationUtils {
    * Map task status between backends
    */
   mapTaskStatus(
-    status: string,
+    _status: string,
     fromBackend: string,
     toBackend: string,
     customMapping?: Record<string, string>

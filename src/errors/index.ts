@@ -18,12 +18,12 @@ export class ValidationError extends MinskyError {
     public readonly errors?: unknown,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
 /**
- * Thrown when a requested resource (task, session, repository, etc.) does not exist.
+ * Thrown when a requested resource (task, _session, repository, etc.) does not exist.
  */
 export class ResourceNotFoundError extends MinskyError {
   constructor(
@@ -32,7 +32,7 @@ export class ResourceNotFoundError extends MinskyError {
     public readonly resourceId?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
@@ -45,7 +45,7 @@ export class ServiceUnavailableError extends MinskyError {
     public readonly serviceName?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
@@ -58,7 +58,7 @@ export class FileSystemError extends MinskyError {
     public readonly path?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
@@ -71,7 +71,7 @@ export class ConfigurationError extends MinskyError {
     public readonly configKey?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 
@@ -84,7 +84,7 @@ export class GitOperationError extends MinskyError {
     public readonly _command?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(message, _cause);
   }
 }
 

@@ -19,7 +19,7 @@ describe("GitHub Basic Functionality", () => {
       },
     });
 
-    const config = backend.getConfig();
+    const _config = backend.getConfig();
     expect(config.repoUrl).toBe(repoUrl);
   });
 
@@ -37,7 +37,7 @@ describe("GitHub Basic Functionality", () => {
       },
     });
 
-    const config = backend.getConfig();
+    const _config = backend.getConfig();
     expect(config.github?.owner).toBe(owner);
     expect(config.github?.repo).toBe(repo);
   });

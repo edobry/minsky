@@ -19,7 +19,7 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
  * This command retrieves and displays task specification content
  */
 export function createSpecCommand(): Command {
-  const command = new Command("spec")
+  const _command = new Command("spec")
     .description("Get task specification _content")
     .argument("<task-id>", "ID of the task to retrieve specification _content for")
     .option(
@@ -28,9 +28,9 @@ export function createSpecCommand(): Command {
     );
 
   // Add shared options
-  addRepoOptions(command);
-  addOutputOptions(command);
-  addBackendOptions(command);
+  addRepoOptions(_command);
+  addOutputOptions(_command);
+  addBackendOptions(_command);
 
   command.action(
     async (
@@ -64,12 +64,12 @@ export function createSpecCommand(): Command {
         };
 
         // Call the domain function
-        const result = await getTaskSpecContentFromParams(params);
+        const _result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
-        outputResult(result, {
+        outputResult(_result, {
           json: _options.json,
-          formatter: (_data: any) => {
+          formatter: (_data: unknown) => {
             log.cli(`Task ${_data.task.id}: ${_data.task.title}`);
             log.cli(`Specification file: ${_data.specPath}`);
 

@@ -29,7 +29,7 @@ export interface ResponseFormatter<T = unknown> {
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(_data: T, context: CommandExecutionContext): string | object;
+  format(_data: T, _context: CommandExecutionContext): string | object;
 }
 
 /**
@@ -53,17 +53,17 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(_data: T, context: CommandExecutionContext): string | object {
+  format(_data: T, _context: CommandExecutionContext): string | object {
     // Determine the output format
     const format = context.format?.toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
-      return this.formatJson(data, context);
+      return this.formatJson(data, _context);
     }
 
     // Default to text format
-    return this.formatText(data, context);
+    return this.formatText(data, _context);
   }
 
   /**
@@ -73,7 +73,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Text formatted string
    */
-  abstract formatText(_data: T, context: CommandExecutionContext): string;
+  abstract formatText(_data: T, _context: CommandExecutionContext): string;
 
   /**
    * Format the response as JSON
@@ -126,7 +126,7 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns Formatted error message
    */
-  formatText(error: Error, context: CommandExecutionContext): string {
+  formatText(error: Error, _context: CommandExecutionContext): string {
     let output = `${chalk.red("✗")} Error: ${error.message}`;
 
     // Add stack trace in debug mode
@@ -144,8 +144,8 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns JSON object with error details
    */
-  formatJson(error: Error, context: CommandExecutionContext): object {
-    const result: Record<string, unknown> = {
+  formatJson(error: Error, _context: CommandExecutionContext): object {
+    const _result: Record<string, unknown> = {
       success: false,
       error: error.message,
     };
@@ -185,7 +185,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
 
     // Add title if provided
     if (this.title) {
-      output += `${chalk.bold(this.title)}\n\n`;
+      output += `${chalk.bold(this._title)}\n\n`;
     }
 
     // Format each item
@@ -243,7 +243,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
 
     // Add title if provided
     if (this.title) {
-      output += `${chalk.bold(this.title)}\n\n`;
+      output += `${chalk.bold(this._title)}\n\n`;
     }
 
     // Calculate column widths
@@ -339,7 +339,7 @@ export function createListFormatter<T>(
   itemFormatter?: (_item: unknown) => string,
   title?: string
 ): ListFormatter<T> {
-  return new ListFormatter<T>(itemFormatter, title);
+  return new ListFormatter<T>(itemFormatter, _title);
 }
 
 /**
@@ -355,5 +355,5 @@ export function createTableFormatter<T extends Record<string, unknown>>(
   headers: Record<keyof T, string>,
   title?: string
 ): TableFormatter<T> {
-  return new TableFormatter<T>(columns, headers, title);
+  return new TableFormatter<T>(columns, headers, _title);
 }

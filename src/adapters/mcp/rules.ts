@@ -86,15 +86,15 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.list",
     description: "List all rules in the workspace",
-    parameters: z.object({
+    _parameters: z.object({
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),
       debug: debugParam,
     }),
     execute: async (_args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
-      const workspacePath = await resolveWorkspacePath({});
-      const ruleService = new RuleService(workspacePath);
+      const _workspacePath = await resolveWorkspacePath({});
+      const ruleService = new RuleService(_workspacePath);
 
       // Convert parameters with type safety
       const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
@@ -120,15 +120,15 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.get",
     description: "Get a specific rule by ID",
-    parameters: z.object({
+    _parameters: z.object({
       _id: requiredString("Rule ID"),
       format: ruleFormatParam,
       debug: debugParam,
     }),
     execute: async (_args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
-      const workspacePath = await resolveWorkspacePath({});
-      const ruleService = new RuleService(workspacePath);
+      const _workspacePath = await resolveWorkspacePath({});
+      const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
       if (!isString(_args.id)) {
@@ -154,7 +154,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.create",
     description: "Create a new rule",
-    parameters: z.object({
+    _parameters: z.object({
       _id: requiredString("ID of the rule to create"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
@@ -169,8 +169,8 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     }),
     execute: async (_args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
-      const workspacePath = await resolveWorkspacePath({});
-      const ruleService = new RuleService(workspacePath);
+      const _workspacePath = await resolveWorkspacePath({});
+      const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
       if (!isString(_args.id)) {
@@ -225,7 +225,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.update",
     description: "Update an existing rule",
-    parameters: z.object({
+    _parameters: z.object({
       _id: requiredString("ID of the rule to update"),
       content: ruleContentParam,
       description: ruleDescriptionParam,
@@ -239,8 +239,8 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     }),
     execute: async (_args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
-      const workspacePath = await resolveWorkspacePath({});
-      const ruleService = new RuleService(workspacePath);
+      const _workspacePath = await resolveWorkspacePath({});
+      const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
       if (!isString(_args.id)) {
@@ -295,7 +295,7 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "rules.search",
     description: "Search for rules by _content",
-    parameters: z.object({
+    _parameters: z.object({
       query: requiredString("Search query"),
       format: ruleFormatParam,
       tag: optionalString("Filter by tag"),
@@ -303,8 +303,8 @@ export function registerRulesTools(_commandMapper: CommandMapper): void {
     }),
     execute: async (_args): Promise<Record<string, unknown>> => {
       // Resolve workspace path
-      const workspacePath = await resolveWorkspacePath({});
-      const ruleService = new RuleService(workspacePath);
+      const _workspacePath = await resolveWorkspacePath({});
+      const ruleService = new RuleService(_workspacePath);
 
       // Ensure query is string
       if (!isString(_args.query)) {

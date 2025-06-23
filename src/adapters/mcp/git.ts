@@ -44,12 +44,12 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const result = await cloneFromParams(params);
+      const _result = await cloneFromParams(params);
 
       return {
         success: true,
-        workdir: result.workdir,
-        session: result.session,
+        _workdir: result.workdir,
+        _session: result.session,
       };
     }
   );
@@ -67,12 +67,12 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const result = await branchFromParams(params);
+      const _result = await branchFromParams(params);
 
       return {
         success: true,
-        workdir: result.workdir,
-        branch: result.branch,
+        _workdir: result.workdir,
+        _branch: result.branch,
       };
     }
   );
@@ -93,11 +93,11 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         debug: true, // Enable debugging for MCP commands
       };
 
-      const result = await pushFromParams(params);
+      const _result = await pushFromParams(params);
 
       return {
         success: true,
-        workdir: result.workdir,
+        _workdir: result.workdir,
         pushed: result.pushed,
       };
     }
@@ -122,7 +122,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const result = await createPullRequestFromParams(params);
+      const _result = await createPullRequestFromParams(params);
 
       return {
         success: true,

@@ -14,8 +14,8 @@ setupTestMocks();
 
 describe("GitService Default Branch Detection", () => {
   // Save original methods for restoration
-  let originalExecInRepository: any;
-  let execMock: any;
+  let originalExecInRepository: unknown;
+  let execMock: unknown;
 
   // Mock dependencies
   beforeEach(() => {
@@ -67,9 +67,9 @@ describe("GitService Default Branch Detection", () => {
     });
 
     // Act
-    const result = await gitService.fetchDefaultBranch("/test/repo");
+    const _result = await gitService.fetchDefaultBranch("/test/repo");
 
     // Assert
-    expect(result).toBe("main");
+    expect(_result).toBe("main");
   });
 });

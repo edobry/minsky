@@ -9,7 +9,7 @@ import {
   createWorkspaceUtils,
   type WorkspaceUtilsInterface,
 } from "./workspace";
-import type { SessionProviderInterface, SessionRecord } from "./session";
+import type { SessionProviderInterface} from "./session";
 import { promises as fs } from "fs";
 import { createMock } from "../utils/test-utils/mocking.js";
 
@@ -27,7 +27,7 @@ function createMockFn<T extends (...args: unknown[]) => any>(
   mockResolvedValue?: (_v: unknown) => void;
   mockImplementation?: (__fn: unknown) => void;
   _impl?: T;
-  _resolvedValue?: any;
+  _resolvedValue?: unknown;
 } {
   const fn: unknown = (..._args: unknown[]) => {
     fn.calls.push(_args);
@@ -68,7 +68,7 @@ function createMockWorkspaceUtils(
     isSessionWorkspace: createMockFn(async () => false),
     getCurrentSession: createMockFn(async () => null),
     getSessionFromWorkspace: createMockFn(async () => null),
-    resolveWorkspacePath: createMockFn(async (options) => options.workspace || process.cwd()),
+    resolveWorkspacePath: createMockFn(async (_options) => options.workspace || process.cwd()),
     ...overrides,
   };
 }
@@ -135,25 +135,25 @@ describe("Workspace Utils", () => {
     test("should return false for a non-session repository path", async () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
 
-      const result = await isSessionRepository("/some/repo/path", mockExecAsync);
+      const _result = await isSessionRepository("/some/repo/path", mockExecAsync);
 
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
         { cwd: "/some/repo/path" },
       ]);
-      expect(result).toBe(false);
+      expect(_result).toBe(false);
     });
 
     test("should return false if an error occurs", async () => {
       mockExecAsync.mockImplementation?.(() => {
         throw new Error("Command failed");
       });
-      const result = await isSessionRepository("/some/repo/path", mockExecAsync);
+      const _result = await isSessionRepository("/some/repo/path", mockExecAsync);
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
         { cwd: "/some/repo/path" },
       ]);
-      expect(result).toBe(false);
+      expect(_result).toBe(false);
       mockExecAsync.mockImplementation = (fn) => {
         mockExecAsync._impl = fn;
       };
@@ -172,8 +172,8 @@ describe("Workspace Utils", () => {
         "task#027"
       );
 
-      const result = await isSessionRepository("/some/repo/path", mockExecAsync);
-      expect(result).toBe(false);
+      const _result = await isSessionRepository("/some/repo/path", mockExecAsync);
+      expect(_result).toBe(false);
     });
 
     test("should detect multi-level nesting with sessions directory", async () => {
@@ -190,8 +190,8 @@ describe("Workspace Utils", () => {
         "feature-branch"
       );
 
-      const result = await isSessionRepository("/some/repo/path", mockExecAsync);
-      expect(result).toBe(false);
+      const _result = await isSessionRepository("/some/repo/path", mockExecAsync);
+      expect(_result).toBe(false);
     });
   });
 
@@ -203,12 +203,12 @@ describe("Workspace Utils", () => {
 
       mockExecOutput.stdout = sessionPath;
 
-      const result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
+      const _result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
         { cwd: "/some/repo/path" },
       ]);
-      expect(result).toBe(null);
+      expect(_result).toBe(null);
     });
 
     test("should extract session info from a deeply nested session repository path", async () => {
@@ -225,14 +225,14 @@ describe("Workspace Utils", () => {
       );
       mockExecOutput.stdout = sessionPath;
 
-      const result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
-      expect(result).toBe(null);
+      const _result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
+      expect(_result).toBe(null);
     });
 
     test("should return null for a non-session repository path", async () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
 
-      const result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
+      const _result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
 
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
@@ -248,7 +248,7 @@ describe("Workspace Utils", () => {
 
       mockExecOutput.stdout = sessionPath;
 
-      const result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
+      const _result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
 
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
@@ -261,12 +261,12 @@ describe("Workspace Utils", () => {
       mockExecAsync.mockImplementation?.(() => {
         throw new Error("Command failed");
       });
-      const result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
+      const _result = await getSessionFromRepo("/some/repo/path", mockExecAsync);
       expect(mockExecAsync.calls[0]).toEqual([
         "git rev-parse --show-toplevel",
         { cwd: "/some/repo/path" },
       ]);
-      expect(result).toBe(null);
+      expect(_result).toBe(null);
       mockExecAsync.mockImplementation = (fn) => {
         mockExecAsync._impl = fn;
       };
@@ -281,7 +281,7 @@ describe("Workspace Utils", () => {
 
       // Create a mock WorkspaceUtils implementation
       const mockUtils = createMockWorkspaceUtils({
-        resolveWorkspacePath: createMockFn(async (options) => {
+        resolveWorkspacePath: createMockFn(async (_options) => {
           if (options.workspace) return options.workspace;
           return "/default/path";
         }),
@@ -349,7 +349,7 @@ describe("Workspace Utils", () => {
 
       // The actual test now uses process.cwd() so we can't fully test the session path detection
       // This should be fixed in a future refactoring to fully support dependency injection
-      const result = await resolveWorkspaceWithDeps();
+      const _result = await resolveWorkspaceWithDeps();
 
       // In this case we can't properly test the expected result as we can't override process.cwd
       // But we can at least verify the mock calls were made
@@ -359,7 +359,7 @@ describe("Workspace Utils", () => {
     test("should use current directory if not in a session repo", async () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
 
-      const result = await resolveWorkspacePath(
+      const _result = await resolveWorkspacePath(
         { sessionRepo: "/some/non/session/path" },
         { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
       );
@@ -367,25 +367,25 @@ describe("Workspace Utils", () => {
         "git rev-parse --show-toplevel",
         { cwd: "/some/repo/path" },
       ]);
-      expect(result).toBe("/some/non/session/path");
+      expect(_result).toBe("/some/non/session/path");
     });
 
     test("should use session workspace path if provided", async () => {
       mockExecOutput.stdout = "/Users/username/Projects/repo";
 
-      const result = await resolveWorkspacePath(
+      const _result = await resolveWorkspacePath(
         { sessionWorkspace: "/provided/session/workspace" },
         { getSessionFromRepo: (repoPath) => getSessionFromRepo(repoPath, mockExecAsync) }
       );
 
-      expect(result).toBe("/provided/session/workspace");
+      expect(_result).toBe("/provided/session/workspace");
     });
   });
 
   // Tests for getCurrentSession function
   describe("getCurrentSession", () => {
     let mockExecOutput: { stdout: string };
-    let mockExecAsync: any;
+    let mockExecAsync: unknown;
     let mockSessionProvider: SessionProviderInterface;
 
     beforeEach(() => {
@@ -394,7 +394,7 @@ describe("Workspace Utils", () => {
       mockSessionProvider = createMockSessionProvider({
         getSession: async (_sessionName: unknown) =>
           Promise.resolve({
-            session: sessionName,
+            _session: _sessionName,
             repoUrl: "/path/to/main/workspace",
             repoName: "workspace",
             createdAt: new Date().toISOString(),
@@ -405,8 +405,8 @@ describe("Workspace Utils", () => {
     });
 
     test("should return the session name when in a session repository with interface implementation", async () => {
-      const sessionName = "test-session";
-      mockExecOutput.stdout = join("/tmp/minsky/git", "repo", "sessions", sessionName);
+      const _sessionName = "test-session";
+      mockExecOutput.stdout = join("/tmp/minsky/git", "repo", "sessions", _sessionName);
 
       // Create workspace utils with injected dependencies for testing
       const workspaceUtils = createMockWorkspaceUtils({
@@ -418,14 +418,14 @@ describe("Workspace Utils", () => {
       const result2 = await workspaceUtils.getCurrentSession("/some/path");
 
       expect(result1).toBe(null); // This will be null due to our test environment
-      expect(result2).toBe(sessionName); // This will match our mock implementation
+      expect(result2).toBe(_sessionName); // This will match our mock implementation
     });
 
     test("should return null when not in a session repository", async () => {
       mockExecOutput.stdout = "/not/a/session/path";
 
-      const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionProvider);
-      expect(result).toBe(null);
+      const _result = await getCurrentSession("/some/path", mockExecAsync, mockSessionProvider);
+      expect(_result).toBe(null);
     });
 
     test("should return null if an error occurs", async () => {
@@ -433,8 +433,8 @@ describe("Workspace Utils", () => {
         throw new Error("test error");
       };
 
-      const result = await getCurrentSession("/some/path", mockExecAsync, mockSessionProvider);
-      expect(result).toBe(null);
+      const _result = await getCurrentSession("/some/path", mockExecAsync, mockSessionProvider);
+      expect(_result).toBe(null);
     });
   });
 });
@@ -468,13 +468,13 @@ describe("getCurrentSessionContext", () => {
   test("should return null if getCurrentSession returns null", async () => {
     mockCurrentSessionReturnValue = null;
 
-    const result = await getCurrentSessionContext("dummy/path", {
+    const _result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
       sessionDbOverride: mockSessionProvider,
       getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
     });
 
-    expect(result).toBeNull();
+    expect(_result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(0);
   });
@@ -483,13 +483,13 @@ describe("getCurrentSessionContext", () => {
     mockCurrentSessionReturnValue = "testSession";
     mockSessionRecord = null;
 
-    const result = await getCurrentSessionContext("dummy/path", {
+    const _result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
       sessionDbOverride: mockSessionProvider,
       getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
     });
 
-    expect(result).toBeNull();
+    expect(_result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
     expect(mockGetSession.calls[0][0]).toBe("testSession");
@@ -507,13 +507,13 @@ describe("getCurrentSessionContext", () => {
       remote: { authMethod: "ssh", depth: 1 },
     };
 
-    const result = await getCurrentSessionContext("dummy/path", {
+    const _result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
       sessionDbOverride: mockSessionProvider,
       getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
     });
 
-    expect(result).toEqual({
+    expect(_result).toEqual({
       sessionId: "sessionWithTask",
       taskId: "#001",
     });
@@ -533,13 +533,13 @@ describe("getCurrentSessionContext", () => {
       remote: { authMethod: "ssh", depth: 1 },
     };
 
-    const result = await getCurrentSessionContext("dummy/path", {
+    const _result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
       sessionDbOverride: mockSessionProvider,
       getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
     });
 
-    expect(result).toEqual({
+    expect(_result).toEqual({
       sessionId: "sessionWithoutTask",
       taskId: undefined,
     });
@@ -551,13 +551,13 @@ describe("getCurrentSessionContext", () => {
     mockCurrentSessionReturnValue = "testSession";
     mockSessionDBError = new Error("DB failure");
 
-    const result = await getCurrentSessionContext("dummy/path", {
+    const _result = await getCurrentSessionContext("dummy/path", {
       execAsyncFn: mockExecAsync,
       sessionDbOverride: mockSessionProvider,
       getCurrentSessionFn: mockInternalGetCurrentSession, // Inject mock
     });
 
-    expect(result).toBeNull();
+    expect(_result).toBeNull();
     expect(mockInternalGetCurrentSession.calls.length).toBe(1);
     expect(mockGetSession.calls.length).toBe(1);
     expect(mockGetSession.calls[0][0]).toBe("testSession");

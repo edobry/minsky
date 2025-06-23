@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { DEFAULT_DEV_PORT, DEFAULT_RETRY_COUNT } from "../utils/constants";
+import { DEFAULT_DEV_PORT} from "../utils/constants";
 import * as path from "path";
 import { z } from "zod";
 export const initializeProjectParamsSchema = z.object({
@@ -260,7 +260,7 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation tasks, ensuring code isolation |
+| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation _tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
 
@@ -503,15 +503,15 @@ Minsky exposes the following tools via MCP:
 
 \`\`\`typescript
 // AI can retrieve task information using:
-const tasks = await tools.tasks.list({})
-log.agent(tasks) // Returns JSON array of tasks using structured logging
+const _tasks = await tools.tasks.list({})
+log.agent(_tasks) // Returns JSON array of tasks using structured logging
 \`\`\`
 
 ### Example: Start a Session via MCP
 
 \`\`\`typescript
 // AI can start a session for task #123:
-const result = await tools.session.start({ task: "123", quiet: true })
+const _result = await tools.session.start({ task: "123", quiet: true })
 log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 

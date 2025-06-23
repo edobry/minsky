@@ -21,8 +21,8 @@ export function createConfigShowCommand(): Command {
     .option("--working-dir <dir>", "Working directory", process.cwd())
     .action(async (_options: unknown) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(_workingDir);
+        const _workingDir = options.workingDir || process.cwd();
+        const _result = await configurationService.loadConfiguration(_workingDir);
         
         if (_options.json) {
           process.stdout.write(`${JSON.stringify(result.resolved, null, 2)  }\n`);

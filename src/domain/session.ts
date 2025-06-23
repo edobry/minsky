@@ -1,5 +1,4 @@
 import { join } from "path";
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
 import { normalizeRepoName } from "./repo-utils.js";
@@ -90,12 +89,12 @@ export interface SessionProviderInterface {
   /**
    * Add a new session to the database
    */
-  addSession(record: SessionRecord): Promise<void>;
+  addSession(_record: SessionRecord): Promise<void>;
 
   /**
    * Update an existing session
    */
-  updateSession(_session: string, updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
+  updateSession(_session: string, _updates: Partial<Omit<"session">>): Promise<void>;
 
   /**
    * Delete a session by name
@@ -105,12 +104,12 @@ export interface SessionProviderInterface {
   /**
    * Get the repository path for a session
    */
-  getRepoPath(record: SessionRecord | any): Promise<string>;
+  getRepoPath(_record: SessionRecord | any): Promise<string>;
 
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(sessionName: string): Promise<string>;
+  getSessionWorkdir(_sessionName: string): Promise<string>;
 }
 
 /**
@@ -179,9 +178,9 @@ export class SessionDB implements SessionProviderInterface {
     return this.writeDb(sessions);
   }
 
-  async addSession(record: SessionRecord): Promise<void> {
+  async addSession(_record: SessionRecord): Promise<void> {
     const sessions = await this.readDb();
-    sessions.push(record);
+    sessions.push(_record);
     await this.writeDb(sessions);
   }
 
@@ -196,7 +195,7 @@ export class SessionDB implements SessionProviderInterface {
 
   async updateSession(
     _session: string,
-    updates: Partial<Omit<SessionRecord, "session">>
+    _updates: Partial<Omit<"session">>
   ): Promise<void> {
     const sessions = await this.readDb();
     const index = sessions.findIndex((s) => s.session === session);
@@ -249,7 +248,7 @@ export class SessionDB implements SessionProviderInterface {
    * @param record The session record or session result
    * @returns The repository path
    */
-  async getRepoPath(record: SessionRecord | any): Promise<string> {
+  async getRepoPath(_record: SessionRecord | any): Promise<string> {
     // Add defensive checks for the input to avoid paths[1] error
     if (!record) {
       throw new Error("Session record is required");
@@ -275,7 +274,7 @@ export class SessionDB implements SessionProviderInterface {
       if (record.workdir) {
         return record.workdir;
       }
-      throw new Error("Invalid session record: missing repoName or session");
+      throw new Error("Invalid session _record: missing repoName or session");
     }
 
     // If the record already has a repoPath, use that
@@ -296,7 +295,7 @@ export class SessionDB implements SessionProviderInterface {
     }
 
     // Check for new path first (with sessions subdirectory)
-    const newPath = join(this.baseDir, normalizedRepoName, "sessions", record.session);
+    const newPath = join(this.baseDir, normalizedRepoName, "sessions", record._session);
     if (await this.repoExists(newPath)) {
       return newPath;
     }
@@ -313,7 +312,7 @@ export class SessionDB implements SessionProviderInterface {
     }
 
     // Fall back to legacy path
-    const legacyPath = join(this.baseDir, normalizedRepoName, record.session);
+    const legacyPath = join(this.baseDir, normalizedRepoName, record._session);
     if (await this.repoExists(legacyPath)) {
       return legacyPath;
     }
@@ -363,12 +362,12 @@ export class SessionDB implements SessionProviderInterface {
    * @param sessionName The session name
    * @returns The working directory path
    */
-  async getSessionWorkdir(sessionName: string): Promise<string> {
-    const session = await this.getSession(sessionName);
+  async getSessionWorkdir(_sessionName: string): Promise<string> {
+    const _session = await this.getSession(_sessionName);
     if (!session) {
       throw new Error(`Session "${sessionName}" not found.`);
     }
-    return this.getRepoPath(session);
+    return this.getRepoPath(_session);
   }
 
   /**
@@ -379,14 +378,14 @@ export class SessionDB implements SessionProviderInterface {
     const sessions = await this.readDb();
     let modified = false;
 
-    for (const session of sessions) {
+    for (const _session of sessions) {
       // Skip sessions that already have a repoPath
       if (session.repoPath && session.repoPath.includes("/sessions/")) {
         continue;
       }
 
-      const legacyPath = join(this.baseDir, session.repoName, session.session);
-      const newPath = join(this.baseDir, session.repoName, "sessions", session.session);
+      const legacyPath = join(this.baseDir, session.repoName, session._session);
+      const newPath = join(this.baseDir, session.repoName, "sessions", session._session);
 
       // Check if legacy path exists
       if (await this.repoExists(legacyPath)) {
@@ -487,7 +486,7 @@ export async function startSessionFromParams(
     taskService:
       depsInput?.taskService ||
       new TaskService({
-        workspacePath: repo || process.cwd(),
+        _workspacePath: repo || process.cwd(),
         backend: "markdown",
       }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
@@ -528,7 +527,7 @@ export async function startSessionFromParams(
     }
 
     // Determine the session name using task ID if provided
-    let sessionName = name;
+    let _sessionName = name;
     let _taskId: string | undefined = task;
 
     if (_taskId && !sessionName) {
@@ -551,7 +550,7 @@ export async function startSessionFromParams(
     }
 
     // Check if session already exists
-    const existingSession = await deps.sessionDB.getSession(sessionName);
+    const existingSession = await deps.sessionDB.getSession(_sessionName);
     if (existingSession) {
       throw new MinskyError(`Session '${sessionName}' already exists`);
     }
@@ -592,7 +591,7 @@ export async function startSessionFromParams(
     // Generate the expected repository path
     const sessionDir =
       deps.sessionDB instanceof SessionDB
-        ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
+        ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, _sessionName)
         : join(
           process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
           "minsky",
@@ -609,7 +608,7 @@ export async function startSessionFromParams(
       repoName,
       createdAt: new Date().toISOString(),
       taskId,
-      branch: branch || sessionName,
+      _branch: branch || _sessionName,
       repoPath: sessionDir, // Include the repository path explicitly
     };
 
@@ -618,13 +617,13 @@ export async function startSessionFromParams(
     // Now clone the repo
     const gitCloneResult = await deps.gitService.clone({
       repoUrl,
-      _session: sessionName,
+      _session: _sessionName,
     });
 
     // Create a branch based on the session name
     const branchName = branch || sessionName;
     const branchResult = await deps.gitService.branch({
-      _session: sessionName,
+      _session: _sessionName,
       _branch: branchName,
     });
 
@@ -668,11 +667,11 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
     }
 
     if (!quiet) {
-      log.debug(`Started session for task ${_taskId}`, { _session: sessionName });
+      log.debug(`Started session for task ${_taskId}`, { _session: _sessionName });
     }
 
     return {
-      session: sessionName,
+      session: _sessionName,
       repoUrl,
       repoName: normalizeRepoName(repoUrl),
       branch: branchName,
@@ -710,14 +709,14 @@ export async function deleteSessionFromParams(
   if (task && !name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(task);
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    const _session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
     }
 
     // Delete by name
-    return deps.sessionDB.deleteSession(session.session);
+    return deps.sessionDB.deleteSession(session._session);
   }
 
   if (!name) {
@@ -742,12 +741,12 @@ export async function getSessionDirFromParams(
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
   };
 
-  let sessionName: string;
+  let _sessionName: string;
 
   if (params.task && !params.name) {
     // Find session by task ID
     const normalizedTaskId = taskIdSchema.parse(params.task);
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    const _session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
       throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
@@ -760,7 +759,7 @@ export async function getSessionDirFromParams(
     throw new ResourceNotFoundError("You must provide either a session name or task ID");
   }
 
-  const session = await deps.sessionDB.getSession(sessionName);
+  const _session = await deps.sessionDB.getSession(_sessionName);
 
   if (!session) {
     throw new ResourceNotFoundError(`Session "${sessionName}" not found`);
@@ -809,7 +808,7 @@ export async function updateSessionFromParams(
     }
 
     // Get session working directory
-    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+    const _workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
 
     // Check if the workspace is dirty using git status command directly
     const statusOutput = await deps.gitService.execInRepository(_workdir, "git status --porcelain");
@@ -874,10 +873,10 @@ export async function updateSessionFromParams(
       session: sessionRecord.session,
       repoName: sessionRecord.repoName,
       repoUrl: sessionRecord.repoUrl,
-      branch: sessionRecord.branch,
+      _branch: sessionRecord.branch,
       createdAt: sessionRecord.createdAt,
       taskId: sessionRecord.taskId,
-      repoPath: workdir,
+      repoPath: _workdir,
     };
   } catch {
     if (error instanceof MinskyError) {
@@ -968,7 +967,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     }
 
     // Determine the session name
-    let sessionName = params.session;
+    let _sessionName = params.session;
     const sessionDb = new SessionDB();
 
     // If no session name provided but task ID is, try to find the session by task ID
@@ -1006,8 +1005,8 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     }
 
     log.debug(`Creating PR for _session: ${sessionName}`, {
-      session: sessionName,
-      title: params.title,
+      _session: _sessionName,
+      title: params._title,
       hasBody: !!bodyContent,
       bodySource: params.bodyPath ? "file" : "parameter",
       baseBranch: params.baseBranch,
@@ -1017,7 +1016,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     log.cli("Updating session with latest changes from main...");
     try {
       await updateSessionFromParams({
-        name: sessionName,
+        name: _sessionName,
         repo: params.repo,
         json: false,
       });
@@ -1029,9 +1028,9 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     }
 
     // STEP 6: Now proceed with PR creation
-    const result = await preparePrFromParams({
-      _session: sessionName,
-      title: params.title,
+    const _result = await preparePrFromParams({
+      _session: _sessionName,
+      title: params._title,
       body: bodyContent,
       baseBranch: params.baseBranch,
       debug: params.debug,
@@ -1039,18 +1038,18 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
-      const sessionRecord = await sessionDb.getSession(sessionName);
+      const sessionRecord = await sessionDb.getSession(_sessionName);
       if (sessionRecord?._taskId) {
         try {
           const taskService = new TaskService({
-            workspacePath: process.cwd(),
+            _workspacePath: process.cwd(),
             backend: "markdown",
           });
           await taskService.setTaskStatus(sessionRecord._taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task #${sessionRecord._taskId} status to IN-REVIEW`);
         } catch {
           log.warn(
-            `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to update task _status: ${error instanceof Error ? error.message : String(error)}`
           );
         }
       }
@@ -1059,7 +1058,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     return result;
   } catch {
     log.error("Error creating PR for session", {
-      _session: params.session,
+      _session: params._session,
       task: params.task,
       bodyPath: params.bodyPath,
       error: error instanceof Error ? error.message : String(error),
@@ -1086,7 +1085,7 @@ export async function approveSessionFromParams(
       setTaskStatus?: (_taskId: unknown) => Promise<any>;
       getBackendForTask?: (_taskId: unknown) => Promise<any>;
     };
-    workspaceUtils?: any;
+    workspaceUtils?: unknown;
     getCurrentSession?: (_repoPath: unknown) => Promise<string | null>;
   }
 ): Promise<{
@@ -1110,7 +1109,7 @@ export async function approveSessionFromParams(
     taskId = taskIdToUse;
 
     // Get session by task ID
-    const session = await sessionDB.getSessionByTaskId(taskIdToUse);
+    const _session = await sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
         `No session found for task ${taskIdToUse}`,
@@ -1155,7 +1154,7 @@ export async function approveSessionFromParams(
     taskService:
       depsInput?.taskService ||
       new TaskService({
-        workspacePath: originalRepoPath,
+        _workspacePath: originalRepoPath,
         backend: "markdown",
       }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
@@ -1268,13 +1267,13 @@ export async function inspectSessionFromParams(_params: {
   json?: boolean;
 }): Promise<Session | null> {
   // Auto-detect the current session from the workspace
-  const context = await getCurrentSessionContext(process.cwd());
+  const _context = await getCurrentSessionContext(process.cwd());
 
   if (!context || !context.sessionId) {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
-  const session = await createSessionProvider().getSession(context.sessionId);
+  const _session = await createSessionProvider().getSession(context.sessionId);
 
   return session;
 }
@@ -1331,7 +1330,7 @@ export async function sessionReviewFromParams(
     taskService:
       depsInput?.taskService ||
       new TaskService({
-        workspacePath: params.repo || process.cwd(),
+        _workspacePath: params.repo || process.cwd(),
         backend: "markdown",
       }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
@@ -1347,7 +1346,7 @@ export async function sessionReviewFromParams(
     taskId = taskIdToUse;
 
     // Get session by task ID
-    const session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
+    const _session = await deps.sessionDB.getSessionByTaskId(taskIdToUse);
     if (!session) {
       throw new ResourceNotFoundError(
         `No session found for task ${taskIdToUse}`,
@@ -1419,7 +1418,7 @@ export async function sessionReviewFromParams(
   const baseBranch = "main"; // Default base branch, could be made configurable
 
   // Initialize result
-  const result: SessionReviewResult = {
+  const _result: SessionReviewResult = {
     session: sessionNameToUse,
     taskId,
     prBranch: prBranchToUse,

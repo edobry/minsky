@@ -3,7 +3,6 @@
  */
 import { z } from "zod";
 
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 /**
  * Schema for file or directory paths
  * @example "/path/to/directory"

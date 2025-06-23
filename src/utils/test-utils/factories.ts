@@ -2,7 +2,7 @@
  * Test data factory functions for creating test fixtures
  * This module provides functions to create test data for various domain entities
  */
-import type { TaskData } from "../../types/tasks/taskData";
+import type {} from "../../types/tasks/taskData";
 
 /**
  * Creates a test task with specified overrides
@@ -14,7 +14,7 @@ export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
 
   return {
     id: defaultId,
-    title: "Test Task",
+    _title: "Test Task",
     status: "TODO",
     description: "This is a test task",
     worklog: [
@@ -65,10 +65,10 @@ export function createSessionData(
   } = {}
 ): unknown {
   const taskId = overrides.taskId || "123";
-  const session = overrides.session || `task#${taskId}`;
+  const _session = overrides.session || `task#${taskId}`;
 
   return {
-    session,
+    _session,
     taskId,
     repoName: overrides.repoName || "test/repo",
     repoPath: overrides.repoPath || `/mock/repo/${createRandomId()}`,
@@ -85,7 +85,7 @@ export function createSessionData(
  */
 export function createSessionDataArray(
   count: number,
-  commonOverrides: Partial<Record<string, any>> = {}
+  commonOverrides: Partial<Record<string, unknown>> = {}
 ): unknown[] {
   return Array(count)
     .fill(0)
@@ -124,7 +124,7 @@ export function createRepositoryData(
  * @param prefix Optional prefix for the ID
  * @returns A random string ID
  */
-export function createRandomId(prefix: string = "test"): string {
+export function createRandomId(_prefix: string = "test"): string {
   return `${prefix}-${Math.floor(Math.random() * 100000)}`;
 }
 
@@ -143,7 +143,7 @@ export function createTaskId(): string {
  */
 export function createRandomString(length: number = 10): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
+  let _result = "";
   for (let i = 0; i < length; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }

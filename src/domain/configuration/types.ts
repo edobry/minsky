@@ -97,8 +97,8 @@ export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
   loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult;
+  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
+  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
 }
 
 export interface CredentialManager {

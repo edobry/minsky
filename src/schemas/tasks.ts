@@ -106,7 +106,7 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
  */
 export const taskCreateParamsSchema = z
   .object({
-    specPath: z.string().min(1).describe("Path to the task specification document"),
+    _specPath: z.string().min(1).describe("Path to the task specification document"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()

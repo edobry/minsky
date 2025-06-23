@@ -13,8 +13,8 @@ import { expect } from "bun:test";
  * @param pattern The regex pattern to match against
  */
 export function expectToMatch(value: string, pattern: RegExp): void {
-  const result = value.match(pattern);
-  expect(result).toBeTruthy();
+  const _result = value.match(pattern);
+  expect(_result).toBeTruthy();
 }
 
 /**
@@ -22,7 +22,7 @@ export function expectToMatch(value: string, pattern: RegExp): void {
  * @param value The array or string to test
  * @param length The expected length
  */
-export function expectToHaveLength(value: any, length: number): void {
+export function expectToHaveLength(value: unknown, length: number): void {
   expect(value.length).toBe(length);
 }
 
@@ -31,7 +31,7 @@ export function expectToHaveLength(value: any, length: number): void {
  * @param value The value to test
  * @param constructor The expected constructor
  */
-export function expectToBeInstanceOf(value: any, constructor: Function): void {
+export function expectToBeInstanceOf(value: unknown, constructor: Function): void {
   expect(value instanceof constructor).toBeTruthy();
 }
 
@@ -98,7 +98,7 @@ export function getMockCallArg(
  * @param propertyPath The path to the property (can be nested using dot notation)
  * @param value Optional expected value of the property
  */
-export function expectToHaveProperty(object: any, propertyPath: string, value?: any): void {
+export function expectToHaveProperty(object: unknown, propertyPath: string, value?: any): void {
   const parts = propertyPath.split(".");
   let current = object;
 
@@ -152,7 +152,7 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @returns A wrapped test function with enhanced assertions
  */
 export function withEnhancedAssertions<T extends (..._args: unknown[]) => any>(testFn: T): T {
-  return function (this: any, ..._args: unknown[]) {
+  return function (this: unknown, ..._args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, _args);
   } as any;

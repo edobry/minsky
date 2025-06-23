@@ -58,7 +58,7 @@ export class ConfigurationLoader {
    * Load environment variable overrides
    */
   private loadEnvironmentConfig(): Partial<ResolvedConfig> {
-    const config: Partial<ResolvedConfig> = {};
+    const _config: Partial<ResolvedConfig> = {};
 
     // Backend override
     if (process.env[ENV_VARS.BACKEND]) {

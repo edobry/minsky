@@ -11,8 +11,7 @@ import { select, isCancel, cancel } from "@clack/prompts";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
-  type CommandExecutionContext,
+  typetype CommandExecutionContext,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -171,14 +170,14 @@ const tasksStatusGetRegistration = {
         `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
-    const status = await getTaskStatusFromParams({
+    const _status = await getTaskStatusFromParams({
       ...params,
       _taskId: normalizedTaskId,
     });
     return {
       success: true,
       taskId: normalizedTaskId,
-      status: status,
+      _status: _status,
     };
   },
 };
@@ -209,11 +208,11 @@ const tasksStatusSetRegistration = {
       _taskId: normalizedTaskId,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params.session,
+      _session: params._session,
       backend: params.backend,
     });
 
-    let status = params.status;
+    let _status = params.status;
 
     // If status is not provided, prompt for it interactively
     if (!status) {
@@ -239,9 +238,9 @@ const tasksStatusSetRegistration = {
 
       // Prompt for status selection
       const selectedStatus = await select({
-        message: "Select a status:",
+        message: "Select a _status:",
         _options: statusOptions,
-        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current status
+        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current _status
       });
 
       // Handle cancellation
@@ -257,17 +256,17 @@ const tasksStatusSetRegistration = {
 
     await setTaskStatusFromParams({
       _taskId: normalizedTaskId,
-      status: status,
+      status: _status,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params.session,
+      _session: params._session,
       backend: params.backend,
     });
 
     return {
       success: true,
       taskId: normalizedTaskId,
-      status: status,
+      _status: _status,
       previousStatus: previousStatus,
     };
   },
@@ -290,7 +289,7 @@ const tasksSpecRegistration = {
           `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
-      const result = await getTaskSpecContentFromParams({
+      const _result = await getTaskSpecContentFromParams({
         ...params,
         _taskId: normalizedTaskId,
       });
@@ -447,7 +446,7 @@ const tasksListRegistration = {
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
   execute: async (params, _ctx) => {
-    const { all = false, status, filter, ...rest } = params;
+    const { all = false, _status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
     const filterParam = status || filter;
@@ -476,7 +475,7 @@ const tasksGetRegistration = {
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params.session,
+      _session: params._session,
     });
   },
 };
@@ -493,12 +492,12 @@ const tasksCreateRegistration = {
   execute: async (params, _ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
     return await createTaskFromParams({
-      specPath: params.specPath,
+      specPath: params._specPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params.session,
+      _session: params._session,
     });
   },
 };
@@ -583,7 +582,7 @@ const tasksMigrateRegistration = {
       dryRun = false,
       repo,
       workspace,
-      session,
+      _session,
       json = false,
     } = params;
 
@@ -599,12 +598,12 @@ const tasksMigrateRegistration = {
 
     // Create task services for source and target backends
     const sourceTaskService = new TaskService({
-      workspacePath: workspace || repo || process.cwd(),
+      _workspacePath: workspace || repo || process.cwd(),
       backend: sourceBackend,
     });
 
     const targetTaskService = new TaskService({
-      workspacePath: workspace || repo || process.cwd(),
+      _workspacePath: workspace || repo || process.cwd(),
       backend: targetBackend,
     });
 
@@ -622,7 +621,7 @@ const tasksMigrateRegistration = {
 
     try {
       // Perform actual migration
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackendInstance,
         targetBackendInstance,
         {
