@@ -50,6 +50,7 @@ For detailed documentation on Minsky concepts and their relationships, see [src/
 - [Bun](https://bun.sh) runtime (recommended) or Node.js 18+
 - Git (for repository management)
 - TypeScript 5.0+ (peer dependency)
+- **Optional**: SQLite or PostgreSQL for advanced SessionDB backends
 
 ### Quick Start
 
@@ -122,6 +123,85 @@ minsky init
 # Start a test session
 minsky session start test-session
 ```
+
+## Configuration
+
+### SessionDB Storage Backends
+
+Minsky supports multiple storage backends for session data:
+
+#### JSON File (Default)
+
+Simple file-based storage, ideal for individual development:
+
+```toml
+# ~/.config/minsky/config.toml
+[sessiondb]
+backend = "json"
+dbPath = "~/.local/state/minsky/session-db.json"
+baseDir = "~/.local/state/minsky/git"
+```
+
+#### SQLite Database
+
+Local database with ACID transactions, better for performance:
+
+```toml
+# ~/.config/minsky/config.toml
+[sessiondb]
+backend = "sqlite"
+dbPath = "~/.local/state/minsky/sessions.db"
+baseDir = "~/.local/state/minsky/git"
+```
+
+#### PostgreSQL Database
+
+Server-based database for team environments:
+
+```toml
+# .minsky/config.toml (repository-level)
+[sessiondb]
+backend = "postgres"
+connectionString = "postgresql://user:password@localhost:5432/minsky"
+baseDir = "/shared/minsky/git"
+```
+
+#### Environment Variables
+
+You can also configure backends using environment variables:
+
+```bash
+# Set backend type
+export MINSKY_SESSION_BACKEND=sqlite
+
+# Set SQLite database path
+export MINSKY_SQLITE_PATH=~/.local/state/minsky/sessions.db
+
+# Set PostgreSQL connection string
+export MINSKY_POSTGRES_URL="postgresql://user:password@localhost:5432/minsky"
+
+# Set base directory for session workspaces
+export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
+```
+
+### Migration Between Backends
+
+Use the built-in migration tools to switch between backends:
+
+```bash
+# Migrate from JSON to SQLite
+minsky sessiondb migrate to sqlite --backup ./backups
+
+# Migrate to PostgreSQL
+minsky sessiondb migrate to postgres \
+  --connection-string "postgresql://user:password@localhost:5432/minsky" \
+  --backup ./backups
+
+# Check current backend status
+minsky sessiondb migrate status
+```
+
+For detailed migration guides, see [docs/sessiondb-migration-guide.md](./docs/sessiondb-migration-guide.md).
 
 ## Usage
 

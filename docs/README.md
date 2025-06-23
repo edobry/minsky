@@ -15,6 +15,11 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ## Feature Documentation
 
+### Session Management
+
+- [**SessionDB Migration Guide**](./sessiondb-migration-guide.md) - Migrate between JSON, SQLite, and PostgreSQL backends
+- [**SessionDB Troubleshooting Guide**](./sessiondb-troubleshooting.md) - Solutions for common SessionDB issues across all backends
+
 ### Task Management
 
 - [**JSON Task Backend**](./JSON-TASK-BACKEND.md) - JSON-based task storage system
@@ -43,6 +48,7 @@ This directory contains comprehensive documentation for the Minsky development w
 ### System Architecture
 
 - [**Post-125 Stability Plan**](./architecture/post-125-stability-plan.md) - System stability and reliability
+- [**SessionDB Multi-Backend Architecture**](./architecture/sessiondb-multi-backend-architecture.md) - Session storage system design and implementation
 - [**Validation Error Handling**](./architecture/validation-error-handling.md) - Error handling patterns
 
 ## Testing & Quality
@@ -79,7 +85,7 @@ This directory contains comprehensive documentation for the Minsky development w
 
 - **Task Backends**: `markdown`, `json-file`, `github-issues`
 - **Repository Backends**: `local`, `remote`, `github`
-- **Storage Backends**: File system, JSON, GitHub API
+- **Session Storage Backends**: `json` (file-based), `sqlite` (local database), `postgres` (server database)
 
 ### Key File Locations
 
