@@ -375,123 +375,201 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
 // Helper functions for formatting config output
 function formatConfigurationSources(sources: any): string {
-  const cliFlags =
-    Object.keys(sources.cliFlags).length > 0
-      ? formatConfigSection(sources.cliFlags)
-      : "  (none specified)";
+  return `⚙️  CONFIGURATION SOURCES
+${"─".repeat(50)}
 
-  const environment =
-    Object.keys(sources.environment).length > 0
-      ? formatConfigSection(sources.environment)
-      : "  (none set)";
+Minsky loads configuration from multiple sources in priority order:
 
-  const globalUser = sources.globalUser
-    ? formatGlobalUserConfig(sources.globalUser)
-    : "  (file not found)";
+🏆 1. Command Line Flags (highest priority)
+${formatSourceStatus(sources.cliFlags, "No flags specified")}
 
-  const repository = sources.repository
-    ? formatRepositoryConfig(sources.repository)
-    : "  (file not found)";
+🌍 2. Environment Variables
+${formatEnvironmentVariables(sources.environment)}
 
-  const defaults = formatConfigSection(sources.defaults);
+👤 3. Global User Config (~/.config/minsky/config.yaml)
+${formatGlobalUserSection(sources.globalUser)}
 
-  return `CONFIGURATION SOURCES
-${"=".repeat(60)}
+📁 4. Repository Config (.minsky/config.yaml)
+${formatRepositorySection(sources.repository)}
 
-1. CLI Flags (highest priority):
-${cliFlags}
+⚙️  5. Built-in Defaults (lowest priority)
+${formatDefaultsSection(sources.defaults)}`;
+}
 
-2. Environment Variables:
-${environment}
+function formatSourceStatus(source: any, emptyMessage: string): string {
+  if (!source || Object.keys(source).length === 0) {
+    return `   ${emptyMessage}`;
+  }
+  return formatConfigSection(source);
+}
 
-3. Global User Config (~/.config/minsky/config.yaml):
-${globalUser}
+function formatEnvironmentVariables(environment: any): string {
+  if (!environment || Object.keys(environment).length === 0) {
+    return "   No environment variables set";
+  }
 
-4. Repository Config (.minsky/config.yaml):
-${repository}
+  let output = "";
+  if (environment.credentials?.github) {
+    output += "   ✅ GitHub credentials configured via environment\n";
+  }
+  if (environment.backend) {
+    output += `   📁 Task backend override: ${environment.backend}\n`;
+  }
+  if (environment.sessiondb) {
+    output += "   💾 Session database settings configured\n";
+  }
 
-5. Built-in Defaults (lowest priority):
-${defaults}`;
+  return output.trimEnd() || "   No relevant environment variables set";
+}
+
+function formatGlobalUserSection(globalUser: any): string {
+  if (!globalUser) {
+    return "   File not found - using defaults";
+  }
+
+  let output = `   ✅ File found (version ${globalUser.version || "unknown"})`;
+  if (globalUser.credentials?.github) {
+    output += "\n   🔐 GitHub credentials configured";
+  }
+  if (globalUser.sessiondb) {
+    output += "\n   💾 Session database preferences set";
+  }
+
+  return output;
+}
+
+function formatRepositorySection(repository: any): string {
+  if (!repository) {
+    return "   File not found - using global/default settings";
+  }
+
+  let output = `   ✅ File found (version ${repository.version || "unknown"})`;
+  if (repository.backends?.default) {
+    const backendName = getBackendDisplayName(repository.backends.default);
+    output += `\n   📁 Default task backend: ${backendName}`;
+  }
+  if (repository.backends?.["github-issues"]) {
+    const github = repository.backends["github-issues"];
+    output += `\n   🐙 GitHub Issues: ${github.owner}/${github.repo}`;
+  }
+  if (repository.repository?.detection_rules) {
+    output += `\n   🔍 Custom detection rules (${repository.repository.detection_rules.length} rules)`;
+  }
+  if (repository.sessiondb) {
+    output += "\n   💾 Session database configuration";
+  }
+
+  return output;
+}
+
+function formatDefaultsSection(defaults: any): string {
+  let output = "   These are Minsky's built-in defaults:\n";
+  output += `   📁 Task backend: ${getBackendDisplayName(defaults.backend)}\n`;
+  if (defaults.detectionRules && defaults.detectionRules.length > 0) {
+    output += `   🔍 Auto-detection rules: ${defaults.detectionRules.length} rules\n`;
+  }
+  if (defaults.sessiondb) {
+    output += `   💾 Session storage: ${getSessionBackendDisplayName(defaults.sessiondb.backend)}\n`;
+  }
+
+  return output.trimEnd();
 }
 
 function formatResolvedConfiguration(resolved: any): string {
-  let output = `Backend: ${resolved.backend}`;
+  let output = "📋 CURRENT MINSKY CONFIGURATION\n";
+  output += `${"─".repeat(50)}\n`;
 
-  if (Object.keys(resolved.backendConfig).length > 0) {
-    output += "\n\nBackend Configuration:";
-    for (const [backend, config] of Object.entries(resolved.backendConfig)) {
-      if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
-        output += `\n  ${backend}:`;
-        for (const [key, value] of Object.entries(config as object)) {
-          output += `\n    ${key}: ${value}`;
-        }
-      }
-    }
+  // Task Storage
+  output += "\n📁 Task Storage";
+  output += `\n   Using: ${getBackendDisplayName(resolved.backend)}`;
+  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+    const github = resolved.backendConfig["github-issues"];
+    output += `\n   Repository: ${github.owner}/${github.repo}`;
   }
 
+  // Authentication
   if (Object.keys(resolved.credentials).length > 0) {
-    output += "\n\nCredentials:";
+    output += "\n\n🔐 Authentication";
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
-        output += `\n  ${service}:`;
         const credsObj = creds as any;
+        const serviceName = service === "github" ? "GitHub" : service;
+        output += `\n   ${serviceName}: ✅ Configured`;
         if (credsObj.source) {
-          output += `\n    Source: ${credsObj.source}`;
-        }
-        if (credsObj.token) {
-          output += `\n    Token: ${"*".repeat(20)} (hidden)`;
+          const sourceDisplay =
+            credsObj.source === "environment" ? "environment variable" : credsObj.source;
+          output += ` (from ${sourceDisplay})`;
         }
       }
     }
   }
 
+  // Backend Detection
   if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    output += "\n\nDetection Rules:";
+    output += "\n\n🔍 Backend Auto-Detection Rules";
+    output += "\n   Minsky will choose task backend based on:";
     resolved.detectionRules.forEach((rule: any, index: number) => {
-      output += `\n  ${index + 1}. ${rule.condition} → ${rule.backend}`;
+      const condition = formatDetectionCondition(rule.condition);
+      const backend = getBackendDisplayName(rule.backend);
+      output += `\n   ${index + 1}. ${condition} → use ${backend}`;
     });
   }
 
+  // Session Database
+  if (resolved.sessiondb) {
+    output += "\n\n💾 Session Storage";
+    const sessionBackend = resolved.sessiondb.backend || "json";
+    output += `\n   Type: ${getSessionBackendDisplayName(sessionBackend)}`;
+
+    if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
+      output += `\n   Database: ${resolved.sessiondb.dbPath}`;
+    } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
+      output += "\n   Database: PostgreSQL (configured)";
+    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
+      output += `\n   Directory: ${resolved.sessiondb.baseDir}`;
+    }
+  }
+
   return output;
 }
 
-function formatGlobalUserConfig(globalUser: any): string {
-  let output = `  Version: ${globalUser.version}`;
-
-  if (globalUser.credentials?.github) {
-    output += `\n  GitHub Credentials: ${globalUser.credentials.github.source} source`;
-    if (globalUser.credentials.github.token) {
-      output += `\n    Token: ${"*".repeat(20)} (hidden)`;
-    }
-    if (globalUser.credentials.github.token_file) {
-      output += `\n    Token File: ${globalUser.credentials.github.token_file}`;
-    }
+function getBackendDisplayName(backend: string): string {
+  switch (backend) {
+    case "markdown":
+      return "Markdown files (process/tasks.md)";
+    case "json-file":
+      return "JSON files";
+    case "github-issues":
+      return "GitHub Issues";
+    default:
+      return backend;
   }
-
-  return output;
 }
 
-function formatRepositoryConfig(repository: any): string {
-  let output = `  Version: ${repository.version}`;
-
-  if (repository.backends?.default) {
-    output += `\n  Default Backend: ${repository.backends.default}`;
+function getSessionBackendDisplayName(backend: string): string {
+  switch (backend) {
+    case "json":
+      return "JSON files";
+    case "sqlite":
+      return "SQLite database";
+    case "postgres":
+      return "PostgreSQL database";
+    default:
+      return backend;
   }
+}
 
-  if (repository.backends?.["github-issues"]) {
-    const github = repository.backends["github-issues"];
-    output += `\n  GitHub Issues Backend:\n    Owner: ${github.owner}\n    Repo: ${github.repo}`;
+function formatDetectionCondition(condition: string): string {
+  switch (condition) {
+    case "tasks_md_exists":
+      return "If process/tasks.md exists";
+    case "json_file_exists":
+      return "If JSON task files exist";
+    case "always":
+      return "As default fallback";
+    default:
+      return condition;
   }
-
-  if (repository.repository?.auto_detect_backend !== undefined) {
-    output += `\n  Auto-detect Backend: ${repository.repository.auto_detect_backend}`;
-  }
-
-  if (repository.repository?.detection_rules) {
-    output += `\n  Detection Rules: ${repository.repository.detection_rules.length} rules`;
-  }
-
-  return output;
 }
 
 function formatConfigSection(config: any): string {
