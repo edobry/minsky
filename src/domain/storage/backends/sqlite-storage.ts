@@ -1,11 +1,14 @@
 /**
- * SQLite Storage Backend using Bun's native SQLite driver
+ * SQLite Storage Backend using Drizzle ORM with Bun's native SQLite driver
  *
- * Uses bun:sqlite which is faster and natively compatible with Bun runtime.
- * No need for better-sqlite3 dependency.
+ * Uses bun:sqlite with drizzle-orm for type-safe database operations.
+ * Provides better schema management and query building.
  */
 
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { eq } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -22,13 +25,28 @@ export interface SqliteStorageConfig {
   timeout?: number;
 }
 
+// Drizzle schema definition
+const sessionsTable = sqliteTable("sessions", {
+  session: text("session").primaryKey(),
+  repoName: text("repoName").notNull(),
+  repoUrl: text("repoUrl"),
+  createdAt: text("createdAt").notNull(),
+  taskId: text("taskId"),
+  branch: text("branch"),
+  repoPath: text("repoPath"),
+});
+
+type SessionRecord = typeof sessionsTable.$inferSelect;
+type NewSessionRecord = typeof sessionsTable.$inferInsert;
+
 /**
- * SQLite storage implementation using Bun's native driver
+ * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
 export class SqliteStorage<TEntity extends Record<string, any>, TState>
   implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
+  private drizzleDb: ReturnType<typeof drizzle> | null = null;
   private initialized = false;
   private readonly dbPath: string;
   private readonly config: SqliteStorageConfig;
@@ -51,6 +69,9 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       // Open database with Bun's native SQLite driver
       this.db = new Database(this.dbPath);
 
+      // Create Drizzle instance
+      this.drizzleDb = drizzle(this.db);
+
       // Enable WAL mode for better performance
       if (this.config.enableWAL !== false) {
         this.db.exec("PRAGMA journal_mode = WAL;");
@@ -66,7 +87,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       this.db.exec("PRAGMA cache_size = 1000;");
       this.db.exec("PRAGMA temp_store = memory;");
 
-      // Create sessions table
+      // Create tables using Drizzle
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS sessions (
           session TEXT PRIMARY KEY,
@@ -80,7 +101,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       `);
 
       this.initialized = true;
-      log.debug("SQLite storage initialized", { dbPath: this.dbPath });
+      log.debug("SQLite storage initialized with Drizzle ORM", { dbPath: this.dbPath });
       return true;
     } catch (error) {
       log.error("Failed to initialize SQLite storage", { error, dbPath: this.dbPath });
@@ -89,12 +110,12 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async readState(): Promise<DatabaseReadResult<TState>> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return { success: false, error: new Error("Database not initialized") };
     }
 
     try {
-      const sessions = this.db.prepare("SELECT * FROM sessions").all() as TEntity[];
+      const sessions = await this.drizzleDb.select().from(sessionsTable);
 
       // Construct state object - this assumes TState has a sessions array
       // and possibly other fields like baseDir
@@ -113,38 +134,33 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async writeState(state: TState): Promise<DatabaseWriteResult> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return { success: false, error: new Error("Database not initialized") };
     }
 
     try {
-      // Begin transaction
-      const transaction = this.db.transaction((sessions: TEntity[]) => {
+      const sessions = (state as any).sessions || [];
+
+      // Use Drizzle transaction
+      await this.drizzleDb.transaction(async (tx) => {
         // Clear existing sessions
-        this.db!.exec("DELETE FROM sessions");
+        await tx.delete(sessionsTable);
 
         // Insert new sessions
-        const insertStmt = this.db!.prepare(`
-          INSERT INTO sessions (session, repoName, repoUrl, createdAt, taskId, branch, repoPath)
-          VALUES ($session, $repoName, $repoUrl, $createdAt, $taskId, $branch, $repoPath)
-        `);
+        if (sessions.length > 0) {
+          const sessionRecords: NewSessionRecord[] = sessions.map((session: TEntity) => ({
+            session: session.session,
+            repoName: session.repoName,
+            repoUrl: session.repoUrl || null,
+            createdAt: session.createdAt,
+            taskId: session.taskId || null,
+            branch: session.branch || null,
+            repoPath: session.repoPath || null,
+          }));
 
-        for (const session of sessions) {
-          insertStmt.run({
-            $session: session.session,
-            $repoName: session.repoName,
-            $repoUrl: session.repoUrl || null,
-            $createdAt: session.createdAt,
-            $taskId: session.taskId || null,
-            $branch: session.branch || null,
-            $repoPath: session.repoPath || null,
-          });
+          await tx.insert(sessionsTable).values(sessionRecords);
         }
       });
-
-      // Execute transaction
-      const sessions = (state as any).sessions || [];
-      transaction(sessions);
 
       return { success: true, bytesWritten: sessions.length };
     } catch (error) {
@@ -156,15 +172,18 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async getEntity(id: string, options?: DatabaseQueryOptions): Promise<TEntity | null> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return null;
     }
 
     try {
-      const selectStmt = this.db.prepare("SELECT * FROM sessions WHERE session = $session");
-      const result = selectStmt.get({ $session: id }) as TEntity | undefined;
+      const result = await this.drizzleDb
+        .select()
+        .from(sessionsTable)
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
-      return result || null;
+      return (result[0] as TEntity) || null;
     } catch (error) {
       log.error("Failed to get entity from SQLite", { error, id });
       return null;
@@ -172,13 +191,13 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<TEntity[]> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return [];
     }
 
     try {
-      const sessions = this.db.prepare("SELECT * FROM sessions").all() as TEntity[];
-      return sessions;
+      const sessions = await this.drizzleDb.select().from(sessionsTable);
+      return sessions as TEntity[];
     } catch (error) {
       log.error("Failed to get entities from SQLite", { error });
       return [];
@@ -186,26 +205,22 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async createEntity(entity: TEntity): Promise<TEntity> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       throw new Error("Database not initialized");
     }
 
     try {
-      const insertStmt = this.db.prepare(`
-        INSERT INTO sessions (session, repoName, repoUrl, createdAt, taskId, branch, repoPath)
-        VALUES ($session, $repoName, $repoUrl, $createdAt, $taskId, $branch, $repoPath)
-      `);
+      const sessionRecord: NewSessionRecord = {
+        session: entity.session,
+        repoName: entity.repoName,
+        repoUrl: entity.repoUrl || null,
+        createdAt: entity.createdAt,
+        taskId: entity.taskId || null,
+        branch: entity.branch || null,
+        repoPath: entity.repoPath || null,
+      };
 
-      insertStmt.run({
-        $session: entity.session,
-        $repoName: entity.repoName,
-        $repoUrl: entity.repoUrl || null,
-        $createdAt: entity.createdAt,
-        $taskId: entity.taskId || null,
-        $branch: entity.branch || null,
-        $repoPath: entity.repoPath || null,
-      });
-
+      await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
       log.error("Failed to create entity in SQLite", { error, entity });
@@ -214,7 +229,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async updateEntity(id: string, updates: Partial<TEntity>): Promise<TEntity | null> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return null;
     }
 
@@ -225,29 +240,23 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
         return null;
       }
 
-      const updateFields = [];
-      const params: Record<string, any> = { $session: id };
+      // Prepare update data
+      const updateData: Partial<NewSessionRecord> = {};
+      if (updates.repoName !== undefined) updateData.repoName = updates.repoName;
+      if (updates.repoUrl !== undefined) updateData.repoUrl = updates.repoUrl;
+      if (updates.createdAt !== undefined) updateData.createdAt = updates.createdAt;
+      if (updates.taskId !== undefined) updateData.taskId = updates.taskId;
+      if (updates.branch !== undefined) updateData.branch = updates.branch;
+      if (updates.repoPath !== undefined) updateData.repoPath = updates.repoPath;
 
-      for (const [key, value] of Object.entries(updates)) {
-        if (key !== "session") {
-          updateFields.push(`${key} = $${key}`);
-          params[`$${key}`] = value;
-        }
-      }
-
-      if (updateFields.length === 0) {
+      if (Object.keys(updateData).length === 0) {
         return existing; // No updates needed
       }
 
-      const updateStmt = this.db.prepare(`
-        UPDATE sessions SET ${updateFields.join(", ")} WHERE session = $session
-      `);
-
-      const result = updateStmt.run(params);
-
-      if (result.changes === 0) {
-        return null;
-      }
+      await this.drizzleDb
+        .update(sessionsTable)
+        .set(updateData)
+        .where(eq(sessionsTable.session, id));
 
       // Return updated entity
       return { ...existing, ...updates };
@@ -258,15 +267,16 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async deleteEntity(id: string): Promise<boolean> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return false;
     }
 
     try {
-      const deleteStmt = this.db.prepare("DELETE FROM sessions WHERE session = $session");
-      const result = deleteStmt.run({ $session: id });
+      await this.drizzleDb.delete(sessionsTable).where(eq(sessionsTable.session, id));
 
-      return result.changes > 0;
+      // Since Drizzle doesn't return changes count, we'll check if the entity existed
+      const entityExists = await this.entityExists(id);
+      return !entityExists; // If it doesn't exist after delete, deletion was successful
     } catch (error) {
       log.error("Failed to delete entity from SQLite", { error, id });
       return false;
@@ -274,15 +284,18 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
   }
 
   async entityExists(id: string): Promise<boolean> {
-    if (!this.db) {
+    if (!this.drizzleDb) {
       return false;
     }
 
     try {
-      const selectStmt = this.db.prepare("SELECT 1 FROM sessions WHERE session = $session LIMIT 1");
-      const result = selectStmt.get({ $session: id });
+      const result = await this.drizzleDb
+        .select({ count: sessionsTable.session })
+        .from(sessionsTable)
+        .where(eq(sessionsTable.session, id))
+        .limit(1);
 
-      return result !== undefined;
+      return result.length > 0;
     } catch (error) {
       log.error("Failed to check entity existence in SQLite", { error, id });
       return false;
@@ -297,6 +310,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     if (this.db) {
       this.db.close();
       this.db = null;
+      this.drizzleDb = null;
       this.initialized = false;
       log.debug("SQLite storage closed");
     }
@@ -304,7 +318,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 }
 
 /**
- * Create SQLite storage backend using Bun's native driver
+ * Create SQLite storage backend using Drizzle ORM with Bun's native driver
  */
 export function createSqliteStorage<TEntity extends Record<string, any>, TState>(
   config: SqliteStorageConfig
