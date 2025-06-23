@@ -402,13 +402,10 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
-  async fileExists(path: string): Promise<boolean> {
-    try {
-      // For GitHub backend, we check if an issue exists rather than local files
-      return true; // Simplified for now
-    } catch {
-      return false;
-    }
+  async fileExists(_path: string): Promise<boolean> {
+    // For GitHub backend, we always return true since we don't check local files
+    // TODO: Implement actual GitHub issue existence check
+    return true;
   }
 
   // ---- Private Helper Methods ----

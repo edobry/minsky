@@ -70,8 +70,11 @@ export default [
       semi: ["error", "always"],
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/explicit-function-return-type": "off",
-      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
-      "no-unused-vars": ["warn", { argsIgnorePattern: "^_+", varsIgnorePattern: "^_+" }],
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_+", varsIgnorePattern: "^_+" },
+      ],
+      "no-unused-vars": "off", // Disabled in favor of @typescript-eslint/no-unused-vars
       "no-magic-numbers": [
         "warn",
         { ignore: [0, 1, -1], ignoreArrayIndexes: true, enforceConst: true },

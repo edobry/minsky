@@ -7,11 +7,12 @@
  */
 
 import type { SessionProviderInterface, SessionRecord } from "../session";
-import { createStorageBackend } from "../storage/storage-backend-factory";
+import { createStorageBackend, type StorageConfig } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
+import { configurationService } from "../configuration";
 
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
@@ -23,7 +24,24 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      this.storage = createStorageBackend();
+      // Load configuration to determine storage backend
+      const configResult = await configurationService.loadConfiguration(this.workingDir);
+      const sessionDbConfig = configResult.resolved.sessiondb;
+
+      // Convert SessionDbConfig to StorageConfig
+      const storageConfig: Partial<StorageConfig> = {
+        backend: sessionDbConfig.backend as "json" | "sqlite" | "postgres",
+      };
+
+      if (sessionDbConfig.backend === "sqlite" && sessionDbConfig.dbPath) {
+        storageConfig.sqlite = { dbPath: sessionDbConfig.dbPath };
+      } else if (sessionDbConfig.backend === "postgres" && sessionDbConfig.connectionString) {
+        storageConfig.postgres = { connectionUrl: sessionDbConfig.connectionString };
+      } else if (sessionDbConfig.backend === "json" && sessionDbConfig.dbPath) {
+        storageConfig.json = { filePath: sessionDbConfig.dbPath };
+      }
+
+      this.storage = createStorageBackend(storageConfig);
       await this.storage.initialize();
     }
     return this.storage;
