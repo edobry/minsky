@@ -1,7 +1,7 @@
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
-const SIZE_15 = SIZE_15;
-
 #!/usr/bin/env bun
+
+const COMMIT_HASH_SHORT_LENGTH = 8;
+const SIZE_15 = 15;
 
 /**
  * Test Analyzer Script
