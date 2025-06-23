@@ -349,7 +349,7 @@ describe("Workspace Utils", () => {
 
       // The actual test now uses process.cwd() so we can't fully test the session path detection
       // This should be fixed in a future refactoring to fully support dependency injection
-      const _result = await resolveWorkspaceWithDeps();
+      const result = await resolveWorkspaceWithDeps();
 
       // In this case we can't properly test the expected result as we can't override process.cwd
       // But we can at least verify the mock calls were made

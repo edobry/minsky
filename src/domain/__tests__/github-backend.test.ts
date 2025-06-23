@@ -130,7 +130,7 @@ describe("GitHub Repository Backend", () => {
 
   test("validate succeeds for a valid GitHub repository", async () => {
     // Act
-    const _result = await githubBackend.validate();
+    const result = await githubBackend.validate();
 
     // Assert
     expect(result.valid).toBe(true);

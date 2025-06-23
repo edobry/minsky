@@ -35,7 +35,7 @@ async function initGitRepo(repoPath: string) {
 
 // Execute git command safely and return stdout
 function execGit(_command: string, cwd: string): string {
-  const _result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
+  const result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
   return result.toString();
 }
 

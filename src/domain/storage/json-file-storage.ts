@@ -59,7 +59,7 @@ class FileOperationLock {
     this.locks.set(_filePath, operationPromise);
 
     try {
-      const _result = await operationPromise;
+      const result = await operationPromise;
       return result;
     } finally {
       // Remove our lock only if it's still the current one
@@ -194,7 +194,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to the entity or null if not found
    */
   async getEntity(__id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
-    const _result = await this.readState();
+    const result = await this.readState();
     if (!result.success || !result.data) {
       return null;
     }
@@ -212,7 +212,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Promise resolving to array of entities
    */
   async getEntities(_options?: DatabaseQueryOptions): Promise<T[]> {
-    const _result = await this.readState();
+    const result = await this.readState();
     if (!result.success || !result.data) {
       return [];
     }
@@ -242,7 +242,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async createEntity(_entity: T): Promise<T> {
     return FileOperationLock.withLock(this.filePath, async () => {
-      const _result = await this.readState();
+      const result = await this.readState();
       if (!result.success) {
         throw new Error(
           `Failed to read database state: ${result.error?.message || "Unknown error"}`
@@ -282,7 +282,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async updateEntity(__id: string, _updates: Partial<T>): Promise<T | null> {
     return FileOperationLock.withLock(this.filePath, async () => {
-      const _result = await this.readState();
+      const result = await this.readState();
       if (!result.success) {
         throw new Error(
           `Failed to read database state: ${result.error?.message || "Unknown error"}`
@@ -322,7 +322,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    */
   async deleteEntity(__id: string): Promise<boolean> {
     return FileOperationLock.withLock(this.filePath, async () => {
-      const _result = await this.readState();
+      const result = await this.readState();
       if (!result.success) {
         throw new Error(
           `Failed to read database state: ${result.error?.message || "Unknown error"}`

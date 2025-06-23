@@ -137,7 +137,7 @@ describe("JsonFileTaskBackend", () => {
 
   describe("TaskBackend interface compliance", () => {
     test("should implement getTasksData", async () => {
-      const _result = await backend.getTasksData();
+      const result = await backend.getTasksData();
       expect(result.success).toBe(true);
       expect(typeof result.content).toBe("string");
     });
@@ -153,7 +153,7 @@ describe("JsonFileTaskBackend", () => {
         2
       );
 
-      const _result = await backend.saveTasksData(taskData);
+      const result = await backend.saveTasksData(taskData);
       expect(result.success).toBe(true);
 
       // Verify the task was saved

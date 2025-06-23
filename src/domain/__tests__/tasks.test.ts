@@ -94,7 +94,7 @@ describe("interface-agnostic task functions", () => {
 
       const params = { all: false };
 
-      const _result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params, mockDeps);
 
       expect(result.length).toBe(1);
       expect(result[0]?.status === TASK_STATUS.DONE).toBe(false);

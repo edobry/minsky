@@ -97,7 +97,7 @@ export class TaskService {
    */
   async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
-    const _result = await this.currentBackend.getTasksData();
+    const result = await this.currentBackend.getTasksData();
     if (!result.success || !result._content) {
       return [];
     }
@@ -174,7 +174,7 @@ export class TaskService {
     }
 
     // Get all tasks
-    const _result = await this.currentBackend.getTasksData();
+    const result = await this.currentBackend.getTasksData();
     if (!result.success || !result._content) {
       throw new Error(`Failed to read tasks _data: ${result.error?.message}`);
     }
@@ -309,7 +309,7 @@ export class TaskService {
     // Try to find the task in each backend
     for (const backend of this.backends) {
       // Get raw data
-      const _result = await backend.getTasksData();
+      const result = await backend.getTasksData();
       if (!result.success || !result._content) {
         continue;
       }

@@ -42,7 +42,7 @@ describe("GitService PR Functionality", () => {
 
   test("should create a PR description", async () => {
     // Execute the PR functionality with minimum required parameters
-    const _result = await gitService.pr({
+    const result = await gitService.pr({
       repoPath: "/tmp/mock-repo-path",
     });
 

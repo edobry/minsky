@@ -315,7 +315,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     },
 
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
-      const _result = await getSessionFromWorkspace(_workspacePath);
+      const result = await getSessionFromWorkspace(_workspacePath);
       return result ? result.session : null;
     },
 

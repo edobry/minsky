@@ -64,7 +64,7 @@ export function createSpecCommand(): Command {
         };
 
         // Call the domain function
-        const _result = await getTaskSpecContentFromParams(params);
+        const result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
         outputResult(__result, {
