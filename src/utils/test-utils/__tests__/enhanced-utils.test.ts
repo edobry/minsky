@@ -1,3 +1,6 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Tests for enhanced test utilities
  * This file demonstrates how to use the new test utilities effectively
@@ -59,7 +62,7 @@ describe("Enhanced Test Utilities", () => {
       mockFn.mockImplementation((n) => n * 2);
 
       // Use the mock
-      const _result = mockFn(5);
+      const _result = mockFn(TEST_ARRAY_SIZE);
 
       // Verify
       expect(_result).toBe(10);
@@ -77,16 +80,16 @@ describe("Enhanced Test Utilities", () => {
 
       // Create a partial mock
       const mockUserService = createPartialMock<UserService>({
-        getUser: async (id) => (id === "123" ? { id, name: "Test User" } : null),
+        getUser: async (id) => (id === "TEST_VALUE" ? { id, name: "Test User" } : null),
       });
 
       // The implemented method works as expected
-      return mockUserService.getUser("123").then((user) => {
-        expect(user).toEqual({ id: "123", name: "Test User" });
+      return mockUserService.getUser("TEST_VALUE").then((user) => {
+        expect(user).toEqual({ id: "TEST_VALUE", name: "Test User" });
 
         // Other methods are automatically mocked
-        mockUserService.updateUser("123", { name: "Updated" });
-        expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated" });
+        mockUserService.updateUser("TEST_VALUE", { name: "Updated" });
+        expect(mockUserService.updateUser).toHaveBeenCalledWith("TEST_VALUE", { name: "Updated" });
       });
     });
   });
@@ -129,7 +132,7 @@ describe("Enhanced Test Utilities", () => {
             Promise.resolve({
               _session: "custom-session",
               repoName: "test/repo",
-              taskId: "123",
+              taskId: "TEST_VALUE",
               repoPath: "/custom/path",
               createdAt: "2023-01-01",
             })
@@ -216,12 +219,12 @@ describe("Enhanced Test Utilities", () => {
 
     test("should create session data", () => {
       const _session = createSessionData({
-        taskId: "123",
+        taskId: "TEST_VALUE",
       });
 
       // Verify session properties
-      expect(session._session).toBe("task#123");
-      expect(session.taskId).toBe("123");
+      expect(session._session).toBe("task#TEST_VALUE");
+      expect(session.taskId).toBe("TEST_VALUE");
       expect(session.repoPath).toContain("/mock/repo/");
     });
   });
@@ -238,16 +241,16 @@ describe("Enhanced Test Utilities", () => {
           taskService: {
             getTask: async (_id: unknown) => {
               // Return different tasks based on ID
-              if (id === "#123") {
-                return createTaskData({ id: "#123", _title: "Important Task" });
+              if (id === "#TEST_VALUE") {
+                return createTaskData({ id: "#TEST_VALUE", _title: "Important Task" });
               }
               return null;
             },
           },
           sessionDB: {
             getSession: async (_name: unknown) => {
-              if (name === "task#123") {
-                return createSessionData({ taskId: "123", _session: name });
+              if (name === "task#TEST_VALUE") {
+                return createSessionData({ taskId: "TEST_VALUE", _session: name });
               }
               return null;
             },
@@ -255,7 +258,7 @@ describe("Enhanced Test Utilities", () => {
         },
         async (deps) => {
           // 3. Execute code under test with mocked dependencies
-          const task = await deps.taskService.getTask("#123");
+          const task = await deps.taskService.getTask("#TEST_VALUE");
           const _session = task
             ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`)
             : null;
@@ -268,7 +271,7 @@ describe("Enhanced Test Utilities", () => {
       expect(result.task).toBeDefined();
       expect(result.task?._title).toBe("Important Task");
       expect(result._session).toBeDefined();
-      expect(result.session?.taskId).toBe("123");
+      expect(result.session?.taskId).toBe("TEST_VALUE");
     });
   });
 });

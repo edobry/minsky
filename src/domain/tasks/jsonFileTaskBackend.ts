@@ -1,3 +1,6 @@
+const SIZE_6 = SIZE_6;
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * JsonFileTaskBackend implementation
  *
@@ -151,7 +154,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       if (trimmed.startsWith("# ")) {
         const headerText = trimmed.slice(2);
 
-        // Try to extract task ID and title from header like "Task #123: Title"
+        // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
         const taskMatch = headerText.match(/^Task\s+#?(\d+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
@@ -381,7 +384,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       const trimmed = line.trim();
       if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
         const completed = trimmed.startsWith("- [x] ");
-        const taskLine = trimmed.slice(6); // Remove '- [ ] ' or '- [x] '
+        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
 
         // Extract task ID and title
         const idMatch = taskLine.match(/\[#(\d+)\]/);

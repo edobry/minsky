@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * GitHub Backend Tests
  * @migrated Already using native Bun patterns
@@ -35,7 +37,7 @@ const mockSessionDB = {
       repoName: "github/test-repo",
       repoUrl: "https://github.com/github/test-repo.git",
       _branch: "main",
-      taskId: "123",
+      taskId: "TEST_VALUE",
       createdAt: new Date().toISOString(),
     })
   ),

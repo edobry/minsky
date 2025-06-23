@@ -1,3 +1,10 @@
+const SIZE_100000 = SIZE_100000;
+const SIZE_6 = SIZE_6;
+const TEST_VALUE = TEST_VALUE;
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TIMEOUT_900_MS = TIMEOUT_900_MS;
+const CONSTANT_0 = 0.TEST_ARRAY_SIZE;
+
 /**
  * Test data factory functions for creating test fixtures
  * This module provides functions to create test data for various domain entities
@@ -10,7 +17,7 @@ import type {} from "../../types/tasks/taskData";
  * @returns A task data object for testing
  */
 export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
-  const defaultId = `#${String(Math.floor(Math.random() * 900) + 100)}`; // Random 3-digit ID
+  const defaultId = `#${String(Math.floor(Math.random() * TIMEOUT_900_MS) + 100)}`; // Random 3-digit ID
 
   return {
     id: defaultId,
@@ -64,7 +71,7 @@ export function createSessionData(
     createdAt?: string;
   } = {}
 ): unknown {
-  const taskId = overrides.taskId || "123";
+  const taskId = overrides.taskId || "TEST_VALUE";
   const _session = overrides.session || `task#${taskId}`;
 
   return {
@@ -125,15 +132,15 @@ export function createRepositoryData(
  * @returns A random string ID
  */
 export function createRandomId(_prefix: string = "test"): string {
-  return `${prefix}-${Math.floor(Math.random() * 100000)}`;
+  return `${prefix}-${Math.floor(Math.random() * SIZE_100000)}`;
 }
 
 /**
  * Creates a random task ID for testing
- * @returns A random task ID in the format #123
+ * @returns A random task ID in the format #TEST_VALUE
  */
 export function createTaskId(): string {
-  return `#${String(Math.floor(Math.random() * 900) + 100)}`;
+  return `#${String(Math.floor(Math.random() * TIMEOUT_900_MS) + 100)}`;
 }
 
 /**
@@ -158,7 +165,7 @@ export function createRandomString(length: number = 10): string {
 export function createRandomFilePath(extension: string = "txt"): string {
   const dirs = ["src", "test", "config", "docs"];
   const dir = dirs[Math.floor(Math.random() * dirs.length)];
-  const filename = createRandomString(6);
+  const filename = createRandomString(SIZE_6);
   return `${dir}/${filename}.${extension}`;
 }
 
@@ -173,9 +180,9 @@ export function createFieldData(fieldName: string): unknown {
   case "id":
     return createRandomId();
   case "name":
-    return `Test ${createRandomString(5)}`;
+    return `Test ${createRandomString(TEST_ARRAY_SIZE)}`;
   case "email":
-    return `test.${createRandomString(5)}@example.com`;
+    return `test.${createRandomString(TEST_ARRAY_SIZE)}@example.com`;
   case "date":
   case "createdat":
   case "updatedat":
@@ -184,7 +191,7 @@ export function createFieldData(fieldName: string): unknown {
   case "active":
   case "enabled":
   case "visible":
-    return Math.random() > 0.5;
+    return Math.random() > 0.TEST_ARRAY_SIZE;
   case "count":
   case "age":
   case "quantity":
@@ -193,6 +200,6 @@ export function createFieldData(fieldName: string): unknown {
   case "amount":
     return parseFloat((Math.random() * 100).toFixed(2));
   default:
-    return `Test ${fieldName} ${createRandomString(5)}`;
+    return `Test ${fieldName} ${createRandomString(TEST_ARRAY_SIZE)}`;
   }
 }

@@ -1,5 +1,7 @@
 import {MINUTE_IN_SECONDS } from "../utils/constants";
 
+const DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
+
 /**
  * Repository utilities for Minsky.
  * Provides caching and common functions for repository operations.
@@ -24,7 +26,7 @@ export class RepositoryMetadataCache {
   /**
    * Default TTL for cache entries in milliseconds (DEFAULT_RETRY_COUNT minutes).
    */
-  private readonly DEFAULT_TTL = DEFAULT_RETRY_COUNT * MINUTE_IN_SECONDS * 1000;
+  private readonly DEFAULT_TTL = DEFAULT_RETRY_COUNT * MINUTE_IN_SECONDS * DEFAULT_TIMEOUT_MS;
 
   /**
    * Private constructor to enforce singleton pattern.

@@ -1,3 +1,5 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Shared Git Commands Tests
  * @migrated Migrated to native Bun patterns
@@ -17,7 +19,7 @@ import {
 } from "../../../../utils/test-utils/assertions.js";
 import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
 
-const EXPECTED_GIT_COMMANDS_COUNT = 5;
+const EXPECTED_GIT_COMMANDS_COUNT = TEST_ARRAY_SIZE;
 
 // Set up automatic mock cleanup
 setupTestMocks();

@@ -7,6 +7,8 @@ import {
   createMockObject,
 } from "../../../utils/test-utils/mocking.js";
 
+const TEST_VALUE = TEST_VALUE;
+
 // Tests have been migrated to test domain methods directly
 
 // Set up automatic mock cleanup
@@ -52,7 +54,7 @@ describe("Session Domain Methods", () => {
   });
 
   const mockTaskService = createMockObject(["getTask", "updateTaskStatus"], {
-    getTask: () => ({ id: "123", title: "Test Task", status: "TODO" }),
+    getTask: () => ({ id: "TEST_VALUE", title: "Test Task", status: "TODO" }),
   });
 
   const mockWorkspaceUtils = {
@@ -108,9 +110,9 @@ describe("Session Domain Methods", () => {
 
     test("gets session by task ID", async () => {
       // Arrange
-      const sessionData = { session: "task-session", repoName: "task-repo", taskId: "123" };
+      const sessionData = { session: "task-session", repoName: "task-repo", taskId: "TEST_VALUE" };
       mockGetSessionFromParams.mockResolvedValue(sessionData);
-      const params = { task: "123" };
+      const params = { task: "TEST_VALUE" };
 
       // Act
       const _result = await mockGetSessionFromParams(params);
@@ -239,19 +241,19 @@ describe("Session Domain Methods", () => {
       // Arrange
       const sessionResult = {
         sessionRecord: {
-          session: "task#123",
+          session: "task#TEST_VALUE",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
-          branch: "task#123",
-          taskId: "123",
+          branch: "task#TEST_VALUE",
+          taskId: "TEST_VALUE",
         },
         cloneResult: { workdir: "/path/to/workdir" },
-        branchResult: { branch: "task#123" },
-        statusUpdateResult: { id: "123", status: "IN-PROGRESS" },
+        branchResult: { branch: "task#TEST_VALUE" },
+        statusUpdateResult: { id: "TEST_VALUE", status: "IN-PROGRESS" },
       };
       mockStartSessionFromParams.mockResolvedValue(sessionResult);
       const params = {
-        task: "123",
+        task: "TEST_VALUE",
         repo: "https://github.com/test/repo.git",
       };
 
@@ -261,7 +263,7 @@ describe("Session Domain Methods", () => {
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
       expect(_result).toEqual(sessionResult);
-      expect(result.sessionRecord.taskId).toBe("123");
+      expect(result.sessionRecord.taskId).toBe("TEST_VALUE");
       expect(result.statusUpdateResult?._status).toBe("IN-PROGRESS");
     });
 
@@ -373,7 +375,7 @@ describe("Session Domain Methods", () => {
       const expectedPath = "/path/to/task/session/directory";
       mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
       const params = {
-        task: "123",
+        task: "TEST_VALUE",
       };
 
       // Act
@@ -406,7 +408,7 @@ describe("Session Domain Methods", () => {
         session: "current-session",
         repoName: "test-repo",
         branch: "current-session",
-        taskId: "#123",
+        taskId: "#TEST_VALUE",
       };
 
       const mockInspectSessionFromParams = createMock(() => Promise.resolve(sessionData));
@@ -421,7 +423,7 @@ describe("Session Domain Methods", () => {
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
       expect(_result).toEqual(sessionData);
       expect(result._session).toBe("current-session");
-      expect(result.taskId).toBe("#123");
+      expect(result.taskId).toBe("#TEST_VALUE");
     });
 
     test("throws error when not in a session workspace", async () => {

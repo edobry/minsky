@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 /**
  * Shared utility functions for rules operations
  */
@@ -16,7 +18,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const _content = await fs.readFile(contentPath, "utf-8");
+        const _content = await fs.readFile(contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error

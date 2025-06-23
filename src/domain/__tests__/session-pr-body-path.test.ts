@@ -4,6 +4,8 @@ import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { ValidationError } from "../../errors/index.js";
 
+const TEST_VALUE = TEST_VALUE;
+
 // Mock dependencies
 const mockPreparePrFromParams = mock();
 const mockGetSession = mock();
@@ -51,7 +53,7 @@ describe("sessionPrFromParams bodyPath functionality", () => {
       _title: "Test PR",
       body: testContent,
     });
-    mockGetSession.mockResolvedValue({ taskId: "123" });
+    mockGetSession.mockResolvedValue({ taskId: "TEST_VALUE" });
     mockGetSessionByTaskId.mockResolvedValue({ _session: "test-session" });
     mockSetTaskStatus.mockResolvedValue(undefined);
   });

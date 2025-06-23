@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 #!/usr/bin/env bun
 
 /**
@@ -144,7 +146,7 @@ export class TaskTitleMigration {
 
     try {
       // Read the file
-      const _content = await readFile(filePath, "utf-8");
+      const _content = await readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       const lines = content.split("\n");
 
       // Find the title line
@@ -180,7 +182,7 @@ export class TaskTitleMigration {
         // Replace the title line and write back
         lines[titleLineIndex] = newTitleLine;
         const updatedContent = lines.join("\n");
-        await writeFile(filePath, updatedContent, "utf-8");
+        await writeFile(filePath, updatedContent, "utf-COMMIT_HASH_SHORT_LENGTH");
       }
 
       result.success = true;
@@ -300,7 +302,7 @@ export class TaskTitleMigration {
 
     for (const filePath of taskFiles) {
       try {
-        const _content = await readFile(filePath, "utf-8");
+        const _content = await readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
         const lines = content.split("\n");
         const titleLine = lines.find(line => line.startsWith("# "));
 

@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Integration tests for TaskService with JsonFileTaskBackend (v2 - with mocking)
  */
@@ -102,7 +104,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create a test spec file using mock filesystem
       const _specPath = join(_workspacePath, "process", "tasks", "test-task.md");
       const specContent =
-        "# Task #123: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
+        "# Task #TEST_VALUE: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
 
       // Write file to mock filesystem
       mockFS._files.set(_specPath, specContent);
@@ -112,12 +114,12 @@ describe("TaskService JsonFile Integration (v2)", () => {
 
       const task = await taskService.createTask(relativeSpecPath);
 
-      expect(task.id).toBe("#123");
+      expect(task.id).toBe("#TEST_VALUE");
       expect(task._title).toBe("Test Integration Task");
       expect(task._status).toBe("TODO");
 
       // Verify task can be retrieved
-      const retrieved = await taskService.getTask("#123");
+      const retrieved = await taskService.getTask("#TEST_VALUE");
       expect(retrieved).toEqual(task);
 
       // Verify in task list

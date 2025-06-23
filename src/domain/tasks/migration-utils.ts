@@ -1,3 +1,6 @@
+const SIZE_6 = SIZE_6;
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Migration utilities for transitioning from markdown to JSON task storage
  *
@@ -350,28 +353,28 @@ export class TaskMigrationUtils {
       const trimmed = line.trim();
       if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
         const completed = trimmed.startsWith("- [x] ");
-        const taskLine = trimmed.slice(6); // Remove '- [ ] ' or '- [x] '
+        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
 
         // Extract task ID and title from different possible formats
         let id = "";
         let _title = "";
         let _specPath = "";
 
-        // Try format: Title [#123](path/to/spec.md)
+        // Try format: Title [#TEST_VALUE](path/to/spec.md)
         const linkMatch = taskLine.match(/^(.+?)\s+\[#(\d+)\]\(([^)]+)\)/);
         if (linkMatch && linkMatch[1] && linkMatch[2] && linkMatch[3]) {
           title = linkMatch[1].trim();
           id = `#${linkMatch[2]}`;
           specPath = linkMatch[3];
         } else {
-          // Try format: [Title](path/to/spec.md) [#123]
+          // Try format: [Title](path/to/spec.md) [#TEST_VALUE]
           const altMatch = taskLine.match(/^\[([^\]]+)\]\(([^)]+)\)\s+\[#(\d+)\]/);
           if (altMatch && altMatch[1] && altMatch[2] && altMatch[3]) {
             title = altMatch[1];
             specPath = altMatch[2];
             id = `#${altMatch[3]}`;
           } else {
-            // Try simple format: Title #123
+            // Try simple format: Title #TEST_VALUE
             const simpleMatch = taskLine.match(/^(.+?)\s+#(\d+)$/);
             if (simpleMatch && simpleMatch[1] && simpleMatch[2]) {
               title = simpleMatch[1].trim();

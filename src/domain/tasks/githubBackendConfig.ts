@@ -1,3 +1,5 @@
+const HTTP_NOT_FOUND = HTTP_NOT_FOUND;
+
 /**
  * Configuration helper for GitHub Issues task backend
  */
@@ -114,7 +116,7 @@ export async function createGitHubLabels(
         continue;
       } catch (error: unknown) {
         // Label doesn't exist, continue to create it
-        if (error.status !== 404) {
+        if (error.status !== HTTP_NOT_FOUND) {
           throw error;
         }
       }

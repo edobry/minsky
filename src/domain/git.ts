@@ -10,6 +10,11 @@ import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index";
 import { log } from "../utils/logger";
 
+const UUID_LENGTH = UUID_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const SHORT_ID_LENGTH = SHORT_ID_LENGTH;
+const SIZE_6 = SIZE_6;
+
 const execAsync = promisify(exec);
 
 type ExecCallback = (_error: unknown) => void;
@@ -239,7 +244,7 @@ export class GitService implements GitServiceInterface {
   }
 
   private generateSessionId(): string {
-    return Math.random().toString(36).substring(2, 8);
+    return Math.random().toString(UUID_LENGTH).substring(2, COMMIT_HASH_SHORT_LENGTH);
   }
 
   getSessionWorkdir(repoName: string, _session: string): string {
@@ -714,7 +719,7 @@ export class GitService implements GitServiceInterface {
           const fields = record.split("\x1f");
           if (fields.length > 1) {
             if (fields[0] !== undefined && fields[1] !== undefined) {
-              const hash = fields[0].substring(0, 7);
+              const hash = fields[0].substring(0, SHORT_ID_LENGTH);
               const message = fields[1];
               formattedEntries.push(`${hash} ${message}`);
             }
@@ -1400,14 +1405,14 @@ export class GitService implements GitServiceInterface {
     // DEFAULT_RETRY_COUNT. Get the commit hash of the merge
     const commitHash = (await this.execInRepository(_workdir, "git rev-parse HEAD")).trim();
 
-    // 6. Get merge date and author
+    // SIZE_6. Get merge date and author
     const mergeDate = new Date().toISOString();
     const mergedBy = (await this.execInRepository(_workdir, "git config user.name")).trim();
 
-    // 7. Push the merge to the remote
+    // SHORT_ID_LENGTH. Push the merge to the remote
     await this.execInRepository(_workdir, `git push origin ${baseBranch}`);
 
-    // 8. Delete the PR branch from the remote
+    // COMMIT_HASH_SHORT_LENGTH. Delete the PR branch from the remote
     await this.execInRepository(_workdir, `git push origin --delete ${_options.prBranch}`);
 
     return {

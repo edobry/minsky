@@ -1,3 +1,5 @@
+const DEFAULT_HTTP_PORT = DEFAULT_HTTP_PORT;
+
 /**
  * Tests for network error handling
  */
@@ -12,7 +14,7 @@ import {
 } from "../network-errors.js";
 
 // Test constants
-const TEST_PORT = 8080;
+const TEST_PORT = DEFAULT_HTTP_PORT;
 const PRIVILEGED_PORT = 80;
 
 describe("Network Error handling", () => {
@@ -22,7 +24,7 @@ describe("Network Error handling", () => {
 
       expect(error.message).toBe("Network test error");
       expect(error.code).toBe("TEST_CODE");
-      expect(error.port).toBe(8080);
+      expect(error.port).toBe(DEFAULT_HTTP_PORT);
       expect(error.host).toBe("localhost");
       expect(error instanceof Error).toBe(true);
       expect(error.name).toBe("NetworkError");

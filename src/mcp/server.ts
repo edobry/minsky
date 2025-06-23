@@ -14,6 +14,8 @@ import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
 
+const DEFAULT_SERVER_PORT = DEFAULT_SERVER_PORT;
+
 /**
  * Configuration options for the Minsky MCP server
  */
@@ -48,7 +50,7 @@ export interface MinskyMCPServerOptions {
   sse?: {
     /**
      * Port to listen on
-     * @default 3000
+     * @default DEFAULT_SERVER_PORT
      */
     port?: number;
 
@@ -81,7 +83,7 @@ export class MinskyMCPServer {
       transportType: options.transportType ?? "stdio",
       projectContext: options.projectContext ?? createProjectContextFromCwd(),
       sse: {
-        port: options.sse?.port ?? 3000,
+        port: options.sse?.port ?? DEFAULT_SERVER_PORT,
         host: options.sse?.host ?? "localhost",
         path: options.sse?.path ?? "/sse",
       },

@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Shared Command MCP Integration Example
  *
@@ -143,8 +145,8 @@ const sessionListCommandSchema: CommandSchema<any, any> = {
         {
           session: "example-session-1",
           repoName: "example-repo",
-          taskId: "123",
-          branch: "feature-123",
+          taskId: "TEST_VALUE",
+          branch: "feature-TEST_VALUE",
         },
         {
           session: "example-session-2",

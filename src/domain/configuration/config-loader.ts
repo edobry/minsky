@@ -1,12 +1,14 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Configuration loader for Minsky
  * 
- * Implements the 5-level configuration hierarchy:
+ * Implements the TEST_ARRAY_SIZE-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
- * 5. Built-in defaults (lowest priority)
+ * TEST_ARRAY_SIZE. Built-in defaults (lowest priority)
  */
 
 import { existsSync, readFileSync } from "fs";

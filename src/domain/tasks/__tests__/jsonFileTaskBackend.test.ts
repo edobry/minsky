@@ -1,3 +1,6 @@
+const SIZE_6 = SIZE_6;
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Tests for JsonFileTaskBackend
  */
@@ -160,7 +163,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
-        _tasks: [{ id: "#005", _title: "Test Task 5", _status: "TODO" }],
+        _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
       });
 
       const _tasks = backend.parseTasks(jsonContent);
@@ -171,7 +174,7 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const _tasks: TaskData[] = [{ id: "#006", title: "Test Task 6", status: "TODO" }];
+      const _tasks: TaskData[] = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
 
       const formatted = backend.formatTasks(_tasks);
       const parsed = JSON.parse(formatted);

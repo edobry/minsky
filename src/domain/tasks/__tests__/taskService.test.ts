@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Tests for TaskService orchestration
  */
@@ -26,7 +28,7 @@ function createMockBackend(): TaskBackend {
     getTaskSpecData: mock((_specPath: unknown) =>
       Promise.resolve({
         success: true,
-        content: "# Task #123: Test Task\n\n## Context\n\nDescription.",
+        content: "# Task #TEST_VALUE: Test Task\n\n## Context\n\nDescription.",
         filePath: _specPath,
       } as TaskReadOperationResult)
     ),
@@ -51,7 +53,7 @@ function createMockBackend(): TaskBackend {
     }),
 
     parseTaskSpec: mock((_content: unknown) => ({
-      id: "#123",
+      id: "#TEST_VALUE",
       title: "Test Task",
       description: "Description.",
     })),
@@ -71,7 +73,7 @@ function createMockBackend(): TaskBackend {
     saveTaskSpecData: mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "mock/specs/123.md",
+        filePath: "mock/specs/TEST_VALUE.md",
       } as TaskWriteOperationResult)
     ),
 
@@ -209,7 +211,7 @@ describe("TaskService", () => {
       expect(mockBackend.formatTasks).toHaveBeenCalled();
       expect(mockBackend.saveTasksData).toHaveBeenCalled();
 
-      expect(task.id).toBe("#123");
+      expect(task.id).toBe("#TEST_VALUE");
       expect(task._title).toBe("Test Task");
       expect(task._status).toBe("TODO");
     });

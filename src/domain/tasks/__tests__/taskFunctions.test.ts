@@ -1,3 +1,6 @@
+const TEST_VALUE = TEST_VALUE;
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Tests for task pure functions
  */
@@ -25,17 +28,17 @@ describe("Task Functions", () => {
     });
 
     test("should return the ID as-is if already in #XXX format", () => {
-      expect(normalizeTaskId("#123")).toBe("#123");
+      expect(normalizeTaskId("#TEST_VALUE")).toBe("#TEST_VALUE");
     });
 
     test("should convert numeric string to #XXX format", () => {
-      expect(normalizeTaskId("123")).toBe("#123");
+      expect(normalizeTaskId("TEST_VALUE")).toBe("#TEST_VALUE");
     });
 
     test("should extract numeric portion from mixed formats", () => {
-      expect(normalizeTaskId("task-123")).toBe("#123");
-      expect(normalizeTaskId("task #123")).toBe("#123");
-      expect(normalizeTaskId("123-something")).toBe("#123");
+      expect(normalizeTaskId("task-TEST_VALUE")).toBe("#TEST_VALUE");
+      expect(normalizeTaskId("task #TEST_VALUE")).toBe("#TEST_VALUE");
+      expect(normalizeTaskId("TEST_VALUE-something")).toBe("#TEST_VALUE");
     });
 
     test("should return null for non-numeric input", () => {
@@ -141,7 +144,7 @@ Code block with task-like content:
     ];
 
     test("should return null for empty input", () => {
-      expect(getTaskById([], "123")).toBeNull();
+      expect(getTaskById([], "TEST_VALUE")).toBeNull();
       expect(getTaskById(testTasks, "")).toBeNull();
     });
 
@@ -177,7 +180,7 @@ Code block with task-like content:
     test("should find the maximum ID and increment it", () => {
       const _tasks: TaskData[] = [
         { id: "#001", title: "Task 1", status: "TODO" },
-        { id: "#005", title: "Task 5", status: "IN-PROGRESS" },
+        { id: "#005", title: "Task TEST_ARRAY_SIZE", status: "IN-PROGRESS" },
         { id: "#003", title: "Task 3", status: "DONE" },
       ];
 
@@ -319,7 +322,7 @@ Code block with task-like content:
 
   describe("parseTaskSpecFromMarkdown", () => {
     test("should parse task spec from markdown", () => {
-      const markdown = `# Task #123: Test Task Title
+      const markdown = `# Task #TEST_VALUE: Test Task Title
 
 ## Context
 
@@ -333,7 +336,7 @@ It has multiple lines.
 
       const _spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec._title).toBe("Test Task Title");
-      expect(spec.id).toBe("#123");
+      expect(spec.id).toBe("#TEST_VALUE");
       expect(spec.description).toBe("This is a test task description.\nIt has multiple lines.");
     });
 
@@ -382,11 +385,11 @@ Description here.
       const _spec: TaskSpecData = {
         title: "Test Task",
         description: "This is a test description.",
-        id: "#123",
+        id: "#TEST_VALUE",
       };
 
       const markdown = formatTaskSpecToMarkdown(_spec);
-      expect(markdown).toContain("# Task #123: Test Task");
+      expect(markdown).toContain("# Task #TEST_VALUE: Test Task");
       expect(markdown).toContain("## Context");
       expect(markdown).toContain("This is a test description.");
       expect(markdown).toContain("## Requirements");

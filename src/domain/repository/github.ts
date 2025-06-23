@@ -16,6 +16,10 @@ import type {
   RepoStatus,
 } from "./index.js";
 
+const HTTP_NOT_FOUND = HTTP_NOT_FOUND;
+const HTTP_UNAUTHORIZED = HTTP_UNAUTHORIZED;
+const HTTP_FORBIDDEN = HTTP_FORBIDDEN;
+
 // Define a global for process to avoid linting errors
 declare const process: {
   env: {
@@ -317,14 +321,14 @@ export class GitHubBackend implements RepositoryBackend {
         const { stdout } = await execAsync(_command);
         const statusCode = parseInt(stdout.trim(), 10);
 
-        if (statusCode === 404) {
+        if (statusCode === HTTP_NOT_FOUND) {
           return {
             valid: false,
             success: false,
             issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
-        } else if (statusCode === 401 || statusCode === 403) {
+        } else if (statusCode === HTTP_UNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
           return {
             valid: false,
             success: false,

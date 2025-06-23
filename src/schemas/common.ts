@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Common schema definitions that can be reused across multiple domain modules
  */
@@ -27,7 +29,7 @@ export const repoPathSchema = z
 /**
  * Schema for session names
  * @example "my-session"
- * @example "task#123"
+ * @example "task#TEST_VALUE"
  */
 export const sessionNameSchema = z.string().min(1).max(100);
 
@@ -63,7 +65,7 @@ export const taskIdSchema = z
     return `#${normalized}`;
   })
   .refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
-    message: "Task ID must be in format #123 or 123",
+    message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
   });
 
 /**

@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 /**
  * Task operations for the Minsky CLI
  * This file provides all task-related functionality including managing tasks
@@ -182,7 +184,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const canonicalId = task.id;
     const idNum = canonicalId.startsWith("#") ? canonicalId.slice(1) : canonicalId;
 
-    const _content = await fs.readFile(this.filePath, "utf-8");
+    const _content = await fs.readFile(this.filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
     const _newStatusChar = TASK_STATUS_CHECKBOX[status];
     const lines = content.split("\n");
     let inCodeBlock = false;
@@ -198,7 +200,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       return line;
     });
-    await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
+    await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-COMMIT_HASH_SHORT_LENGTH");
   }
 
   private async validateSpecPath(_taskId: string, _title: string): Promise<string | undefined> {
@@ -228,7 +230,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   private async parseTasks(): Promise<Task[]> {
     try {
-      const _content = await fs.readFile(this.filePath, "utf-8");
+      const _content = await fs.readFile(this.filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       // Split into lines and track code block state
       const lines = content.split("\n");
       const _tasks: Task[] = [];
@@ -294,7 +296,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     // Read and parse the spec file
-    const specContent = await fs.readFile(fullSpecPath, "utf-8");
+    const specContent = await fs.readFile(fullSpecPath, "utf-COMMIT_HASH_SHORT_LENGTH");
     const lines = specContent.split("\n");
 
     // Extract title from the first heading
@@ -405,7 +407,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
 
       // Write the updated content to the new file
-      await fs.writeFile(fullNewPath, updatedContent, "utf-8");
+      await fs.writeFile(fullNewPath, updatedContent, "utf-COMMIT_HASH_SHORT_LENGTH");
 
       // Delete the original file if it's different from the new one
       if (fullSpecPath !== fullNewPath) {
@@ -433,10 +435,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
 
     // Add the task to tasks.md
-    const _content = await fs.readFile(this.filePath, "utf-8");
+    const _content = await fs.readFile(this.filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
     const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
     const tasksFileContent = `${content}\n${taskEntry}`;
-    await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
+    await fs.writeFile(this.filePath, tasksFileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
 
     return task;
   }

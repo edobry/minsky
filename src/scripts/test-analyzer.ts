@@ -1,3 +1,6 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const SIZE_15 = SIZE_15;
+
 #!/usr/bin/env bun
 
 /**
@@ -200,7 +203,7 @@ function extractMockDependencies(_content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(_path: string): Promise<TestFileAnalysis> {
-  const _content = await readFile(path, "utf-8");
+  const _content = await readFile(path, "utf-COMMIT_HASH_SHORT_LENGTH");
   const relativePath = relative(baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
@@ -521,14 +524,14 @@ async function generateMarkdownSummary(_report: AnalysisReport, outputPath: stri
     );
     md.push("");
 
-    for (const file of filesWithDifficulty.slice(0, 15)) {
-      // Show up to 15 files per difficulty
+    for (const file of filesWithDifficulty.slice(0, SIZE_15)) {
+      // Show up to SIZE_15 files per difficulty
       md.push(
         `- \`${file.relativePath}\` - ${file.classification.mockingComplexity} mocking, ${file.classification.testType} test`
       );
     }
-    if (filesWithDifficulty.length > 15) {
-      md.push(`- ... and ${filesWithDifficulty.length - 15} more files`);
+    if (filesWithDifficulty.length > SIZE_15) {
+      md.push(`- ... and ${filesWithDifficulty.length - SIZE_15} more files`);
     }
     md.push("");
   }

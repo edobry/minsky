@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Tests for the git service
  * @migrated Migrated to native Bun patterns
@@ -406,7 +408,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const testCases = [
         { output: "[main abc123] Test commit", expected: "abc123" },
         { output: "[feature def456] Another commit", expected: "def456" },
-        { output: "[task#123 789abc] Task commit", expected: "789abc" },
+        { output: "[task#TEST_VALUE 789abc] Task commit", expected: "789abc" },
       ];
 
       for (const testCase of testCases) {

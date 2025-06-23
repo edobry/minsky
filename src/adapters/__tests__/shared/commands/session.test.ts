@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Shared Session Commands Tests
  * @migrated Migrated to native Bun patterns
@@ -43,7 +45,7 @@ describe("Shared Session Commands", () => {
         repoName: "test-repo",
         repoUrl: "https://github.com/test/repo",
         createdAt: new Date().toISOString(),
-        taskId: "123",
+        taskId: "TEST_VALUE",
         branch: "test-branch",
       })
     );
@@ -55,7 +57,7 @@ describe("Shared Session Commands", () => {
           repoName: "test-repo-1",
           repoUrl: "https://github.com/test/repo1",
           createdAt: new Date().toISOString(),
-          taskId: "123",
+          taskId: "TEST_VALUE",
           branch: "test-branch-1",
         },
         {
@@ -95,7 +97,7 @@ describe("Shared Session Commands", () => {
         repoUrl: "https://github.com/test/repo",
         _branch: "test-branch",
         createdAt: new Date().toISOString(),
-        taskId: "123",
+        taskId: "TEST_VALUE",
         repoPath: "/mock/session/workdir",
       })
     );
@@ -108,7 +110,7 @@ describe("Shared Session Commands", () => {
         mergedBy: "test-user",
         baseBranch: "main",
         prBranch: "pr/test-branch",
-        taskId: "123",
+        taskId: "TEST_VALUE",
       })
     );
 
@@ -218,7 +220,7 @@ describe("Shared Session Commands", () => {
     // Verify result
     expect(result.success).toBe(true);
     expect(result.session._session).toBe("test-session");
-    expect(result.session.taskId).toBe("123");
+    expect(result.session.taskId).toBe("TEST_VALUE");
   });
 
   test("session.start command should call domain function with correct params", async () => {
@@ -232,7 +234,7 @@ describe("Shared Session Commands", () => {
     // Execute command
     const params = {
       name: "custom-session",
-      task: "123",
+      task: "TEST_VALUE",
       branch: "feature-branch",
       repo: "/test/repo",
       quiet: true,
@@ -246,7 +248,7 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(startSessionSpy);
     expect(getMockCallArg(startSessionSpy, 0, 0)).toEqual({
       name: "custom-session",
-      task: "123",
+      task: "TEST_VALUE",
       _branch: "feature-branch",
       repo: "/test/repo",
       _session: undefined,
@@ -274,7 +276,7 @@ describe("Shared Session Commands", () => {
     // Execute command
     const params = {
       session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       json: true,
     };
@@ -285,7 +287,7 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(getSessionDirSpy);
     expect(getMockCallArg(getSessionDirSpy, 0, 0)).toEqual({
       name: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       json: true,
     });
@@ -342,7 +344,7 @@ describe("Shared Session Commands", () => {
     // Execute command
     const params = {
       session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       branch: "update-branch",
       noStash: true,
@@ -356,7 +358,7 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(updateSessionSpy);
     expect(getMockCallArg(updateSessionSpy, 0, 0)).toEqual({
       name: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       _branch: "update-branch",
       noStash: true,
@@ -382,7 +384,7 @@ describe("Shared Session Commands", () => {
     // Execute command
     const params = {
       session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       json: true,
     };
@@ -393,7 +395,7 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(approveSessionSpy);
     expect(getMockCallArg(approveSessionSpy, 0, 0)).toEqual({
       _session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       json: true,
     });
@@ -424,7 +426,7 @@ describe("Shared Session Commands", () => {
       title: "Test PR",
       body: "Test PR body",
       session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       noStatusUpdate: true,
       debug: true,
@@ -438,7 +440,7 @@ describe("Shared Session Commands", () => {
       _title: "Test PR",
       body: "Test PR body",
       _session: "test-session",
-      task: "123",
+      task: "TEST_VALUE",
       repo: "/test/repo",
       noStatusUpdate: true,
       debug: true,

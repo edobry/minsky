@@ -13,6 +13,8 @@ import {
   normalizeSessionParams,
 } from "../shared-options";
 import type { RepoOptions, OutputOptions, TaskOptions } from "../shared-options";
+const TEST_VALUE = TEST_VALUE;
+
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
   normalizeTaskId: mock((_taskId: unknown) => {
@@ -117,13 +119,13 @@ describe("Shared CLI Options", () => {
 
     it("should normalize task options and handle normalizing the task ID", () => {
       const _options: TaskOptions = {
-        task: "#123",
+        task: "#TEST_VALUE",
       };
 
       const normalized = normalizeTaskOptions(_options);
 
       expect(normalized).toEqual({
-        task: "#123",
+        task: "#TEST_VALUE",
       });
     });
 
@@ -156,7 +158,7 @@ describe("Shared CLI Options", () => {
         "upstream-repo": "test-upstream",
         json: true,
         debug: true,
-        task: "#123",
+        task: "#TEST_VALUE",
       };
 
       const normalized = normalizeSessionParams(_options);
@@ -167,7 +169,7 @@ describe("Shared CLI Options", () => {
         workspace: "test-upstream",
         json: true,
         debug: true,
-        task: "#123",
+        task: "#TEST_VALUE",
       });
     });
   });

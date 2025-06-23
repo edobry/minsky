@@ -1,3 +1,5 @@
+const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
+
 /**
  * minsky config list command
  * 
@@ -10,7 +12,7 @@ import { ConfigurationSources } from "../../domain/configuration/types";
 import { log } from "../utils/logger.js";
 
 const SEPARATOR_LENGTH = 60;
-const TOKEN_MASK_LENGTH = 20;
+const TOKEN_MASK_LENGTH = DEFAULT_DISPLAY_LENGTH;
 
 interface ListOptions {
   json?: boolean;
@@ -71,7 +73,7 @@ function displayConfigurationSources(_sources: ConfigurationSources) {
     if (sources.globalUser.credentials?.github) {
       log.debug(`  GitHub Credentials: ${sources.globalUser.credentials.github.source} source`);
       if (sources.globalUser.credentials.github.token) {
-        log.debug(`    Token: ${"*".repeat(20)} (hidden)`);
+        log.debug(`    Token: ${"*".repeat(DEFAULT_DISPLAY_LENGTH)} (hidden)`);
       }
       if (sources.globalUser.credentials.github.token_file) {
         log.debug(`    Token File: ${sources.globalUser.credentials.github.token_file}`);
@@ -134,7 +136,7 @@ function displayResolvedConfiguration(_resolved: unknown) {
           log.debug(`    Source: ${credsObj.source}`);
         }
         if (credsObj.token) {
-          log.debug(`    Token: ${"*".repeat(20)} (hidden)`);
+          log.debug(`    Token: ${"*".repeat(DEFAULT_DISPLAY_LENGTH)} (hidden)`);
         }
       }
     }
