@@ -28,7 +28,7 @@ export function createConfigListCommand(): Command {
           console.log(JSON.stringify(result, null, 2));
         } else {
           displayConfigurationSources(result.sources);
-          console.log("\n" + "=".repeat(60));
+          console.log(`\n${  "=".repeat(60)}`);
           console.log("RESOLVED CONFIGURATION");
           console.log("=".repeat(60));
           displayResolvedConfiguration(result.resolved);
@@ -86,7 +86,7 @@ function displayConfigurationSources(sources: ConfigurationSources) {
     }
     if (sources.repository.backends?.["github-issues"]) {
       const github = sources.repository.backends["github-issues"];
-      console.log(`  GitHub Issues Backend:`);
+      console.log("  GitHub Issues Backend:");
       console.log(`    Owner: ${github.owner}`);
       console.log(`    Repo: ${github.repo}`);
     }

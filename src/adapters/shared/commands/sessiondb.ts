@@ -108,7 +108,7 @@ const sessionDbMigrateRegistration = {
       // Build source and target configurations
       const sourceConfig: SessionDbConfig = {
         backend: sourceBackend as "json" | "sqlite" | "postgres",
-        dbPath: currentConfig.dbPath,
+        dbPath: currentConfig.dbPath || generateDefaultPath(sourceBackend),
         baseDir: currentConfig.baseDir,
         connectionString: currentConfig.connectionString,
       };
@@ -173,12 +173,12 @@ function generateDefaultPath(backend: string): string | undefined {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
   switch (backend) {
-    case "sqlite":
-      return join(xdgStateHome, "minsky", "sessions.db");
-    case "json":
-      return join(xdgStateHome, "minsky", "session-db.json");
-    default:
-      return undefined;
+  case "sqlite":
+    return join(xdgStateHome, "minsky", "sessions.db");
+  case "json":
+    return join(xdgStateHome, "minsky", "session-db.json");
+  default:
+    return undefined;
   }
 }
 

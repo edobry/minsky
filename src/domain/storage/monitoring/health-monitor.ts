@@ -349,7 +349,7 @@ export class SessionDbHealthMonitor {
     averageResponseTime: number;
     successRate: number;
     recentErrors: number;
-  } {
+    } {
     const recentMetrics = this.metrics.slice(-100); // Last 100 operations
     
     if (recentMetrics.length === 0) {
@@ -541,7 +541,7 @@ export class SessionDbHealthMonitor {
 
     return {
       status: performance.successRate < 0.9 ? "unhealthy" : 
-             performance.successRate < 0.98 ? "degraded" : "healthy",
+        performance.successRate < 0.98 ? "degraded" : "healthy",
       uptime,
       totalOperations,
       errorRate: 1 - performance.successRate,
