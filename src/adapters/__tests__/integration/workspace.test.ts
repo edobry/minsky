@@ -8,6 +8,8 @@ import {
   resolveWorkspacePath,
 } from "../../../domain/workspace.js";
 
+const TEST_VALUE = TEST_VALUE;
+
 // Simple mock for execAsync that includes full path for proper matching
 const mockGitRootExecAsync = (_stdout: unknown) => {
   return async (_command: unknown) => {
@@ -106,8 +108,8 @@ describe("Workspace Domain Methods", () => {
           session: _sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
-          branch: "task#123",
-          taskId: "123",
+          branch: "task#TEST_VALUE",
+          taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
       } as any;
@@ -179,8 +181,8 @@ describe("Workspace Domain Methods", () => {
           session: _sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
-          branch: "task#123",
-          taskId: "123",
+          branch: "task#TEST_VALUE",
+          taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
       } as any;
@@ -215,8 +217,8 @@ describe("Workspace Domain Methods", () => {
           session: _sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
-          branch: "task#123",
-          taskId: "123",
+          branch: "task#TEST_VALUE",
+          taskId: "TEST_VALUE",
           createdAt: new Date().toISOString(),
         }),
       } as any;

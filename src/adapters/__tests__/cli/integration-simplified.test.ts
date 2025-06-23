@@ -1,3 +1,5 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Simplified CLI Integration Tests
  */
@@ -8,7 +10,7 @@ import {
 } from "../../../adapters/shared/command-registry.js";
 import { registerGitCommands } from "../../../adapters/shared/commands/git";
 
-const EXPECTED_GIT_COMMANDS_COUNT = 5;
+const EXPECTED_GIT_COMMANDS_COUNT = TEST_ARRAY_SIZE;
 
 describe("Shared Command CLI Integration", () => {
   beforeEach(() => {

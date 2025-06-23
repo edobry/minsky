@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Test suite for SessionAdapter class
  */
@@ -75,7 +77,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -84,7 +86,7 @@ describe("SessionAdapter", () => {
 
     expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?._session).toBe("test-session");
-    expect(retrievedSession?.taskId).toBe("#123");
+    expect(retrievedSession?.taskId).toBe("#TEST_VALUE");
   });
 
   it("should retrieve a session by task ID", async () => {
@@ -94,12 +96,12 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
     await adapter.addSession(testSession);
-    const retrievedSession = await adapter.getSessionByTaskId("123");
+    const retrievedSession = await adapter.getSessionByTaskId("TEST_VALUE");
 
     expect(retrievedSession !== null).toBe(true);
     expect(retrievedSession?._session).toBe("test-session");
@@ -112,7 +114,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -130,7 +132,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -156,7 +158,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -173,7 +175,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 

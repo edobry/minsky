@@ -14,6 +14,8 @@ import { createProjectContext } from "../../types/project";
 import fs from "fs";
 import path from "path";
 
+const INSPECTOR_PORT = INSPECTOR_PORT;
+
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
@@ -43,7 +45,7 @@ export function createMCPCommand(): Command {
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
+    .option("--inspector-port <port>", "Port for the MCP inspector", "INSPECTOR_PORT")
     .action(async (_options) => {
       try {
         // Determine transport type based on options

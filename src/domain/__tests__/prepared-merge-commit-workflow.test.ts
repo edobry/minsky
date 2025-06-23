@@ -1,3 +1,5 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Tests for the Prepared Merge Commit Workflow (Task #144)
  *
@@ -127,7 +129,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         // 4. Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
         await mockExecAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F .pr_title`);
 
-        // 5. Push the prepared merge commit
+        // TEST_ARRAY_SIZE. Push the prepared merge commit
         await mockExecAsync(`git -C ${workdir} push origin ${prBranch}`);
 
         return {
@@ -163,7 +165,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // 4. Should perform --no-ff merge (creating prepared merge commit)
       expect(gitCommands).toContain("git -C /test/repo merge --no-ff feature-branch -F .pr_title");
 
-      // 5. Should push the prepared merge commit
+      // TEST_ARRAY_SIZE. Should push the prepared merge commit
       expect(gitCommands).toContain("git -C /test/repo push origin pr/feature-branch");
 
       // Verify result structure

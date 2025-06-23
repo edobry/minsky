@@ -1,3 +1,5 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Shared Rules Commands Tests
  * @migrated Migrated to native Bun patterns
@@ -153,7 +155,7 @@ describe("Shared Rules Commands", () => {
 
     // Verify commands were registered
     const rulesCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.RULES);
-    expectToHaveLength(rulesCommands, 5);
+    expectToHaveLength(rulesCommands, TEST_ARRAY_SIZE);
 
     // Verify individual commands
     const expectedCommands = [

@@ -1,3 +1,5 @@
+const ALTERNATIVE_HTTP_PORT = ALTERNATIVE_HTTP_PORT;
+
 /**
  * Network Error Handling Utilities
  *
@@ -35,7 +37,7 @@ export class PortInUseError extends NetworkError {
    * Get suggested actions for resolving this error
    */
   getSuggestions(): string[] {
-    const nextPort = this.port ? this.port + 1 : 8081;
+    const nextPort = this.port ? this.port + 1 : ALTERNATIVE_HTTP_PORT;
     const currentPort = this.port || DEFAULT_DEV_PORT;
 
     return [

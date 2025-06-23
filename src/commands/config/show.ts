@@ -1,3 +1,5 @@
+const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
+
 /**
  * minsky config show command
  * 
@@ -64,7 +66,7 @@ function displayResolvedConfiguration(_resolved: unknown) {
           process.stdout.write(`    Source: ${credsObj.source}\n`);
         }
         if (credsObj.token) {
-          process.stdout.write(`    Token: ${"*".repeat(20)} (hidden)\n`);
+          process.stdout.write(`    Token: ${"*".repeat(DEFAULT_DISPLAY_LENGTH)} (hidden)\n`);
         }
       }
     }

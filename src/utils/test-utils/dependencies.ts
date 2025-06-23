@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Dependency injection utilities for tests
  * This module provides functions to create test dependencies with sensible defaults
@@ -233,7 +235,7 @@ export function createGitTestDeps(_overrides: Partial<GitDependencies> = {}): Gi
     Promise.resolve({
       name: "test-session",
       repoName: "test-repo",
-      _taskId: "123",
+      _taskId: "TEST_VALUE",
     });
   const getSessionWorkdir = () => "/mock/session/workdir";
 

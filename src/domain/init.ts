@@ -2,6 +2,8 @@ import * as fs from "fs";
 import { DEFAULT_DEV_PORT} from "../utils/constants";
 import * as path from "path";
 import { z } from "zod";
+const TEST_VALUE = TEST_VALUE;
+
 export const initializeProjectParamsSchema = z.object({
   _repoPath: z.string(),
   backend: z.enum(["tasks.md", "tasks.csv"]),
@@ -510,8 +512,8 @@ log.agent(_tasks) // Returns JSON array of tasks using structured logging
 ### Example: Start a Session via MCP
 
 \`\`\`typescript
-// AI can start a session for task #123:
-const _result = await tools.session.start({ task: "123", quiet: true })
+// AI can start a session for task #TEST_VALUE:
+const _result = await tools.session.start({ task: "TEST_VALUE", quiet: true })
 log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 

@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Session Update Tests
  * @migrated Migrated to native Bun patterns
@@ -38,7 +40,7 @@ describe("updateSessionFromParams", () => {
           repoUrl: "https://example.com/test-repo",
           _branch: "test-branch",
           createdAt: "2023-01-01",
-          taskId: "123",
+          taskId: "TEST_VALUE",
         })
       ),
     };
@@ -94,7 +96,7 @@ describe("updateSessionFromParams", () => {
       repoUrl: "https://example.com/test-repo",
       _branch: "test-branch",
       createdAt: "2023-01-01",
-      taskId: "123",
+      taskId: "TEST_VALUE",
       repoPath: "/mock/session/workdir",
     });
 
@@ -143,7 +145,7 @@ describe("updateSessionFromParams", () => {
       repoUrl: "https://example.com/test-repo",
       _branch: "test-branch",
       createdAt: "2023-01-01",
-      taskId: "123",
+      taskId: "TEST_VALUE",
       repoPath: "/mock/session/workdir",
     });
 

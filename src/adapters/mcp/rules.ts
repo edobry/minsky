@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 /**
  * MCP adapter for rules commands
  */
@@ -32,7 +34,7 @@ async function readContentFromFileIfExists(_contentPath: string): Promise<string
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        return await fs.readFile(contentPath, "utf-8");
+        return await fs.readFile(contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
         throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);

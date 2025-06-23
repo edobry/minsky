@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 /**
  * Task I/O operations module
  * This module isolates side effects like file reading/writing from pure functions
@@ -19,7 +21,7 @@ import type {
  */
 export async function readTasksFile(_filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const _content = await fs.readFile(filePath, "utf-8");
+    const _content = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
     return {
       success: true,
       filePath,
@@ -47,7 +49,7 @@ export async function writeTasksFile(
   _content: string
 ): Promise<TaskWriteOperationResult> {
   try {
-    await fs.writeFile(filePath, _content, "utf-8");
+    await fs.writeFile(filePath, _content, "utf-COMMIT_HASH_SHORT_LENGTH");
     return {
       success: true,
       filePath,
@@ -70,7 +72,7 @@ export async function writeTasksFile(
  */
 export async function readTaskSpecFile(_filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const _content = await fs.readFile(filePath, "utf-8");
+    const _content = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
     return {
       success: true,
       filePath,
@@ -101,7 +103,7 @@ export async function writeTaskSpecFile(
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
 
-    await fs.writeFile(filePath, _content, "utf-8");
+    await fs.writeFile(filePath, _content, "utf-COMMIT_HASH_SHORT_LENGTH");
     return {
       success: true,
       filePath,

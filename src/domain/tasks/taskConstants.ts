@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Centralized task status constants
  * This is the single source of truth for all task status-related constants
@@ -86,7 +88,7 @@ function generateCheckboxPattern(): string {
  */
 export const TASK_REGEX_PATTERNS = {
   /**
-   * Pattern for matching task lines: - [x] Title [#123](path)
+   * Pattern for matching task lines: - [x] Title [#TEST_VALUE](path)
    * Dynamically includes all valid checkbox characters
    */
   TASK_LINE: new RegExp(`^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#(\\d+)\\]\\([^)]+\\)`),

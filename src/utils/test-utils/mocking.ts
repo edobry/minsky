@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Centralized test mocking utilities for consistent test patterns across the codebase.
  * These utilities encapsulate Bun's testing mocking patterns for easier and consistent mocking.
@@ -225,9 +227,9 @@ function resetSharedState(): void {
  * userService.getUser.mockImplementation((id) => ({ id, name: "Test User" }));
  *
  * // Use in tests
- * const user = userService.getUser("123");
- * expect(user).toEqual({ _id: "123", name: "Test User" });
- * expect(userService.getUser).toHaveBeenCalledWith("123");
+ * const user = userService.getUser("TEST_VALUE");
+ * expect(user).toEqual({ _id: "TEST_VALUE", name: "Test User" });
+ * expect(userService.getUser).toHaveBeenCalledWith("TEST_VALUE");
  *
  * @example
  * // Create with specific implementations
@@ -448,12 +450,12 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
  *
  * // Create a partial mock with only some methods implemented
  * const mockUserService = createPartialMock<UserService>({
- *   getUser: async (id) => id === "123" ? { id, name: "Test User" } : null
+ *   getUser: async (id) => id === "TEST_VALUE" ? { id, name: "Test User" } : null
  * });
  *
  * // Other methods are automatically mocked and can be used in tests
- * await mockUserService.updateUser("123", { name: "Updated" });
- * expect(mockUserService.updateUser).toHaveBeenCalledWith("123", { name: "Updated" });
+ * await mockUserService.updateUser("TEST_VALUE", { name: "Updated" });
+ * expect(mockUserService.updateUser).toHaveBeenCalledWith("TEST_VALUE", { name: "Updated" });
  */
 export function createPartialMock<T extends object>(implementations: Partial<T> = {}): T {
   // Create a base object with the provided implementations

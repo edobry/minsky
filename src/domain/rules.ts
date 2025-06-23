@@ -3,7 +3,9 @@ import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import { log } from "../utils/logger"; // Added logger import
+import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
+ // Added logger import
 import * as jsYaml from "js-yaml";
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
@@ -166,7 +168,7 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const _content = await fs.readFile(filePath, "utf-8");
+        const _content = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -255,7 +257,7 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const _content = await fs.readFile(filePath, "utf-8");
+        const _content = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
@@ -385,7 +387,7 @@ export class RuleService {
     const fileContent = customMatterStringify(_content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(filePath, fileContent, "utf-8");
+    await fs.writeFile(filePath, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
 
     log.debug("Rule created/updated", {
       _path: filePath,
@@ -449,7 +451,7 @@ export class RuleService {
     const fileContent = customMatterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
-    await fs.writeFile(rule.path, fileContent, "utf-8");
+    await fs.writeFile(rule.path, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
 
     log.debug("Rule updated", {
       _path: rule.path,

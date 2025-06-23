@@ -1,13 +1,15 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "../utils/logger.js";
 
+const INSPECTOR_PORT = INSPECTOR_PORT;
+
 /**
  * Configuration options for the MCP Inspector
  */
 export interface InspectorOptions {
   /**
    * Port for the inspector to listen on
-   * @default 6274
+   * @default INSPECTOR_PORT
    */
   port?: number;
 
@@ -78,7 +80,7 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(_options: InspectorOptions): InspectorLaunchResult {
-  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = _options;
+  const { port = INSPECTOR_PORT, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = _options;
 
   if (!isInspectorAvailable()) {
     return {

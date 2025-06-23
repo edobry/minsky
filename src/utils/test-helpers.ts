@@ -1,3 +1,6 @@
+const UUID_LENGTH = UUID_LENGTH;
+const SHORT_ID_LENGTH = SHORT_ID_LENGTH;
+
 /**
  * Test utilities for ensuring consistent test environment setup and cleanup.
  */
@@ -94,7 +97,7 @@ export interface MinskyTestEnv {
  * Creates a unique test directory name
  */
 export function createUniqueTestDir(_prefix: string): string {
-  return `/tmp/${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  return `/tmp/${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**

@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Jest/Vitest Test Compatibility Layer for Bun
  *
@@ -106,7 +108,7 @@ export function setupTestCompat(): void {
  *    ```ts
  *    // This should work as in Jest:
  *    expect(obj).toEqual(expect.objectContaining({
- *      _id: 123,
+ *      _id: TEST_VALUE,
  *      name: expect.any(String)
  *    }));
  *    ```

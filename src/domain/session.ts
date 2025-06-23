@@ -26,6 +26,9 @@ import { log } from "../utils/logger.js";
 import { createGitService } from "./git.js";
 import { installDependencies } from "../utils/package-manager.js";
 
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const SIZE_6 = SIZE_6;
+
 export interface SessionRecord {
   session: string;
   repoName: string;
@@ -938,7 +941,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
       try {
         // Resolve relative paths relative to current working directory
         const filePath = require("path").resolve(params.bodyPath);
-        bodyContent = await readFile(filePath, "utf-8");
+        bodyContent = await readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
 
         if (!bodyContent.trim()) {
           throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
@@ -1027,7 +1030,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
       );
     }
 
-    // STEP 6: Now proceed with PR creation
+    // STEP SIZE_6: Now proceed with PR creation
     const _result = await preparePrFromParams({
       _session: _sessionName,
       title: params._title,

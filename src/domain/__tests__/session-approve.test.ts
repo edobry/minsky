@@ -4,6 +4,8 @@ import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
+const TEST_VALUE = TEST_VALUE;
+
 describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
@@ -13,17 +15,17 @@ describe("Session Approve", () => {
           _session: _name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
       getSessionByTaskId: createMock((taskId) => {
-        if (taskId === "#123") {
+        if (taskId === "#TEST_VALUE") {
           return Promise.resolve({
             _session: "test-session",
             repoName: "test-repo",
             repoUrl: "/test/repo/path",
-            taskId: "#123",
+            taskId: "#TEST_VALUE",
             createdAt: new Date().toISOString(),
           });
         }
@@ -79,10 +81,10 @@ describe("Session Approve", () => {
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
     expect(resultBySession._session).toBe("test-session");
-    expect(resultBySession.taskId).toBe("#123");
+    expect(resultBySession.taskId).toBe("#TEST_VALUE");
 
     // Clear mocks
     mockSessionDB.getSession.mockClear();
@@ -95,16 +97,16 @@ describe("Session Approve", () => {
     // Test by task ID
     const resultByTask = await approveSessionFromParams(
       {
-        task: "#123",
+        task: "#TEST_VALUE",
       },
       testDeps
     );
 
     // Verify
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
+    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#TEST_VALUE");
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
-    expect(resultByTask.taskId).toBe("#123");
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
+    expect(resultByTask.taskId).toBe("#TEST_VALUE");
   });
 
   test("detects current session when repo path is provided", async () => {
@@ -257,7 +259,7 @@ describe("Session Approve", () => {
           _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
@@ -317,7 +319,7 @@ describe("Session Approve", () => {
           _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
