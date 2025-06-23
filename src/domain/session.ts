@@ -593,13 +593,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-          "minsky",
-          "git",
-          normalizedRepoName,
-          "sessions",
-          sessionName
-        );
+            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+            "minsky",
+            "git",
+            normalizedRepoName,
+            "sessions",
+            sessionName
+          );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -809,6 +809,19 @@ export async function updateSessionFromParams(
 
     // Get session working directory
     const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+
+    // Validate that the session workspace directory exists
+    try {
+      const { access } = await import("fs/promises");
+      await access(workdir);
+    } catch (error) {
+      throw new MinskyError(
+        `Session workspace directory does not exist: ${workdir}. ` +
+          `The session '${name}' exists in the database but its workspace directory is missing. ` +
+          `This can happen if the directory was manually deleted or the session creation was interrupted. ` +
+          `Please delete the session with 'minsky session delete ${name}' and recreate it.`
+      );
+    }
 
     // Check if the workspace is dirty using git status command directly
     const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
@@ -1255,9 +1268,9 @@ export async function approveSessionFromParams(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: { 
-  dbPath?: string; 
-  workingDir?: string; 
+export function createSessionProvider(options?: {
+  dbPath?: string;
+  workingDir?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
   // Use new configuration-based backend by default, but allow fallback
@@ -1265,7 +1278,7 @@ export function createSessionProvider(options?: {
     const { SessionDbAdapter } = require("./session/session-db-adapter");
     return new SessionDbAdapter(options?.workingDir);
   }
-  
+
   // Fallback to legacy JSON file implementation
   return new SessionDB(options?.dbPath);
 }
