@@ -15,6 +15,8 @@ import path from "path";
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
+import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
@@ -46,7 +48,7 @@ export function createMCPCommand(): Command {
     .action(async (options) => {
       try {
         // Determine transport type based on options
-        let transportType: "stdio" | "httpStream" = "stdio";
+        let transportType: "stdio" | "sse" | "httpStream" = "stdio";
         if (options.httpStream) {
           transportType = "httpStream";
         }
@@ -97,9 +99,10 @@ export function createMCPCommand(): Command {
           version: "1.0.0", // TODO: Import from package.json
           transportType,
           projectContext,
-          httpStream: {
-            endpoint: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
+          sse: {
             port,
+            host: options.host,
+            path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
           },
         });
 
@@ -114,6 +117,8 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
+        registerSessionFileTools(commandMapper);
+        registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);

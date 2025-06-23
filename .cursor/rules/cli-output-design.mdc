@@ -3,3 +3,94 @@ description:
 globs:
 alwaysApply: false
 ---
+# CLI Output Design Principles
+
+## Core Philosophy
+
+CLI commands should show **WHAT** is active, not **HOW** it was determined. Focus on current state, not implementation details or decision logic.
+
+## Design Principles
+
+### 1. State Over Process
+- Show current configuration/status, not the decision tree that led to it
+- Avoid verbose explanations of system behavior
+- Remove auto-detection rules, decision logic, and "how we got here" explanations
+
+### 2. User-Centric Language
+- Use terminology users understand, not technical jargon
+- Explain what settings mean in practical terms
+- Example: "Task Storage: Using Markdown files" instead of "Backend: markdown"
+
+### 3. Follow Established CLI Patterns
+Study and emulate successful CLI tools:
+- `git config --list`: Shows key-value pairs, current state only
+- `docker info`: Shows system info without explaining detection logic
+- `kubectl config view`: Shows active configuration without verbose sources
+- `npm config list`: Shows current settings, not how they were determined
+
+### 4. Concise and Scannable
+- Prioritize brevity over completeness
+- Use emojis or symbols for visual organization
+- Group related information together
+- Avoid walls of text
+
+### 5. Facts Not Explanations
+- Present current state as facts
+- Avoid educational content in command output
+- Move verbose explanations to documentation
+- Remove "Configuration Sources" and similar meta-information
+
+## Output Formatting Guidelines
+
+### Good Examples
+```
+📋 CURRENT CONFIGURATION
+📁 Task Storage: Markdown files (process/tasks.md)
+🔐 Authentication: GitHub (env)
+💾 Session Storage: SQLite database (~/.local/state/minsky/sessions.db)
+```
+
+### Bad Examples
+```
+Configuration Sources:
+The configuration system loads settings from multiple sources in order...
+[15+ lines of system explanation]
+
+Backend Auto-Detection Rules:
+1. If process/tasks.md exists, use markdown backend
+2. If .minsky/tasks.json exists, use json-file backend
+[verbose decision tree explanation]
+```
+
+## Implementation Guidelines
+
+### Custom Formatters
+- Use `outputFormatter` functions in CLI adapters
+- Build complete output strings with template literals
+- Avoid multiple `console.log()` calls
+- Sanitize sensitive information (tokens, passwords)
+
+### Credential Handling
+- Hide sensitive tokens: `******************** (hidden)`
+- Show source of credentials: `GitHub (env)` or `GitHub (file)`
+- Never expose actual credential values
+
+### Error Messages
+- Be specific about what went wrong
+- Provide actionable next steps
+- Use the same concise, user-friendly language
+
+## Anti-Patterns to Avoid
+
+1. **Verbose System Explanations**: Don't explain how the system works
+2. **Technical Jargon**: Avoid backend names, internal terminology
+3. **Decision Trees**: Don't show the logic that determined current state
+4. **Multiple Sources**: Don't show all possible configuration sources
+5. **Educational Content**: Don't turn command output into tutorials
+
+## Testing Output Design
+
+- Test with real users when possible
+- Ask "What would confuse someone new to this tool?"
+- Verify output is scannable and actionable
+- Ensure critical information is immediately visible

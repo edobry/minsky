@@ -47,6 +47,7 @@
     "commander": "^14.0.0",
     "drizzle-kit": "^0.31.2",
     "drizzle-orm": "^0.44.2",
+    "fastmcp": "^3.5.0",
     "fs-extra": "^11.3.0",
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",
