@@ -188,7 +188,7 @@ describe("Rules Domain Methods", () => {
       });
 
       // Act
-      const _result = await mockCreateRule(ruleId, content, meta, _options);
+      const result = await mockCreateRule(ruleId, content, meta, _options);
 
       // Assert
       expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, _options);
@@ -230,7 +230,7 @@ describe("Rules Domain Methods", () => {
       });
 
       // Act
-      const _result = await mockCreateRule(ruleId, content, meta, _options);
+      const result = await mockCreateRule(ruleId, content, meta, _options);
 
       // Assert
       expect(mockCreateRule).toHaveBeenCalledWith(ruleId, content, meta, _options);
@@ -256,7 +256,7 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const _result = await mockUpdateRule(ruleId, _options, ruleOptions);
+      const result = await mockUpdateRule(ruleId, _options, ruleOptions);
 
       // Assert
       expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options, ruleOptions);
@@ -282,7 +282,7 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const _result = await mockUpdateRule(ruleId, _options);
+      const result = await mockUpdateRule(ruleId, _options);
 
       // Assert
       expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);
@@ -313,7 +313,7 @@ describe("Rules Domain Methods", () => {
       mockUpdateRule.mockResolvedValue(updatedRule);
 
       // Act
-      const _result = await mockUpdateRule(ruleId, _options);
+      const result = await mockUpdateRule(ruleId, _options);
 
       // Assert
       expect(mockUpdateRule).toHaveBeenCalledWith(ruleId, _options);

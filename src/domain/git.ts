@@ -1419,7 +1419,7 @@ export class GitService implements GitServiceInterface {
       const defaultBranchCmd = "git symbolic-ref refs/remotes/origin/HEAD --short";
       const defaultBranch = await this.execInRepository(_repoPath, defaultBranchCmd);
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
-      const _result = defaultBranch.trim().replace(/^origin\//, "");
+      const result = defaultBranch.trim().replace(/^origin\//, "");
       return result;
     } catch (_error) {
       // Log error but don't throw
@@ -1446,7 +1446,7 @@ export class GitService implements GitServiceInterface {
         `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD --short`
       );
       // Format is usually "origin/main", so we need to remove the "origin/" prefix
-      const _result = stdout.trim().replace(/^origin\//, "");
+      const result = stdout.trim().replace(/^origin\//, "");
       return result;
     } catch (_error) {
       // Log error but don't throw
@@ -1959,7 +1959,7 @@ export async function branchFromParams(__params: {
 }): Promise<BranchResult> {
   try {
     const git = new GitService();
-    const _result = await git.branch({
+    const result = await git.branch({
       _session: params._session,
       _branch: params.name,
     });

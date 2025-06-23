@@ -44,7 +44,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const _result = await cloneFromParams(params);
+      const result = await cloneFromParams(params);
 
       return {
         success: true,
@@ -67,7 +67,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
         ...args,
       };
 
-      const _result = await branchFromParams(params);
+      const result = await branchFromParams(params);
 
       return {
         success: true,
@@ -93,7 +93,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
         debug: true, // Enable debugging for MCP commands
       };
 
-      const _result = await pushFromParams(params);
+      const result = await pushFromParams(params);
 
       return {
         success: true,
@@ -122,7 +122,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
         json: true, // Always use JSON format for MCP
       };
 
-      const _result = await createPullRequestFromParams(params);
+      const result = await createPullRequestFromParams(params);
 
       return {
         success: true,

@@ -171,7 +171,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const _result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
+      const result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
 
       expect(result.markdown).toContain("feature-branch");
       expect(result.markdown).toContain("abc123 feat: add new feature");
@@ -368,7 +368,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       // The PR workflow should handle git errors gracefully and still produce markdown
-      const _result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
+      const result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
 
       expect(result.markdown).toContain("Pull Request for branch");
     });
@@ -467,7 +467,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
+      const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.stashed).toBe(true);
@@ -484,7 +484,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
+      const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.stashed).toBe(false);
@@ -503,7 +503,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
+      const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.stashed).toBe(true);
@@ -519,7 +519,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
+      const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.stashed).toBe(false);
@@ -639,7 +639,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
+      const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.updated).toBe(true);
@@ -661,7 +661,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
+      const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
 
       expect(result._workdir).toBe("/test/repo");
       expect(result.updated).toBe(false);

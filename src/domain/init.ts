@@ -510,7 +510,7 @@ log.agent(_tasks) // Returns JSON array of tasks using structured logging
 
 \`\`\`typescript
 // AI can start a session for task #TEST_VALUE:
-const _result = await tools.session.start({ task: "TEST_VALUE", quiet: true })
+const result = await tools.session.start({ task: "TEST_VALUE", quiet: true })
 log.cli(result.message) // Session directory path using structured logging
 \`\`\`
 

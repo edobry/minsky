@@ -163,7 +163,7 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by session name", async () => {
-    const _result = await sessionReviewFromParams({ _session: "testSession" }, deps);
+    const result = await sessionReviewFromParams({ _session: "testSession" }, deps);
 
     expect(result._session).toBe("testSession");
     expect(result.taskId).toBe("#TEST_VALUE");
@@ -185,7 +185,7 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by task ID", async () => {
-    const _result = await sessionReviewFromParams({ task: "TEST_VALUE" }, deps);
+    const result = await sessionReviewFromParams({ task: "TEST_VALUE" }, deps);
 
     expect(result._session).toBe("task#TEST_VALUE");
     expect(result.taskId).toBe("#TEST_VALUE");
@@ -194,7 +194,7 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("auto-detects current session when no parameters provided", async () => {
-    const _result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
+    const result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
 
     expect(result._session).toBe("testSession");
     expect(mockGetCurrentSession).toHaveBeenCalledWith("/fake/repo/path");

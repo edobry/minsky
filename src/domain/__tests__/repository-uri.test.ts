@@ -58,7 +58,7 @@ describe("Repository URI Utilities", () => {
   describe("parseRepositoryURI", () => {
     test("parses HTTPS URLs", () => {
       const uri = "https://github.com/org/repo.git";
-      const _result = parseRepositoryURI(uri);
+      const result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.HTTPS);
       expect(result.scheme).toBe("https");
@@ -71,7 +71,7 @@ describe("Repository URI Utilities", () => {
 
     test("parses SSH URLs", () => {
       const uri = "git@github.com:org/repo.git";
-      const _result = parseRepositoryURI(uri);
+      const result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.SSH);
       expect(result.scheme).toBe("ssh");
@@ -84,7 +84,7 @@ describe("Repository URI Utilities", () => {
 
     test("parses GitHub shorthand", () => {
       const uri = "org/repo";
-      const _result = parseRepositoryURI(uri);
+      const result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.GITHUB_SHORTHAND);
       expect(result.owner).toBe("org");
@@ -95,7 +95,7 @@ describe("Repository URI Utilities", () => {
 
     test("handles invalid URLs gracefully", () => {
       const uri = "https://invalid]url";
-      const _result = parseRepositoryURI(uri);
+      const result = parseRepositoryURI(uri);
 
       // Should fall back to treating it as a local path
       expect(result.type).toBe(RepositoryURIType.LOCAL_PATH);
@@ -119,12 +119,12 @@ describe("Repository URI Utilities", () => {
 
   describe("validateRepositoryURI", () => {
     test("returns true for valid HTTPS URLs", () => {
-      const _result = validateRepositoryURI("https://github.com/org/repo.git");
+      const result = validateRepositoryURI("https://github.com/org/repo.git");
       expect(result.valid).toBe(true);
     });
 
     test("returns false for invalid URIs", () => {
-      const _result = validateRepositoryURI("/this/path/does/not/exist");
+      const result = validateRepositoryURI("/this/path/does/not/exist");
       expect(result.valid).toBe(false);
     });
   });

@@ -289,7 +289,7 @@ const tasksSpecRegistration = {
           `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
-      const _result = await getTaskSpecContentFromParams({
+      const result = await getTaskSpecContentFromParams({
         ...params,
         _taskId: normalizedTaskId,
       });

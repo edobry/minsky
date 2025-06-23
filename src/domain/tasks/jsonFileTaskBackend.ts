@@ -66,7 +66,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async getTasksData(): Promise<TaskReadOperationResult> {
     try {
-      const _result = await this.storage.readState();
+      const result = await this.storage.readState();
       if (!result.success) {
         return {
           success: false,
@@ -203,7 +203,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
 
       // Write to storage
-      const _result = await this.storage.writeState(state);
+      const result = await this.storage.writeState(state);
 
       return {
         success: result.success,

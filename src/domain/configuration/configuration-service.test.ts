@@ -26,7 +26,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateRepositoryConfig(_config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
@@ -35,7 +35,7 @@ describe("DefaultConfigurationService", () => {
     it("should require version", () => {
       const _config = {} as RepositoryConfig;
 
-      const _result = service.validateRepositoryConfig(_config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
@@ -54,7 +54,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateRepositoryConfig(_config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "MISSING_GITHUB_REPO")).toBe(true);
@@ -68,7 +68,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateRepositoryConfig(_config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "INVALID_BACKEND")).toBe(true);
@@ -86,7 +86,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateGlobalUserConfig(_config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
@@ -95,7 +95,7 @@ describe("DefaultConfigurationService", () => {
     it("should require version", () => {
       const _config = {} as GlobalUserConfig;
 
-      const _result = service.validateGlobalUserConfig(_config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
@@ -112,7 +112,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateGlobalUserConfig(_config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "INVALID_CREDENTIAL_SOURCE")).toBe(true);
@@ -129,7 +129,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const _result = service.validateGlobalUserConfig(_config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(true); // Still valid, just a warning
       expect(result.warnings.some(w => w.code === "INCOMPLETE_FILE_CREDENTIALS")).toBe(true);

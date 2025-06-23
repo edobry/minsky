@@ -45,7 +45,7 @@ describe("Enhanced Test Utilities", () => {
       const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
 
       // TypeScript now knows that this function takes a string and returns a string
-      const _result = mockGreet("World");
+      const result = mockGreet("World");
 
       // Verify result
       expect(_result).toBe("Hello, World!");

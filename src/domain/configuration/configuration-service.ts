@@ -26,7 +26,7 @@ export class DefaultConfigurationService implements ConfigurationService {
    */
   async loadConfiguration(__workingDir: string): Promise<ConfigurationLoadResult> {
     // Load base configuration from all sources
-    const _result = await this.loader.loadConfiguration(_workingDir);
+    const result = await this.loader.loadConfiguration(_workingDir);
     
     // Apply backend auto-detection if enabled
     const resolved = await this.applyBackendDetection(__workingDir, result.resolved);
