@@ -11,7 +11,7 @@ import { select, isCancel, cancel } from "@clack/prompts";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,

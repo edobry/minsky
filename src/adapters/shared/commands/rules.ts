@@ -10,7 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import { RuleService, type RuleFormat } from "../../../domain/rules.js";
 import { resolveWorkspacePath } from "../../../domain/workspace.js";

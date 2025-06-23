@@ -10,7 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../command-registry";
 import { configurationService } from "../../../domain/configuration";
 import { log } from "../../../utils/logger";

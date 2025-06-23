@@ -13,7 +13,7 @@ import {
   initializeSessionDbState,
   listSessionsFn,
   updateSessionFn,
-  typetype SessionDbState,
+  type SessionDbState,
 } from "./session-db";
 
 describe("SessionDB Functional Implementation", () => {
