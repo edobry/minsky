@@ -268,7 +268,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         parameters: {
           name: {
             asArgument: true,
-            description: "Session name (optional)",
+            description: "Session name (optional, alternative to --task)",
           },
           task: {
             alias: "t",
@@ -277,19 +277,62 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         },
       },
       "session.get": {
-        useFirstRequiredParamAsArgument: true,
         parameters: {
-          sessionId: {
+          name: {
             asArgument: true,
-            description: "Session ID or name",
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
           },
         },
       },
       "session.dir": {
         parameters: {
-          session: {
+          name: {
             asArgument: true,
             description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.delete": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.update": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.approve": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
           },
         },
       },
@@ -304,6 +347,13 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
           bodyPath: {
             description: "Path to file containing PR body text",
+          },
+          name: {
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
           },
         },
       },
