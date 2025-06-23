@@ -174,7 +174,9 @@
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
-- [ ] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+
+- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
 - [x] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
@@ -301,3 +303,7 @@
 - [x] Add BLOCKED Status Support [#155](process/tasks/155-add-blocked-status-support.md)
 
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
+
+- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+
+- [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)

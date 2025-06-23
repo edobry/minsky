@@ -1,20 +1,7 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
-import { 
-  CallToolRequestSchema, 
-  ListToolsRequestSchema,
-  McpError,
-  ErrorCode,
-  ListToolsResult,
-  CallToolResult,
-  Tool
-} from "@modelcontextprotocol/sdk/types.js";
-import { log } from "../utils/logger";
-import type { ProjectContext } from "../types/project";
-import { createProjectContextFromCwd } from "../types/project";
-
-const DEFAULT_SERVER_PORT = DEFAULT_SERVER_PORT;
+import { FastMCP } from "fastmcp";
+import { log } from "../utils/logger.js";
+import type { ProjectContext } from "../types/project.js";
+import { createProjectContextFromCwd } from "../types/project.js";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -36,21 +23,28 @@ export interface MinskyMCPServerOptions {
    * Transport type to use for the server
    * @default "stdio"
    */
-  transportType?: "stdio" | "sse";
+  transportType?: "stdio" | "sse" | "httpStream";
 
   /**
    * Project context containing repository information
    * Used for operations that require repository context
+   * @default Context created from process.cwd()
    */
   projectContext?: ProjectContext;
 
   /**
-   * Configuration for SSE transport
+   * SSE configuration options
    */
   sse?: {
     /**
-     * Port to listen on
-     * @default DEFAULT_SERVER_PORT
+     * Endpoint for SSE
+     * @default "/sse"
+     */
+    endpoint?: string;
+
+    /**
+     * Port for SSE server
+     * @default 8080
      */
     port?: number;
 
@@ -66,290 +60,198 @@ export interface MinskyMCPServerOptions {
      */
     path?: string;
   };
+
+  /**
+   * HTTP Stream configuration options
+   */
+  httpStream?: {
+    /**
+     * Endpoint for HTTP Stream
+     * @default "/mcp"
+     */
+    endpoint?: string;
+
+    /**
+     * Port for HTTP Stream server
+     * @default 8080
+     */
+    port?: number;
+  };
 }
 
 /**
- * Minsky MCP Server implementation using the official MCP SDK
+ * MinskyMCPServer is the main class for the Minsky MCP server
+ * It handles the MCP protocol communication and tool registration
  */
 export class MinskyMCPServer {
-  private server: Server;
-  private options: Required<MinskyMCPServerOptions>;
+  private server: FastMCP;
+  private options: MinskyMCPServerOptions;
   private projectContext: ProjectContext;
 
-  constructor(__options: MinskyMCPServerOptions = {}) {
+  /**
+   * Create a new MinskyMCPServer
+   * @param options Configuration options for the server
+   */
+  constructor(options: MinskyMCPServerOptions = {}) {
+    // Store the project context or create a default one
+    try {
+      this.projectContext = options.projectContext || createProjectContextFromCwd();
+      log.debug("Using project context", {
+        repositoryPath: this.projectContext.repositoryPath,
+      });
+    } catch (error) {
+      log.warn(
+        "Failed to create project context from current directory, tools requiring repository context may not work",
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      // Create a minimal context with an empty path, tools will need to handle this
+      this.projectContext = { repositoryPath: "" };
+    }
+
     this.options = {
-      name: options.name ?? "Minsky MCP Server",
-      version: options.version ?? "1.0.0",
-      transportType: options.transportType ?? "stdio",
-      projectContext: options.projectContext ?? createProjectContextFromCwd(),
+      name: options.name || "Minsky MCP Server",
+      version: options.version || "1.0.0", // Should be dynamically pulled from package.json
+      transportType: options.transportType || "stdio",
+      projectContext: this.projectContext,
       sse: {
-        port: options.sse?.port ?? DEFAULT_SERVER_PORT,
-        host: options.sse?.host ?? "localhost",
-        path: options.sse?.path ?? "/sse",
+        endpoint: options.sse?.endpoint || "/sse",
+        port: options.sse?.port || 8080,
+        host: options.sse?.host || "localhost",
+        path: options.sse?.path || "/sse",
+      },
+      httpStream: {
+        endpoint: options.httpStream?.endpoint || "/mcp",
+        port: options.httpStream?.port || 8080,
       },
     };
 
-    this.projectContext = this.options.projectContext;
+    // Ensure name and version are not undefined for FastMCP
+    const serverName = this.options.name || "Minsky MCP Server";
+    // Use a valid semver format for the version string
+    const serverVersion = "1.0.0"; // Hard-coded to meet FastMCP's version type requirement
 
-    // Create the MCP server
-    this.server = new Server(
-      {
-        name: this.options.name,
-        version: this.options.version,
+    this.server = new FastMCP({
+      name: serverName,
+      version: serverVersion,
+      ping: {
+        // Enable pings for network transports, disable for stdio
+        enabled: this.options.transportType !== "stdio",
+        intervalMs: 5000,
       },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
-
-    this.setupHandlers();
-  }
-
-  private setupHandlers(): void {
-    // Handle tool listing
-    this.server.setRequestHandler(_ListToolsRequestSchema, async () => {
-      const tools: Tool[] = [
-        {
-          name: "git.status",
-          description: "Get the current git status of the repository",
-          inputSchema: {
-            type: "object",
-            properties: {},
-          },
-        },
-        {
-          name: "git.log", 
-          description: "Get git commit history",
-          inputSchema: {
-            type: "object",
-            properties: {
-              maxCount: {
-                type: "number",
-                description: "Maximum number of commits to return",
-                default: 10,
-              },
-            },
-          },
-        },
-        {
-          name: "tasks.list",
-          description: "List all tasks in the project",
-          inputSchema: {
-            type: "object", 
-            properties: {},
-          },
-        },
-        {
-          name: "tasks.create",
-          description: "Create a new task",
-          inputSchema: {
-            type: "object",
-            properties: {
-              title: {
-                type: "string",
-                description: "Task title",
-              },
-              description: {
-                type: "string", 
-                description: "Task description",
-              },
-            },
-            required: ["title"],
-          },
-        },
-        {
-          name: "tasks.update",
-          description: "Update an existing task",
-          inputSchema: {
-            type: "object",
-            properties: {
-              id: {
-                type: "string",
-                description: "Task ID",
-              },
-              title: {
-                type: "string",
-                description: "New task title",
-              },
-              description: {
-                type: "string",
-                description: "New task description", 
-              },
-            },
-            required: ["id"],
-          },
-        },
-        {
-          name: "session.create",
-          description: "Create a new session for a task",
-          inputSchema: {
-            type: "object",
-            properties: {
-              taskId: {
-                type: "string", 
-                description: "Task ID to create session for",
-              },
-            },
-            required: ["taskId"],
-          },
-        },
-        {
-          name: "session.list",
-          description: "List all sessions",
-          inputSchema: {
-            type: "object",
-            properties: {},
-          },
-        },
-        {
-          name: "project.info",
-          description: "Get project information",
-          inputSchema: {
-            type: "object",
-            properties: {},
-          },
-        },
-      ];
-
-      const _result: ListToolsResult = {
-        tools,
-      };
-
-      return result;
+      // Instructions for LLMs on how to use the Minsky MCP server
+      instructions:
+        "This server provides access to Minsky, a tool for managing AI-assisted development workflows.\n" +
+        "You can use these tools to:\n" +
+        "- Manage tasks and track their status\n" +
+        "- Create and manage development sessions\n" +
+        "- Perform git operations like commit, push, and PR creation\n" +
+        "- Initialize new projects with Minsky\n" +
+        "- Access and apply project rules\n\n" +
+        "All tools return structured JSON responses for easy processing.",
     });
 
-    // Handle tool calls
-    this.server.setRequestHandler(_CallToolRequestSchema, async (_request: unknown) => {
-      const { name, arguments: _args } = request.params;
-
-      try {
-        let _result: unknown;
-
-        switch (name) {
-        case "git.status":
-          result = await this.handleGitStatus();
-          break;
-        case "git.log":
-          result = await this.handleGitLog(_args?.maxCount as number | undefined);
-          break;
-        case "tasks.list":
-          result = await this.handleTasksList();
-          break;
-        case "tasks.create":
-          result = await this.handleTasksCreate(_args?.title as string, _args?.description as string | undefined);
-          break;
-        case "tasks.update":
-          result = await this.handleTasksUpdate(_args?.id as string, _args?.title as string | undefined, _args?.description as string | undefined);
-          break;
-        case "session.create":
-          result = await this.handleSessionCreate(_args?._taskId as string);
-          break;
-        case "session.list":
-          result = await this.handleSessionList();
-          break;
-        case "project.info":
-          result = await this.handleProjectInfo();
-          break;
-        default:
-          throw new McpError(
-            ErrorCode.MethodNotFound,
-            `Unknown tool: ${name}`
-          );
-        }
-
-        const callResult: CallToolResult = {
-          content: [
-            {
-              type: "text",
-              text: typeof result === "string" ? result : JSON.stringify(__result, null, 2),
-            },
-          ],
-        };
-
-        return callResult;
-      } catch (_error) {
-        log.error(`Error executing tool ${name}:`, {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Error executing tool: ${error instanceof Error ? error.message : "Unknown error"}`
-        );
-      }
+    // Listen for client connections
+    this.server.on("connect", () => {
+      log.agent("Client connected to Minsky MCP Server", {
+        transport: this.options.transportType,
+      });
     });
-  }
 
-  private async handleGitStatus(): Promise<string> {
-    return `Git status for repository: ${this.projectContext.repositoryPath}`;
-  }
+    // Listen for client disconnections
+    this.server.on("disconnect", () => {
+      log.agent("Client disconnected from Minsky MCP Server", {
+        transport: this.options.transportType,
+      });
+    });
 
-  private async handleGitLog(_maxCount: number = 10): Promise<string> {
-    return `Git log (last ${maxCount} commits) for repository: ${this.projectContext.repositoryPath}`;
-  }
-
-  private async handleTasksList(): Promise<string> {
-    return "Tasks list - placeholder implementation";
-  }
-
-  private async handleTasksCreate(__title: string, description?: string): Promise<string> {
-    return `Created task: ${title}${description ? ` - ${description}` : ""}`;
-  }
-
-  private async handleTasksUpdate(__id: string, title?: string, description?: string): Promise<string> {
-    return `Updated task ${id}${title ? ` with title: ${title}` : ""}${description ? ` and description: ${description}` : ""}`;
-  }
-
-  private async handleSessionCreate(__taskId: string): Promise<string> {
-    return `Created session for task: ${taskId}`;
-  }
-
-  private async handleSessionList(): Promise<string> {
-    return "Session list - placeholder implementation";
-  }
-
-  private async handleProjectInfo(): Promise<string> {
-    return `Project: ${this.projectContext.repositoryPath}`;
+    // We'll add the debug tool later through the CommandMapper to ensure it gets properly registered
   }
 
   /**
-   * Start the MCP server with the configured transport
+   * Start the server with the configured transport type
    */
   async start(): Promise<void> {
-    log.agent(`Starting Minsky MCP Server (${this.options.name}) with ${this.options.transportType} transport`);
+    try {
+      if (!this.options.transportType) {
+        this.options.transportType = "stdio";
+      }
 
-    if (this.options.transportType === "stdio") {
-      const transport = new StdioServerTransport();
-      await this.server.connect(transport);
-      log.agent("MCP Server started with stdio transport");
-    } else if (this.options.transportType === "sse") {
-      const transport = new SSEServerTransport(
-        this.options.sse.path ?? "/sse",
-        {
-          port: this.options.sse.port,
-          host: this.options.sse.host,
+      if (this.options.transportType === "stdio") {
+        await this.server.start({ transportType: "stdio" });
+      } else if (this.options.transportType === "sse" && this.options.sse) {
+        await this.server.start({
+          transportType: "sse",
+          sse: {
+            endpoint: "/sse", // Endpoint must start with a / character
+            port: this.options.sse.port || 8080,
+          },
+        });
+      } else if (this.options.transportType === "httpStream" && this.options.httpStream) {
+        await this.server.start({
+          transportType: "httpStream",
+          httpStream: {
+            endpoint: "/mcp", // Updated endpoint to /mcp
+            port: this.options.httpStream.port || 8080,
+          },
+        });
+      } else {
+        // Default to stdio if transport type is invalid
+        await this.server.start({ transportType: "stdio" });
+      }
+
+      // Log server started message with structured information for monitoring
+      log.agent("Minsky MCP Server started", {
+        transport: this.options.transportType,
+        serverName: this.options.name,
+        version: this.options.version,
+        repositoryPath: this.projectContext.repositoryPath,
+      });
+
+      // Debug log of registered methods
+      try {
+        // Get the tool names
+        const methods = [];
+        // @ts-ignore - Accessing a private property for debugging
+        if (this.server._tools) {
+          // @ts-ignore
+          methods.push(...Object.keys(this.server._tools));
         }
-      );
-      await this.server.connect(transport);
-      log.agent(`MCP Server started with SSE transport on ${this.options.sse.host ?? "localhost"}:${this.options.sse.port}${this.options.sse.path ?? "/sse"}`);
-    } else {
-      throw new Error(`Unsupported transport type: ${this.options.transportType}`);
+        log.debug("MCP Server registered methods", {
+          methodCount: methods.length,
+          methods,
+        });
+      } catch (e) {
+        log.debug("Could not log MCP server methods", {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    } catch (error) {
+      // Log error with full details (for structured logging/debugging)
+      log.error("Failed to start Minsky MCP Server", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        transport: this.options.transportType,
+      });
+
+      // Always rethrow the error - the caller is responsible for user-friendly handling
+      throw error;
     }
   }
 
   /**
-   * Stop the MCP server
+   * Get access to the underlying FastMCP server instance
    */
-  async stop(): Promise<void> {
-    await this.server.close();
-    log.agent("MCP Server stopped");
+  getFastMCPServer(): FastMCP {
+    return this.server;
   }
 
   /**
-   * Get the underlying MCP server instance
+   * Get the project context for this server instance
+   * @returns The project context containing repository information
    */
-  getServer(): Server {
-    return this.server;
+  getProjectContext(): ProjectContext {
+    return this.projectContext;
   }
 }

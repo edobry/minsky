@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
+  - Implemented Phase 1: Critical File Operations
+    - Created `session_edit_file` tool with support for Cursor's `// ... existing code ...` pattern
+    - Created `session_search_replace` tool for single occurrence text replacement
+    - Developed FastMCP server infrastructure for tool registration
+    - Added CommandMapper type extensions for tool registration methods
+  - Enhanced session workspace isolation for AI coding operations
+  - All file operations enforce session workspace boundaries through SessionPathResolver
+  - Tools match Cursor's exact interface for compatibility with AI agents
+
+_See: SpecStory history [2025-06-23_session-aware-tools-implementation](mdc:.specstory/history/2025-06-23_session-aware-tools-implementation.md) for Phase 1 implementation._
+
+- **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
+  - Implemented comprehensive session workspace tools for AI agents to operate safely within session boundaries
+  - Created 6 session workspace tools with MCP integration:
+    - `session_read_file` - Read files within session workspace
+    - `session_write_file` - Write/create files with atomic operations
+    - `session_list_directory` - List directory contents with filtering
+    - `session_file_exists` - Check file/directory existence with metadata
+    - `session_delete_file` - Delete files with safety checks
+    - `session_create_directory` - Create directories with recursive support
+  - Developed SessionPathResolver class with comprehensive security validation:
+    - Prevents path traversal attacks (../ blocking)
+    - Enforces session workspace boundaries
+    - Handles edge cases (symlinks, special characters, complex paths)
+    - Automatic path resolution within session context
+  - Integrated session workspace tools with MCP server infrastructure
+  - Created comprehensive test suite with 25 passing tests covering:
+    - Path resolution and validation logic
+    - Security boundary enforcement
+    - Tool registration and integration
+    - Edge cases and error handling
+  - Added complete documentation with API examples and usage guidelines
+  - Solved core problem of AI agents accidentally modifying main workspace by providing secure, session-scoped file operations
+  - Enabled AI agents to work safely within session workspaces without manual path management
+
+_See: SpecStory history [2025-06-17_23-16-check-mcp-server-status-and-tool-isolation](mdc:.specstory/history/2025-06-17_23-16-check-mcp-server-status-and-tool-isolation.md) for comprehensive analysis and implementation._
+
 - **Task #138: Add GitHub Issues Support as Task Backend**
   - Implemented full GitHub Issues integration as a task backend option
   - Created GitHubIssuesTaskBackend with complete API integration using Octokit

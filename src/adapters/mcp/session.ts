@@ -6,6 +6,7 @@ import { z } from "zod";
 
 // Import centralized descriptions
 import {
+  SESSION_DESCRIPTION,
   REPO_DESCRIPTION,
   TASK_ID_DESCRIPTION,
   GIT_BRANCH_DESCRIPTION,
@@ -15,7 +16,7 @@ import {
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions from domain/index.js as required by linter
- 
+
 import {
   listSessionsFromParams,
   getSessionFromParams,
@@ -28,13 +29,13 @@ import {
 /**
  * Registers session tools with the MCP command mapper
  */
-export function registerSessionTools(_commandMapper: CommandMapper): void {
+export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session list command
   commandMapper.addSessionCommand(
     "list",
     "List all sessions",
     z.object({}),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
@@ -54,13 +55,13 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session to retrieve"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true, // Always use JSON format for MCP
       };
 
-      const _session = await getSessionFromParams(params);
+      const session = await getSessionFromParams(params);
 
       if (!session) {
         throw new Error("Session not found.");
@@ -82,20 +83,21 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       quiet: z.boolean().optional().describe(SESSION_QUIET_DESCRIPTION).default(true),
     }),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
       // Always set quiet to true as required by project rules
       const params = {
         ...args,
         quiet: true,
         noStatusUpdate: false, // Default value for required parameter
+        skipInstall: false, // Default value for required parameter
       };
 
-      const _session = await startSessionFromParams(params);
+      const session = await startSessionFromParams(params);
 
       // Format response for MCP
       return {
         success: true,
-        _session: session.session,
+        session: session.session,
         directory: session.repoPath,
         taskId: session.taskId,
         repoName: session.repoName,
@@ -112,7 +114,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
         throw new Error("Either session name or task ID must be provided");
@@ -126,7 +128,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
           json: true,
         };
 
-        const _session = await getSessionFromParams(taskParams);
+        const session = await getSessionFromParams(taskParams);
         if (!session) {
           throw new Error(`No session found for task ${args.task}`);
         }
@@ -172,7 +174,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       name: z.string().optional().describe("Name of the session"),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),
     }),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
       const params = {
         ...args,
         json: true,
@@ -191,16 +193,22 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
   // Session update command
   commandMapper.addSessionCommand(
     "update",
-    "Update a session with the latest changes from the main _branch",
+    "Update a session with the latest changes from the main branch",
     z.object({
-      name: z.string().describe("Name of the session to update"),
+      name: z.string().optional().describe("Name of the session to update"),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       noStash: z.boolean().optional().describe("Skip stashing local changes"),
       noPush: z.boolean().optional().describe("Skip pushing changes to remote after update"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
-    async (_args): Promise<Record<string, unknown>> => {
+    async (args): Promise<Record<string, unknown>> => {
+      // Must provide either name or task
+      if (!args.name && !args.task) {
+        throw new Error("Either session name or task ID must be provided");
+      }
+
       const params = {
         ...args,
         noStash: args.noStash || false,
@@ -213,8 +221,8 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
       // Format response for MCP with session details
       return {
         success: true,
-        _session: updatedSession.session,
-        _branch: updatedSession.branch,
+        session: updatedSession.session,
+        branch: updatedSession.branch,
         taskId: updatedSession.taskId,
         repoPath: updatedSession.repoPath,
         message: `Session ${updatedSession.session} updated successfully.`,

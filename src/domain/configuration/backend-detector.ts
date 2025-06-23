@@ -16,9 +16,9 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Detect the most appropriate backend based on detection rules
    */
-  async detectBackend(__workingDir: string, rules: DetectionRule[]): Promise<string> {
+  async detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string> {
     for (const rule of rules) {
-      const matches = await this.checkCondition(__workingDir, rule.condition);
+      const matches = await this.checkCondition(workingDir, rule.condition);
       if (matches) {
         return rule.backend;
       }
@@ -31,30 +31,31 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Check if JSON file exists
    */
-  async jsonFileExists(__workingDir: string): Promise<boolean> {
-    const jsonFilePath = join(__workingDir, ".minsky", "tasks.json");
+  async jsonFileExists(workingDir: string): Promise<boolean> {
+    const jsonFilePath = join(workingDir, ".minsky", "tasks.json");
     return existsSync(jsonFilePath);
   }
 
   /**
    * Check if tasks.md file exists
    */
-  async tasksMdExists(__workingDir: string): Promise<boolean> {
-    const tasksMdPath = join(__workingDir, "process", "tasks.md");
+  async tasksMdExists(workingDir: string): Promise<boolean> {
+    const tasksMdPath = join(workingDir, "process", "tasks.md");
     return existsSync(tasksMdPath);
   }
 
   /**
    * Check a specific detection condition
    */
-  private async checkCondition(__workingDir: string,
+  private async checkCondition(
+    workingDir: string,
     condition: "json_file_exists" | "tasks_md_exists" | "always"
   ): Promise<boolean> {
     switch (condition) {
     case "json_file_exists":
-      return this.jsonFileExists(_workingDir);
+      return this.jsonFileExists(workingDir);
     case "tasks_md_exists":
-      return this.tasksMdExists(_workingDir);
+      return this.tasksMdExists(workingDir);
     case "always":
       return true;
     default:
@@ -63,7 +64,7 @@ export class DefaultBackendDetector implements BackendDetector {
   }
 
   // Legacy method - kept for backward compatibility but not used in new detection
-  async githubRemoteExists(__workingDir: string): Promise<boolean> {
+  async githubRemoteExists(_workingDir: string): Promise<boolean> {
     return false; // Disabled - GitHub Issues requires explicit configuration
   }
 }

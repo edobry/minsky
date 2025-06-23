@@ -15,5 +15,6 @@ This document maps key engineering best practices to the canonical rules that go
 | Progress Logging/Work Planning       | minsky-workflow, session-first-workflow   | Maintain running log, update changelog, audit trail |
 | Single Source of Truth for Interfaces| domain-oriented-modules, testable-design  | Use one authoritative file per domain |
 | Verification Checkpoints             | tests, dont-ignore-errors, session-first-workflow, minsky-workflow | Confirm all checks pass, session workspace integrity |
+| CLI User Experience                  | cli-output-design                        | Show current state vs process, user-centric language, follow CLI patterns |
 
 **See each rule for detailed requirements and enforcement.**

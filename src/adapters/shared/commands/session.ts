@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import {
@@ -46,7 +47,7 @@ const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 const sessionGetCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name",
     required: false,
@@ -133,7 +134,7 @@ const sessionStartCommandParams: CommandParameterMap = {
  * Parameters for the session dir command
  */
 const sessionDirCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name",
     required: false,
@@ -160,10 +161,15 @@ const sessionDirCommandParams: CommandParameterMap = {
  * Parameters for the session delete command
  */
 const sessionDeleteCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name to delete",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
   },
   repo: {
     schema: z.string(),
@@ -188,7 +194,7 @@ const sessionDeleteCommandParams: CommandParameterMap = {
  * Parameters for the session update command
  */
 const sessionUpdateCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string(),
     description: "Session name to update",
     required: false,
@@ -238,7 +244,7 @@ const sessionUpdateCommandParams: CommandParameterMap = {
  * Parameters for the session approve command
  */
 const sessionApproveCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string(),
     description: "Session name to approve",
     required: false,
@@ -280,7 +286,7 @@ const sessionPrCommandParams: CommandParameterMap = {
     description: "Path to file containing PR body text",
     required: false,
   },
-  session: {
+  name: {
     schema: z.string(),
     description: "Session name",
     required: false,
@@ -321,13 +327,13 @@ const sessionPrCommandParams: CommandParameterMap = {
 export function registerSessionCommands(): void {
   // Register session list command
   sharedCommandRegistry.registerCommand({
-    _id: "session.list",
+    id: "session.list",
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
-    _parameters: sessionListCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.list _command", { params, _context });
+    parameters: sessionListCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.list command", { params, context });
 
       try {
         const sessions = await listSessionsFromParams({
@@ -339,7 +345,7 @@ export function registerSessionCommands(): void {
           success: true,
           sessions,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to list sessions", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -350,35 +356,35 @@ export function registerSessionCommands(): void {
 
   // Register session get command
   sharedCommandRegistry.registerCommand({
-    _id: "session.get",
+    id: "session.get",
     category: CommandCategory.SESSION,
     name: "get",
     description: "Get details of a specific session",
-    _parameters: sessionGetCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.get _command", { params, _context });
+    parameters: sessionGetCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.get command", { params, context });
 
       try {
-        const _session = await getSessionFromParams({
-          name: params._session,
+        const session = await getSessionFromParams({
+          name: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
         });
 
         if (!session) {
-          const identifier = params.session || `task #${params.task}`;
+          const identifier = params.name || `task #${params.task}`;
           throw new Error(`Session '${identifier}' not found`);
         }
 
         return {
           success: true,
-          _session,
+          session,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -388,13 +394,13 @@ export function registerSessionCommands(): void {
 
   // Register session start command
   sharedCommandRegistry.registerCommand({
-    _id: "session.start",
+    id: "session.start",
     category: CommandCategory.SESSION,
     name: "start",
     description: "Start a new session",
-    _parameters: sessionStartCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.start _command", { params, _context });
+    parameters: sessionStartCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.start command", { params, context });
 
       // Validate that either name or task is provided
       if (!params.name && !params.task) {
@@ -402,12 +408,12 @@ export function registerSessionCommands(): void {
       }
 
       try {
-        const _session = await startSessionFromParams({
+        const session = await startSessionFromParams({
           name: params.name,
           task: params.task,
-          _branch: params._branch,
+          branch: params.branch,
           repo: params.repo,
-          _session: params._session,
+          session: params.session,
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
@@ -417,9 +423,9 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          _session,
+          session,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -432,17 +438,17 @@ export function registerSessionCommands(): void {
 
   // Register session dir command
   sharedCommandRegistry.registerCommand({
-    _id: "session.dir",
+    id: "session.dir",
     category: CommandCategory.SESSION,
     name: "dir",
     description: "Get the directory of a session",
-    _parameters: sessionDirCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.dir _command", { params, _context });
+    parameters: sessionDirCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.dir command", { params, context });
 
       try {
-        const _directory = await getSessionDirFromParams({
-          name: params._session,
+        const directory = await getSessionDirFromParams({
+          name: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -452,10 +458,10 @@ export function registerSessionCommands(): void {
           success: true,
           directory,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -465,17 +471,18 @@ export function registerSessionCommands(): void {
 
   // Register session delete command
   sharedCommandRegistry.registerCommand({
-    _id: "session.delete",
+    id: "session.delete",
     category: CommandCategory.SESSION,
     name: "delete",
     description: "Delete a session",
-    _parameters: sessionDeleteCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.delete _command", { params, _context });
+    parameters: sessionDeleteCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.delete command", { params, context });
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: params._session,
+          name: params.name,
+          task: params.task,
           force: params.force,
           repo: params.repo,
           json: params.json,
@@ -483,12 +490,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: deleted,
-          _session: params.session,
+          session: params.name || params.task,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -497,20 +504,20 @@ export function registerSessionCommands(): void {
 
   // Register session update command
   sharedCommandRegistry.registerCommand({
-    _id: "session.update",
+    id: "session.update",
     category: CommandCategory.SESSION,
     name: "update",
     description: "Update a session",
-    _parameters: sessionUpdateCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.update _command", { params, _context });
+    parameters: sessionUpdateCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.update command", { params, context });
 
       try {
         await updateSessionFromParams({
-          name: params._session,
+          name: params.name,
           task: params.task,
           repo: params.repo,
-          _branch: params._branch,
+          branch: params.branch,
           noStash: params.noStash,
           noPush: params.noPush,
           force: params.force,
@@ -519,13 +526,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          _session: params.session || params.task,
+          session: params.name || params.task,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
-          task: params.task,
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -534,17 +540,17 @@ export function registerSessionCommands(): void {
 
   // Register session approve command
   sharedCommandRegistry.registerCommand({
-    _id: "session.approve",
+    id: "session.approve",
     category: CommandCategory.SESSION,
     name: "approve",
     description: "Approve a session pull request",
-    _parameters: sessionApproveCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.approve _command", { params, _context });
+    parameters: sessionApproveCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.approve command", { params, context });
 
       try {
-        const _result = await approveSessionFromParams({
-          _session: params._session,
+        const result = await approveSessionFromParams({
+          session: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -552,12 +558,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          ...result,
+          result,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -567,20 +573,20 @@ export function registerSessionCommands(): void {
 
   // Register session pr command
   sharedCommandRegistry.registerCommand({
-    _id: "session.pr",
+    id: "session.pr",
     category: CommandCategory.SESSION,
     name: "pr",
     description: "Create a pull request for a session",
-    _parameters: sessionPrCommandParams,
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.pr _command", { params, _context });
+    parameters: sessionPrCommandParams,
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.pr command", { params, context });
 
       try {
-        const _result = await sessionPrFromParams({
-          _title: params._title,
+        const result = await sessionPrFromParams({
+          title: params.title,
           body: params.body,
           bodyPath: params.bodyPath,
-          _session: params._session,
+          session: params.name,
           task: params.task,
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
@@ -591,10 +597,10 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -604,7 +610,7 @@ export function registerSessionCommands(): void {
 
   // Register session inspect command
   sharedCommandRegistry.registerCommand({
-    _id: "session.inspect",
+    id: "session.inspect",
     category: CommandCategory.SESSION,
     name: "inspect",
     description: "Inspect the current session (auto-detected from workspace)",
@@ -616,19 +622,19 @@ export function registerSessionCommands(): void {
         defaultValue: false,
       },
     },
-    execute: async (_params: unknown) => {
-      log.debug("Executing session.inspect _command", { params, _context });
+    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
+      log.debug("Executing session.inspect command", { params, context });
 
       try {
-        const _session = await inspectSessionFromParams({
+        const session = await inspectSessionFromParams({
           json: params.json,
         });
 
         return {
           success: true,
-          _session,
+          session,
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
         });

@@ -17,7 +17,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Get credential from available sources in order of precedence
    */
-  async getCredential(_service: "github"): Promise<string | null> {
+  async getCredential(service: "github"): Promise<string | null> {
     switch (service) {
     case "github":
       return this.getGitHubCredential();
@@ -29,13 +29,14 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Set global credential with specified source
    */
-  async setGlobalCredential(_service: "github",
+  async setGlobalCredential(
+    service: "github",
     source: CredentialSource,
     value?: string
   ): Promise<void> {
     switch (service) {
     case "github":
-      await this.setGitHubCredential(_source, value);
+      await this.setGitHubCredential(source, value);
       break;
     default:
       throw new Error(`Unsupported credential service: ${service}`);
@@ -45,7 +46,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Prompt user for credential interactively
    */
-  async promptForCredential(_service: "github"): Promise<string> {
+  async promptForCredential(service: "github"): Promise<string> {
     switch (service) {
     case "github":
       return this.promptForGitHubToken();
@@ -75,8 +76,8 @@ export class DefaultCredentialManager implements CredentialManager {
       const tokenFile = this.expandTilde(globalConfig.credentials.github.token_file);
       if (existsSync(tokenFile)) {
         try {
-          return readFileSync(_tokenFile, { encoding: "utf8" }).trim();
-        } catch (_error) {
+          return readFileSync(tokenFile, { encoding: "utf8" }).trim();
+        } catch (error) {
           // Silently ignore file read errors
         }
       }
@@ -88,7 +89,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Set GitHub credential in global config
    */
-  private async setGitHubCredential(_source: CredentialSource, value?: string): Promise<void> {
+  private async setGitHubCredential(source: CredentialSource, value?: string): Promise<void> {
     const globalConfig = (await this.loadGlobalConfig()) || this.createEmptyGlobalConfig();
 
     if (!globalConfig.credentials) {
@@ -134,9 +135,9 @@ export class DefaultCredentialManager implements CredentialManager {
     }
 
     try {
-      const _content = readFileSync(_configPath, { encoding: "utf8" });
-      return parseYaml(_content) as GlobalUserConfig;
-    } catch (_error) {
+      const content = readFileSync(configPath, { encoding: "utf8" });
+      return parseYaml(content) as GlobalUserConfig;
+    } catch (error) {
       return null;
     }
   }
@@ -144,21 +145,21 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Save global configuration
    */
-  private async saveGlobalConfig(__config: GlobalUserConfig): Promise<void> {
+  private async saveGlobalConfig(config: GlobalUserConfig): Promise<void> {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
     const configDir = dirname(configPath);
 
     // Ensure config directory exists
     if (!existsSync(configDir)) {
-      mkdirSync(_configDir, { recursive: true });
+      mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = stringifyYaml(__config, {
+    const yamlContent = stringifyYaml(config, {
       indent: 2,
       lineWidth: 100
     });
 
-    writeFileSync(_configPath, yamlContent, { encoding: "utf8" });
+    writeFileSync(configPath, yamlContent, { encoding: "utf8" });
   }
 
   /**
@@ -174,7 +175,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Expand tilde in file paths
    */
-  private expandTilde(_filePath: string): string {
+  private expandTilde(filePath: string): string {
     if (filePath.startsWith("~/")) {
       return join(homedir(), filePath.slice(2));
     }

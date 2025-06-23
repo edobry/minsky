@@ -1,125 +1,184 @@
+#!/usr/bin/env bun
 
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+/**
+ * Targeted parser error fixes based on linting output
+ */
 
-// Get all TypeScript files recursively
-function getAllTsFiles(dir: string): string[] {
-  const files: string[] = [];
-  
-  function traverse(currentDir: string) {
-    const entries = readdirSync(currentDir);
-    
-    for (const entry of entries) {
-      const fullPath = join(currentDir, entry);
-      const stat = statSync(fullPath);
-      
-      if (stat.isDirectory()) {
-        // Skip node_modules and other unwanted directories
-        if (!['node_modules', '.git', 'dist', 'build'].includes(entry)) {
-          traverse(fullPath);
+import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
+import { join } from "path";
+
+const changes: Array<{ file: string; description: string }> = [];
+
+function fixFile(filePath: string): void {
+  try {
+    const content = readFileSync(filePath, "utf8") as string;
+    let updatedContent: string = content;
+    let hasChanges = false;
+
+    // Fix specific parsing errors by file
+    const fileName = filePath.split("/").pop() || "";
+
+    switch (fileName) {
+      case "config-loader.ts":
+        // Fix missing import issue at line 22
+        if (
+          updatedContent.includes('from "./types";') &&
+          !updatedContent.includes("import type {")
+        ) {
+          updatedContent = updatedContent.replace(
+            "import {\n  ConfigurationLoadResult,",
+            "import type {\n  ConfigurationLoadResult,"
+          );
+          hasChanges = true;
+          changes.push({ file: filePath, description: "Add missing 'type' keyword to import" });
         }
-      } else if (entry.endsWith('.ts') || entry.endsWith('.js')) {
-        files.push(fullPath);
+        break;
+
+      case "session.ts":
+        // Fix comma issue at line 193
+        if (updatedContent.includes('path: ["body"],')) {
+          updatedContent = updatedContent.replace('path: ["body"],', 'path: ["body"]');
+          hasChanges = true;
+          changes.push({ file: filePath, description: "Remove trailing comma in refine options" });
+        }
+        break;
+
+      case "process.ts":
+        // Fix function signature issue at line 33
+        if (updatedContent.includes("return () => {")) {
+          updatedContent = updatedContent.replace(
+            /return \(\) => \{\s*currentWorkingDirectoryImpl = originalImpl;\s*\};/,
+            "return () => {\n    currentWorkingDirectoryImpl = originalImpl;\n  };"
+          );
+          hasChanges = true;
+          changes.push({ file: filePath, description: "Fix indentation in return statement" });
+        }
+        break;
+
+      case "repository-utils.ts":
+        // Fix function signature issue at line 53
+        if (
+          updatedContent.includes(
+            "async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {"
+          )
+        ) {
+          updatedContent = updatedContent.replace(
+            "async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {",
+            "async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {"
+          );
+          hasChanges = true;
+          changes.push({
+            file: filePath,
+            description: "Add explicit type annotation to ttl parameter",
+          });
+        }
+        break;
+
+      case "assertions.ts":
+        // Fix invalid character issue at line 8
+        if (updatedContent.includes('import { expect } from "bun:test";')) {
+          // Check for hidden characters and fix them
+          const lines = updatedContent.split("\n");
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line !== undefined) {
+              // Remove any zero-width or problematic characters
+              const cleanLine = line.replace(/[\u200B-\u200D\uFEFF]/g, "");
+              if (cleanLine !== line) {
+                lines[i] = cleanLine;
+                hasChanges = true;
+              }
+            }
+          }
+          if (hasChanges) {
+            updatedContent = lines.join("\n");
+            changes.push({ file: filePath, description: "Remove invisible characters" });
+          }
+        }
+        break;
+
+      case "factories.ts":
+        // Fix numeric literal issue at line 187
+        if (updatedContent.includes('case "count":') || updatedContent.includes('case"count":')) {
+          updatedContent = updatedContent.replace(
+            /case\s*"count":\s*case\s*"age":\s*case\s*"quantity":/g,
+            'case "count":\n  case "age":\n  case "quantity":'
+          );
+          hasChanges = true;
+          changes.push({ file: filePath, description: "Fix case statement formatting" });
+        }
+        break;
+
+      case "mocking.ts":
+        // Fix semicolon issue at line 28
+        if (
+          updatedContent.includes(
+            "mockReturnValue: (value: TReturn) => MockFunction<TReturn, TArgs>"
+          )
+        ) {
+          updatedContent = updatedContent.replace(
+            "mockReturnValue: (value: TReturn) => MockFunction<TReturn, TArgs>",
+            "mockReturnValue: (value: TReturn) => MockFunction<TReturn, TArgs>;"
+          );
+          hasChanges = true;
+          changes.push({
+            file: filePath,
+            description: "Add missing semicolon to interface method",
+          });
+        }
+        break;
+    }
+
+    // General fixes for common parsing issues
+    // Fix malformed arrow functions
+    updatedContent = updatedContent.replace(/=>\s*\{\s*\}/g, "=> {}");
+
+    // Fix double semicolons
+    updatedContent = updatedContent.replace(/;;/g, ";");
+
+    // Fix spacing around colons in type annotations
+    updatedContent = updatedContent.replace(/:\s*Promise<([^>]+)>\s*\{/g, ": Promise<$1> {");
+
+    if (hasChanges || updatedContent !== content) {
+      writeFileSync(filePath, updatedContent);
+      if (!hasChanges) {
+        changes.push({ file: filePath, description: "Apply general parsing fixes" });
       }
     }
+  } catch (error) {
+    console.error(`Error processing ${filePath}:`, error);
   }
-  
-  traverse(dir);
-  return files;
 }
 
-function fixTargetedParsingErrors(content: string): string {
-  let fixed = content;
-  
-  // Fix generic type parameters with comma corruption
-  fixed = fixed.replace(/type,\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*<([^>]+),\s*extends/g, 'type $1 = <$2 extends');
-  
-  // Fix function signatures with comma corruption in return types
-  fixed = fixed.replace(/(\([^)]*\)):\s*([a-zA-Z_$][a-zA-Z0-9_$]*);,/g, '$1: $2;');
-  
-  // Fix array types with comma corruption
-  fixed = fixed.replace(/:\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\[\];,/g, ': $1[];');
-  
-  // Fix object type definitions with comma corruption
-  fixed = fixed.replace(/Array<\{,\s*([^}]+)\s*\}/g, 'Array<{ $1 }');
-  
-  // Fix broken type casting 
-  fixed = fixed.replace(/as,\s*unknown,\s*as,\s*([a-zA-Z_$][a-zA-Z0-9_$<>\[\]]*)/g, 'as unknown as $1');
-  
-  // Fix generic function parameters
-  fixed = fixed.replace(/function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)<([^>]+),\s*extends\s*([^>]+)>\s*\(/g, 'function $1<$2 extends $3>(');
-  
-  // Fix export function generic parameters
-  fixed = fixed.replace(/export\s+function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)<([^>]+),\s*extends\s*([^>]+)>\s*\(/g, 'export function $1<$2 extends $3>(');
-  
-  // Fix type parameters in function calls
-  fixed = fixed.replace(/([a-zA-Z_$][a-zA-Z0-9_$]*)<([^>]+),\s*([^>]+)>\s*\(/g, '$1<$2, $3>(');
-  
-  // Fix property access with comma corruption
-  fixed = fixed.replace(/\.([a-zA-Z_$][a-zA-Z0-9_$]*)\.,\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/g, '.$1.$2');
-  
-  // Fix typeof operator with comma corruption
-  fixed = fixed.replace(/typeof,\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g, 'typeof $1');
-  
-  // Fix property assignment with comma corruption in objects
-  fixed = fixed.replace(/(\w+),\s*as,\s*any\)/g, '$1 as any)');
-  
-  // Fix if statements with comma corruption
-  fixed = fixed.replace(/if\s*\(([^)]+)\s+(!==|===|==|!=),\s*([^)]+)\)/g, 'if ($1 $2 $3)');
-  
-  // Fix template literals with incorrect comma replacements
-  fixed = fixed.replace(/`([^`]*) ${([^}]+)} ([^`]*)`/g, '`$1 ${$2} $3`');
-  
-  // Fix variable declarations with comma corruption
-  fixed = fixed.replace(/const\s+([a-zA-Z_$][a-zA-Z0-9_$]*),\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=/g, 'const $1$2 =');
-  
-  // Fix for loop parameters
-  fixed = fixed.replace(/for\s*\(\s*let\s+([^;]+);\s*([^;]+),\s*([^)]+)\)/g, 'for (let $1; $2; $3)');
-  
-  // Fix method calls with missing commas between parameters
-  fixed = fixed.replace(/\.([a-zA-Z_$][a-zA-Z0-9_$]*)\(([^,)]+)\s+([^)]+)\)/g, '.$1($2, $3)');
-  
-  // Fix comparison operators that got comma-corrupted
-  fixed = fixed.replace(/!==,\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/g, '!== $1');
-  fixed = fixed.replace(/===,\s*([a-zA-Z_$][a-zA-Z0-9_$]*)/g, '=== $1');
-  
-  // Fix imports with missing commas but avoid over-correction
-  fixed = fixed.replace(/import\s*\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\}/g, 'import { $1, $2 }');
-  
-  // Fix array index access
-  fixed = fixed.replace(/\[(\d+)\],\s*\{/g, '[$1], {');
-  
-  return fixed;
-}
-
-// Process all files
-const files = getAllTsFiles('.');
-let totalFixes = 0;
-let filesFixed = 0;
-
-console.log(`Processing ${files.length}, files...`);
-
-for (const file of files) {
+function processDirectory(dirPath: string): void {
   try {
-    const originalContent = readFileSync(file, 'utf-8');
-    const fixedContent = fixTargetedParsingErrors(originalContent);
-    
-    if (originalContent !== fixedContent) {
-      writeFileSync(file, fixedContent);
-      filesFixed++;
-      
-      // Count approximate number of fixes
-      const originalLines = originalContent.split('\n').length;
-      const fixedLines = fixedContent.split('\n').length;
-      const changes = Math.abs(originalLines -, fixedLines) + 
-        (originalContent.length - fixedContent.length) / 10; // Rough estimate
-      totalFixes += Math.max(1, Math.floor(changes));
-      
-      console.log(`Fixed:, ${file}`);
+    const entries = readdirSync(dirPath);
+
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry);
+      const stat = statSync(fullPath);
+
+      if (stat.isDirectory() && !entry.startsWith(".") && entry !== "node_modules") {
+        processDirectory(fullPath);
+      } else if (stat.isFile() && entry.endsWith(".ts") && !entry.endsWith(".d.ts")) {
+        fixFile(fullPath);
+      }
     }
   } catch (error) {
-    console.error(`Error processing, ${file}:`, error);
+    console.error(`Error processing directory ${dirPath}:`, error);
   }
 }
 
-console.log(`\nCompleted: ${totalFixes} fixes across ${filesFixed}, files`); 
+console.log("🔧 Fixing targeted parsing errors...");
+
+// Process the src directory
+processDirectory("src");
+
+console.log(`\n📊 Summary: Applied ${changes.length} fixes`);
+
+if (changes.length > 0) {
+  console.log("\n✅ Applied fixes:");
+  for (const change of changes) {
+    console.log(`  - ${change.file}: ${change.description}`);
+  }
+}

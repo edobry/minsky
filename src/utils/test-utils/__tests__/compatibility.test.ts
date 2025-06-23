@@ -1,6 +1,3 @@
-const TEST_VALUE = TEST_VALUE;
-const TEST_ARRAY_SIZE = 4;
-
 /**
  * Compatibility Layer Tests
  * @migrated Native Bun patterns
@@ -19,6 +16,7 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
+ 
 const expect = bunExpect as any;
 
 describe("Mock Function Compatibility", () => {
@@ -27,7 +25,7 @@ describe("Mock Function Compatibility", () => {
     const mockFn = compat.createCompatMock();
 
     // Call the mock function
-    mockFn("test", TEST_VALUE);
+    mockFn("test", 123);
 
     // Verify tracking works
     expect(mockFn.mock.calls.length).toBe(1);
@@ -35,7 +33,7 @@ describe("Mock Function Compatibility", () => {
      
     const args = mockFn.mock.calls[0]!;
     expect(args[0]).toBe("test");
-    expect(args[1]).toBe(TEST_VALUE);
+    expect(args[1]).toBe(123);
   });
 
   test("mockClear clears tracking data", () => {
@@ -121,8 +119,8 @@ describe("Mock Function Compatibility", () => {
     mockFn.mockResolvedValue("resolved");
 
     // Verify resolved value by directly calling the function
-    const _result = await mockFn();
-    expect(_result).toBe("resolved");
+    const result = await mockFn();
+    expect(result).toBe("resolved");
 
     // Create another mock for rejection testing
     const mockFn2 = compat.createCompatMock();
@@ -150,7 +148,7 @@ describe("Asymmetric Matchers Compatibility", () => {
   test("matchers.anything() matches anything except null/undefined", () => {
     // Instead of using toEqual with matchers, directly check the asymmetricMatch method
     expect(matchers.anything().asymmetricMatch("string")).toBe(true);
-    expect(matchers.anything().asymmetricMatch(TEST_VALUE)).toBe(true);
+    expect(matchers.anything().asymmetricMatch(123)).toBe(true);
     expect(matchers.anything().asymmetricMatch({})).toBe(true);
     expect(matchers.anything().asymmetricMatch([])).toBe(true);
 
@@ -160,12 +158,12 @@ describe("Asymmetric Matchers Compatibility", () => {
 
   test("matchers.any() matches type", () => {
     expect(matchers.any(String).asymmetricMatch("string")).toBe(true);
-    expect(matchers.any(Number).asymmetricMatch(TEST_VALUE)).toBe(true);
+    expect(matchers.any(Number).asymmetricMatch(123)).toBe(true);
     expect(matchers.any(Object).asymmetricMatch({})).toBe(true);
     expect(matchers.any(Array).asymmetricMatch([])).toBe(true);
 
     expect(matchers.any(Number).asymmetricMatch("string")).toBe(false);
-    expect(matchers.any(String).asymmetricMatch(TEST_VALUE)).toBe(false);
+    expect(matchers.any(String).asymmetricMatch(123)).toBe(false);
   });
 
   test("matchers.stringContaining() matches substrings", () => {
@@ -183,17 +181,17 @@ describe("Asymmetric Matchers Compatibility", () => {
   });
 
   test("matchers.arrayContaining() matches array subsets", () => {
-    const arr = [1, 2, 3, TEST_ARRAY_SIZE];
+    const arr = [1, 2, 3, 4];
     expect(matchers.arrayContaining([1]).asymmetricMatch(arr)).toBe(true);
     expect(matchers.arrayContaining([1, 2]).asymmetricMatch(arr)).toBe(true);
 
-    expect(matchers.arrayContaining([TEST_ARRAY_SIZE]).asymmetricMatch(arr)).toBe(false);
+    expect(matchers.arrayContaining([5]).asymmetricMatch(arr)).toBe(false);
   });
 
   test("nested matchers work", () => {
     const obj = {
       name: "test",
-      value: TEST_VALUE,
+      value: 123,
       items: ["a", "b", "c"],
     };
 
