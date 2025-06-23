@@ -54,10 +54,24 @@ export class AdvancedTestClass {
     // Complex processing logic that might be partially edited
     let processedInput = input.trim();
 
-    // Transformation step 1
-    if (processedInput.includes("special")) {
-      processedInput = processedInput.replace(/special/g, "PROCESSED");
-    }
+    // Add timeout handling
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Operation timed out after ${timeout}ms`)), timeout);
+    });
+
+    const processingPromise = new Promise(async (resolve) => {
+      // Transformation step 1
+      if (processedInput.includes("special")) {
+        processedInput = processedInput.replace(/special/g, "PROCESSED");
+      }
+
+      // TODO: Add more processing steps here
+
+      resolve(processedInput);
+    });
+
+    // Race between processing and timeout
+    processedInput = await Promise.race([processingPromise, timeoutPromise]);
 
     // Transformation step 2
     const metadata: Record<string, any> = {
