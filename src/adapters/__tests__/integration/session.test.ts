@@ -7,7 +7,7 @@ import {
   createMockObject,
 } from "../../../utils/test-utils/mocking.js";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 // Tests have been migrated to test domain methods directly
 

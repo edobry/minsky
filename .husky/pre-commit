@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Checking for variable naming issues..."
+
+# Run the variable naming checker
+if ! bun run scripts/check-variable-naming.ts; then
+  echo "❌ Variable naming issues found! Please fix them before committing."
+  echo "💡 You can run 'bun run scripts/fix-variable-naming.ts' to auto-fix many issues."
+  exit 1
+fi
+
+echo "✅ No variable naming issues found."
+
+# Run linting
+echo "🔍 Running ESLint..."
+if ! npm run lint; then
+  echo "❌ Linting failed! Please fix the issues before committing."
+  exit 1
+fi
+
+echo "✅ All checks passed!"

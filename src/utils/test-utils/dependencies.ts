@@ -1,4 +1,4 @@
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 /**
  * Dependency injection utilities for tests

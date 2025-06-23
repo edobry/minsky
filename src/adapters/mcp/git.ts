@@ -28,7 +28,7 @@ import {
 /**
  * Registers git tools with the MCP command mapper
  */
-export function registerGitTools(_commandMapper: CommandMapper): void {
+export function registerGitTools(commandMapper: CommandMapper): void {
   // Git clone command
   commandMapper.addGitCommand(
     "clone",
@@ -39,7 +39,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
       destination: z.string().optional().describe("Target directory for the clone"),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
     }),
-    async (_args) => {
+    async (args) => {
       const params = {
         ...args,
       };
@@ -48,21 +48,21 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        _workdir: result.workdir,
-        _session: result.session,
+        workdir: result.workdir,
+        session: result.session,
       };
     }
   );
 
   // Git branch command
   commandMapper.addGitCommand(
-    "_branch",
-    "Create a _branch in a repository",
+    "branch",
+    "Create a branch in a repository",
     z.object({
-      _session: z.string().describe(SESSION_DESCRIPTION),
-      name: z.string().describe("Name of the _branch to create"),
+      session: z.string().describe(SESSION_DESCRIPTION),
+      name: z.string().describe("Name of the branch to create"),
     }),
-    async (_args) => {
+    async (args) => {
       const params = {
         ...args,
       };
@@ -71,8 +71,8 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        _workdir: result.workdir,
-        _branch: result.branch,
+        workdir: result.workdir,
+        branch: result.branch,
       };
     }
   );
@@ -82,12 +82,12 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
     "push",
     "Push changes to a remote repository",
     z.object({
-      _session: z.string().optional().describe(SESSION_DESCRIPTION),
+      session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       force: z.boolean().optional().describe(GIT_FORCE_DESCRIPTION),
     }),
-    async (_args) => {
+    async (args) => {
       const params = {
         ...args,
         debug: true, // Enable debugging for MCP commands
@@ -97,7 +97,7 @@ export function registerGitTools(_commandMapper: CommandMapper): void {
 
       return {
         success: true,
-        _workdir: result.workdir,
+        workdir: result.workdir,
         pushed: result.pushed,
       };
     }

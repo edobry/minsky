@@ -1,4 +1,4 @@
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 /**
  * Jest/Vitest Test Compatibility Layer for Bun

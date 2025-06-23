@@ -16,17 +16,17 @@ import * as descriptions from "./option-descriptions";
 /**
  * Create an optional string parameter with a description
  */
-export const optionalString = (_description: unknown) => z.string().describe(description).optional();
+export const optionalString = (description: string) => z.string().describe(description).optional();
 
 /**
  * Create a required string parameter with a description
  */
-export const requiredString = (_description: unknown) => z.string().describe(description);
+export const requiredString = (description: string) => z.string().describe(description);
 
 /**
  * Create an optional boolean parameter with a description
  */
-export const optionalBoolean = (_description: unknown) =>
+export const optionalBoolean = (description: string) =>
   z.boolean().describe(description).optional();
 
 // ------------------------------------------------------------------

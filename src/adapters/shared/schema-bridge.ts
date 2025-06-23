@@ -6,7 +6,7 @@
  */
 import { Command } from "commander";
 import { z } from "zod";
-import type { CommandParameter} from "./command-registry.js";
+import type { CommandParameter } from "./command-registry.js";
 /**
  * Type for CLI option flag definition
  */
@@ -41,7 +41,7 @@ export interface CliOptionDetails {
  * @param name Parameter name
  * @returns Normalized CLI option name
  */
-export function paramNameToFlag(__name: string): string {
+export function paramNameToFlag(name: string): string {
   // Convert camelCase to kebab-case
   return name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
 }
@@ -53,7 +53,7 @@ export function paramNameToFlag(__name: string): string {
  * @param shortFlag Optional short flag (single character)
  * @returns CLI option flag (e.g., "--flag <value>" or "-f, --flag <value>")
  */
-export function createOptionFlag(__name: string, shortFlag?: string): string {
+export function createOptionFlag(name: string, shortFlag?: string): string {
   const flagName = paramNameToFlag(name);
   const base = `--${flagName}`;
 
@@ -71,11 +71,11 @@ export function createOptionFlag(__name: string, shortFlag?: string): string {
  * @param schema Zod schema for the parameter
  * @returns Formatted flag string with value placeholder
  */
-export function addValuePlaceholder(__flag: string, schema: z.ZodTypeAny): string {
+export function addValuePlaceholder(flag: string, schema: z.ZodTypeAny): string {
   // Determine if the parameter takes a value
   const isBooleanType =
     schema instanceof z.ZodBoolean ||
-    (schema instanceof z.ZodOptional && schema.def.innerType instanceof z.ZodBoolean);
+    (schema instanceof z.ZodOptional && schema._def.innerType instanceof z.ZodBoolean);
 
   // Boolean options don't need a value placeholder
   if (isBooleanType) {
@@ -93,7 +93,7 @@ export function addValuePlaceholder(__flag: string, schema: z.ZodTypeAny): strin
     placeholder = "enum";
   } else if (schema instanceof z.ZodOptional) {
     // Recurse to check the inner type
-    return addValuePlaceholder(_flag, schema.def.innerType);
+    return addValuePlaceholder(flag, schema._def.innerType);
   }
 
   return `${flag} <${placeholder}>`;
@@ -106,7 +106,8 @@ export function addValuePlaceholder(__flag: string, schema: z.ZodTypeAny): strin
  * @param fallback Fallback description if schema has none
  * @returns Option description string
  */
-export function getSchemaDescription(_schema: z.ZodTypeAny,
+export function getSchemaDescription(
+  schema: z.ZodTypeAny,
   fallback: string = "No description available"
 ): string {
   // Try to extract description from schema
@@ -119,8 +120,8 @@ export function getSchemaDescription(_schema: z.ZodTypeAny,
     schema.description.length > 0
   ) {
     description = schema.description;
-  } else if (schema instanceof z.ZodOptional && "description" in schema.def.innerType) {
-    const innerDesc = schema.def.innerType.description;
+  } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
+    const innerDesc = schema._def.innerType.description;
     if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }
@@ -135,8 +136,8 @@ export function getSchemaDescription(_schema: z.ZodTypeAny,
  * @param schema Zod enum schema
  * @returns Array of enum values
  */
-export function getEnumValues(__schema: z.ZodEnum<[string, ...string[]]>): string[] {
-  return schema.def.values;
+export function getEnumValues(schema: z.ZodEnum<[string, ...string[]]>): string[] {
+  return schema._def.values;
 }
 
 /**
@@ -147,15 +148,16 @@ export function getEnumValues(__schema: z.ZodEnum<[string, ...string[]]>): strin
  * @param shortFlag Optional short flag override
  * @returns CLI option flag definition
  */
-export function parameterToOptionFlag(_name: string,
+export function parameterToOptionFlag(
+  name: string,
   param: CommandParameter,
   shortFlag?: string
 ): OptionFlag {
   // Create the base flag
-  let flag = createOptionFlag(_name, shortFlag);
+  let flag = createOptionFlag(name, shortFlag);
 
   // Add value placeholder if needed
-  flag = addValuePlaceholder(_flag, param.schema);
+  flag = addValuePlaceholder(flag, param.schema);
 
   // Get description
   const description = param.description || getSchemaDescription(param.schema);
@@ -195,22 +197,24 @@ export function parameterToOptionFlag(_name: string,
  * @param shortFlags Optional map of parameter names to short flags
  * @returns The command with options added
  */
-export function addOptionsToCommand(command: Command,
+export function addOptionsToCommand(
+  command: Command,
   parameters: CommandParameterMap,
   shortFlags: Record<string, string> = {}
 ): Command {
   // For each parameter, add an option to the command
-  Object.entries(_parameters).forEach(([name, param]) => {
-    const { flag, description, defaultValue } = parameterToOptionFlag(_name,
+  Object.entries(parameters).forEach(([name, param]) => {
+    const { flag, description, defaultValue } = parameterToOptionFlag(
+      name,
       param,
       shortFlags[name]
     );
 
     // Add the option to the command
     if (defaultValue !== undefined) {
-      command.option(_flag, description, defaultValue);
+      command.option(flag, description, defaultValue);
     } else {
-      command.option(_flag, description);
+      command.option(flag, description);
     }
   });
 
@@ -225,14 +229,14 @@ export function addOptionsToCommand(command: Command,
  * @returns Validated object with parsed parameters
  */
 export function parseOptionsToParameters<T extends CommandParameterMap>(
-  _options: Record<string, unknown>,
+  options: Record<string, unknown>,
   parameters: T
 ): { [K in keyof T]: z.infer<T[K]["schema"]> } {
   // Create result object
-  const _result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = {};
 
   // For each parameter, validate and convert the option
-  Object.entries(_parameters).forEach(([name, param]) => {
+  Object.entries(parameters).forEach(([name, param]) => {
     const optionName = paramNameToFlag(name).replace(/-/g, "");
     const value = options[optionName];
 
@@ -241,7 +245,7 @@ export function parseOptionsToParameters<T extends CommandParameterMap>(
       // Use the schema to validate and transform
       try {
         result[name] = param.schema.parse(value);
-      } catch (_error) {
+      } catch (error) {
         // Re-throw with more context
         throw new Error(`Invalid value for parameter '${name}': ${error}`);
       }

@@ -8,7 +8,7 @@ import {
   resolveWorkspacePath,
 } from "../../../domain/workspace.js";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 // Simple mock for execAsync that includes full path for proper matching
 const mockGitRootExecAsync = (_stdout: unknown) => {

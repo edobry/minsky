@@ -86,6 +86,19 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 
 ### Fixed
 
+- **Variable naming protocol violations in CLI bridge system**
+
+  - Fixed critical "options is not defined" runtime error affecting all CLI commands
+  - Resolved multiple instances of underscore-prefixed function parameters being used without underscores:
+    - Fixed registerCategorizedCliCommands function parameter `__program` → `program`
+    - Fixed generateAllCategoryCommands function parameter `__program` → `program`
+    - Fixed formatRuleSummary function parameter `_rule` → `rule`
+    - Fixed addOptionsToCommand function parameters `_parameters` → `parameters`, `_name` → `name`, `_flag` → `flag`
+    - Fixed parseOptionsToParameters function parameters `_options` → `options`, `_parameters` → `parameters`
+    - Fixed normalizeCliParameters function parameters `_parametersSchema` → `parametersSchema`, `_result` → `result`
+  - Eliminated variable naming inconsistencies that violated the variable naming protocol
+  - Ensured all CLI commands can execute without parameter reference errors
+
 - **Task #141: Repository Configuration System Implementation**
   - Implemented complete 5-level configuration hierarchy system (CLI flags > env vars > global user config > repo config > defaults)
   - Added repository configuration support with `.minsky/config.yaml` for team-wide consistency

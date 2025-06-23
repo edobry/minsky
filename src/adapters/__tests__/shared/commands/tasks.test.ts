@@ -1,5 +1,5 @@
-const SHORT_ID_LENGTH = SHORT_ID_LENGTH;
-const TEST_VALUE = TEST_VALUE;
+const SHORT_ID_LENGTH = 8;
+const TEST_VALUE = 123;
 
 /**
  * Shared Tasks Commands Tests

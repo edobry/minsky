@@ -1,5 +1,5 @@
-const UUID_LENGTH = UUID_LENGTH;
-const SHORT_ID_LENGTH = SHORT_ID_LENGTH;
+const UUID_LENGTH = 36;
+const SHORT_ID_LENGTH = 8;
 
 /**
  * Test utilities for ensuring consistent test environment setup and cleanup.

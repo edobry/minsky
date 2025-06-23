@@ -274,3 +274,37 @@ This rule MUST be applied whenever:
 4. The user expresses a preference for future behavior
 5. The user asks you to do something differently
 6. Your action results in an error
+
+## ⚠️ Critical Variable Naming Protocol Enforcement
+
+**EMERGENCY PROTOCOL FOR REPEATED VARIABLE NAMING VIOLATIONS**
+
+### When User Reports Adding Underscores to Working Variables:
+
+**IMMEDIATE STOP PROTOCOL:**
+1. **HALT ALL VARIABLE NAMING CHANGES** - Do not proceed with any variable renaming
+2. **MANDATORY VERIFICATION**: Before ANY variable name change, execute this checklist:
+   - [ ] Is this variable actually causing an error?
+   - [ ] Is this variable already defined and working?
+   - [ ] Am I adding underscores to avoid an error instead of fixing the root cause?
+   - [ ] Does the variable-naming-protocol rule explicitly prohibit this change?
+
+### Critical Enforcement Rules:
+- **NEVER add underscores to variables that are working correctly**
+- **NEVER rename variables to avoid "X is not defined" errors**
+- **ALWAYS find where X should be defined instead of renaming other variables**
+- **ALWAYS verify against variable-naming-protocol rule before any change**
+
+### Violation Consequence:
+- **First violation**: Warning and immediate correction
+- **Second violation**: CRITICAL PROTOCOL FAILURE - Update enforcement mechanisms
+- **Third violation**: Complete halt of variable naming operations until user guidance
+
+### Mandatory Pre-Change Protocol:
+Before changing ANY variable name, I MUST:
+1. Read the variable-naming-protocol rule completely
+2. Verify the variable is actually causing an error
+3. Confirm I'm not adding underscores to working variables
+4. Document why the change is necessary and compliant with the rule
+
+**This pattern has been identified as a critical, recurring failure that must be eliminated.**

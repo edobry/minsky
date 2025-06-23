@@ -9,7 +9,7 @@ import {
   createWorkspaceUtils,
   type WorkspaceUtilsInterface,
 } from "./workspace";
-import type { SessionProviderInterface} from "./session";
+import type { SessionProviderInterface } from "./session";
 import { promises as fs } from "fs";
 import { createMock } from "../utils/test-utils/mocking.js";
 
@@ -68,7 +68,7 @@ function createMockWorkspaceUtils(
     isSessionWorkspace: createMockFn(async () => false),
     getCurrentSession: createMockFn(async () => null),
     getSessionFromWorkspace: createMockFn(async () => null),
-    resolveWorkspacePath: createMockFn(async (_options) => options.workspace || process.cwd()),
+    resolveWorkspacePath: createMockFn(async (_options) => _options.workspace || process.cwd()),
     ...overrides,
   };
 }

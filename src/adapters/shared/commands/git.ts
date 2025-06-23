@@ -188,11 +188,11 @@ const prCommandParams: CommandParameterMap = {
 export function registerGitCommands(): void {
   // Register git commit command
   sharedCommandRegistry.registerCommand({
-    _id: "git.commit",
+    id: "git.commit",
     category: CommandCategory.GIT,
     name: "commit",
     description: "Commit changes to the repository",
-    _parameters: commitCommandParams,
+    parameters: commitCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.commit _command", { params, _context });
 
@@ -215,11 +215,11 @@ export function registerGitCommands(): void {
 
   // Register git push command
   sharedCommandRegistry.registerCommand({
-    _id: "git.push",
+    id: "git.push",
     category: CommandCategory.GIT,
     name: "push",
     description: "Push changes to the remote repository",
-    _parameters: pushCommandParams,
+    parameters: pushCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.push _command", { params, _context });
 
@@ -240,11 +240,11 @@ export function registerGitCommands(): void {
 
   // Register git clone command
   sharedCommandRegistry.registerCommand({
-    _id: "git.clone",
+    id: "git.clone",
     category: CommandCategory.GIT,
     name: "clone",
     description: "Clone a Git repository",
-    _parameters: cloneCommandParams,
+    parameters: cloneCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.clone _command", { params, _context });
 
@@ -265,11 +265,11 @@ export function registerGitCommands(): void {
 
   // Register git branch command
   sharedCommandRegistry.registerCommand({
-    _id: "git._branch",
+    id: "git.branch",
     category: CommandCategory.GIT,
-    name: "_branch",
+    name: "branch",
     description: "Create a new branch",
-    _parameters: branchCommandParams,
+    parameters: branchCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git._branch _command", { params, _context });
 
@@ -288,11 +288,11 @@ export function registerGitCommands(): void {
 
   // Register git pr command
   sharedCommandRegistry.registerCommand({
-    _id: "git.pr",
+    id: "git.pr",
     category: CommandCategory.GIT,
     name: "pr",
     description: "Create a new pull request",
-    _parameters: prCommandParams,
+    parameters: prCommandParams,
     execute: async (params, _context) => {
       log.debug("Executing git.pr _command", { params, _context });
 

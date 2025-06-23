@@ -12,7 +12,7 @@ export interface RepoResolutionOptions {
 
 export interface RepoUtilsDependencies {
   sessionProvider: SessionProviderInterface;
-  execCwd: (_command: unknown) => Promise<{ stdout: string; stderr: string }>;
+  execCwd: (command: string) => Promise<{ stdout: string; stderr: string }>;
   getCurrentDirectory: () => string;
 }
 
@@ -25,7 +25,8 @@ export { normalizeRepoName };
  * Resolves a repository path from options
  * Uses dependency injection for better testability
  */
-export async function resolveRepoPath(__options: RepoResolutionOptions,
+export async function resolveRepoPath(
+  options: RepoResolutionOptions,
   depsInput?: Partial<RepoUtilsDependencies>
 ): Promise<string> {
   // Set up default dependencies if not provided
@@ -40,7 +41,7 @@ export async function resolveRepoPath(__options: RepoResolutionOptions,
   }
 
   if (options.session) {
-    const _record = await deps.sessionProvider.getSession(options._session);
+    const record = await deps.sessionProvider.getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }

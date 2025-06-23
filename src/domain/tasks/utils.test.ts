@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeTaskId } from "./utils";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 describe("normalizeTaskId", () => {
   const testCases = [

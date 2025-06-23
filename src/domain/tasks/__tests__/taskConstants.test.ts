@@ -8,8 +8,8 @@ import {
   isValidTaskStatus,
 } from "../taskConstants.js";
 
-const TEST_VALUE = TEST_VALUE;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TEST_VALUE = 123;
+const TEST_ARRAY_SIZE = 3;
 
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {

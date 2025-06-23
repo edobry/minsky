@@ -21,7 +21,7 @@ export {
   SessionDB,
   type SessionProviderInterface,
   type Session,
-  typegetSessionFromParams,
+  getSessionFromParams,
   listSessionsFromParams,
   startSessionFromParams,
   updateSessionFromParams,

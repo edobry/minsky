@@ -53,17 +53,17 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(__data: T, _context: CommandExecutionContext): string | object {
+  format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
     const format = context.format?.toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
-      return this.formatJson(_data, _context);
+      return this.formatJson(data, context);
     }
 
     // Default to text format
-    return this.formatText(_data, _context);
+    return this.formatText(data, context);
   }
 
   /**
@@ -82,7 +82,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns JSON-serializable object
    */
-  formatJson(__data: T, _context: CommandExecutionContext): object {
+  formatJson(data: T, context: CommandExecutionContext): object {
     return data as unknown as object;
   }
 }
@@ -97,7 +97,7 @@ export class SuccessFormatter extends BaseResponseFormatter<string> {
    * @param message Success message
    * @returns Formatted success message
    */
-  formatText(_message: string): string {
+  formatText(message: string): string {
     return `${chalk.green("✓")} ${message}`;
   }
 
@@ -107,7 +107,7 @@ export class SuccessFormatter extends BaseResponseFormatter<string> {
    * @param message Success message
    * @returns JSON object with success flag and message
    */
-  formatJson(_message: string): object {
+  formatJson(message: string): object {
     return {
       success: true,
       message,

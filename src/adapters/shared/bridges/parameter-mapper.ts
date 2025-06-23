@@ -23,11 +23,11 @@ export interface ParameterMappingOptions {
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
-  validator?: (_value: unknown) => boolean;
+  validator?: (value: unknown) => boolean;
   /** Custom error message for validation failures */
   errorMessage?: string;
   /** Custom parser for the value */
-  parser?: (_value: unknown) => any;
+  parser?: (value: unknown) => any;
   /** Whether to handle this as a variadic parameter */
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
@@ -46,14 +46,14 @@ export interface ParameterMapping {
 /**
  * Creates an array of Command Option objects from parameter mappings
  */
-export function createOptionsFromMappings(__mappings: ParameterMapping[]): Option[] {
+export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
   return mappings.filter((mapping) => !mapping.options.asArgument).map(createOptionFromMapping);
 }
 
 /**
  * Adds arguments to a command from parameter mappings
  */
-export function addArgumentsFromMappings(__command: Command, mappings: ParameterMapping[]): Command {
+export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
   mappings
     .filter((mapping) => mapping.options.asArgument)
     .sort((a, b) => {
@@ -73,7 +73,8 @@ export function addArgumentsFromMappings(__command: Command, mappings: Parameter
       );
 
       // Add the argument to the command
-      command.argument(_argName,
+      command.argument(
+        argName,
         mapping.options.description || mapping.paramDef.description || "",
         mapping.options.parser
       );
@@ -85,17 +86,17 @@ export function addArgumentsFromMappings(__command: Command, mappings: Parameter
 /**
  * Creates a Commander.js Option from a parameter mapping
  */
-function createOptionFromMapping(__mapping: ParameterMapping): Option {
-  const { name, paramDef, _options } = mapping;
+function createOptionFromMapping(mapping: ParameterMapping): Option {
+  const { name, paramDef, options } = mapping;
 
   // Get schema type for proper option definition
   const schemaType = getZodSchemaType(paramDef.schema);
 
   // Format option flag
-  const flag = formatOptionFlag(_name, options.alias, schemaType);
+  const flag = formatOptionFlag(name, options.alias, schemaType);
 
   // Create the option
-  const option = new Option(_flag, options.description || paramDef.description || "");
+  const option = new Option(flag, options.description || paramDef.description || "");
 
   // Apply additional configuration
   if (options.hidden) {
@@ -107,7 +108,7 @@ function createOptionFromMapping(__mapping: ParameterMapping): Option {
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(_option, schemaType, options.parser);
+  addTypeHandlingToOption(option, schemaType, options.parser);
 
   return option;
 }
@@ -115,7 +116,7 @@ function createOptionFromMapping(__mapping: ParameterMapping): Option {
 /**
  * Format a Commander option flag
  */
-function formatOptionFlag(__name: string, alias?: string, schemaType?: string): string {
+function formatOptionFlag(name: string, alias?: string, schemaType?: string): string {
   let flag = "";
 
   // Add alias if provided
@@ -137,7 +138,7 @@ function formatOptionFlag(__name: string, alias?: string, schemaType?: string): 
 /**
  * Format an argument name based on requirements
  */
-function formatArgumentName(__name: string, required: boolean, variadic?: boolean): string {
+function formatArgumentName(name: string, required: boolean, variadic?: boolean): string {
   let argName = name;
 
   // Make optional arguments appear in square brackets
@@ -158,9 +159,10 @@ function formatArgumentName(__name: string, required: boolean, variadic?: boolea
 /**
  * Add type-specific handling to a Commander option
  */
-function addTypeHandlingToOption(_option: Option,
+function addTypeHandlingToOption(
+  option: Option,
   schemaType?: string,
-  customParser?: (_value: unknown) => any
+  customParser?: (value: unknown) => any
 ): Option {
   // If a custom parser is provided, use it
   if (customParser) {
@@ -169,30 +171,30 @@ function addTypeHandlingToOption(_option: Option,
 
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-  case "number":
-    return option.argParser((value) => {
-      const num = Number(value);
-      if (isNaN(num)) {
-        throw new Error("Option requires a number value");
-      }
-      return num;
-    });
+    case "number":
+      return option.argParser((value) => {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error("Option requires a number value");
+        }
+        return num;
+      });
 
-  case "boolean":
-    return option;
+    case "boolean":
+      return option;
 
-  case "array":
-    return option.argParser((value) => value.split(",").map((v) => v.trim()));
+    case "array":
+      return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
-  default:
-    return option;
+    default:
+      return option;
   }
 }
 
 /**
  * Try to determine the Zod schema type for appropriate option handling
  */
-function getZodSchemaType(__schema: z.ZodTypeAny): string | undefined {
+function getZodSchemaType(schema: z.ZodTypeAny): string | undefined {
   // Handle primitive types
   if (schema instanceof z.ZodString) return "string";
   if (schema instanceof z.ZodNumber) return "number";
@@ -208,7 +210,7 @@ function getZodSchemaType(__schema: z.ZodTypeAny): string | undefined {
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType(schema.def.innerType);
+    return getZodSchemaType(schema._def.innerType);
   }
 
   // Handle enums
@@ -221,17 +223,18 @@ function getZodSchemaType(__schema: z.ZodTypeAny): string | undefined {
 /**
  * Create parameter mappings from a CommandParameterMap
  */
-export function createParameterMappings(__parameters: Record<string, CommandParameterDefinition>,
+export function createParameterMappings(
+  parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return Object.entries(_parameters).map(([name, paramDef]) => ({
+  return Object.entries(parameters).map(([name, paramDef]) => ({
     name,
     paramDef,
-    _options: {
-      // Apply default _options
+    options: {
+      // Apply default options
       hidden: paramDef.cliHidden,
 
-      // Override with custom _options if available
+      // Override with custom options if available
       ...customOptions[name],
     },
   }));
@@ -240,10 +243,11 @@ export function createParameterMappings(__parameters: Record<string, CommandPara
 /**
  * Validates and normalizes CLI arguments to match shared command parameter expectations
  */
-export function normalizeCliParameters(_parametersSchema: Record<string, CommandParameterDefinition>,
+export function normalizeCliParameters(
+  parametersSchema: Record<string, CommandParameterDefinition>,
   cliParameters: Record<string, unknown>
 ): Record<string, unknown> {
-  const _result: Record<string, unknown> = {};
+  const result: Record<string, unknown> = {};
 
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
@@ -266,7 +270,7 @@ export function normalizeCliParameters(_parametersSchema: Record<string, Command
       try {
         const parsedValue = paramDef.schema.parse(rawValue);
         result[paramName] = parsedValue;
-      } catch (_error) {
+      } catch (error) {
         throw new Error(
           `Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`
         );

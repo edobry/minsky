@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Shared utility functions for rules operations

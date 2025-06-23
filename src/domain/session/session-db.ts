@@ -30,9 +30,9 @@ export interface SessionDbState {
 /**
  * Initialize a new SessionDB state object
  */
-export function initializeSessionDbState(__options: { baseDir?: string } = {}): SessionDbState {
+export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
   const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-  const baseDir = options.baseDir || join(_xdgStateHome, "minsky", "git");
+  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
 
   return {
     sessions: [],
@@ -43,21 +43,21 @@ export function initializeSessionDbState(__options: { baseDir?: string } = {}): 
 /**
  * List all sessions
  */
-export function listSessionsFn(_state: SessionDbState): SessionRecord[] {
+export function listSessionsFn(state: SessionDbState): SessionRecord[] {
   return [...state.sessions];
 }
 
 /**
  * Get a specific session by name
  */
-export function getSessionFn(_state: SessionDbState, _sessionName: string): SessionRecord | null {
+export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
   return state.sessions.find((s) => s.session === sessionName) || null;
 }
 
 /**
  * Get a specific session by task ID
  */
-export function getSessionByTaskIdFn(_state: SessionDbState, _taskId: string): SessionRecord | null {
+export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
   return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;
@@ -76,7 +76,8 @@ export function addSessionFn(_state: SessionDbState, _record: SessionRecord): Se
 /**
  * Update an existing session
  */
-export function updateSessionFn(_state: SessionDbState,
+export function updateSessionFn(
+  _state: SessionDbState,
   _sessionName: string,
   _updates: Partial<Omit<"session">>
 ): SessionDbState {

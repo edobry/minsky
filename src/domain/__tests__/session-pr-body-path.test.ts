@@ -4,7 +4,7 @@ import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { ValidationError } from "../../errors/index.js";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 // Mock dependencies
 const mockPreparePrFromParams = mock();

@@ -3,6 +3,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry.js";
 import { initializeProjectFromParams } from "../../../domain/init.js";
 import { log } from "../../../utils/logger.js";
@@ -79,11 +80,11 @@ const initParams: CommandParameterMap = {
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand({
-    _id: "init",
+    id: "init",
     category: CommandCategory.INIT,
     name: "init",
     description: "Initialize a project for Minsky",
-    _parameters: initParams,
+    parameters: initParams,
     execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
@@ -93,7 +94,14 @@ export function registerInitCommands() {
         const mcpOnly = params.mcpOnly ?? false;
         const overwrite = params.overwrite ?? false;
         // Map MCP options
-        let mcp: unknown = undefined;
+        let mcp:
+          | {
+              enabled: boolean;
+              transport: "stdio" | "sse" | "httpStream";
+              port?: number;
+              host?: string;
+            }
+          | undefined = undefined;
         if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
@@ -115,7 +123,7 @@ export function registerInitCommands() {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error
-          : new ValidationError(error?.message || String(error));
+          : new ValidationError(error instanceof Error ? error.message : String(error));
       }
     },
   });

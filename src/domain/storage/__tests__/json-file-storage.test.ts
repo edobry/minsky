@@ -1,8 +1,8 @@
-const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
-const SIZE_6 = SIZE_6;
+const DEFAULT_DISPLAY_LENGTH = 100;
+const SIZE_6 = 6;
 const TEST_ANSWER = TEST_ANSWER;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-const TEST_VALUE = TEST_VALUE;
+const TEST_ARRAY_SIZE = 3;
+const TEST_VALUE = 123;
 
 /**
  * Core tests for JsonFileStorage implementation

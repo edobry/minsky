@@ -31,7 +31,8 @@ export interface TestDependencies {
  * @param workspacePath The path to check
  * @returns true if in a session workspace, false otherwise
  */
-export async function isSessionWorkspace(__workspacePath: string,
+export async function isSessionWorkspace(
+  __workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
@@ -76,7 +77,8 @@ export const isSessionRepository = isSessionWorkspace;
  * @param workspacePath The path to check
  * @returns Information about the session if found, null otherwise
  */
-export async function getSessionFromWorkspace(__workspacePath: string,
+export async function getSessionFromWorkspace(
+  __workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{
@@ -170,23 +172,23 @@ export async function resolveWorkspacePath(
   if (_options?.workspace) {
     // Validate if it"s a valid workspace
     try {
-      const processDir = join(options.workspace, "process");
+      const processDir = join(_options.workspace, "process");
       await access(processDir);
-      return options.workspace;
+      return _options.workspace;
     } catch (_error) {
       throw new Error(
-        `Invalid workspace _path: ${options.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace path: ${_options.workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }
 
   // For backward compatibility, use sessionRepo if provided
   if (_options?.sessionRepo) {
-    return options.sessionRepo;
+    return _options.sessionRepo;
   }
 
   // Use current directory or provided session workspace as workspace
-  const checkPath = options?.sessionWorkspace || process.cwd();
+  const checkPath = _options?.sessionWorkspace || process.cwd();
 
   // Note: We"re no longer redirecting to the upstream repository path when in a session
   // This allows rules commands to operate on the current directory's rules
@@ -197,7 +199,8 @@ export async function resolveWorkspacePath(
  * Returns the current session name if in a session workspace, or null otherwise.
  * Uses getSessionFromWorkspace to extract the session context from the current working directory.
  */
-export async function getCurrentSession(_cwd: string = process.cwd(),
+export async function getCurrentSession(
+  _cwd: string = process.cwd(),
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<string | null> {
@@ -210,7 +213,8 @@ export async function getCurrentSession(_cwd: string = process.cwd(),
  * Uses getSessionFromWorkspace to extract the session context from the current working directory
  * and then queries the SessionDB for the taskId.
  */
-export async function getCurrentSessionContext(_cwd: string = process.cwd(),
+export async function getCurrentSessionContext(
+  _cwd: string = process.cwd(),
   // Added getCurrentSessionFn dependency for better testability
   dependencies: {
     execAsyncFn?: typeof execAsync;

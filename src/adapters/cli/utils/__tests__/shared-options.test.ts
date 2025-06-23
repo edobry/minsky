@@ -13,7 +13,7 @@ import {
   normalizeSessionParams,
 } from "../shared-options";
 import type { RepoOptions, OutputOptions, TaskOptions } from "../shared-options";
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({

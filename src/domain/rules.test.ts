@@ -5,7 +5,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { log } from "../utils/logger.js";
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 describe("RuleService", () => {
   const testDir = path.join(import.meta.dir, "../..", "test-rules-tmp");

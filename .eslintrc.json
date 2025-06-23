@@ -1,0 +1,54 @@
+{
+  "extends": ["@typescript-eslint/recommended"],
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "rules": {
+    // Prevent underscore-prefixed variables that are actually used
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "args": "all",
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+
+    // Require consistent naming patterns
+    "@typescript-eslint/naming-convention": [
+      "error",
+      {
+        "selector": "parameter",
+        "format": ["camelCase"],
+        "leadingUnderscore": "forbid",
+        "filter": {
+          "regex": "^_(?!unused|ignore)",
+          "match": false
+        }
+      },
+      {
+        "selector": "variable",
+        "format": ["camelCase", "UPPER_CASE"],
+        "leadingUnderscore": "forbid",
+        "filter": {
+          "regex": "^_(?!unused|ignore)",
+          "match": false
+        }
+      }
+    ],
+
+    // Additional rules for code quality
+    "prefer-const": "error",
+    "no-var": "error",
+    "@typescript-eslint/explicit-function-return-type": "off",
+    "@typescript-eslint/no-explicit-any": "warn"
+  },
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  }
+}

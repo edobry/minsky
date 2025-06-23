@@ -1,0 +1,149 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Variable Naming Protocol
+
+## Core Principle
+
+**NEVER add underscores to variables that are already correctly named and in use.**
+
+This rule addresses a critical pattern error where underscores are inappropriately added to existing, working variable names during code modifications.
+
+## MANDATORY PRE-CHANGE VERIFICATION
+
+**BEFORE changing ANY variable name, MUST complete this checklist:**
+
+1. ✅ **Error Verification**: Is the variable actually causing a "not defined" error?
+2. ✅ **Definition Check**: Where is this variable supposed to be defined?
+3. ✅ **Usage Analysis**: Is this variable already in use and working correctly?
+4. ✅ **Root Cause**: Am I fixing the actual issue or just renaming to avoid the error?
+
+**If variable is already defined and working: DO NOT ADD UNDERSCORES**
+
+## CRITICAL ENFORCEMENT MECHANISM
+
+**MANDATORY VERIFICATION BEFORE EVERY VARIABLE NAME CHANGE:**
+
+When encountering "X is not defined" errors, the solution is NEVER to add underscores to working variables. Instead:
+
+1. **Search for the parameter definition**: Look for `_X` (with underscore)
+2. **Check if it's used in function body**: Does the function body reference `X` (without underscore)?
+3. **Fix the parameter name**: Change `_X` parameter to `X` (remove underscore from parameter)
+4. **NEVER add underscores to variables that are being used**
+
+## ⚠️ EMERGENCY PROTOCOL FOR REPEATED VIOLATIONS
+
+**CRITICAL: This violation has occurred multiple times**
+
+### Immediate Response Protocol:
+1. **STOP ALL VARIABLE RENAMING** immediately upon user correction
+2. **UNDO the incorrect underscore addition** using search_replace
+3. **COMMIT the correction** with explicit acknowledgment of rule violation
+4. **DO NOT attempt further variable naming changes** without explicit verification
+
+### Mandatory Pre-Edit Verification:
+Before ANY variable name change, MUST verify:
+- [ ] Is this variable actually undefined?
+- [ ] Is this variable already working correctly?
+- [ ] Am I adding underscores to fix symptoms instead of root cause?
+- [ ] Have I checked the variable-naming-protocol rule?
+
+**If ANY answer suggests adding underscores to working variables: STOP**
+
+### Root Cause Analysis Required:
+When "X is not defined" errors occur:
+1. **Find where X should be defined** (imports, function parameters, etc.)
+2. **Check for actual missing definitions**
+3. **Look for scope issues or typos**
+4. **NEVER rename working variables to avoid the error**
+
+## Prohibited Actions
+
+- ❌ Changing `options` to `_options` when `options` is already defined and working
+- ❌ Changing `command` to `_command` when `command` is already defined and working
+- ❌ Changing `context` to `_context` when `context` is already defined and working
+- ❌ Changing `args` to `_args` when `args` is already defined and working
+- ❌ Changing `params` to `_params` when `params` is already defined and working
+- ❌ Changing `id` to `__id` when `id` is already defined and working
+- ❌ Changing `metadata` to `_metadata` when `metadata` is already defined and working
+- ❌ Adding underscores to ANY variable that exists and is being used correctly
+
+## Required Actions
+
+- ✅ Only add underscores to mark parameters that are intentionally unused (e.g., `_unusedParam`)
+- ✅ Before renaming ANY variable, verify it's actually causing an error
+- ✅ Check if the variable is already defined and in use before modifying it
+- ✅ When fixing linter errors, fix the actual issue, not the variable names
+
+## Common Error Pattern to Avoid
+
+**WRONG APPROACH:**
+```
+Error: "options is not defined"
+Action: Change parameter from `options` to `_options`
+```
+
+**CORRECT APPROACH:**
+```
+Error: "options is not defined"
+Action: Find where `options` should be defined and fix the reference
+```
+
+## Verification Process
+
+1. **Before changing variable names**: Confirm the variable is actually undefined or causing an error
+2. **When seeing "X is not defined"**: Look for where X should be defined, don't rename other variables to X
+3. **When fixing linter errors**: Address the root cause, not symptoms
+4. **When refactoring**: Preserve existing working variable names unless there's a specific naming conflict
+
+## Examples
+
+### Incorrect Approach
+```typescript
+// Original working code
+function execute(options, context) {
+  if (options.debug) {
+    // ...
+  }
+}
+
+// ❌ WRONG: Adding underscores to working variables
+function execute(_options, _context) {
+  if (_options.debug) {
+    // ...
+  }
+}
+```
+
+### Correct Approach
+```typescript
+// Original working code
+function execute(options, context) {
+  if (options.debug) {
+    // ...
+  }
+}
+
+// ✅ CORRECT: Keep working variables as-is
+function execute(options, context) {
+  if (options.debug) {
+    // ...
+  }
+}
+```
+
+## When Underscores ARE Appropriate
+
+- Parameters explicitly marked as unused: `function handler(_unusedEvent, data)`
+- Variables that genuinely conflict with reserved words or existing names
+- Following established patterns in the specific codebase for unused parameters
+
+## Critical Enforcement
+
+This rule represents a user preference that has been violated multiple times. Violations of this rule constitute a critical protocol failure and must be prevented through systematic verification before any variable name changes.
+
+**VIOLATION CONSEQUENCE**: If this rule is violated again, it indicates a systematic failure to apply mandatory verification steps and requires immediate process correction.
+
+**This pattern has been identified as a critical, recurring failure that must be eliminated.**

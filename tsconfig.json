@@ -35,6 +35,8 @@
     "typeRoots": ["./node_modules/@types", "./types"],
     "noImplicitAny": false
   },
-  "include": ["**/*.ts", "types.d.ts"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "include": ["src", "types", "scripts", "codemods", ".eslintrc.cjs", ".prettierrc.cjs"],
+  "exclude": ["node_modules", "dist", "build", "**/*.test.ts", "**/*.spec.ts"]
 }
+
+// Force TS Server to re-evaluate
