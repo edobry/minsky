@@ -1,6 +1,6 @@
 /**
  * Migration Service for SessionDB Storage Backends
- * 
+ *
  * Provides utilities to migrate session data between different storage backends
  * (JSON file, SQLite, PostgreSQL) with backup and verification capabilities.
  */
@@ -51,7 +51,7 @@ export class MigrationService {
     };
 
     try {
-      log.info("Starting session database migration", {
+      log.debug("Starting session database migration", {
         source: options.sourceConfig.backend,
         target: options.targetConfig.backend,
         dryRun: options.dryRun,
@@ -77,12 +77,12 @@ export class MigrationService {
       const sourceData = sourceResult.data;
       const sessions = sourceData.sessions;
 
-      log.info(`Found ${sessions.length} sessions to migrate`);
+      log.debug(`Found ${sessions.length} sessions to migrate`);
 
       // Create backup if requested
       if (options.backupPath && !options.dryRun) {
         result.backupPath = await this.createBackup(sourceData, options.backupPath);
-        log.info(`Created backup at: ${result.backupPath}`);
+        log.debug(`Created backup at: ${result.backupPath}`);
       }
 
       // Dry run: just validate and report
@@ -118,7 +118,7 @@ export class MigrationService {
       }
 
       result.success = result.errors.length === 0;
-      
+
       log.info("Migration completed", {
         success: result.success,
         migrated: result.recordsMigrated,
@@ -126,7 +126,6 @@ export class MigrationService {
       });
 
       return result;
-
     } catch (error) {
       const errorMsg = `Migration failed: ${error instanceof Error ? error.message : String(error)}`;
       result.errors.push(errorMsg);
@@ -141,7 +140,7 @@ export class MigrationService {
   private static async createBackup(data: SessionDbState, backupPath: string): Promise<string> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupFile = join(backupPath, `session-backup-${timestamp}.json`);
-    
+
     const backupData = {
       timestamp: new Date().toISOString(),
       version: "1.0",
@@ -192,7 +191,7 @@ export class MigrationService {
 
       // Check for missing records
       for (const sourceSession of sourceSessions) {
-        const targetSession = targetSessions.find(s => s.session === sourceSession.session);
+        const targetSession = targetSessions.find((s) => s.session === sourceSession.session);
         if (!targetSession) {
           verification.missingRecords.push(sourceSession.session);
           verification.success = false;
@@ -210,14 +209,13 @@ export class MigrationService {
 
       // Check for extra records in target
       for (const targetSession of targetSessions) {
-        const sourceSession = sourceSessions.find(s => s.session === targetSession.session);
+        const sourceSession = sourceSessions.find((s) => s.session === targetSession.session);
         if (!sourceSession) {
           verification.inconsistencies.push(`Extra session in target: ${targetSession.session}`);
         }
       }
 
       return verification;
-
     } catch (error) {
       verification.success = false;
       verification.inconsistencies.push(
@@ -234,7 +232,13 @@ export class MigrationService {
     const differences: string[] = [];
 
     const fields: (keyof SessionRecord)[] = [
-      "session", "repoName", "repoUrl", "createdAt", "taskId", "branch", "repoPath"
+      "session",
+      "repoName",
+      "repoUrl",
+      "createdAt",
+      "taskId",
+      "branch",
+      "repoPath",
     ];
 
     for (const field of fields) {
@@ -249,7 +253,10 @@ export class MigrationService {
   /**
    * Restore from backup
    */
-  static async restoreFromBackup(backupPath: string, targetConfig: SessionDbConfig): Promise<MigrationResult> {
+  static async restoreFromBackup(
+    backupPath: string,
+    targetConfig: SessionDbConfig
+  ): Promise<MigrationResult> {
     const result: MigrationResult = {
       success: false,
       recordsMigrated: 0,
@@ -292,7 +299,6 @@ export class MigrationService {
       });
 
       return result;
-
     } catch (error) {
       const errorMsg = `Restore failed: ${error instanceof Error ? error.message : String(error)}`;
       result.errors.push(errorMsg);
@@ -308,31 +314,33 @@ export class MigrationService {
     const recommendations: string[] = [];
 
     switch (currentConfig.backend) {
-    case "json":
-      recommendations.push("Consider migrating to SQLite for better performance and ACID transactions");
-      recommendations.push("SQLite is ideal for single-user development environments");
-      if (!currentConfig.baseDir) {
-        recommendations.push("Set a baseDir for consistent workspace organization");
-      }
-      break;
+      case "json":
+        recommendations.push(
+          "Consider migrating to SQLite for better performance and ACID transactions"
+        );
+        recommendations.push("SQLite is ideal for single-user development environments");
+        if (!currentConfig.baseDir) {
+          recommendations.push("Set a baseDir for consistent workspace organization");
+        }
+        break;
 
-    case "sqlite":
-      recommendations.push("Current SQLite setup is good for local development");
-      recommendations.push("Consider PostgreSQL for team environments with concurrent access");
-      if (!currentConfig.dbPath) {
-        recommendations.push("Consider setting a custom dbPath for better organization");
-      }
-      break;
+      case "sqlite":
+        recommendations.push("Current SQLite setup is good for local development");
+        recommendations.push("Consider PostgreSQL for team environments with concurrent access");
+        if (!currentConfig.dbPath) {
+          recommendations.push("Consider setting a custom dbPath for better organization");
+        }
+        break;
 
-    case "postgres":
-      recommendations.push("PostgreSQL setup is ideal for team/server environments");
-      recommendations.push("Ensure connection pooling is configured for production use");
-      if (!currentConfig.connectionString) {
-        recommendations.push("Connection string must be configured for PostgreSQL");
-      }
-      break;
+      case "postgres":
+        recommendations.push("PostgreSQL setup is ideal for team/server environments");
+        recommendations.push("Ensure connection pooling is configured for production use");
+        if (!currentConfig.connectionString) {
+          recommendations.push("Connection string must be configured for PostgreSQL");
+        }
+        break;
     }
 
     return recommendations;
   }
-} 
+}

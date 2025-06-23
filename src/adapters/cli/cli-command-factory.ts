@@ -308,6 +308,41 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
     },
   });
+
+  // Config/SessionDB commands customization
+  cliFactory.customizeCategory(CommandCategory.CONFIG, {
+    commandOptions: {
+      "sessiondb.migrate": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          to: {
+            asArgument: true,
+            description: "Target backend (json, sqlite, postgres)",
+          },
+          from: {
+            description: "Source backend (auto-detect if not specified)",
+          },
+          sqlitePath: {
+            description: "SQLite database file path",
+          },
+          connectionString: {
+            description: "PostgreSQL connection string",
+          },
+          backup: {
+            description: "Create backup in specified directory",
+          },
+          dryRun: {
+            alias: "n",
+            description: "Simulate migration without making changes",
+          },
+          verify: {
+            alias: "V",
+            description: "Verify migration after completion",
+          },
+        },
+      },
+    },
+  });
 }
 
 /**
