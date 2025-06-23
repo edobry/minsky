@@ -358,7 +358,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: _error instanceof Error ? _error : new Error(String(_error)),
       };
     }
   }
@@ -373,12 +373,12 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     } catch (_error) {
       log.error("Failed to save task spec data", {
         _specPath,
-        error: error instanceof Error ? error.message : String(error),
+        error: _error instanceof Error ? _error.message : String(_error),
       });
 
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: _error instanceof Error ? _error : new Error(String(_error)),
       };
     }
   }
@@ -396,12 +396,9 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   }
 
   async fileExists(_path: string): Promise<boolean> {
-    try {
-      // For GitHub backend, we check if an issue exists rather than local files
-      return true; // Simplified for now
-    } catch {
-      return false;
-    }
+    // For GitHub backend, we always return true since we don't check local files
+    // TODO: Implement actual GitHub issue existence check
+    return true;
   }
 
   // ---- Private Helper Methods ----
@@ -487,9 +484,9 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     } catch (_error) {
       log.error("Failed to sync task to GitHub", {
         _taskId: taskData.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: _error instanceof Error ? _error.message : String(_error),
       });
-      throw error;
+      throw _error;
     }
   }
 }
