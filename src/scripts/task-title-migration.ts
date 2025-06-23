@@ -1,6 +1,6 @@
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
-
 #!/usr/bin/env bun
+
+const COMMIT_HASH_SHORT_LENGTH = 8;
 
 /**
  * Task Title Migration Script
