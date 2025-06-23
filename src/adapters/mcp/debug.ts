@@ -2,7 +2,7 @@
  * MCP adapter for debug commands
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { BYTES_PER_KB } from "../utils/constants";
+import { BYTES_PER_KB } from "../../utils/constants";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
@@ -10,7 +10,7 @@ import { log } from "../../utils/logger.js";
  * Registers debug tools with the MCP command mapper
  * These tools are primarily for development and debugging purposes
  */
-export function registerDebugTools(_commandMapper: CommandMapper): void {
+export function registerDebugTools(commandMapper: CommandMapper): void {
   // List all registered methods
   commandMapper.addCommand({
     name: "debug.listMethods",
@@ -46,10 +46,10 @@ export function registerDebugTools(_commandMapper: CommandMapper): void {
         // Allow any additional properties for flexible testing
       })
       .passthrough(),
-    execute: async (_args) => {
+    execute: async (args) => {
       // Log the echo request
       log.debug("Debug echo request", {
-        _args,
+        args,
       });
 
       // Return the provided arguments with a timestamp
@@ -106,5 +106,5 @@ function formatBytes(_bytes: number): string {
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))  } ${  sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))} ${sizes[i]}`;
 }
