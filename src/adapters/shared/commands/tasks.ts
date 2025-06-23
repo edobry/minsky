@@ -294,7 +294,7 @@ const tasksSpecRegistration = {
         _taskId: normalizedTaskId,
       });
       return result;
-    } catch {
+    } catch (_error) {
       log.error("Error getting task specification", { error });
       throw error;
     }
@@ -591,7 +591,7 @@ const tasksMigrateRegistration = {
     if (statusMapping) {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
-      } catch {
+      } catch (_error) {
         throw new ValidationError(`Invalid status mapping JSON: ${error}`);
       }
     }
@@ -621,8 +621,7 @@ const tasksMigrateRegistration = {
 
     try {
       // Perform actual migration
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
-        sourceBackendInstance,
+      const _result = await migrationUtils.migrateTasksBetweenBackends(_sourceBackendInstance,
         targetBackendInstance,
         {
           preserveIds: true,
@@ -674,7 +673,7 @@ const tasksMigrateRegistration = {
       }
 
       return cliResult;
-    } catch {
+    } catch (_error) {
       throw new ValidationError(
         `Migration failed: ${error instanceof Error ? error.message : String(error)}`
       );

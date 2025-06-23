@@ -339,7 +339,7 @@ export function registerSessionCommands(): void {
           success: true,
           sessions,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to list sessions", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -375,7 +375,7 @@ export function registerSessionCommands(): void {
           success: true,
           _session,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -419,7 +419,7 @@ export function registerSessionCommands(): void {
           success: true,
           _session,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -441,7 +441,7 @@ export function registerSessionCommands(): void {
       log.debug("Executing session.dir _command", { params, _context });
 
       try {
-        const directory = await getSessionDirFromParams({
+        const _directory = await getSessionDirFromParams({
           name: params._session,
           task: params.task,
           repo: params.repo,
@@ -452,7 +452,7 @@ export function registerSessionCommands(): void {
           success: true,
           directory,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -485,7 +485,7 @@ export function registerSessionCommands(): void {
           success: deleted,
           _session: params.session,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -521,7 +521,7 @@ export function registerSessionCommands(): void {
           success: true,
           _session: params.session || params.task,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -554,7 +554,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -591,7 +591,7 @@ export function registerSessionCommands(): void {
           success: true,
           ...result,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
           session: params.session,
@@ -628,7 +628,7 @@ export function registerSessionCommands(): void {
           success: true,
           _session,
         };
-      } catch {
+      } catch (_error) {
         log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
         });

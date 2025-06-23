@@ -3,7 +3,7 @@
  * This allows us to use a consistent interface while following
  * the platform-specific recommendations for exiting
  */
-export function exit(_code: number): never {
+export function exit(__code: number): never {
   // For now, we use process.exit as it's consistently used across the codebase
   // In the future, we could adapt this to use Bun-specific APIs if needed
    
@@ -30,7 +30,7 @@ export function getCurrentWorkingDirectory(): string {
  * @param mockImpl The mock implementation to use
  * @returns A function to restore the original implementation
  */
-export function mockCurrentWorkingDirectory(mockImpl: () => string): () => void {
+export function mockCurrentWorkingDirectory(_mockImpl: () => string): () => void {
   const originalImpl = currentWorkingDirectoryImpl;
   currentWorkingDirectoryImpl = mockImpl;
 

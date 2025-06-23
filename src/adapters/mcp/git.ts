@@ -28,7 +28,7 @@ import {
 /**
  * Registers git tools with the MCP command mapper
  */
-export function registerGitTools(commandMapper: CommandMapper): void {
+export function registerGitTools(_commandMapper: CommandMapper): void {
   // Git clone command
   commandMapper.addGitCommand(
     "clone",

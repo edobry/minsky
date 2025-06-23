@@ -31,14 +31,14 @@ export function createConfigShowCommand(): Command {
         } else {
           displayResolvedConfiguration(result.resolved);
         }
-      } catch {
+      } catch (_error) {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         process.exit(1);
       }
     });
 }
 
-function displayResolvedConfiguration(_resolved: unknown) {
+function displayResolvedConfiguration(__resolved: unknown) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
   process.stdout.write(`${"=".repeat(SHOW_SEPARATOR_LENGTH)  }\n`);
   

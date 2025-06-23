@@ -37,9 +37,9 @@ export const createTempTestDir: (prefix?: string) => string | null = createRobus
  * Returns the created spies for use in assertions
  */
 export function setupConsoleSpy() {
-  const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
-  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(process, "exit").mockImplementation(() => {
+  const consoleLogSpy = spyOn(_console, "log").mockImplementation(() => {});
+  const consoleErrorSpy = spyOn(_console, "error").mockImplementation(() => {});
+  const processExitSpy = spyOn(_process, "exit").mockImplementation(() => {
     throw new Error("process.exit called");
   });
 
@@ -77,8 +77,7 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
  * Setup standard test environment with temp directory and console capture
  * Handles cleanup automatically via afterEach
  */
-export function setupTestEnvironment(
-  _options: {
+export function setupTestEnvironment(__options: {
     mockDate?: boolean;
     createTempDir?: boolean;
   } = {}
@@ -119,7 +118,7 @@ export function setupTestEnvironment(
 
     // Clean up temp directory if created
     if (typeof tempDir === "string" && fs.existsSync(tempDir)) {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(_tempDir, { recursive: true, force: true });
     }
   });
 

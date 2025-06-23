@@ -1,9 +1,9 @@
-const SIZE_100000 = SIZE_100000;
-const SIZE_6 = SIZE_6;
-const TEST_VALUE = TEST_VALUE;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-const TIMEOUT_900_MS = TIMEOUT_900_MS;
-const CONSTANT_0 = 0.TEST_ARRAY_SIZE;
+const SIZE_100000 = 100000;
+const SIZE_6 = 6;
+const TEST_VALUE = 123;
+const TEST_ARRAY_SIZE = 4;
+const TIMEOUT_900_MS = 900;
+const CONSTANT_0 = 0.5;
 
 /**
  * Test data factory functions for creating test fixtures
@@ -16,7 +16,7 @@ import type {} from "../../types/tasks/taskData";
  * @param overrides Optional properties to override defaults
  * @returns A task data object for testing
  */
-export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
+export function createTaskData(_overrides: Partial<TaskData> = {}): TaskData {
   const defaultId = `#${String(Math.floor(Math.random() * TIMEOUT_900_MS) + 100)}`; // Random 3-digit ID
 
   return {
@@ -40,8 +40,7 @@ export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
  * @param commonOverrides Properties to apply to all tasks
  * @returns Array of task data objects
  */
-export function createTaskDataArray(
-  count: number,
+export function createTaskDataArray(_count: number,
   commonOverrides: Partial<TaskData> = {}
 ): TaskData[] {
   return Array(count)
@@ -61,8 +60,7 @@ export function createTaskDataArray(
  * @param overrides Optional properties to override defaults
  * @returns A session data object for testing
  */
-export function createSessionData(
-  overrides: {
+export function createSessionData(_overrides: {
     session?: string;
     taskId?: string;
     repoName?: string;
@@ -90,8 +88,7 @@ export function createSessionData(
  * @param commonOverrides Properties to apply to all sessions
  * @returns Array of session data objects
  */
-export function createSessionDataArray(
-  count: number,
+export function createSessionDataArray(_count: number,
   commonOverrides: Partial<Record<string, unknown>> = {}
 ): unknown[] {
   return Array(count)
@@ -110,8 +107,7 @@ export function createSessionDataArray(
  * @param overrides Optional properties to override defaults
  * @returns A repository data object for testing
  */
-export function createRepositoryData(
-  overrides: {
+export function createRepositoryData(_overrides: {
     name?: string;
     type?: string;
     repoUrl?: string;
@@ -131,7 +127,7 @@ export function createRepositoryData(
  * @param prefix Optional prefix for the ID
  * @returns A random string ID
  */
-export function createRandomId(_prefix: string = "test"): string {
+export function createRandomId(__prefix: string = "test"): string {
   return `${prefix}-${Math.floor(Math.random() * SIZE_100000)}`;
 }
 
@@ -148,7 +144,7 @@ export function createTaskId(): string {
  * @param length Length of the string to generate
  * @returns A random string
  */
-export function createRandomString(length: number = 10): string {
+export function createRandomString(_length: number = 10): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let _result = "";
   for (let i = 0; i < length; i++) {
@@ -162,7 +158,7 @@ export function createRandomString(length: number = 10): string {
  * @param extension Optional file extension
  * @returns A random file path
  */
-export function createRandomFilePath(extension: string = "txt"): string {
+export function createRandomFilePath(_extension: string = "txt"): string {
   const dirs = ["src", "test", "config", "docs"];
   const dir = dirs[Math.floor(Math.random() * dirs.length)];
   const filename = createRandomString(SIZE_6);
@@ -174,7 +170,7 @@ export function createRandomFilePath(extension: string = "txt"): string {
  * @param fieldName The name of the field to generate data for
  * @returns Appropriate test data for the field
  */
-export function createFieldData(fieldName: string): unknown {
+export function createFieldData(_fieldName: string): unknown {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
   case "id":

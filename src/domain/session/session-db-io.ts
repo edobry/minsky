@@ -21,17 +21,17 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
-export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionDbState {
+export function readSessionDbFile(__options: SessionDbFileOptions = {}): SessionDbState {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-  const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
+  const dbPath = options.dbPath || join(_xdgStateHome, "minsky", "session-db.json");
+  const baseDir = options.baseDir || join(_xdgStateHome, "minsky", "git");
 
   try {
     if (!existsSync(dbPath)) {
       return initializeSessionDbState({ baseDir });
     }
 
-    const data = readFileSync(dbPath, "utf8") as string;
+    const _data = readFileSync(_dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
     // Migrate existing sessions to include repoName
@@ -46,7 +46,7 @@ export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionD
       sessions: migratedSessions,
       baseDir,
     };
-  } catch {
+  } catch (_error) {
     log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
@@ -55,23 +55,22 @@ export function readSessionDbFile(_options: SessionDbFileOptions = {}): SessionD
 /**
  * Write sessions to the database file
  */
-export function writeSessionDbFile(
-  state: SessionDbState,
+export function writeSessionDbFile(_state: SessionDbState,
   _options: SessionDbFileOptions = {}
 ): boolean {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-  const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
+  const dbPath = options.dbPath || join(_xdgStateHome, "minsky", "session-db.json");
 
   try {
     // Ensure directory exists
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+      mkdirSync(_dbDir, { recursive: true });
     }
 
-    writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
+    writeFileSync(_dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
-  } catch {
+  } catch (_error) {
     log.error(
       `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -82,14 +81,14 @@ export function writeSessionDbFile(
 /**
  * Ensure the database directory exists
  */
-export function ensureDbDir(_dbPath: string): boolean {
+export function ensureDbDir(__dbPath: string): boolean {
   try {
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+      mkdirSync(_dbDir, { recursive: true });
     }
     return true;
-  } catch {
+  } catch (_error) {
     log.error(
       `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
     );

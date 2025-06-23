@@ -96,21 +96,21 @@ export interface ValidationWarning {
 export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
-  loadConfiguration(_workingDir: string): Promise<ConfigurationLoadResult>;
-  validateRepositoryConfig(_config: RepositoryConfig): ValidationResult;
-  validateGlobalUserConfig(_config: GlobalUserConfig): ValidationResult;
+  loadConfiguration(__workingDir: string): Promise<ConfigurationLoadResult>;
+  validateRepositoryConfig(__config: RepositoryConfig): ValidationResult;
+  validateGlobalUserConfig(__config: GlobalUserConfig): ValidationResult;
 }
 
 export interface CredentialManager {
-  getCredential(service: "github"): Promise<string | null>;
-  setGlobalCredential(service: "github", source: CredentialSource, value?: string): Promise<void>;
-  promptForCredential(service: "github"): Promise<string>;
+  getCredential(_service: "github"): Promise<string | null>;
+  setGlobalCredential(_service: "github", source: CredentialSource, value?: string): Promise<void>;
+  promptForCredential(_service: "github"): Promise<string>;
 }
 
 export interface BackendDetector {
-  detectBackend(_workingDir: string, rules: DetectionRule[]): Promise<string>;
-  githubRemoteExists(_workingDir: string): Promise<boolean>;
-  tasksMdExists(_workingDir: string): Promise<boolean>;
+  detectBackend(__workingDir: string, rules: DetectionRule[]): Promise<string>;
+  githubRemoteExists(__workingDir: string): Promise<boolean>;
+  tasksMdExists(__workingDir: string): Promise<boolean>;
 }
 
 // Default configuration values

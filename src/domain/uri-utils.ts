@@ -79,8 +79,7 @@ const DEFAULT_URI_OPTIONS: UriOptions = {
  * @returns A normalized repository URI object
  * @throws ValidationError if the URI is invalid or doesn't meet requirements
  */
-export function normalizeRepositoryUri(
-  uri: string,
+export function normalizeRepositoryUri(_uri: string,
   _options: UriOptions = DEFAULT_URI_OPTIONS
 ): RepositoryUri {
   if (!uri) {
@@ -130,7 +129,7 @@ export function normalizeRepositoryUri(
     format = UriFormat.FILE;
     isLocal = true;
     // Extract local path
-    const path = normalizedUri.replace(/^file:\/\//, "");
+    const _path = normalizedUri.replace(/^file:\/\//, "");
     // For local repos, use local/<basename> as the name
     normalizedName = `local/${basename(path)}`;
 
@@ -190,12 +189,11 @@ export function normalizeRepositoryUri(
  * @returns True if the URI is valid, throws an error otherwise
  * @throws ValidationError if the URI is invalid
  */
-export function validateRepositoryUri(
-  uri: string,
+export function validateRepositoryUri(_uri: string,
   _options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
-  normalizeRepositoryUri(uri, _options);
+  normalizeRepositoryUri(_uri, _options);
   return true;
 }
 
@@ -207,7 +205,7 @@ export function validateRepositoryUri(
  * @returns The URI in the target format
  * @throws ValidationError if the URI cannot be converted to the target format
  */
-export function convertRepositoryUri(_uri: string, targetFormat: UriFormat): string {
+export function convertRepositoryUri(__uri: string, targetFormat: UriFormat): string {
   // First normalize the URI to get the repository name
   const normalized = normalizeRepositoryUri(uri);
 
@@ -249,7 +247,7 @@ export function convertRepositoryUri(_uri: string, targetFormat: UriFormat): str
  * @returns Repository information (owner, repo)
  * @throws ValidationError if the URL cannot be parsed
  */
-export function extractRepositoryInfo(_url: string): { owner: string; repo: string } {
+export function extractRepositoryInfo(__url: string): { owner: string; repo: string } {
   const normalized = normalizeRepositoryUri(url);
   const [owner, repo] = normalized.name.split("/");
 
@@ -273,7 +271,7 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     const { execAsync } = await import("../utils/exec.js");
     const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
     return stdout.trim();
-  } catch {
+  } catch (_error) {
     // Not in a Git repository
     return undefined;
   }

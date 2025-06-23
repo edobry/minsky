@@ -67,7 +67,7 @@ export function createSpecCommand(): Command {
         const _result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
-        outputResult(_result, {
+        outputResult(__result, {
           json: _options.json,
           formatter: (_data: unknown) => {
             log.cli(`Task ${_data.task.id}: ${_data.task.title}`);
@@ -87,16 +87,16 @@ export function createSpecCommand(): Command {
                   ? startIndex + match[0].length + nextSectionMatch.index
                   : _data.content.length;
 
-                const sectionContent = _data.content.slice(startIndex, endIndex).trim();
+                const sectionContent = _data.content.slice(_startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${_data.section}" not found in specification.`);
-                log.cli("\nFull specification content:");
+                log.cli("\nFull specification _content:");
                 log.cli(_data.content);
               }
             } else {
               // Display the full content
-              log.cli("\nSpecification content:");
+              log.cli("\nSpecification _content:");
               log.cli(_data.content);
             }
           },

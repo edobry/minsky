@@ -24,9 +24,9 @@ export function createRobustTempDir(
   for (const base of locations) {
     try {
       if (!fs.existsSync(base)) {
-        fs.mkdirSync(base, { recursive: true });
+        fs.mkdirSync(_base, { recursive: true });
       }
-      const tempDir = fs.mkdtempSync(path.join(base, _prefix));
+      const tempDir = fs.mkdtempSync(path.join(_base, _prefix));
       if (process.env.DEBUG_TEST_UTILS) {
         log.debug(`createRobustTempDir: ${tempDir}`);
       }
@@ -34,7 +34,7 @@ export function createRobustTempDir(
         throw new Error(`[UTIL FAILURE] Temp dir was not created: ${tempDir}`);
       }
       return tempDir;
-    } catch {
+    } catch (_error) {
       log.error(
         `Failed to create temp dir at ${base} with prefix ${prefix}:`,
         err instanceof Error ? err : new Error(String(err))

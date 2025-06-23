@@ -20,8 +20,7 @@ if (existsSync(envPath)) {
 /**
  * Extract GitHub repository info from git remote
  */
-function extractGitHubRepoFromRemote(
-  _workspacePath: string
+function extractGitHubRepoFromRemote(__workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
@@ -47,7 +46,7 @@ function extractGitHubRepoFromRemote(
     }
 
     return null;
-  } catch {
+  } catch (_error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       _workspacePath,
       error: error instanceof Error ? error.message : String(error),
@@ -59,8 +58,7 @@ function extractGitHubRepoFromRemote(
 /**
  * Get GitHub backend configuration from environment and git remote
  */
-export function getGitHubBackendConfig(
-  _workspacePath: string,
+export function getGitHubBackendConfig(__workspacePath: string,
   _options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
@@ -97,8 +95,7 @@ export function getGitHubBackendConfig(
 /**
  * Create labels for a GitHub repository
  */
-export async function createGitHubLabels(
-  octokit: unknown,
+export async function createGitHubLabels(_octokit: unknown,
   owner: string,
   repo: string,
   labels: Record<string, string>
@@ -131,7 +128,7 @@ export async function createGitHubLabels(
       });
 
       log.debug(`Created GitHub label: ${labelName}`);
-    } catch {
+    } catch (_error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -142,7 +139,7 @@ export async function createGitHubLabels(
 /**
  * Get color for status label
  */
-function getColorForStatus(_status: string): string {
+function getColorForStatus(__status: string): string {
   const colors: Record<string, string> = {
     TODO: "0e8a16", // Green
     "IN-PROGRESS": "fbca04", // Yellow

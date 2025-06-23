@@ -153,8 +153,8 @@ export interface BranchResult {
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
-  clone(_session: string): Promise<CloneResult>;
-  branch(_session: string, _branch: string): Promise<BranchResult>;
+  clone(__session: string): Promise<CloneResult>;
+  branch(__session: string, _branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;
@@ -198,8 +198,7 @@ export interface Result {
  * @param config Repository backend configuration
  * @returns Repository backend instance
  */
-export async function createRepositoryBackend(
-  _config: RepositoryBackendConfig
+export async function createRepositoryBackend(__config: RepositoryBackendConfig
 ): Promise<RepositoryBackend> {
   // Validate common configuration
   if (!config.type) {

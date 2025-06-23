@@ -27,7 +27,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
       value: TReturn | Error;
     }>;
   };
-  mockImplementation: (fn: (...args: unknown[]) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockImplementation: (fn: (..._args: unknown[]) => TReturn) => MockFunction<TReturn, TArgs>;
   mockReturnValue: (_value: unknown) => MockFunction<TReturn, TArgs>;
   mockResolvedValue: <U>(_value: unknown) => MockFunction<Promise<U>, TArgs>;
   mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
@@ -89,8 +89,8 @@ export function createMock<T extends (..._args: unknown[]) => any>(implementatio
  * mockModule("./utils", () => ({ helper: vi.fn() }));
  * expect(someFunction()).toBe("mocked result");
  */
-export function mockModule(modulePath: string, factory: () => any): void {
-  mock.module(modulePath, factory); // Use mock.module for module mocking
+export function mockModule(_modulePath: string, factory: () => any): void {
+  mock.module(_modulePath, factory); // Use mock.module for module mocking
 }
 
 /**
@@ -138,7 +138,7 @@ function resetSharedState(): void {
     if (registryModule?.sharedCommandRegistry?.commands) {
       (registryModule.sharedCommandRegistry as any).commands = new Map();
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
@@ -156,7 +156,7 @@ function resetSharedState(): void {
         bridge.categoryCustomizations.clear();
       }
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -167,7 +167,7 @@ function resetSharedState(): void {
       // Reset any cached error state
       // Note: Most error handlers are stateless, but included for completeness
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -177,7 +177,7 @@ function resetSharedState(): void {
     if (compatModule?.resetAllMocks) {
       compatModule.resetAllMocks();
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -187,7 +187,7 @@ function resetSharedState(): void {
     if (jestCompatModule?.jest?.resetModules) {
       jestCompatModule.jest.resetModules();
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -201,7 +201,7 @@ function resetSharedState(): void {
         // Note: This is defensive - proper tests should restore their own mocks
       }
     }
-  } catch {
+  } catch (_error) {
     // Ignore errors if the module doesn't exist
   }
 }
@@ -279,8 +279,7 @@ export function createMockObject<T extends string>(
  * expect(execSync("ls -la")).toBe("file1.txt\nfile2.txt"); // Matches on "ls" substring
  * expect(execSync("git status --short")).toBe("On _branch main\nnothing to commit"); // Matches on "git status" substring
  */
-export function createMockExecSync(
-  commandResponses: Record<string, string>
+export function createMockExecSync(_commandResponses: Record<string, string>
 ): ReturnType<typeof createMock> {
   return createMock((_command: unknown) => {
     // Find the first matching command pattern
@@ -343,13 +342,13 @@ export function createMockExecSync(
  * // Access internal files map for verification
  * expect(mockFS._files.has("/path/to/new-file.txt")).toBe(true);
  */
-export function createMockFileSystem(_initialFiles: Record<string, string> = {}) {
+export function createMockFileSystem(__initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const directories = new Set<string>();
 
   // Initialize with provided files
   Object.entries(initialFiles).forEach(([path, _content]) => {
-    files.set(path, _content);
+    files.set(_path, _content);
     // Also add all parent directories
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) {
@@ -367,7 +366,7 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
       return files.get(path);
     }),
     writeFileSync: createMock((_path: unknown) => {
-      files.set(path, data);
+      files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
@@ -405,7 +404,7 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
       return files.get(path);
     }),
     writeFile: createMock(async (_path: unknown) => {
-      files.set(path, data);
+      files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
       for (let i = 1; i < parts.length; i++) {
@@ -443,9 +442,9 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
  * @example
  * // Define an interface
  * interface UserService {
- *   getUser(_id: string): Promise<User | null>;
- *   updateUser(_id: string, data: unknown): Promise<boolean>;
- *   deleteUser(_id: string): Promise<boolean>;
+ *   getUser(__id: string): Promise<User | null>;
+ *   updateUser(__id: string, data: unknown): Promise<boolean>;
+ *   deleteUser(__id: string): Promise<boolean>;
  * }
  *
  * // Create a partial mock with only some methods implemented
@@ -462,7 +461,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
   const base = { ...implementations } as any;
 
   // Create a proxy that will handle method calls
-  return new Proxy(base, {
+  return new Proxy(_base, {
     get: (target, prop: string | symbol) => {
       // If the property exists on the target, return it
       if (prop in target) {
@@ -471,7 +470,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
 
       // For methods that don't exist, create a mock function
       if (typeof prop === "string") {
-        const mockFn = createMock();
+        const _mockFn = createMock();
         target[prop] = mockFn;
         return mockFn;
       }
@@ -496,7 +495,7 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
  * };
  *
  * // Mock the property
- * mockReadonlyProperty(_config, "environment", "test");
+ * mockReadonlyProperty(__config, "environment", "test");
  *
  * // Now accessing the property returns the mock value
  * expect(config.environment).toBe("test");
@@ -507,7 +506,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
   mockValue: any
 ): void {
   // Use Object.defineProperty to override the property
-  Object.defineProperty(obj, propName, {
+  Object.defineProperty(_obj, propName, {
     configurable: true,
     get: () => mockValue,
   });
@@ -526,7 +525,7 @@ export function mockReadonlyProperty<T extends object, K extends keyof T>(
  * @example
  * // Spy on a method
  * const user = { getName: () => "John" };
- * const spy = createSpyOn(user, "getName");
+ * const spy = createSpyOn(_user, "getName");
  * user.getName(); // Original method is called
  * expect(spy).toHaveBeenCalled();
  */
@@ -541,8 +540,8 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const mockFn = mock((..._args: unknown[]) => {
-    return (original as Function).apply(obj, _args);
+  const _mockFn = mock((..._args: unknown[]) => {
+    return (original as Function).apply(_obj, _args);
   });
 
   // Replace the original method with our mock
@@ -563,7 +562,7 @@ export class TestContext {
    * Registers a cleanup function to be run during teardown.
    * @param fn - The cleanup function to register
    */
-  registerCleanup(_fn: unknown) => void | Promise<void>): void {
+  registerCleanup(fn: () => void | Promise<void>): void {
     this.cleanupFns.push(fn);
   }
 
@@ -651,7 +650,7 @@ export function createTestSuite() {
  * });
  * // Cleanup happens automatically after the test
  */
-export function withCleanup(__cleanupFn: unknown) => void | Promise<void>): void {
+export function withCleanup(___cleanupFn: unknown) => void | Promise<void>): void {
   if (!currentTestContext) {
     throw new Error(
       "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."

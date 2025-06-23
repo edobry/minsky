@@ -54,10 +54,10 @@ export interface URIValidationResult {
  * @param uri Repository URI to parse
  * @returns Parsed URI components
  */
-export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
+export function parseRepositoryURI(__uri: string): RepositoryURIComponents {
   try {
     // Use the underlying normalization function
-    const normalizedInfo = normalizeRepositoryUri(uri, {
+    const normalizedInfo = normalizeRepositoryUri(_uri, {
       validateLocalExists: false,
       ensureFullyQualified: false, // Don"t expand shorthand by default
     });
@@ -101,7 +101,7 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
         try {
           const url = new URL(normalizedInfo.uri);
           components.host = url.hostname;
-        } catch {
+        } catch (_error) {
           // Ignore URL parsing errors
         }
       } else if (components.type === RepositoryURIType.SSH) {
@@ -121,7 +121,7 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
     }
 
     return components as RepositoryURIComponents;
-  } catch {
+  } catch (_error) {
     // Fallback for any errors
     return {
       type: RepositoryURIType.LOCAL_PATH,
@@ -138,11 +138,11 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
  * @param uri Repository URI to normalize
  * @returns Normalized repository identifier
  */
-export function normalizeRepositoryURI(_uri: string): string {
+export function normalizeRepositoryURI(__uri: string): string {
   try {
-    const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
+    const _result = normalizeRepositoryUri(_uri, { validateLocalExists: false });
     return result.name;
-  } catch {
+  } catch (_error) {
     // Fallback to simple basename normalization
     return `local/${basename(uri)}`;
   }
@@ -154,14 +154,14 @@ export function normalizeRepositoryURI(_uri: string): string {
  * @param uri Repository URI to validate
  * @returns Validation result
  */
-export function validateRepositoryURI(_uri: string): URIValidationResult {
+export function validateRepositoryURI(__uri: string): URIValidationResult {
   try {
     validateRepositoryUri(uri);
     return {
       valid: true,
       components: parseRepositoryURI(uri),
     };
-  } catch {
+  } catch (_error) {
     return {
       valid: false,
       error: error instanceof Error ? error.message : String(error),
@@ -176,12 +176,12 @@ export function validateRepositoryURI(_uri: string): URIValidationResult {
  * @param targetType Target URI type
  * @returns Converted URI or null if conversion is not possible
  */
-export function convertRepositoryURI(_uri: string, targetType: RepositoryURIType): string | null {
+export function convertRepositoryURI(__uri: string, targetType: RepositoryURIType): string | null {
   try {
     // Map our RepositoryURIType to UriFormat
     const targetFormat = targetType as unknown as UriFormat;
-    return convertRepositoryUri(uri, targetFormat);
-  } catch {
+    return convertRepositoryUri(_uri, targetFormat);
+  } catch (_error) {
     return null;
   }
 }
@@ -192,11 +192,11 @@ export function convertRepositoryURI(_uri: string, targetType: RepositoryURIType
  * @param uri Repository URI to check
  * @returns True if the URI represents a local repository
  */
-export function isLocalRepositoryURI(_uri: string): boolean {
+export function isLocalRepositoryURI(__uri: string): boolean {
   try {
-    const normalized = normalizeRepositoryUri(uri, { validateLocalExists: false });
+    const normalized = normalizeRepositoryUri(_uri, { validateLocalExists: false });
     return normalized.isLocal;
-  } catch {
+  } catch (_error) {
     // If we can"t parse it, assume it's a local path
     return true;
   }
@@ -208,11 +208,11 @@ export function isLocalRepositoryURI(_uri: string): boolean {
  * @param uri Repository URI
  * @returns Repository name
  */
-export function getRepositoryName(_uri: string): string {
+export function getRepositoryName(__uri: string): string {
   try {
     const { repo } = extractRepositoryInfo(uri);
     return repo;
-  } catch {
+  } catch (_error) {
     // Fallback to basename for local paths
     return basename(uri);
   }
@@ -225,14 +225,13 @@ export function getRepositoryName(_uri: string): string {
  * @param format Target format (https or ssh)
  * @returns Full repository URI
  */
-export function expandGitHubShorthand(
-  shorthand: string,
+export function expandGitHubShorthand(_shorthand: string,
   format: "https" | "ssh" = "https"
 ): string | null {
   try {
     const targetFormat = format === "https" ? UriFormat.HTTPS : UriFormat.SSH;
-    return convertRepositoryUri(shorthand, targetFormat);
-  } catch {
+    return convertRepositoryUri(_shorthand, targetFormat);
+  } catch (_error) {
     return null;
   }
 }
@@ -251,6 +250,6 @@ export async function detectRepositoryURI(cwd?: string): Promise<string | undefi
  * @deprecated Use normalizeRepositoryURI instead
  * Maintain backward compatibility with existing code
  */
-export function normalizeRepoName(_repoUrl: string): string {
+export function normalizeRepoName(__repoUrl: string): string {
   return normalizeRepositoryURI(repoUrl);
 }

@@ -26,7 +26,7 @@ export type InitializeProjectParams = z.infer<typeof initializeProjectParamsSche
  * The interface-agnostic function for initializing a project with Minsky configuration
  * This function acts as the primary domain function for the init command
  */
-export async function initializeProjectFromParams(_params: InitializeProjectParams): Promise<void> {
+export async function initializeProjectFromParams(__params: InitializeProjectParams): Promise<void> {
   // Validate the parameters
   const validatedParams = initializeProjectParamsSchema.parse(params);
 
@@ -70,14 +70,13 @@ export async function initializeProject(
     }
 
     // Create process/tasks directory structure
-    const tasksDir = path.join(repoPath, "process", "tasks");
-    await createDirectoryIfNotExists(tasksDir, fileSystem);
+    const tasksDir = path.join(_repoPath, "process", "tasks");
+    await createDirectoryIfNotExists(_tasksDir, fileSystem);
 
     // Initialize the tasks backend
     if (backend === "tasks.md") {
-      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-      await createFileIfNotExists(
-        tasksFilePath,
+      const tasksFilePath = path.join(_repoPath, "process", "tasks.md");
+      await createFileIfNotExists(_tasksFilePath,
         `# Minsky Tasks
 
 ## Task List
@@ -93,19 +92,19 @@ export async function initializeProject(
     // Create rule file directory
     let rulesDirPath: string;
     if (ruleFormat === "cursor") {
-      rulesDirPath = path.join(repoPath, ".cursor", "rules");
+      rulesDirPath = path.join(_repoPath, ".cursor", "rules");
     } else {
-      rulesDirPath = path.join(repoPath, ".ai", "rules");
+      rulesDirPath = path.join(_repoPath, ".ai", "rules");
     }
-    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
+    await createDirectoryIfNotExists(_rulesDirPath, fileSystem);
 
     // Create minsky.mdc rule file
-    const ruleFilePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-    await createFileIfNotExists(ruleFilePath, getMinskyRuleContent(), overwrite, fileSystem);
+    const ruleFilePath = path.join(_rulesDirPath, "minsky-workflow.mdc");
+    await createFileIfNotExists(_ruleFilePath, getMinskyRuleContent(), overwrite, fileSystem);
 
     // Create index.mdc rule file for categorizing rules
-    const indexFilePath = path.join(rulesDirPath, "index.mdc");
-    await createFileIfNotExists(indexFilePath, getRulesIndexContent(), overwrite, fileSystem);
+    const indexFilePath = path.join(_rulesDirPath, "index.mdc");
+    await createFileIfNotExists(_indexFilePath, getRulesIndexContent(), overwrite, fileSystem);
   }
 
   // Setup MCP if enabled
@@ -113,39 +112,37 @@ export async function initializeProject(
     // Default to enabled if not explicitly disabled
     // Create the MCP config file
     const mcpConfig = getMCPConfigContent(mcp);
-    const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
-    await createFileIfNotExists(mcpConfigPath, mcpConfig, overwrite, fileSystem);
+    const mcpConfigPath = path.join(_repoPath, ".cursor", "mcp.json");
+    await createFileIfNotExists(_mcpConfigPath, mcpConfig, overwrite, fileSystem);
 
     // Create MCP usage rule
     const rulesDirPath =
       ruleFormat === "cursor"
-        ? path.join(repoPath, ".cursor", "rules")
-        : path.join(repoPath, ".ai", "rules");
+        ? path.join(_repoPath, ".cursor", "rules")
+        : path.join(_repoPath, ".ai", "rules");
 
-    await createDirectoryIfNotExists(rulesDirPath, fileSystem);
+    await createDirectoryIfNotExists(_rulesDirPath, fileSystem);
 
-    const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
-    await createFileIfNotExists(mcpRuleFilePath, getMCPRuleContent(), overwrite, fileSystem);
+    const mcpRuleFilePath = path.join(_rulesDirPath, "mcp-usage.mdc");
+    await createFileIfNotExists(_mcpRuleFilePath, getMCPRuleContent(), overwrite, fileSystem);
   }
 }
 
 /**
  * Creates a directory and all parent directories if they don't exist
  */
-async function createDirectoryIfNotExists(
-  dirPath: string,
+async function createDirectoryIfNotExists(_dirPath: string,
   fileSystem: FileSystem = fs
 ): Promise<void> {
   if (!fileSystem.existsSync(dirPath)) {
-    fileSystem.mkdirSync(dirPath, { recursive: true });
+    fileSystem.mkdirSync(_dirPath, { recursive: true });
   }
 }
 
 /**
  * Creates a file if it doesn't exist, throws an error if it does unless overwrite is true
  */
-async function createFileIfNotExists(
-  filePath: string,
+async function createFileIfNotExists(_filePath: string,
   _content: string,
   overwrite = false,
   fileSystem: FileSystem = fs
@@ -159,10 +156,10 @@ async function createFileIfNotExists(
 
   // Ensure the directory exists
   const dirPath = path.dirname(filePath);
-  await createDirectoryIfNotExists(dirPath, fileSystem);
+  await createDirectoryIfNotExists(_dirPath, fileSystem);
 
   // Write the file
-  fileSystem.writeFileSync(filePath, _content);
+  fileSystem.writeFileSync(_filePath, _content);
 }
 
 /**
@@ -557,8 +554,7 @@ export interface FileSystem {
 /**
  * For testing: initialize a project with a custom filesystem implementation
  */
-export async function initializeProjectWithFS(
-  _options: InitializeProjectOptions,
+export async function initializeProjectWithFS(__options: InitializeProjectOptions,
   fileSystem: FileSystem
 ): Promise<void> {
   const { repoPath, backend, ruleFormat, mcp, mcpOnly = false, overwrite = false } = options;
@@ -567,8 +563,8 @@ export async function initializeProjectWithFS(
   if (backend === "tasks.md") {
     // Initialize tasks.md backend
     if (!mcpOnly) {
-      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-      const tasksDirPath = path.join(repoPath, "process", "tasks");
+      const tasksFilePath = path.join(_repoPath, "process", "tasks.md");
+      const tasksDirPath = path.join(_repoPath, "process", "tasks");
 
       // Check if files exist
       if (fileSystem.existsSync(tasksFilePath) && !overwrite) {
@@ -577,42 +573,42 @@ export async function initializeProjectWithFS(
 
       // Create directories
       if (!fileSystem.existsSync(tasksDirPath)) {
-        fileSystem.mkdirSync(tasksDirPath, { recursive: true });
+        fileSystem.mkdirSync(_tasksDirPath, { recursive: true });
       }
 
       // Create tasks.md file
-      fileSystem.writeFileSync(tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
+      fileSystem.writeFileSync(_tasksFilePath, "# Minsky Tasks\n\n- [ ] Example task\n");
     }
 
     // Handle rule format based on options
-    const rulesDirPath = path.join(repoPath, ruleFormat === "cursor" ? ".cursor" : ".ai", "rules");
+    const rulesDirPath = path.join(_repoPath, ruleFormat === "cursor" ? ".cursor" : ".ai", "rules");
 
     // Create directories for rules
     if (!fileSystem.existsSync(rulesDirPath)) {
-      fileSystem.mkdirSync(rulesDirPath, { recursive: true });
+      fileSystem.mkdirSync(_rulesDirPath, { recursive: true });
     }
 
     // Create rule files
     if (!mcpOnly) {
-      const workflowRulePath = path.join(rulesDirPath, "minsky-workflow.mdc");
-      const indexRulePath = path.join(rulesDirPath, "index.mdc");
+      const workflowRulePath = path.join(_rulesDirPath, "minsky-workflow.mdc");
+      const indexRulePath = path.join(_rulesDirPath, "index.mdc");
 
       if (fileSystem.existsSync(workflowRulePath) && !overwrite) {
         throw new Error(`File already exists: ${workflowRulePath}`);
       }
 
-      fileSystem.writeFileSync(workflowRulePath, getMinskyRuleContent());
-      fileSystem.writeFileSync(indexRulePath, getRulesIndexContent());
+      fileSystem.writeFileSync(_workflowRulePath, getMinskyRuleContent());
+      fileSystem.writeFileSync(_indexRulePath, getRulesIndexContent());
     }
 
     // MCP Configuration
     if (mcp?.enabled !== false) {
-      const mcpConfigPath = path.join(repoPath, ".cursor", "mcp.json");
+      const mcpConfigPath = path.join(_repoPath, ".cursor", "mcp.json");
 
       // Create .cursor directory if it doesn't exist (even for generic rule format)
-      const cursorDirPath = path.join(repoPath, ".cursor");
+      const cursorDirPath = path.join(_repoPath, ".cursor");
       if (!fileSystem.existsSync(cursorDirPath)) {
-        fileSystem.mkdirSync(cursorDirPath, { recursive: true });
+        fileSystem.mkdirSync(_cursorDirPath, { recursive: true });
       }
 
       if (fileSystem.existsSync(mcpConfigPath) && !overwrite) {
@@ -620,12 +616,12 @@ export async function initializeProjectWithFS(
       }
 
       // Create MCP config file
-      fileSystem.writeFileSync(mcpConfigPath, getMCPConfigContent(mcp));
+      fileSystem.writeFileSync(_mcpConfigPath, getMCPConfigContent(mcp));
 
       // Create MCP usage rule
-      const mcpRuleFilePath = path.join(rulesDirPath, "mcp-usage.mdc");
+      const mcpRuleFilePath = path.join(_rulesDirPath, "mcp-usage.mdc");
       if (!fileSystem.existsSync(mcpRuleFilePath) || overwrite) {
-        fileSystem.writeFileSync(mcpRuleFilePath, getMCPRuleContent());
+        fileSystem.writeFileSync(_mcpRuleFilePath, getMCPRuleContent());
       }
     }
   } else if (backend === "tasks.csv") {

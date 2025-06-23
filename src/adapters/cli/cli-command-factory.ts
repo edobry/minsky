@@ -64,9 +64,9 @@ class CliCommandFactory {
    * @param commandId - The ID of the command to customize
    * @param options - Customization options
    */
-  customizeCommand(commandId: ValidCommandId, _options: CliCommandOptions): void {
+  customizeCommand(_commandId: ValidCommandId, _options: CliCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCommandCustomization(commandId, _options);
+    cliBridge.registerCommandCustomization(_commandId, _options);
   }
 
   /**
@@ -75,9 +75,9 @@ class CliCommandFactory {
    * @param category - The command category to customize
    * @param options - Category customization options
    */
-  customizeCategory(category: CommandCategory, _options: CategoryCommandOptions): void {
+  customizeCategory(_category: CommandCategory, _options: CategoryCommandOptions): void {
     this.ensureInitialized();
-    cliBridge.registerCategoryCustomization(category, _options);
+    cliBridge.registerCategoryCustomization(_category, _options);
   }
 
   /**
@@ -86,7 +86,7 @@ class CliCommandFactory {
    * @param commandId - The ID of the shared command
    * @returns The generated Commander.js command or null if not found
    */
-  createCommand(commandId: ValidCommandId): Command | null {
+  createCommand(_commandId: ValidCommandId): Command | null {
     this.ensureInitialized();
     return cliBridge.generateCommand(commandId);
   }
@@ -97,9 +97,9 @@ class CliCommandFactory {
    * @param category - The command category
    * @returns The generated category command or null if no commands found
    */
-  createCategoryCommand(category: CommandCategory): Command | null {
+  createCategoryCommand(_category: CommandCategory): Command | null {
     this.ensureInitialized();
-    return cliBridge.generateCategoryCommand(category, { viaFactory: true });
+    return cliBridge.generateCategoryCommand(_category, { viaFactory: true });
   }
 
   /**
@@ -107,9 +107,9 @@ class CliCommandFactory {
    *
    * @param program - The Commander.js program to register commands to
    */
-  registerAllCommands(_program: Command): void {
+  registerAllCommands(__program: Command): void {
     this.ensureInitialized();
-    cliBridge.generateAllCategoryCommands(_program, { viaFactory: true });
+    cliBridge.generateAllCategoryCommands(__program, { viaFactory: true });
   }
 
   /**
@@ -137,26 +137,25 @@ const cliFactory = new CliCommandFactory();
  * Register customizations for a specific command
  * @deprecated Use cliFactory.customizeCommand() instead
  */
-export function customizeCommand(commandId: string, _options: CliCommandOptions): void {
-  cliFactory.customizeCommand(commandId, _options);
+export function customizeCommand(_commandId: string, _options: CliCommandOptions): void {
+  cliFactory.customizeCommand(_commandId, _options);
 }
 
 /**
  * Register customizations for a command category
  * @deprecated Use cliFactory.customizeCategory() instead
  */
-export function customizeCategory(
-  category: CommandCategory,
+export function customizeCategory(_category: CommandCategory,
   _options: CategoryCommandOptions
 ): void {
-  cliFactory.customizeCategory(category, _options);
+  cliFactory.customizeCategory(_category, _options);
 }
 
 /**
  * Create a CLI command from a shared command
  * @deprecated Use cliFactory.createCommand() instead
  */
-export function createCommand(commandId: string): Command | null {
+export function createCommand(_commandId: string): Command | null {
   return cliFactory.createCommand(commandId);
 }
 
@@ -164,7 +163,7 @@ export function createCommand(commandId: string): Command | null {
  * Create a category command from shared commands
  * @deprecated Use cliFactory.createCategoryCommand() instead
  */
-export function createCategoryCommand(category: CommandCategory): Command | null {
+export function createCategoryCommand(_category: CommandCategory): Command | null {
   return cliFactory.createCategoryCommand(category);
 }
 
@@ -172,7 +171,7 @@ export function createCategoryCommand(category: CommandCategory): Command | null
  * Register all commands in a program
  * @deprecated Use cliFactory.registerAllCommands() instead
  */
-export function registerAllCommands(_program: Command): void {
+export function registerAllCommands(__program: Command): void {
   cliFactory.registerAllCommands(_program);
 }
 
@@ -315,7 +314,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
  *
  * This is the recommended way to set up the CLI system.
  */
-export function initializeCliCommands(_program: Command, config?: Partial<CliFactoryConfig>): void {
+export function initializeCliCommands(__program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
   cliFactory.initialize(_config);
 

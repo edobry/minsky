@@ -79,7 +79,7 @@ const programLogFormat = format.combine(
     if (Object.keys(_metadata).length > 0) {
       try {
         log += ` ${JSON.stringify(_metadata)}`;
-      } catch {
+      } catch (_error) {
         // ignore serialization errors for metadata in text logs
       }
     }
@@ -139,7 +139,7 @@ export const log = {
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.info(message, _context);
+    agentLogger.info(_message, _context);
   },
   debug: (_message: unknown) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
@@ -148,14 +148,14 @@ export const log = {
       return;
     }
     // Otherwise, use agentLogger as normal
-    agentLogger.debug(message, _context);
+    agentLogger.debug(_message, _context);
   },
   warn: (_message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.warn(message, _context);
+    agentLogger.warn(_message, _context);
   },
   error: (
     message: string,
@@ -179,14 +179,14 @@ export const log = {
           programLogger.error(context.stack);
         }
       } else {
-        programLogger.error(message, _context);
+        programLogger.error(_message, _context);
       }
       return;
     }
 
     // In STRUCTURED mode or if agent logs explicitly enabled, use agentLogger
     if (context instanceof Error) {
-      agentLogger.error(message, {
+      agentLogger.error(_message, {
         originalError: context.message,
         stack: context.stack,
         name: context.name,
@@ -196,27 +196,27 @@ export const log = {
       context !== null &&
       (context.originalError || context.stack)
     ) {
-      agentLogger.error(message, _context);
+      agentLogger.error(_message, _context);
     } else {
-      agentLogger.error(message, _context);
+      agentLogger.error(_message, _context);
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (_message: unknown) => programLogger.info(message, ..._args),
-  cliWarn: (_message: unknown) => programLogger.warn(message, ..._args),
-  cliError: (_message: unknown) => programLogger.error(message, ..._args),
+  cli: (_message: unknown) => programLogger.info(_message, ..._args),
+  cliWarn: (_message: unknown) => programLogger.warn(_message, ..._args),
+  cliError: (_message: unknown) => programLogger.error(_message, ..._args),
   // Add ability to set log level
   setLevel: (_level: unknown) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (_message: unknown) => programLogger.debug(message, ..._args),
+  cliDebug: (_message: unknown) => programLogger.debug(_message, ..._args),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
   systemDebug: (_message: unknown) => {
     // Always log to programLogger (stderr) regardless of mode
-    programLogger.debug(message, ..._args);
+    programLogger.debug(_message, ..._args);
   },
   // Expose log mode information
   mode: currentLogMode,
@@ -231,7 +231,7 @@ const handleExit = async (error?: Error) => {
     programLogger.error("Unhandled error or rejection, exiting.", error);
   }
   // Give logs a moment to flush
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(_resolve, 100));
 };
 
 process.on("uncaughtException", async (error) => {

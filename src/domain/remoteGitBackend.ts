@@ -42,7 +42,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(_config: RepositoryConfig) {
+  constructor(__config: RepositoryConfig) {
     // Validate config has required fields for remote
     if (!config.url) {
       throw new RepositoryError("URL is required for remote Git repository");
@@ -55,7 +55,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     } as RemoteGitConfig;
 
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+    this.baseDir = join(_xdgStateHome, "minsky", "git");
     this.sessionDb = new SessionDB();
     this.cache = RepositoryMetadataCache.getInstance();
   }
@@ -67,10 +67,10 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param cwd Working directory
    * @returns The command output
    */
-  protected async execGit(_args: string[], cwd?: string): Promise<string> {
+  protected async execGit(__args: string[], cwd?: string): Promise<string> {
     const cmd = `git ${args.join(" ")}`;
     try {
-      const { stdout, stderr } = await execAsync(cmd, { cwd: cwd || this.localPath });
+      const { stdout, stderr } = await execAsync(_cmd, { cwd: cwd || this.localPath });
       if (stderr) {
         log.debug("Git _command produced stderr", {
           _command: cmd,
@@ -79,7 +79,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         });
       }
       return stdout.trim();
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
         error instanceof Error ? error : undefined
@@ -94,7 +94,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns The repository path
    */
-  protected getSessionWorkdir(repoName: string, _session: string): string {
+  protected getSessionWorkdir(_repoName: string, _session: string): string {
     return join(this.baseDir, repoName, "sessions", _session);
   }
 
@@ -104,13 +104,13 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result
    */
-  async clone(_session: string): Promise<CloneResult> {
+  async clone(__session: string): Promise<CloneResult> {
     try {
       // Normalize the repository name
       const repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
-      const _workdir = this.getSessionWorkdir(repoName, _session);
+      const _workdir = this.getSessionWorkdir(_repoName, _session);
       await mkdir(dirname(_workdir), { recursive: true });
 
       // Clone options
@@ -132,7 +132,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         _workdir,
         _session,
       };
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Failed to clone remote repository from ${this.config.url}`,
         error instanceof Error ? error : undefined
@@ -152,8 +152,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     const cacheKey = generateRepoKey(this.localPath, "status");
 
-    return this.cache.get(
-      cacheKey,
+    return this.cache.get(_cacheKey,
       async () => {
         try {
           const statusOutput = await this.execGit(["status", "--porcelain"]);
@@ -162,7 +161,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
           try {
             trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
-          } catch {
+          } catch (_error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
           }
@@ -173,7 +172,7 @@ export class RemoteGitBackend implements RepositoryBackend {
             branch: branchOutput,
             tracking: trackingOutput !== "" ? trackingOutput : undefined,
           };
-        } catch {
+        } catch (_error) {
           throw new RepositoryError(
             "Failed to get repository status",
             error instanceof Error ? error : undefined
@@ -210,7 +209,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     // Test URL accessibility using ls-remote (only contacts the remote, doesn't clone)
     try {
       await this.execGit(["ls-remote", "--exit-code", this.config.url]);
-    } catch {
+    } catch (_error) {
       issues.push(`Cannot access remote repository: ${this.config.url}`);
       return { valid: false, issues };
     }
@@ -227,7 +226,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         if (!output) {
           issues.push(`Branch '${this.config._branch}' not found in remote repository`);
         }
-      } catch {
+      } catch (_error) {
         issues.push(`Cannot verify _branch '${this.config._branch}' in remote repository`);
       }
     }
@@ -252,7 +251,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Failed to push _branch ${branchToPush}`,
         error instanceof Error ? error : undefined
@@ -277,7 +276,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Failed to pull _branch ${branchToPull}`,
         error instanceof Error ? error : undefined
@@ -292,7 +291,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param name Branch name to create
    * @returns Branch result
    */
-  async branch(_session: string, name: string): Promise<BranchResult> {
+  async branch(__session: string, name: string): Promise<BranchResult> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -307,7 +306,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir: this.localPath,
         _branch: name,
       };
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Failed to create _branch ${name}`,
         error instanceof Error ? error : undefined
@@ -320,7 +319,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(_branch: string): Promise<void> {
+  async checkout(__branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -330,7 +329,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch {
+    } catch (_error) {
       throw new RepositoryError(
         `Failed to checkout _branch ${_branch}`,
         error instanceof Error ? error : undefined

@@ -70,7 +70,7 @@ export interface GitDependencies {
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of domain dependencies for testing
  */
-export function createTestDeps(_overrides: Partial<DomainDependencies> = {}): DomainDependencies {
+export function createTestDeps(__overrides: Partial<DomainDependencies> = {}): DomainDependencies {
   // Create a more complete implementation using createPartialMock
   // This avoids type errors by letting TypeScript infer the required interface methods
   const sessionDB = createPartialMock<SessionProviderInterface>({
@@ -142,7 +142,7 @@ export function createTestDeps(_overrides: Partial<DomainDependencies> = {}): Do
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of task-specific dependencies for testing
  */
-export function createTaskTestDeps(_overrides: Partial<TaskDependencies> = {}): TaskDependencies {
+export function createTaskTestDeps(__overrides: Partial<TaskDependencies> = {}): TaskDependencies {
   const taskService = createPartialMock<TaskServiceInterface>({
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
@@ -174,8 +174,7 @@ export function createTaskTestDeps(_overrides: Partial<TaskDependencies> = {}): 
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of session-specific dependencies for testing
  */
-export function createSessionTestDeps(
-  overrides: Partial<SessionDependencies> = {}
+export function createSessionTestDeps(_overrides: Partial<SessionDependencies> = {}
 ): SessionDependencies {
   const sessionDB = createPartialMock<SessionProviderInterface>({
     listSessions: () => Promise.resolve([]),
@@ -215,7 +214,7 @@ export function createSessionTestDeps(
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of git-specific dependencies for testing
  */
-export function createGitTestDeps(_overrides: Partial<GitDependencies> = {}): GitDependencies {
+export function createGitTestDeps(__overrides: Partial<GitDependencies> = {}): GitDependencies {
   const gitService = createPartialMock<GitServiceInterface>({
     clone: () => Promise.resolve({ _workdir: "/mock/workdir", _session: "test-session" }),
     branch: () => Promise.resolve({ _workdir: "/mock/workdir", _branch: "test-_branch" }),
@@ -253,8 +252,7 @@ export function createGitTestDeps(_overrides: Partial<GitDependencies> = {}): Gi
  * @param overrides Partial implementation to override the defaults
  * @returns A complete mock repository backend
  */
-export function createMockRepositoryBackend(
-  overrides: Partial<RepositoryBackend> = {}
+export function createMockRepositoryBackend(_overrides: Partial<RepositoryBackend> = {}
 ): RepositoryBackend {
   // Use createPartialMock to handle the interface requirements
   return createPartialMock<RepositoryBackend>({
@@ -342,12 +340,12 @@ export function withMockedDeps<T extends Record<string, unknown>, R>(
  * @param partialDeps Partial nested dependencies to apply
  * @returns A complete set of deeply nested dependencies with mocks
  */
-export function createDeepTestDeps(_partialDeps: Partial<DomainDependencies>): DomainDependencies {
+export function createDeepTestDeps(__partialDeps: Partial<DomainDependencies>): DomainDependencies {
   // Start with a base set of dependencies
   const baseDeps = createTestDeps();
 
   // Apply deep overrides
-  return deepMergeDeps(baseDeps, partialDeps);
+  return deepMergeDeps(_baseDeps, partialDeps);
 }
 
 /**
@@ -391,8 +389,7 @@ function deepMergeDeps<T extends Record<string, unknown>>(target: T, source: Par
  * @param overrides Specific dependency overrides to apply
  * @returns A partial set of domain dependencies for testing
  */
-export function createPartialTestDeps(
-  overrides: Partial<DomainDependencies> = {}
+export function createPartialTestDeps(_overrides: Partial<DomainDependencies> = {}
 ): Partial<DomainDependencies> {
   return overrides;
 }

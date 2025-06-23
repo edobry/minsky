@@ -10,7 +10,7 @@ import { promises as fs } from "fs";
 /**
  * Helper to read content from a file if the path exists
  */
-export async function readContentFromFileIfExists(_contentPath: string): Promise<string> {
+export async function readContentFromFileIfExists(__contentPath: string): Promise<string> {
   try {
     // Check if the path exists first
     if (existsSync(contentPath)) {
@@ -18,7 +18,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const _content = await fs.readFile(contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const _content = await fs.readFile(_contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
@@ -27,7 +27,7 @@ export async function readContentFromFileIfExists(_contentPath: string): Promise
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch {
+  } catch (_error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
@@ -52,7 +52,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch {
+  } catch (_error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

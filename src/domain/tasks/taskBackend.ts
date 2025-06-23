@@ -35,7 +35,7 @@ export interface TaskBackend {
    * @param specPath Path to the task specification file
    * @returns Promise resolving to raw task spec data
    */
-  getTaskSpecData(_specPath: string): Promise<TaskReadOperationResult>;
+  getTaskSpecData(__specPath: string): Promise<TaskReadOperationResult>;
 
   // ---- Pure Operations (no side effects) ----
 
@@ -44,28 +44,28 @@ export interface TaskBackend {
    * @param content Raw content to parse
    * @returns Array of task data objects
    */
-  parseTasks(_content: string): TaskData[];
+  parseTasks(__content: string): TaskData[];
 
   /**
    * Format task data objects into raw content
    * @param tasks Array of task data objects
    * @returns Formatted content
    */
-  formatTasks(_tasks: TaskData[]): string;
+  formatTasks(__tasks: TaskData[]): string;
 
   /**
    * Parse raw task specification content
    * @param content Raw task specification content
    * @returns Parsed task specification data
    */
-  parseTaskSpec(_content: string): TaskSpecData;
+  parseTaskSpec(__content: string): TaskSpecData;
 
   /**
    * Format task specification data into raw content
    * @param spec Task specification data
    * @returns Formatted content
    */
-  formatTaskSpec(_spec: TaskSpecData): string;
+  formatTaskSpec(__spec: TaskSpecData): string;
 
   // ---- Side Effects (file I/O, API calls) ----
 
@@ -74,7 +74,7 @@ export interface TaskBackend {
    * @param content Formatted tasks content
    * @returns Promise resolving to operation result
    */
-  saveTasksData(_content: string): Promise<TaskWriteOperationResult>;
+  saveTasksData(__content: string): Promise<TaskWriteOperationResult>;
 
   /**
    * Save task specification data
@@ -82,7 +82,7 @@ export interface TaskBackend {
    * @param content Formatted task specification content
    * @returns Promise resolving to operation result
    */
-  saveTaskSpecData(_specPath: string, _content: string): Promise<TaskWriteOperationResult>;
+  saveTaskSpecData(__specPath: string, _content: string): Promise<TaskWriteOperationResult>;
 
   // ---- Helper Methods ----
 
@@ -98,14 +98,14 @@ export interface TaskBackend {
    * @param title Task title
    * @returns Task specification file path
    */
-  getTaskSpecPath(_taskId: string, _title: string): string;
+  getTaskSpecPath(__taskId: string, _title: string): string;
 
   /**
    * Check if file exists
    * @param path File path
    * @returns Promise resolving to true if file exists, false otherwise
    */
-  fileExists(_path: string): Promise<boolean>;
+  fileExists(__path: string): Promise<boolean>;
 }
 
 /**
@@ -117,5 +117,5 @@ export interface TaskBackendFactory {
    * @param config Backend configuration
    * @returns Task backend instance
    */
-  createBackend(_config: TaskBackendConfig): TaskBackend;
+  createBackend(__config: TaskBackendConfig): TaskBackend;
 }

@@ -34,8 +34,7 @@ export class ConfigurationLoader {
   /**
    * Load configuration from all sources with proper precedence
    */
-  async loadConfiguration(
-    _workingDir: string,
+  async loadConfiguration(__workingDir: string,
     cliFlags: Partial<ResolvedConfig> = {}
   ): Promise<ConfigurationLoadResult> {
     // Load from all sources
@@ -91,9 +90,9 @@ export class ConfigurationLoader {
     }
 
     try {
-      const _content = readFileSync(configPath, { encoding: "utf8" });
+      const _content = readFileSync(_configPath, { encoding: "utf8" });
       return parseYaml(_content) as GlobalUserConfig;
-    } catch {
+    } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
       log.error(`Failed to load global user config from ${configPath}:`, error);
       return null;
@@ -103,17 +102,17 @@ export class ConfigurationLoader {
   /**
    * Load repository configuration
    */
-  private async loadRepositoryConfig(_workingDir: string): Promise<RepositoryConfig | null> {
-    const configPath = join(_workingDir, CONFIG_PATHS.REPOSITORY);
+  private async loadRepositoryConfig(__workingDir: string): Promise<RepositoryConfig | null> {
+    const configPath = join(__workingDir, CONFIG_PATHS.REPOSITORY);
     
     if (!existsSync(configPath)) {
       return null;
     }
 
     try {
-      const _content = readFileSync(configPath, { encoding: "utf8" });
+      const _content = readFileSync(_configPath, { encoding: "utf8" });
       return parseYaml(_content) as RepositoryConfig;
-    } catch {
+    } catch (_error) {
       // Silently fail - configuration loading should be resilient
       return null;
     }
@@ -122,7 +121,7 @@ export class ConfigurationLoader {
   /**
    * Merge configurations with proper precedence
    */
-  private mergeConfigurations(sources: ConfigurationSources): ResolvedConfig {
+  private mergeConfigurations(_sources: ConfigurationSources): ResolvedConfig {
     const { cliFlags, environment, globalUser, repository, defaults } = sources;
 
     // Start with defaults
@@ -192,8 +191,7 @@ export class ConfigurationLoader {
   /**
    * Merge backend configurations
    */
-  private mergeBackendConfig(
-    existing: BackendConfig,
+  private mergeBackendConfig(_existing: BackendConfig,
     repositoryBackends: RepositoryConfig["backends"]
   ): BackendConfig {
     const merged = { ...existing };
@@ -208,8 +206,7 @@ export class ConfigurationLoader {
   /**
    * Merge credential configurations
    */
-  private mergeCredentials(
-    existing: CredentialConfig,
+  private mergeCredentials(_existing: CredentialConfig,
     newCredentials: GlobalUserConfig["credentials"] | CredentialConfig
   ): CredentialConfig {
     const merged = { ...existing };
@@ -224,7 +221,7 @@ export class ConfigurationLoader {
   /**
    * Expand tilde in file paths
    */
-  private expandTilde(filePath: string): string {
+  private expandTilde(_filePath: string): string {
     if (filePath.startsWith("~/")) {
       return join(homedir(), filePath.slice(2));
     }

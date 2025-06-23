@@ -26,7 +26,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, _options?: ErrorHandlingOptions): never;
+  handleError(_error: unknown, _options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -50,7 +50,7 @@ export class SharedErrorHandler {
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
+  static formatError(_error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
     const _result: Record<string, unknown> = {
@@ -121,7 +121,7 @@ export class SharedErrorHandler {
    * @param error The error to get a prefix for
    * @returns A human-readable error prefix
    */
-  static getErrorPrefix(error: unknown): string {
+  static getErrorPrefix(_error: unknown): string {
     if (error instanceof ValidationError) {
       return "Validation error";
     } else if (error instanceof ResourceNotFoundError) {
@@ -160,12 +160,12 @@ export class SharedErrorHandler {
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
+  static handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
     // Format error for structured logging
-    const formattedError = SharedErrorHandler.formatError(error, debug);
+    const formattedError = SharedErrorHandler.formatError(_error, debug);
 
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
@@ -187,7 +187,7 @@ export class CliErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
+  handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
@@ -236,7 +236,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = SharedErrorHandler.formatError(error, debug);
+      const formattedError = SharedErrorHandler.formatError(_error, debug);
       log.error("CLI operation failed", formattedError);
     }
 
@@ -255,11 +255,11 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, _options: ErrorHandlingOptions = {}): never {
+  handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = SharedErrorHandler.formatError(error, debug);
+    const formattedError = SharedErrorHandler.formatError(_error, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);
@@ -282,7 +282,7 @@ export const mcpErrorHandler = new McpErrorHandler();
  * @param interfaceName The interface name (cli, mcp)
  * @returns The appropriate error handler
  */
-export function getErrorHandler(interfaceName: string): ErrorHandler {
+export function getErrorHandler(_interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
   case "cli":
     return cliErrorHandler;

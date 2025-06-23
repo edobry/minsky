@@ -62,8 +62,8 @@ export class RepositoryMetadataCache {
     }
 
     // Otherwise fetch the data and update the cache
-    const data = await fetcher();
-    this.cache.set(key, { data, timestamp: now });
+    const _data = await fetcher();
+    this.cache.set(_key, { data, timestamp: now });
     return data;
   }
 
@@ -74,7 +74,7 @@ export class RepositoryMetadataCache {
    * @param data Data to cache
    */
   set<T>(key: string, _data: T): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+    this.cache.set(_key, { data, timestamp: Date.now() });
   }
 
   /**
@@ -82,7 +82,7 @@ export class RepositoryMetadataCache {
    *
    * @param key Cache key to invalidate
    */
-  invalidate(key: string): void {
+  invalidate(_key: string): void {
     this.cache.delete(key);
   }
 
@@ -92,7 +92,7 @@ export class RepositoryMetadataCache {
    *
    * @param prefix Cache key prefix to match
    */
-  invalidateByPrefix(_prefix: string): void {
+  invalidateByPrefix(__prefix: string): void {
     for (const key of Array.from(this.cache.keys())) {
       if (key.startsWith(_prefix)) {
         this.cache.delete(key);
@@ -116,8 +116,7 @@ export class RepositoryMetadataCache {
  * @param params Additional parameters to include in the key
  * @returns The cache key
  */
-export function generateRepoKey(
-  _repoPath: string,
+export function generateRepoKey(__repoPath: string,
   operation: string,
   params?: Record<string, unknown>
 ): string {
@@ -140,8 +139,7 @@ export class RepositoryError extends Error {
    * @param message Error message
    * @param cause Underlying cause of the error
    */
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly cause?: Error
   ) {
     super(message);

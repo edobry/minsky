@@ -76,7 +76,7 @@ export class MinskyMCPServer {
   private options: Required<MinskyMCPServerOptions>;
   private projectContext: ProjectContext;
 
-  constructor(_options: MinskyMCPServerOptions = {}) {
+  constructor(__options: MinskyMCPServerOptions = {}) {
     this.options = {
       name: options.name ?? "Minsky MCP Server",
       version: options.version ?? "1.0.0",
@@ -109,7 +109,7 @@ export class MinskyMCPServer {
 
   private setupHandlers(): void {
     // Handle tool listing
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    this.server.setRequestHandler(_ListToolsRequestSchema, async () => {
       const tools: Tool[] = [
         {
           name: "git.status",
@@ -221,7 +221,7 @@ export class MinskyMCPServer {
     });
 
     // Handle tool calls
-    this.server.setRequestHandler(CallToolRequestSchema, async (_request: unknown) => {
+    this.server.setRequestHandler(_CallToolRequestSchema, async (_request: unknown) => {
       const { name, arguments: _args } = request.params;
 
       try {
@@ -263,13 +263,13 @@ export class MinskyMCPServer {
           content: [
             {
               type: "text",
-              text: typeof result === "string" ? result : JSON.stringify(_result, null, 2),
+              text: typeof result === "string" ? result : JSON.stringify(__result, null, 2),
             },
           ],
         };
 
         return callResult;
-      } catch {
+      } catch (_error) {
         log.error(`Error executing tool ${name}:`, {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -285,7 +285,7 @@ export class MinskyMCPServer {
     return `Git status for repository: ${this.projectContext.repositoryPath}`;
   }
 
-  private async handleGitLog(maxCount: number = 10): Promise<string> {
+  private async handleGitLog(_maxCount: number = 10): Promise<string> {
     return `Git log (last ${maxCount} commits) for repository: ${this.projectContext.repositoryPath}`;
   }
 
@@ -293,15 +293,15 @@ export class MinskyMCPServer {
     return "Tasks list - placeholder implementation";
   }
 
-  private async handleTasksCreate(_title: string, description?: string): Promise<string> {
+  private async handleTasksCreate(__title: string, description?: string): Promise<string> {
     return `Created task: ${title}${description ? ` - ${description}` : ""}`;
   }
 
-  private async handleTasksUpdate(_id: string, title?: string, description?: string): Promise<string> {
+  private async handleTasksUpdate(__id: string, title?: string, description?: string): Promise<string> {
     return `Updated task ${id}${title ? ` with title: ${title}` : ""}${description ? ` and description: ${description}` : ""}`;
   }
 
-  private async handleSessionCreate(_taskId: string): Promise<string> {
+  private async handleSessionCreate(__taskId: string): Promise<string> {
     return `Created session for task: ${taskId}`;
   }
 

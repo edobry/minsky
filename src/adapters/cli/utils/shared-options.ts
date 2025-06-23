@@ -87,7 +87,7 @@ export interface ForceOptions {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addRepoOptions(_command: Command): Command {
+export function addRepoOptions(__command: Command): Command {
   return command
     .option("--session <session>", SESSION_DESCRIPTION)
     .option("--repo <repositoryUri>", REPO_DESCRIPTION)
@@ -99,7 +99,7 @@ export function addRepoOptions(_command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addOutputOptions(_command: Command): Command {
+export function addOutputOptions(__command: Command): Command {
   return command.option("--json", JSON_DESCRIPTION).option("--debug", DEBUG_DESCRIPTION);
 }
 
@@ -108,7 +108,7 @@ export function addOutputOptions(_command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addTaskOptions(_command: Command): Command {
+export function addTaskOptions(__command: Command): Command {
   return command.option("--task <_taskId>", TASK_ID_DESCRIPTION);
 }
 
@@ -117,7 +117,7 @@ export function addTaskOptions(_command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addBackendOptions(_command: Command): Command {
+export function addBackendOptions(__command: Command): Command {
   return command.option("-b, --backend <backend>", BACKEND_DESCRIPTION);
 }
 
@@ -126,7 +126,7 @@ export function addBackendOptions(_command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addForceOptions(_command: Command): Command {
+export function addForceOptions(__command: Command): Command {
   return command.option("-f, --force", FORCE_DESCRIPTION);
 }
 
@@ -140,7 +140,7 @@ export function addForceOptions(_command: Command): Command {
  * @param options CLI repository options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeRepoOptions(_options: RepoOptions): {
+export function normalizeRepoOptions(__options: RepoOptions): {
   session?: string;
   repo?: string;
   workspace?: string;
@@ -158,7 +158,7 @@ export function normalizeRepoOptions(_options: RepoOptions): {
  * @param options CLI output options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeOutputOptions(_options: OutputOptions): {
+export function normalizeOutputOptions(__options: OutputOptions): {
   json?: boolean;
   debug?: boolean;
 } {
@@ -174,7 +174,7 @@ export function normalizeOutputOptions(_options: OutputOptions): {
  * @param options CLI task options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeTaskOptions(_options: TaskOptions): {
+export function normalizeTaskOptions(__options: TaskOptions): {
   task?: string;
 } {
   // If task ID is provided, normalize it
