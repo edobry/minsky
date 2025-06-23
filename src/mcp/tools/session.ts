@@ -7,17 +7,17 @@ import { log } from "../../utils/logger";
  * Register session-related tools with the MCP server
  * @param commandMapper The command mapper instance
  */
-export function registerSessionTools(commandMapper: CommandMapper): void {
+export function registerSessionTools(__commandMapper: CommandMapper): void {
   // Session list tool
   commandMapper.addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {
       // Execute the command
-      const command = "minsky session list --json";
-      const output = execSync(command).toString();
+      const _command = "minsky session list --json";
+      const output = execSync(_command).toString();
 
       // Parse the JSON output
       return JSON.parse(output);
-    } catch (error) {
+    } catch (_error) {
       log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
@@ -30,18 +30,18 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "get",
     "Get details of a specific session",
     z.object({
-      session: z.string().describe("Session identifier"),
+      _session: z.string().describe("Session identifier"),
     }),
-    async (args: z.infer<z.ZodObject<{ session: z.ZodString }>>) => {
+    async (_args: unknown) => {
       try {
         // Execute the command
-        const command = `minsky session get ${args.session} --json`;
-        const output = execSync(command).toString();
+        const _command = `minsky session get ${args.session} --json`;
+        const output = execSync(_command).toString();
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (error) {
-        log.error(`Error getting session ${args.session}`, { error, session: args.session });
+      } catch (_error) {
+        log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -59,7 +59,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       quiet: z.boolean().optional().describe("Whether to suppress output").default(true),
     }),
     async (
-      args: z.infer<
+      _args: z.infer<
         z.ZodObject<{
           name: z.ZodOptional<z.ZodString>;
           task: z.ZodOptional<z.ZodString>;
@@ -69,7 +69,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command
-        let command = "minsky session start";
+        let _command = "minsky session start";
         if (args.name) {
           command += ` --name ${args.name}`;
         }
@@ -80,7 +80,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         command += " --quiet";
 
         // Execute the command
-        const output = execSync(command).toString();
+        const output = execSync(_command).toString();
 
         // Return success response
         return {
@@ -88,10 +88,10 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
           message: output.trim(),
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
-      } catch (error) {
+      } catch (_error) {
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
-          `Failed to start session: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -109,16 +109,16 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         .describe("Session to commit changes for (uses current session if not provided)"),
     }),
     async (
-      args: z.infer<
+      _args: z.infer<
         z.ZodObject<{
           message: z.ZodOptional<z.ZodString>;
-          session: z.ZodOptional<z.ZodString>;
+          _session: z.ZodOptional<z.ZodString>;
         }>
       >
     ) => {
       try {
         // Build the command
-        let command = "minsky session commit";
+        let _command = "minsky session commit";
         if (args.message) {
           command += ` -m "${args.message}"`;
         }
@@ -127,15 +127,15 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         }
 
         // Execute the command
-        const output = execSync(command).toString();
+        const output = execSync(_command).toString();
 
         // Return success response
         return {
           success: true,
           message: output.trim(),
         };
-      } catch (error) {
-        log.error("Error committing changes", { error, session: args.session });
+      } catch (_error) {
+        log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -148,35 +148,35 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "push",
     "Push changes in a session",
     z.object({
-      session: z
+      _session: z
         .string()
         .optional()
         .describe("Session to push changes for (uses current session if not provided)"),
     }),
     async (
-      args: z.infer<
+      _args: z.infer<
         z.ZodObject<{
-          session: z.ZodOptional<z.ZodString>;
+          _session: z.ZodOptional<z.ZodString>;
         }>
       >
     ) => {
       try {
         // Build the command
-        let command = "minsky session push";
+        let _command = "minsky session push";
         if (args.session) {
           command += ` --session ${args.session}`;
         }
 
         // Execute the command
-        const output = execSync(command).toString();
+        const output = execSync(_command).toString();
 
         // Return success response
         return {
           success: true,
           message: output.trim(),
         };
-      } catch (error) {
-        log.error("Error pushing changes", { error, session: args.session });
+      } catch (_error) {
+        log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`
         );

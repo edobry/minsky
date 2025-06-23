@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
   type CommandExecutionContext,
 } from "../command-registry.js";
 import { initializeProjectFromParams } from "../../../domain/init.js";
@@ -80,11 +79,11 @@ const initParams: CommandParameterMap = {
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand({
-    id: "init",
+    _id: "init",
     category: CommandCategory.INIT,
     name: "init",
     description: "Initialize a project for Minsky",
-    parameters: initParams,
+    _parameters: initParams,
     execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
@@ -94,7 +93,7 @@ export function registerInitCommands() {
         const mcpOnly = params.mcpOnly ?? false;
         const overwrite = params.overwrite ?? false;
         // Map MCP options
-        let mcp: any = undefined;
+        let mcp: unknown = undefined;
         if (params.mcp !== undefined || params.mcpTransport || params.mcpPort || params.mcpHost) {
           mcp = {
             enabled: params.mcp === undefined ? true : params.mcp === true || params.mcp === "true",
@@ -112,7 +111,7 @@ export function registerInitCommands() {
           overwrite,
         });
         return { success: true, message: "Project initialized successfully." };
-      } catch (error: any) {
+      } catch (error: unknown) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error

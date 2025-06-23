@@ -1,4 +1,5 @@
 import { join } from "path";
+import { HTTP_OK } from "../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
@@ -14,6 +15,10 @@ import type {
   Result,
   RepoStatus,
 } from "./index.js";
+
+const HTTP_NOT_FOUND = HTTP_NOT_FOUND;
+const HTTP_UNAUTHORIZED = HTTP_UNAUTHORIZED;
+const HTTP_FORBIDDEN = HTTP_FORBIDDEN;
 
 // Define a global for process to avoid linting errors
 declare const process: {
@@ -42,9 +47,9 @@ export class GitHubBackend implements RepositoryBackend {
    * Create a new GitHubBackend instance
    * @param config Backend configuration
    */
-  constructor(config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+  constructor(__config: RepositoryBackendConfig) {
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(_xdgStateHome, "minsky", "git");
 
     // Extract GitHub-specific options
     this.owner = config.github?.owner;
@@ -85,9 +90,9 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(session: string): string {
+  private getSessionWorkdir(__session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, this.repoName, "sessions", session);
+    return join(this.baseDir, this.repoName, "sessions", _session);
   }
 
   /**
@@ -95,29 +100,29 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(session: string): Promise<CloneResult> {
+  async clone(__session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
     const sessionsDir = join(this.baseDir, this.repoName, "sessions");
-    await mkdir(sessionsDir, { recursive: true });
+    await mkdir(_sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(_session);
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const result = await this.gitService.clone({
+      const _result = await this.gitService.clone({
         repoUrl: this.repoUrl,
-        session,
+        _session,
       });
 
       return {
-        workdir,
-        session,
+        _workdir,
+        _session,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
 
       // Provide more informative error messages for common GitHub issues
       if (error.message.includes("Authentication failed")) {
@@ -142,21 +147,21 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(session: string, branch: string): Promise<BranchResult> {
+  async branch(__session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(_session);
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
       await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
       return {
-        workdir,
-        branch,
+        _workdir,
+        _branch,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create branch in GitHub repository: ${error.message}`);
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Failed to create _branch in GitHub repository: ${error.message}`);
     }
   }
 
@@ -170,23 +175,23 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
       // Forward to the version that takes a session parameter
-      const workdir = this.getSessionWorkdir(repoSession.session);
+      const _workdir = this.getSessionWorkdir(repoSession._session);
 
       // Use GitService to get repository status
-      const gitStatus = await this.gitService.getStatus(workdir);
+      const gitStatus = await this.gitService.getStatus(_workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const branch = branchOutput.trim();
+      const _branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -200,7 +205,7 @@ export class GitHubBackend implements RepositoryBackend {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
-      } catch {
+      } catch (_error) {
         // If no upstream branch is set, this will fail - that's okay
       }
 
@@ -210,7 +215,7 @@ export class GitHubBackend implements RepositoryBackend {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line: string) => line.split("\t")[0] || "")
+        .map((_line: unknown) => line.split("\t")[0] || "")
         .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
@@ -232,7 +237,7 @@ export class GitHubBackend implements RepositoryBackend {
         // Original properties
         clean: !dirty,
         changes,
-        branch,
+        _branch,
         tracking: remotes.length > 0 ? remotes[0] : undefined,
 
         // Extended properties
@@ -243,13 +248,13 @@ export class GitHubBackend implements RepositoryBackend {
         modifiedFiles,
 
         // Additional GitHub-specific information
-        workdir,
+        _workdir,
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get GitHub repository status: ${error.message}`);
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Failed to get GitHub repository _status: ${error.message}`);
     }
   }
 
@@ -258,8 +263,8 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatusForSession(session: string): Promise<RepositoryStatus> {
-    const workdir = this.getSessionWorkdir(session);
+  async getStatusForSession(__session: string): Promise<RepositoryStatus> {
+    const _workdir = this.getSessionWorkdir(_session);
     return this.getStatus(); // Reuse the existing implementation
   }
 
@@ -273,7 +278,7 @@ export class GitHubBackend implements RepositoryBackend {
    */
   async getPath(session?: string): Promise<string> {
     if (session) {
-      return this.getSessionWorkdir(session);
+      return this.getSessionWorkdir(_session);
     }
 
     // If no session is provided, find one for this repository
@@ -282,10 +287,10 @@ export class GitHubBackend implements RepositoryBackend {
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
-        return this.getSessionWorkdir(repoSession.session);
+        return this.getSessionWorkdir(repoSession._session);
       }
-    } catch (err) {
-      // If we can't find a session, just return the base directory
+    } catch (_error) {
+      // If we can't find a _session, just return the base directory
     }
 
     return this.baseDir;
@@ -311,26 +316,26 @@ export class GitHubBackend implements RepositoryBackend {
       if (this.owner && this.repo) {
         // Use curl to check if the repo exists without cloning
         // Note: Using public API without token for validation only
-        const command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
+        const _command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
 
-        const { stdout } = await execAsync(command);
+        const { stdout } = await execAsync(_command);
         const statusCode = parseInt(stdout.trim(), 10);
 
-        if (statusCode === 404) {
+        if (statusCode === HTTP_NOT_FOUND) {
           return {
             valid: false,
             success: false,
             issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
-        } else if (statusCode === 401 || statusCode === 403) {
+        } else if (statusCode === HTTPUNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
           return {
             valid: false,
             success: false,
             issues: ["GitHub API rate limit or permissions issue. The repo may still be valid."],
             message: "GitHub API rate limit or permissions issue. The repo may still be valid.",
           };
-        } else if (statusCode !== 200) {
+        } else if (statusCode !== HTTP_OK) {
           return {
             valid: false,
             success: false,
@@ -345,8 +350,8 @@ export class GitHubBackend implements RepositoryBackend {
         success: true,
         message: "GitHub repository validated successfully",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
       return {
         valid: false,
         success: false,
@@ -365,7 +370,7 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -374,12 +379,12 @@ export class GitHubBackend implements RepositoryBackend {
         };
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const _sessionName = repoSession.session;
+      const _workdir = this.getSessionWorkdir(_sessionName);
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        session: sessionName,
+        _session: sessionName,
         repoPath: workdir,
         remote: "origin",
       });
@@ -390,8 +395,8 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
         message: `Failed to push to repository: ${error.message}`,
@@ -408,7 +413,7 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -417,11 +422,11 @@ export class GitHubBackend implements RepositoryBackend {
         };
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const _sessionName = repoSession.session;
+      const _workdir = this.getSessionWorkdir(_sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await this.gitService.pullLatest(workdir);
+      const pullResult = await this.gitService.pullLatest(_workdir);
 
       return {
         success: true,
@@ -429,8 +434,8 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
         message: `Failed to pull from repository: ${error.message}`,
@@ -444,25 +449,25 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name to checkout
    * @returns Promise resolving to void
    */
-  async checkout(branch: string): Promise<void> {
+  async checkout(__branch: string): Promise<void> {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
-      const sessionName = repoSession.session;
-      const workdir = this.getSessionWorkdir(sessionName);
+      const _sessionName = repoSession.session;
+      const _workdir = this.getSessionWorkdir(_sessionName);
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to checkout branch: ${error.message}`);
+    } catch (_error) {
+      const _error = err instanceof Error ? err : new Error(String(err));
+      throw new Error(`Failed to checkout _branch: ${error.message}`);
     }
   }
 

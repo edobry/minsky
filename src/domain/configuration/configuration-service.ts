@@ -24,12 +24,12 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Load configuration with full resolution and backend detection
    */
-  async loadConfiguration(workingDir: string): Promise<ConfigurationLoadResult> {
+  async loadConfiguration(__workingDir: string): Promise<ConfigurationLoadResult> {
     // Load base configuration from all sources
-    const result = await this.loader.loadConfiguration(workingDir);
+    const result = await this.loader.loadConfiguration(_workingDir);
     
     // Apply backend auto-detection if enabled
-    const resolved = await this.applyBackendDetection(workingDir, result.resolved);
+    const resolved = await this.applyBackendDetection(__workingDir, result.resolved);
     
     // Resolve credentials
     const finalResolved = await this.resolveCredentials(resolved);
@@ -43,7 +43,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Validate repository configuration
    */
-  validateRepositoryConfig(config: RepositoryConfig): ValidationResult {
+  validateRepositoryConfig(__config: RepositoryConfig): ValidationResult {
     const errors: Array<{ field: string; message: string; code: string }> = [];
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
@@ -68,7 +68,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       if (!validBackends.includes(config.backends.default)) {
         errors.push({
           field: "backends.default",
-          message: `Invalid backend: ${config.backends.default}. Valid options: ${validBackends.join(", ")}`,
+          message: `Invalid backend: ${config.backends.default}. Valid _options: ${validBackends.join(", ")}`,
           code: "INVALID_BACKEND"
         });
       }
@@ -102,7 +102,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Validate global user configuration
    */
-  validateGlobalUserConfig(config: GlobalUserConfig): ValidationResult {
+  validateGlobalUserConfig(__config: GlobalUserConfig): ValidationResult {
     const errors: Array<{ field: string; message: string; code: string }> = [];
     const warnings: Array<{ field: string; message: string; code: string }> = [];
 
@@ -129,7 +129,7 @@ export class DefaultConfigurationService implements ConfigurationService {
       if (!validSources.includes(github.source)) {
         errors.push({
           field: "credentials.github.source",
-          message: `Invalid credential source: ${github.source}. Valid options: ${validSources.join(", ")}`,
+          message: `Invalid credential source: ${github.source}. Valid _options: ${validSources.join(", ")}`,
           code: "INVALID_CREDENTIAL_SOURCE"
         });
       }
@@ -153,7 +153,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Apply backend auto-detection if enabled
    */
-  private async applyBackendDetection(workingDir: string, config: ResolvedConfig): Promise<ResolvedConfig> {
+  private async applyBackendDetection(__workingDir: string, _config: ResolvedConfig): Promise<ResolvedConfig> {
     // If backend is already explicitly set or auto-detection is disabled, use as-is
     if (!config.detectionRules || config.detectionRules.length === 0) {
       return config;
@@ -166,7 +166,7 @@ export class DefaultConfigurationService implements ConfigurationService {
     }
 
     // Run detection
-    const detectedBackend = await this.backendDetector.detectBackend(workingDir, config.detectionRules);
+    const detectedBackend = await this.backendDetector.detectBackend(__workingDir, config.detectionRules);
     
     return {
       ...config,
@@ -177,7 +177,7 @@ export class DefaultConfigurationService implements ConfigurationService {
   /**
    * Resolve credentials using the credential manager
    */
-  private async resolveCredentials(config: ResolvedConfig): Promise<ResolvedConfig> {
+  private async resolveCredentials(__config: ResolvedConfig): Promise<ResolvedConfig> {
     const resolved = { ...config };
 
     // Resolve GitHub credentials if needed

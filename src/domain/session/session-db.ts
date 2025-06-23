@@ -30,9 +30,9 @@ export interface SessionDbState {
 /**
  * Initialize a new SessionDB state object
  */
-export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
+export function initializeSessionDbState(__options: { baseDir?: string } = {}): SessionDbState {
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
+  const baseDir = options.baseDir || join(_xdgStateHome, "minsky", "git");
 
   return {
     sessions: [],
@@ -43,21 +43,21 @@ export function initializeSessionDbState(options: { baseDir?: string } = {}): Se
 /**
  * List all sessions
  */
-export function listSessionsFn(state: SessionDbState): SessionRecord[] {
+export function listSessionsFn(_state: SessionDbState): SessionRecord[] {
   return [...state.sessions];
 }
 
 /**
  * Get a specific session by name
  */
-export function getSessionFn(state: SessionDbState, sessionName: string): SessionRecord | null {
+export function getSessionFn(_state: SessionDbState, _sessionName: string): SessionRecord | null {
   return state.sessions.find((s) => s.session === sessionName) || null;
 }
 
 /**
  * Get a specific session by task ID
  */
-export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
+export function getSessionByTaskIdFn(_state: SessionDbState, _taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
   return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;
@@ -66,7 +66,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): Ses
 /**
  * Add a new session to the state
  */
-export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
+export function addSessionFn(_state: SessionDbState, _record: SessionRecord): SessionDbState {
   return {
     ...state,
     sessions: [...state.sessions, record],
@@ -76,10 +76,9 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
 /**
  * Update an existing session
  */
-export function updateSessionFn(
-  state: SessionDbState,
-  sessionName: string,
-  updates: Partial<Omit<SessionRecord, "session">>
+export function updateSessionFn(_state: SessionDbState,
+  _sessionName: string,
+  _updates: Partial<Omit<"session">>
 ): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
@@ -99,14 +98,14 @@ export function updateSessionFn(
 /**
  * Delete a session by name
  */
-export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
+export function deleteSessionFn(_state: SessionDbState, _sessionName: string): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
     return state;
   }
 
   const updatedSessions = [...state.sessions];
-  updatedSessions.splice(index, 1);
+  updatedSessions.splice(_index, 1);
 
   return {
     ...state,
@@ -117,7 +116,7 @@ export function deleteSessionFn(state: SessionDbState, sessionName: string): Ses
 /**
  * Get the repository path for a session
  */
-export function getRepoPathFn(state: SessionDbState, record: SessionRecord): string {
+export function getRepoPathFn(_state: SessionDbState, _record: SessionRecord): string {
   if (!record) {
     throw new Error("Session record is required");
   }
@@ -127,17 +126,17 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
   }
 
   const repoName = normalizeRepoName(record.repoName || record.repoUrl);
-  return join(state.baseDir, repoName, "sessions", record.session);
+  return join(state.baseDir, repoName, "sessions", record._session);
 }
 
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
-  const session = getSessionFn(state, sessionName);
+export function getSessionWorkdirFn(_state: SessionDbState, _sessionName: string): string | null {
+  const _session = getSessionFn(_state, _sessionName);
   if (!session) {
     return null;
   }
 
-  return getRepoPathFn(state, session);
+  return getRepoPathFn(_state, _session);
 }

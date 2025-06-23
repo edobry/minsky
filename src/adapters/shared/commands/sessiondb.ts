@@ -231,12 +231,12 @@ function generateDefaultPath(backend: string): string | undefined {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
   switch (backend) {
-    case "sqlite":
-      return join(xdgStateHome, "minsky", "sessions.db");
-    case "json":
-      return join(xdgStateHome, "minsky", "session-db.json");
-    default:
-      return undefined;
+  case "sqlite":
+    return join(xdgStateHome, "minsky", "sessions.db");
+  case "json":
+    return join(xdgStateHome, "minsky", "session-db.json");
+  default:
+    return undefined;
   }
 }
 

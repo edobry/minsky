@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 /**
  * Shared utility functions for rules operations
  */
@@ -8,7 +10,7 @@ import { promises as fs } from "fs";
 /**
  * Helper to read content from a file if the path exists
  */
-export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
+export async function readContentFromFileIfExists(__contentPath: string): Promise<string> {
   try {
     // Check if the path exists first
     if (existsSync(contentPath)) {
@@ -16,23 +18,23 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        const content = await fs.readFile(contentPath, "utf-8");
+        const _content = await fs.readFile(_contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
         return content.toString();
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
-        throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
+        throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
       }
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (error) {
+  } catch (_error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
     }
 
     // For other errors, throw a clear error message
-    throw new Error(`Failed to read content from file ${contentPath}: ${error}`);
+    throw new Error(`Failed to read _content from file ${contentPath}: ${error}`);
   }
 }
 
@@ -50,7 +52,7 @@ export function parseGlobs(globsStr?: string): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (e) {
+  } catch (_error) {
     // If JSON parsing fails, fall back to comma-separated string
   }
 

@@ -8,6 +8,8 @@ import {
   type TaskStatusSetParams,
 } from "../../../schemas/tasks.js";
 
+const TEST_VALUE = TEST_VALUE;
+
 // Set up automatic mock cleanup
 setupTestMocks();
 
@@ -32,25 +34,25 @@ mockModule("../../../domain/tasks.js", () => {
 describe("Tasks Domain Methods", () => {
   const mockTasks: Task[] = [
     {
-      id: "123",
+      id: "TEST_VALUE",
       title: "Test Task 1",
       description: "This is a test task",
       status: TASK_STATUS.TODO,
-      specPath: "process/tasks/123-test-task-1.md",
+      _specPath: "process/tasks/TEST_VALUE-test-task-1.md",
     },
     {
       id: "124",
       title: "Test Task 2",
       description: "This is another test task",
       status: TASK_STATUS.IN_PROGRESS,
-      specPath: "process/tasks/124-test-task-2.md",
+      _specPath: "process/tasks/124-test-task-2.md",
     },
     {
       id: "125",
       title: "Test Task 3",
       description: "This is a completed test task",
       status: TASK_STATUS.DONE,
-      specPath: "process/tasks/125-test-task-3.md",
+      _specPath: "process/tasks/125-test-task-3.md",
     },
   ];
 
@@ -65,17 +67,17 @@ describe("Tasks Domain Methods", () => {
   describe("getTaskFromParams", () => {
     test("gets task by ID", async () => {
       // Arrange
-      const params: TaskGetParams = { taskId: "123", json: false };
+      const params: TaskGetParams = { taskId: "TEST_VALUE", json: false };
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
 
       // Act
-      const result = await mockGetTaskFromParams(params);
+      const _result = await mockGetTaskFromParams(params);
 
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(mockTasks[0]);
-      expect(result.id).toBe("123");
-      expect(result.title).toBe("Test Task 1");
+      expect(_result).toEqual(mockTasks[0]);
+      expect(result.id).toBe("TEST_VALUE");
+      expect(result._title).toBe("Test Task 1");
     });
 
     test("throws error when task not found", async () => {
@@ -93,18 +95,18 @@ describe("Tasks Domain Methods", () => {
     test("gets task with custom repo path", async () => {
       // Arrange
       const params: TaskGetParams = {
-        taskId: "123",
+        taskId: "TEST_VALUE",
         repo: "/custom/repo/path",
         json: false,
       };
       mockGetTaskFromParams.mockResolvedValue(mockTasks[0]);
 
       // Act
-      const result = await mockGetTaskFromParams(params);
+      const _result = await mockGetTaskFromParams(params);
 
       // Assert
       expect(mockGetTaskFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(mockTasks[0]);
+      expect(_result).toEqual(mockTasks[0]);
     });
   });
 
@@ -115,11 +117,11 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(mockTasks);
 
       // Act
-      const result = await mockListTasksFromParams(params);
+      const _result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(mockTasks);
+      expect(_result).toEqual(mockTasks);
       expect(result.length).toBe(3);
     });
 
@@ -134,13 +136,13 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(filteredTasks);
 
       // Act
-      const result = await mockListTasksFromParams(params);
+      const _result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual([mockTasks[1]]);
+      expect(_result).toEqual([mockTasks[1]]);
       expect(result.length).toBe(1);
-      expect(result[0]?.status).toBe(TASK_STATUS.IN_PROGRESS);
+      expect(result[0]?._status).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
     test("handles custom repo path", async () => {
@@ -153,11 +155,11 @@ describe("Tasks Domain Methods", () => {
       mockListTasksFromParams.mockResolvedValue(mockTasks);
 
       // Act
-      const result = await mockListTasksFromParams(params);
+      const _result = await mockListTasksFromParams(params);
 
       // Assert
       expect(mockListTasksFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(mockTasks);
+      expect(_result).toEqual(mockTasks);
     });
   });
 
@@ -168,11 +170,11 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.IN_PROGRESS);
 
       // Act
-      const result = await mockGetTaskStatusFromParams(params);
+      const _result = await mockGetTaskStatusFromParams(params);
 
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBe(TASK_STATUS.IN_PROGRESS);
+      expect(_result).toBe(TASK_STATUS.IN_PROGRESS);
     });
 
     test("throws error when task not found", async () => {
@@ -197,11 +199,11 @@ describe("Tasks Domain Methods", () => {
       mockGetTaskStatusFromParams.mockResolvedValue(TASK_STATUS.DONE);
 
       // Act
-      const result = await mockGetTaskStatusFromParams(params);
+      const _result = await mockGetTaskStatusFromParams(params);
 
       // Assert
       expect(mockGetTaskStatusFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBe(TASK_STATUS.DONE);
+      expect(_result).toBe(TASK_STATUS.DONE);
     });
   });
 
@@ -209,7 +211,7 @@ describe("Tasks Domain Methods", () => {
     test("sets task status", async () => {
       // Arrange
       const params: TaskStatusSetParams = {
-        taskId: "123",
+        taskId: "TEST_VALUE",
         status: TASK_STATUS.IN_PROGRESS,
         json: false,
       };
@@ -225,7 +227,7 @@ describe("Tasks Domain Methods", () => {
     test("throws error when setting invalid status", async () => {
       // Arrange
       const params: TaskStatusSetParams = {
-        taskId: "123",
+        taskId: "TEST_VALUE",
         status: "INVALID_STATUS" as any,
         json: false,
       };
@@ -241,7 +243,7 @@ describe("Tasks Domain Methods", () => {
     test("handles custom repo path", async () => {
       // Arrange
       const params: TaskStatusSetParams = {
-        taskId: "123",
+        taskId: "TEST_VALUE",
         status: TASK_STATUS.DONE,
         repo: "/custom/repo/path",
         json: false,

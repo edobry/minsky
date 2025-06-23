@@ -10,7 +10,6 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
   type CommandExecutionContext,
 } from "../command-registry";
 import {
@@ -189,21 +188,21 @@ const prCommandParams: CommandParameterMap = {
 export function registerGitCommands(): void {
   // Register git commit command
   sharedCommandRegistry.registerCommand({
-    id: "git.commit",
+    _id: "git.commit",
     category: CommandCategory.GIT,
     name: "commit",
     description: "Commit changes to the repository",
-    parameters: commitCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.commit command", { params, context });
+    _parameters: commitCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.commit _command", { params, _context });
 
-      const result = await commitChangesFromParams({
+      const _result = await commitChangesFromParams({
         message: params.message,
         all: params.all,
         amend: params.amend,
         noStage: params.noStage,
         repo: params.repo,
-        session: params.session,
+        _session: params._session,
       });
 
       return {
@@ -216,17 +215,17 @@ export function registerGitCommands(): void {
 
   // Register git push command
   sharedCommandRegistry.registerCommand({
-    id: "git.push",
+    _id: "git.push",
     category: CommandCategory.GIT,
     name: "push",
     description: "Push changes to the remote repository",
-    parameters: pushCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.push command", { params, context });
+    _parameters: pushCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.push _command", { params, _context });
 
-      const result = await pushFromParams({
+      const _result = await pushFromParams({
         repo: params.repo,
-        session: params.session,
+        _session: params._session,
         remote: params.remote,
         force: params.force,
         debug: params.debug,
@@ -234,74 +233,74 @@ export function registerGitCommands(): void {
 
       return {
         success: result.pushed,
-        workdir: result.workdir,
+        _workdir: result.workdir,
       };
     },
   });
 
   // Register git clone command
   sharedCommandRegistry.registerCommand({
-    id: "git.clone",
+    _id: "git.clone",
     category: CommandCategory.GIT,
     name: "clone",
     description: "Clone a Git repository",
-    parameters: cloneCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.clone command", { params, context });
+    _parameters: cloneCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.clone _command", { params, _context });
 
-      const result = await cloneFromParams({
+      const _result = await cloneFromParams({
         url: params.url,
-        session: params.session,
+        _session: params._session,
         destination: params.destination,
-        branch: params.branch,
+        _branch: params._branch,
       });
 
       return {
         success: true,
-        workdir: result.workdir,
-        session: result.session,
+        _workdir: result.workdir,
+        _session: result.session,
       };
     },
   });
 
   // Register git branch command
   sharedCommandRegistry.registerCommand({
-    id: "git.branch",
+    _id: "git._branch",
     category: CommandCategory.GIT,
-    name: "branch",
+    name: "_branch",
     description: "Create a new branch",
-    parameters: branchCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.branch command", { params, context });
+    _parameters: branchCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git._branch _command", { params, _context });
 
-      const result = await branchFromParams({
-        session: params.session,
+      const _result = await branchFromParams({
+        _session: params._session,
         name: params.name,
       });
 
       return {
         success: true,
-        workdir: result.workdir,
-        branch: result.branch,
+        _workdir: result.workdir,
+        _branch: result.branch,
       };
     },
   });
 
   // Register git pr command
   sharedCommandRegistry.registerCommand({
-    id: "git.pr",
+    _id: "git.pr",
     category: CommandCategory.GIT,
     name: "pr",
     description: "Create a new pull request",
-    parameters: prCommandParams,
-    execute: async (params, context) => {
-      log.debug("Executing git.pr command", { params, context });
+    _parameters: prCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.pr _command", { params, _context });
 
-      const result = await createPullRequestFromParams({
-        session: params.session,
+      const _result = await createPullRequestFromParams({
+        _session: params._session,
         repo: params.repo,
-        branch: params.branch,
-        taskId: params.task,
+        _branch: params._branch,
+        _taskId: params.task,
         debug: params.debug,
         noStatusUpdate: params.noStatusUpdate,
       });

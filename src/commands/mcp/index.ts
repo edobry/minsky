@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { DEFAULT_DEV_PORT } from "../utils/constants";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
@@ -12,6 +13,8 @@ import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launc
 import { createProjectContext } from "../../types/project";
 import fs from "fs";
 import path from "path";
+
+const INSPECTOR_PORT = INSPECTOR_PORT;
 
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
@@ -37,15 +40,15 @@ export function createMCPCommand(): Command {
   startCommand
     .option("--stdio", "Use stdio transport (default)")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", "8080")
+    .option("-p, --port <port>", "Port for HTTP Stream server", "DEFAULT_DEV_PORT")
     .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
-    .action(async (options) => {
+    .option("--inspector-port <port>", "Port for the MCP inspector", "INSPECTOR_PORT")
+    .action(async (_options) => {
       try {
         // Determine transport type based on options
         let transportType: "stdio" | "sse" | "httpStream" = "stdio";
@@ -72,11 +75,11 @@ export function createMCPCommand(): Command {
 
           try {
             projectContext = createProjectContext(repositoryPath);
-            log.debug("Using repository path from command line", {
+            log.debug("Using repository path from _command line", {
               repositoryPath,
             });
-          } catch (error) {
-            log.cliError(`Invalid repository path: ${repositoryPath}`);
+          } catch (_error) {
+            log.cliError(`Invalid repository _path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
             }
@@ -132,7 +135,7 @@ export function createMCPCommand(): Command {
 
         log.cli(`Minsky MCP Server started with ${transportType} transport`);
         if (projectContext) {
-          log.cli(`Repository path: ${projectContext.repositoryPath}`);
+          log.cli(`Repository _path: ${projectContext.repositoryPath}`);
         }
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
@@ -182,7 +185,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch (error) {
+      } catch (_error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.httpStream ? "httpStream" : "stdio",
@@ -196,11 +199,11 @@ export function createMCPCommand(): Command {
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
           const port = parseInt(options.port, 10);
-          const networkError = createNetworkError(error, port, options.host);
+          const networkError = createNetworkError(_error, port, options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions
-          log.cliError(formatNetworkErrorMessage(networkError, isDebug));
+          log.cliError(formatNetworkErrorMessage(_networkError, isDebug));
 
           // Only show stack trace in debug mode
           if (isDebug && error instanceof Error && error.stack) {

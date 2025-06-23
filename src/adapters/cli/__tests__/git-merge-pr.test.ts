@@ -14,16 +14,16 @@ setupTestMocks();
 
 describe("GitService Default Branch Detection", () => {
   // Save original methods for restoration
-  let originalExecInRepository: any;
-  let execMock: any;
+  let originalExecInRepository: unknown;
+  let execMock: unknown;
 
   // Mock dependencies
   beforeEach(() => {
     // Use project's test utilities for mocking
     originalExecInRepository = GitService.prototype.execInRepository;
     GitService.prototype.execInRepository = createMock(() => Promise.resolve("")) as unknown as (
-      workdir: string,
-      command: string
+      _workdir: string,
+      _command: string
     ) => Promise<string>;
     execMock = GitService.prototype.execInRepository;
   });
@@ -38,7 +38,7 @@ describe("GitService Default Branch Detection", () => {
     const gitService = new GitService();
 
     // First mock call will be for the symbolic-ref command to detect default branch
-    execMock.mockImplementation((workdir: string, cmd: string) => {
+    execMock.mockImplementation((_workdir: unknown) => {
       if (cmd.includes("symbolic-ref")) {
         return Promise.resolve("origin/custom-main\n");
       }
@@ -59,7 +59,7 @@ describe("GitService Default Branch Detection", () => {
     const gitService = new GitService();
 
     // Mock symbolic-ref to throw an error
-    execMock.mockImplementation((workdir: string, cmd: string) => {
+    execMock.mockImplementation((_workdir: unknown) => {
       if (cmd.includes("symbolic-ref")) {
         return Promise.reject(new Error("Git command failed"));
       }
@@ -67,9 +67,9 @@ describe("GitService Default Branch Detection", () => {
     });
 
     // Act
-    const result = await gitService.fetchDefaultBranch("/test/repo");
+    const _result = await gitService.fetchDefaultBranch("/test/repo");
 
     // Assert
-    expect(result).toBe("main");
+    expect(_result).toBe("main");
   });
 });

@@ -1,7 +1,7 @@
-#!/usr/bin/env bun
+// console is a global
 
-import { readFileSync, writeFileSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync, writeFileSync  } from "fs";
+import { execSync  } from "child_process";
 
 interface LintIssue {
   file: string;
@@ -17,24 +17,24 @@ class ComprehensiveCleanup {
   private processedFiles = new Set<string>();
 
   async run() {
-    console.log("🧹 Starting comprehensive ESLint cleanup...\n");
+    console.log("🧹 Starting comprehensive ESLint, cleanup...\n");
 
     // Get current lint issues
     const issues = this.parseLintOutput();
-    console.log(`📊 Found ${issues.length} total issues to process\n`);
+    console.log(`📊 Found ${issues.length} total issues to, process\n`);
 
     // Group issues by type for systematic processing
     const groupedIssues = this.groupIssuesByType(issues);
 
     // Process each category systematically
-    await this.processUnusedVars(groupedIssues["no-unused-vars"] || []);
-    await this.processUnusedTSVars(groupedIssues["@typescript-eslint/no-unused-vars"] || []);
-    await this.processMagicNumbers(groupedIssues["no-magic-numbers"] || []);
-    await this.processAnyTypes(groupedIssues["@typescript-eslint/no-explicit-any"] || []);
-    await this.processConsoleStatements(groupedIssues["no-console"] || []);
+    await this.processUnusedVars(groupedIssues["no-unused-vars"] ||, []);
+    await this.processUnusedTSVars(groupedIssues["@typescript-eslint/no-unused-vars"] ||, []);
+    await this.processMagicNumbers(groupedIssues["no-magic-numbers"] ||, []);
+    await this.processAnyTypes(groupedIssues["@typescript-eslint/no-explicit-any"] ||, []);
+    await this.processConsoleStatements(groupedIssues["no-console"] ||, []);
 
-    console.log(`\n✅ Comprehensive cleanup complete!`);
-    console.log(`🔧 Fixed ${this.fixedCount} issues across ${this.processedFiles.size} files`);
+    console.log(`\n✅ Comprehensive cleanup, complete!`);
+    console.log(`🔧 Fixed ${this.fixedCount} issues across ${this.processedFiles.size}, files`);
 
     // Show final lint count
     this.showFinalCount();
@@ -46,7 +46,7 @@ class ComprehensiveCleanup {
       return [];
     } catch (error: any) {
       const output = error.stdout || error.message;
-      return this.parseESLintOutput(typeof output === "string" ? output : output.toString());
+      return this.parseESLintOutput(typeof output === "string" ? output :, output.toString());
     }
   }
 
@@ -55,7 +55,7 @@ class ComprehensiveCleanup {
     const lines = output.split("\n");
     let currentFile = "";
 
-    for (const line of lines) {
+    for (const line, of, lines) {
       // File path line
       if (line.startsWith("/") && !line.includes(":")) {
         currentFile = line.trim();
@@ -71,13 +71,11 @@ class ComprehensiveCleanup {
         const message = match[4];
         const rule = match[5];
         issues.push({
-          file: currentFile,
-          line: parseInt(lineNum),
+          file: currentFile line:, parseInt(lineNum),
           column: parseInt(column),
           rule,
           message,
-          severity: severity as "error" | "warning",
-        });
+          severity: severity as "error" | "warning"});
       }
     }
 
@@ -86,7 +84,7 @@ class ComprehensiveCleanup {
 
   private groupIssuesByType(issues: LintIssue[]): Record<string, LintIssue[]> {
     const grouped: Record<string, LintIssue[]> = {};
-    for (const issue of issues) {
+    for (const issue, of, issues) {
       if (!grouped[issue.rule]) {
         grouped[issue.rule] = [];
       }
@@ -98,7 +96,7 @@ class ComprehensiveCleanup {
   private async processUnusedVars(issues: LintIssue[]) {
     if (issues.length === 0) return;
 
-    console.log(`🗑️  Processing ${issues.length} unused variable issues...`);
+    console.log(`🗑️  Processing ${issues.length} unused variable, issues...`);
 
     const fileGroups = this.groupIssuesByFile(issues);
 
@@ -110,7 +108,7 @@ class ComprehensiveCleanup {
   private async processUnusedTSVars(issues: LintIssue[]) {
     if (issues.length === 0) return;
 
-    console.log(`🗑️  Processing ${issues.length} TypeScript unused variable issues...`);
+    console.log(`🗑️  Processing ${issues.length} TypeScript unused variable, issues...`);
 
     const fileGroups = this.groupIssuesByFile(issues);
 
@@ -126,9 +124,9 @@ class ComprehensiveCleanup {
       let modified = false;
 
       // Sort issues by line number (descending) to avoid line number shifts
-      const sortedIssues = issues.sort((a, b) => b.line - a.line);
+      const sortedIssues = issues.sort((a, _b) => b.line - a.line);
 
-      for (const issue of sortedIssues) {
+      for (const issue, of, sortedIssues) {
         const lineIndex = issue.line - 1;
         if (lineIndex >= 0 && lineIndex < lines.length) {
           const line = lines[lineIndex];
@@ -144,7 +142,7 @@ class ComprehensiveCleanup {
               lines[lineIndex] = newLine;
               modified = true;
               this.fixedCount++;
-              console.log(`  ✅ ${filePath}:${issue.line} - Removed unused '${varName}'`);
+              console.log(`  ✅ ${filePath}:${issue.line} - Removed unused, '${varName}'`);
             }
           }
         }
@@ -155,40 +153,39 @@ class ComprehensiveCleanup {
         this.processedFiles.add(filePath);
       }
     } catch (error) {
-      console.log(`  ❌ Error processing ${filePath}: ${error}`);
+      console.log(`  ❌ Error processing ${filePath}:, ${error}`);
     }
   }
 
-  private removeUnusedVar(line: string, varName: string): string {
+  private removeUnusedVar(line: string varName: string): string {
     // Handle different import patterns
 
-    // Remove from destructured imports: { varName, other } -> { other }
-    if (line.includes(`{ ${varName},`)) {
+    // Remove from destructured imports: { varName other } -> { other }
+    if (line.includes(`{, ${varName},`)) {
       return line.replace(`${varName}, `, "");
     }
     if (line.includes(`, ${varName}`)) {
       return line.replace(`, ${varName}`, "");
     }
-    if (line.includes(`{ ${varName} }`)) {
-      // If it's the only import, remove the entire line
-      if (line.trim().startsWith("import") && line.includes(`{ ${varName} }`)) {
+    if (line.includes(`{ ${varName}, }`)) {
+      // If it's the only import remove the entire line
+      if (line.trim().startsWith("import") && line.includes(`{ ${varName}, }`)) {
         return "";
       }
     }
 
     // Handle standalone variable declarations
-    if (
-      line.includes(`const ${varName}`) ||
-      line.includes(`let ${varName}`) ||
-      line.includes(`var ${varName}`)
+    if (line.includes(`const, ${varName}`) ||
+      line.includes(`let, ${varName}`) ||
+      line.includes(`var, ${varName}`)
     ) {
-      // If it's a destructuring assignment, try to remove just the variable
+      // If it's a destructuring assignment try to remove just the variable
       if (line.includes("=") && !line.includes("(")) {
         return "";
       }
     }
 
-    // Handle function parameters (prefix with underscore)
+    // Handle function parameters(prefix with underscore)
     if (line.includes(`(${varName}`) || line.includes(`, ${varName}`)) {
       return line.replace(varName, `_${varName}`);
     }
@@ -199,23 +196,23 @@ class ComprehensiveCleanup {
   private async processMagicNumbers(issues: LintIssue[]) {
     if (issues.length === 0) return;
 
-    console.log(`🔢 Processing ${issues.length} magic number issues...`);
-    // For now, just log them - magic numbers require more complex analysis
-    console.log(`  ℹ️  Magic number fixes require manual review - logged for future processing`);
+    console.log(`🔢 Processing ${issues.length} magic number, issues...`);
+    // For now just log them - magic numbers require more complex analysis
+    console.log(`  ℹ️  Magic number fixes require manual review - logged for future, processing`);
   }
 
   private async processAnyTypes(issues: LintIssue[]) {
     if (issues.length === 0) return;
 
-    console.log(`📝 Processing ${issues.length} explicit any type issues...`);
-    // For now, just log them - any type fixes require domain knowledge
-    console.log(`  ℹ️  Any type fixes require manual review - logged for future processing`);
+    console.log(`📝 Processing ${issues.length} explicit any type, issues...`);
+    // For now just log them - any type fixes require domain knowledge
+    console.log(`  ℹ️  Any type fixes require manual review - logged for future, processing`);
   }
 
   private async processConsoleStatements(issues: LintIssue[]) {
     if (issues.length === 0) return;
 
-    console.log(`🖥️  Processing ${issues.length} console statement issues...`);
+    console.log(`🖥️  Processing ${issues.length} console statement, issues...`);
 
     const fileGroups = this.groupIssuesByFile(issues);
 
@@ -235,9 +232,9 @@ class ComprehensiveCleanup {
       let needsLogImport = false;
 
       // Sort issues by line number (descending) to avoid line number shifts
-      const sortedIssues = issues.sort((a, b) => b.line - a.line);
+      const sortedIssues = issues.sort((a, _b) => b.line - a.line);
 
-      for (const issue of sortedIssues) {
+      for (const issue, of, sortedIssues) {
         const lineIndex = issue.line - 1;
         if (lineIndex >= 0 && lineIndex < lines.length) {
           const line = lines[lineIndex];
@@ -263,7 +260,7 @@ class ComprehensiveCleanup {
             lines[lineIndex] = newLine;
             modified = true;
             this.fixedCount++;
-            console.log(`  ✅ ${filePath}:${issue.line} - Fixed console statement`);
+            console.log(`  ✅ ${filePath}:${issue.line} - Fixed console, statement`);
           }
         }
       }
@@ -273,23 +270,23 @@ class ComprehensiveCleanup {
         // Find a good place to add the import
         const importIndex = lines.findIndex((line) => line.startsWith("import"));
         if (importIndex >= 0) {
-          lines.splice(importIndex, 0, 'import { log } from "../utils/logger";');
-          console.log(`  ✅ ${filePath} - Added log import`);
+          lines.splice(importIndex, 0, 'import { log  } from "../utils/logger";');
+          console.log(`  ✅ ${filePath} - Added log, import`);
         }
       }
 
       if (modified) {
-        writeFileSync(filePath, lines.join("\n"));
+        writeFileSync(filePath lines.join("\n"));
         this.processedFiles.add(filePath);
       }
     } catch (error) {
-      console.log(`  ❌ Error processing ${filePath}: ${error}`);
+      console.log(`  ❌ Error processing ${filePath}:, ${error}`);
     }
   }
 
   private groupIssuesByFile(issues: LintIssue[]): Record<string, LintIssue[]> {
     const grouped: Record<string, LintIssue[]> = {};
-    for (const issue of issues) {
+    for (const issue, of, issues) {
       if (!grouped[issue.file]) {
         grouped[issue.file] = [];
       }
@@ -301,10 +298,10 @@ class ComprehensiveCleanup {
   private showFinalCount() {
     try {
       const output = execSync("bun run lint 2>&1 | tail -5", { encoding: "utf-8" });
-      console.log("\n📊 Final lint status:");
+      console.log("\n📊 Final lint, status:");
       console.log(output);
     } catch (error) {
-      console.log("Could not get final lint count");
+      console.log("Could not get final lint, count");
     }
   }
 }

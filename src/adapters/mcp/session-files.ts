@@ -199,8 +199,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
-  );
+    },
+  });
 
   // Session list directory tool
   commandMapper.addTool(

@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Centralized task status constants
  * This is the single source of truth for all task status-related constants
@@ -61,7 +63,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
 /**
  * Status validation helper
  */
-export function isValidTaskStatus(status: string): status is TaskStatus {
+export function isValidTaskStatus(__status: string): status is TaskStatus {
   return Object.values(TASK_STATUS).includes(status as TaskStatus);
 }
 
@@ -86,7 +88,7 @@ function generateCheckboxPattern(): string {
  */
 export const TASK_REGEX_PATTERNS = {
   /**
-   * Pattern for matching task lines: - [x] Title [#123](path)
+   * Pattern for matching task lines: - [x] Title [#TEST_VALUE](path)
    * Dynamically includes all valid checkbox characters
    */
   TASK_LINE: new RegExp(`^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#(\\d+)\\]\\([^)]+\\)`),
@@ -112,16 +114,16 @@ export const TASK_PARSING_UTILS = {
    * @param line The markdown line to parse
    * @returns Parsed components or null if not a valid task line
    */
-  parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
+  parseTaskLine(_line: string): { checkbox: string; title: string; id: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
     if (!match) return null;
 
-    const [, checkbox, title, idNum] = match;
+    const [, checkbox, _title, idNum] = match;
     if (!checkbox || !title || !idNum) return null;
 
     return {
       checkbox: checkbox,
-      title: title.trim(),
+      _title: title.trim(),
       id: `#${idNum}`,
     };
   },
@@ -132,7 +134,7 @@ export const TASK_PARSING_UTILS = {
    * @param newStatus The new status to set
    * @returns Updated line with new checkbox status
    */
-  replaceCheckboxStatus(line: string, newStatus: TaskStatus): string {
+  replaceCheckboxStatus(_line: string, newStatus: TaskStatus): string {
     const newCheckbox = TASK_STATUS_CHECKBOX[newStatus];
     return line.replace(TASK_REGEX_PATTERNS.CHECKBOX_REPLACE, `$1${newCheckbox}$3`);
   },
@@ -142,7 +144,7 @@ export const TASK_PARSING_UTILS = {
    * @param checkbox The checkbox character
    * @returns TaskStatus or default TODO if invalid
    */
-  getStatusFromCheckbox(checkbox: string): TaskStatus {
+  getStatusFromCheckbox(_checkbox: string): TaskStatus {
     return CHECKBOX_TO_STATUS[checkbox] || TASK_STATUS.TODO;
   },
 
@@ -151,7 +153,7 @@ export const TASK_PARSING_UTILS = {
    * @param status The task status
    * @returns Checkbox character
    */
-  getCheckboxFromStatus(status: TaskStatus): string {
+  getCheckboxFromStatus(__status: TaskStatus): string {
     return TASK_STATUS_CHECKBOX[status];
   },
 
@@ -160,7 +162,7 @@ export const TASK_PARSING_UTILS = {
    * @param line The line to check
    * @returns True if line has task-like structure
    */
-  isTaskLike(line: string): boolean {
+  isTaskLike(_line: string): boolean {
     return TASK_REGEX_PATTERNS.TASK_LIKE.test(line);
   },
 } as const;

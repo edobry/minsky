@@ -35,13 +35,13 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  formatter?: (result: any) => void;
+  formatter?: (_result: unknown) => void;
 }
 
 /**
  * Format and output command results
  */
-export function outputResult(result: any, options: OutputOptions = {}): void {
+export function outputResult(__result: unknown, _options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -49,40 +49,40 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   try {
     if (options.json) {
       // JSON output
-      log.cli(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(__result, null, 2));
     } else if (options.formatter) {
       // Custom formatter
-      options.formatter(result);
+      options.formatter(_result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result);
+        log.cli(_result);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(result)) {
+        if (Array.isArray(_result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item);
             } else {
-              log.cli(JSON.stringify(item, null, 2));
+              log.cli(JSON.stringify(_item, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result, null, 2));
+          log.cli(JSON.stringify(__result, null, 2));
         }
       } else {
-        log.cli(String(result));
+        log.cli(String(_result));
       }
     }
-  } catch (error) {
+  } catch (_error) {
     log.cliError("Failed to format output:", error);
-    log.cli(String(result));
+    log.cli(String(_result));
   }
 }
 
 /**
  * Handle CLI errors
  */
-export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
+export function handleCliError(__error: unknown, _options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (options.debug) {

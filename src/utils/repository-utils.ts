@@ -1,3 +1,7 @@
+import {MINUTE_IN_SECONDS } from "../utils/constants";
+
+const DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
+
 /**
  * Repository utilities for Minsky.
  * Provides caching and common functions for repository operations.
@@ -20,9 +24,9 @@ export class RepositoryMetadataCache {
   private cache: Map<string, CacheEntry<unknown>> = new Map();
 
   /**
-   * Default TTL for cache entries in milliseconds (5 minutes).
+   * Default TTL for cache entries in milliseconds (DEFAULT_RETRY_COUNT minutes).
    */
-  private readonly DEFAULT_TTL = 5 * 60 * 1000;
+  private readonly DEFAULT_TTL = DEFAULT_RETRY_COUNT * MINUTE_IN_SECONDS * DEFAULT_TIMEOUT_MS;
 
   /**
    * Private constructor to enforce singleton pattern.
@@ -45,7 +49,7 @@ export class RepositoryMetadataCache {
    *
    * @param key Cache key
    * @param fetcher Function to fetch the value if it's not in the cache
-   * @param ttl Time to live in milliseconds (defaults to 5 minutes)
+   * @param ttl Time to live in milliseconds (defaults to DEFAULT_RETRY_COUNT minutes)
    * @returns The cached or fetched value
    */
   async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {
@@ -58,8 +62,8 @@ export class RepositoryMetadataCache {
     }
 
     // Otherwise fetch the data and update the cache
-    const data = await fetcher();
-    this.cache.set(key, { data, timestamp: now });
+    const _data = await fetcher();
+    this.cache.set(_key, { data, timestamp: now });
     return data;
   }
 
@@ -69,8 +73,8 @@ export class RepositoryMetadataCache {
    * @param key Cache key
    * @param data Data to cache
    */
-  set<T>(key: string, data: T): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+  set<T>(key: string, _data: T): void {
+    this.cache.set(_key, { data, timestamp: Date.now() });
   }
 
   /**
@@ -78,7 +82,7 @@ export class RepositoryMetadataCache {
    *
    * @param key Cache key to invalidate
    */
-  invalidate(key: string): void {
+  invalidate(_key: string): void {
     this.cache.delete(key);
   }
 
@@ -88,9 +92,9 @@ export class RepositoryMetadataCache {
    *
    * @param prefix Cache key prefix to match
    */
-  invalidateByPrefix(prefix: string): void {
+  invalidateByPrefix(__prefix: string): void {
     for (const key of Array.from(this.cache.keys())) {
-      if (key.startsWith(prefix)) {
+      if (key.startsWith(_prefix)) {
         this.cache.delete(key);
       }
     }
@@ -112,8 +116,7 @@ export class RepositoryMetadataCache {
  * @param params Additional parameters to include in the key
  * @returns The cache key
  */
-export function generateRepoKey(
-  repoPath: string,
+export function generateRepoKey(__repoPath: string,
   operation: string,
   params?: Record<string, unknown>
 ): string {
@@ -136,8 +139,7 @@ export class RepositoryError extends Error {
    * @param message Error message
    * @param cause Underlying cause of the error
    */
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly cause?: Error
   ) {
     super(message);

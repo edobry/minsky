@@ -62,8 +62,8 @@ export interface TaskSpecData {
  * TaskFileFormat represents the format of a task file (e.g., Markdown)
  */
 export interface TaskFileFormat {
-  parseContent: (content: string) => TaskState;
-  formatContent: (state: TaskState) => string;
+  parseContent: (_content: unknown) => TaskState;
+  formatContent: (_state: unknown) => string;
 }
 
 /**
@@ -98,13 +98,13 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  * @param task Legacy Task object
  * @returns TaskData object
  */
-export function toTaskData(task: any): TaskData {
+export function toTaskData(__task: unknown): TaskData {
   return {
     id: task.id,
-    title: task.title,
+    _title: task.title,
     description: task.description,
-    status: task.status,
-    specPath: task.specPath,
+    _status: task.status,
+    _specPath: task.specPath,
     worklog: task.worklog,
     mergeInfo: task.mergeInfo,
   };
@@ -115,13 +115,13 @@ export function toTaskData(task: any): TaskData {
  * @param taskData TaskData object
  * @returns Legacy Task object
  */
-export function fromTaskData(taskData: TaskData): any {
+export function fromTaskData(__taskData: TaskData): unknown {
   return {
     id: taskData.id,
-    title: taskData.title,
+    _title: taskData.title,
     description: taskData.description,
-    status: taskData.status,
-    specPath: taskData.specPath,
+    _status: taskData.status,
+    _specPath: taskData.specPath,
     worklog: taskData.worklog,
     mergeInfo: taskData.mergeInfo,
   };

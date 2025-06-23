@@ -8,8 +8,6 @@ import { Command } from "commander";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandDefinition,
-  type CommandParameterMap,
   type CommandExecutionContext,
   type SharedCommand,
 } from "../command-registry";
@@ -55,7 +53,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (result: any) => void;
+  outputFormatter?: (_result: unknown) => void;
 }
 
 /**
@@ -91,21 +89,21 @@ export class CliCommandBridge {
   /**
    * Register command customization options
    */
-  registerCommandCustomization(commandId: string, options: CliCommandOptions): void {
-    this.customizations.set(commandId, options);
+  registerCommandCustomization(_commandId: string, _options: CliCommandOptions): void {
+    this.customizations.set(_commandId, _options);
   }
 
   /**
    * Register category customization options
    */
-  registerCategoryCustomization(category: CommandCategory, options: CategoryCommandOptions): void {
-    this.categoryCustomizations.set(category, options);
+  registerCategoryCustomization(_category: CommandCategory, _options: CategoryCommandOptions): void {
+    this.categoryCustomizations.set(_category, _options);
   }
 
   /**
    * Get combined command options (defaults + customizations)
    */
-  private getCommandOptions(commandId: string): CliCommandOptions {
+  private getCommandOptions(_commandId: string): CliCommandOptions {
     const defaults: CliCommandOptions = {
       useFirstRequiredParamAsArgument: true,
       parameters: {},
@@ -125,11 +123,11 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
+  generateCommand(_commandId: string, context?: { viaFactory?: boolean }): Command | null {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
-        `[CLI Bridge] Direct usage detected for command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
+        `[CLI Bridge] Direct usage detected for _command '${commandId}'. Consider using CLI Command Factory for proper customization support.`
       );
     }
 
@@ -138,10 +136,10 @@ export class CliCommandBridge {
       return null;
     }
 
-    const options = this.getCommandOptions(commandId);
+    const _options = this.getCommandOptions(commandId);
 
     // Create the basic command
-    const command = new Command(commandDef.name).description(commandDef.description);
+    const _command = new Command(commandDef.name).description(commandDef.description);
 
     // Add aliases if specified
     if (options.aliases?.length) {
@@ -155,10 +153,10 @@ export class CliCommandBridge {
     }
 
     // Create parameter mappings
-    const mappings = this.createCommandParameterMappings(commandDef, options);
+    const mappings = this.createCommandParameterMappings(_commandDef, _options);
 
     // Add arguments to the command
-    addArgumentsFromMappings(command, mappings);
+    addArgumentsFromMappings(__command, mappings);
 
     // Add options to the command
     createOptionsFromMappings(mappings).forEach((option) => {
@@ -182,7 +180,7 @@ export class CliCommandBridge {
         );
 
         // Create execution context
-        const context: CliExecutionContext = {
+        const _context: CliExecutionContext = {
           interface: "cli",
           debug: !!rawParameters.debug,
           format: rawParameters.json ? "json" : "text",
@@ -196,28 +194,28 @@ export class CliCommandBridge {
         const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
         // Execute the command with parameters and context
-        const result = await commandDef.execute(normalizedParams, context);
+        const _result = await commandDef.execute(_normalizedParams, _context);
 
         // Handle output
         if (options.outputFormatter) {
           // Use custom formatter if provided
-          options.outputFormatter(result);
+          options.outputFormatter(_result);
         } else {
           // Use standard outputResult utility with JSON handling
           if (context.format === "json") {
             // For JSON output, bypass the default formatter and output JSON directly
-            outputResult(result, {
+            outputResult(__result, {
               json: true,
             });
           } else {
             // Use default formatter for text output
-            outputResult(result, {
+            outputResult(__result, {
               json: false,
               formatter: this.getDefaultFormatter(commandDef),
             });
           }
         }
-      } catch (error) {
+      } catch (_error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);
       }
@@ -232,7 +230,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCategoryCommand(category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
+  generateCategoryCommand(_category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -273,7 +271,7 @@ export class CliCommandBridge {
 
       if (nameParts.length === 1) {
         // Simple command - add directly to category
-        const subcommand = this.generateCommand(commandDef.id, context);
+        const subcommand = this.generateCommand(commandDef.id, _context);
         if (subcommand) {
           categoryCommand.addCommand(subcommand);
         }
@@ -283,7 +281,7 @@ export class CliCommandBridge {
         const childName = nameParts[1];
 
         if (!parentName || !childName) {
-          log.warn(`Invalid command name structure: ${commandDef.name}`);
+          log.warn(`Invalid _command name structure: ${commandDef.name}`);
           return;
         }
 
@@ -291,12 +289,12 @@ export class CliCommandBridge {
         let parentCommand = commandGroups.get(parentName);
         if (!parentCommand) {
           parentCommand = new Command(parentName).description(`${parentName} commands`);
-          commandGroups.set(parentName, parentCommand);
+          commandGroups.set(_parentName, parentCommand);
           categoryCommand.addCommand(parentCommand);
         }
 
         // Create the child command with the correct name
-        const childCommand = this.generateCommand(commandDef.id, context);
+        const childCommand = this.generateCommand(commandDef.id, _context);
         if (childCommand) {
           // Update the child command name to just the child part
           childCommand.name(childName);
@@ -304,8 +302,8 @@ export class CliCommandBridge {
         }
       } else {
         // More complex nesting - handle it recursively or warn
-        log.warn(`Complex command nesting not yet supported: ${commandDef.name}`);
-        const subcommand = this.generateCommand(commandDef.id, context);
+        log.warn(`Complex _command nesting not yet supported: ${commandDef.name}`);
+        const subcommand = this.generateCommand(commandDef.id, _context);
         if (subcommand) {
           categoryCommand.addCommand(subcommand);
         }
@@ -321,7 +319,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateAllCategoryCommands(program: Command, context?: { viaFactory?: boolean }): void {
+  generateAllCategoryCommands(__program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -337,7 +335,7 @@ export class CliCommandBridge {
 
     // Generate commands for each category
     categories.forEach((category) => {
-      const categoryCommand = this.generateCategoryCommand(category, context);
+      const categoryCommand = this.generateCategoryCommand(_category, _context);
       if (categoryCommand) {
         program.addCommand(categoryCommand);
       }
@@ -347,11 +345,10 @@ export class CliCommandBridge {
   /**
    * Create parameter mappings for a command
    */
-  private createCommandParameterMappings(
-    commandDef: SharedCommand,
-    options: CliCommandOptions
+  private createCommandParameterMappings(_commandDef: SharedCommand,
+    _options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(commandDef.parameters, options.parameters || {});
+    const mappings = createParameterMappings(commandDef._parameters, options.parameters || {});
 
     // If automatic argument generation is enabled
     if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
@@ -370,13 +367,12 @@ export class CliCommandBridge {
   /**
    * Extract raw parameters from CLI options and arguments
    */
-  private extractRawParameters(
-    parameters: CommandParameterMap,
-    options: Record<string, any>,
-    positionalArgs: any[],
+  private extractRawParameters(__parameters: Record<string, unknown>,
+    _options: Record<string, unknown>,
+    positionalArgs: unknown[],
     mappings: ParameterMapping[]
-  ): Record<string, any> {
-    const result = { ...options };
+  ): Record<string, unknown> {
+    const _result = { ..._options };
 
     // Map positional arguments to parameter names
     const argumentMappings = mappings
@@ -401,10 +397,10 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+  private getDefaultFormatter(_commandDef: SharedCommand): (_result: unknown) => void {
     // Very simple default formatter
-    return (result: any) => {
-      if (Array.isArray(result)) {
+    return (_result: unknown) => {
+      if (Array.isArray(_result)) {
         // Handle arrays specifically
         if (result.length === 0) {
           log.cli("No results found.");
@@ -427,14 +423,14 @@ export class CliCommandBridge {
       } else if (typeof result === "object" && result !== null) {
         // Special handling for session get command results
         if (commandDef.id === "session.get" && result.session) {
-          this.formatSessionDetails(result.session);
+          this.formatSessionDetails(result._session);
         } else if (commandDef.id === "session.dir" && result.directory) {
           log.cli(`${result.directory}`);
         } else if (commandDef.id === "session.list" && result.sessions) {
           // Handle session list results
           if (Array.isArray(result.sessions) && result.sessions.length > 0) {
-            result.sessions.forEach((session: Record<string, unknown>) => {
-              this.formatSessionSummary(session);
+            result.sessions.forEach((_session: unknown) => {
+              this.formatSessionSummary(_session);
             });
           } else {
             log.cli("No sessions found.");
@@ -443,7 +439,7 @@ export class CliCommandBridge {
           // Handle rules list results
           if (Array.isArray(result.rules)) {
             if (result.rules.length > 0) {
-              result.rules.forEach((rule: Record<string, unknown>) => {
+              result.rules.forEach((_rule: unknown) => {
                 this.formatRuleSummary(rule);
               });
             } else {
@@ -455,7 +451,7 @@ export class CliCommandBridge {
           this.formatRuleDetails(result.rule);
         } else {
           // Generic object handling - show all simple properties and handle complex ones
-          const meaningfulEntries = Object.entries(result).filter(([key]) => key !== "success");
+          const meaningfulEntries = Object.entries(_result).filter(([key]) => key !== "success");
 
           // If there's only one meaningful property and it's a simple message, show just the value
           if (meaningfulEntries.length === 1) {
@@ -489,7 +485,7 @@ export class CliCommandBridge {
         }
       } else if (result !== undefined) {
         // Just print the result as is
-        log.cli(String(result));
+        log.cli(String(_result));
       }
     };
   }
@@ -497,15 +493,15 @@ export class CliCommandBridge {
   /**
    * Format session details for human-readable output
    */
-  private formatSessionDetails(session: Record<string, unknown>): void {
+  private formatSessionDetails(__session: Record<string, unknown>): void {
     if (!session) return;
 
     // Display session information in a user-friendly format
     if (session.session) log.cli(`Session: ${session.session}`);
-    if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
+    if (session._taskId) log.cli(`Task ID: ${session._taskId}`);
     if (session.repoName) log.cli(`Repository: ${session.repoName}`);
     if (session.repoPath) log.cli(`Session Path: ${session.repoPath}`);
-    if (session.branch) log.cli(`Branch: ${session.branch}`);
+    if (session._branch) log.cli(`Branch: ${session._branch}`);
     if (session.createdAt) log.cli(`Created: ${session.createdAt}`);
     if (session.backendType) log.cli(`Backend: ${session.backendType}`);
     if (session.repoUrl && session.repoUrl !== session.repoName) {
@@ -516,11 +512,11 @@ export class CliCommandBridge {
   /**
    * Format session summary for list views
    */
-  private formatSessionSummary(session: Record<string, unknown>): void {
+  private formatSessionSummary(__session: Record<string, unknown>): void {
     if (!session) return;
 
-    const sessionName = session.session || "unknown";
-    const taskId = session.taskId ? ` (${session.taskId})` : "";
+    const _sessionName = session.session || "unknown";
+    const _taskId = session.taskId ? ` (${session._taskId})` : "";
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
     log.cli(`${sessionName}${taskId}${repoName}`);
@@ -529,7 +525,7 @@ export class CliCommandBridge {
   /**
    * Format rule details for human-readable output
    */
-  private formatRuleDetails(rule: Record<string, unknown>): void {
+  private formatRuleDetails(_rule: Record<string, unknown>): void {
     if (!rule) return;
 
     // Display rule information in a user-friendly format
@@ -548,7 +544,7 @@ export class CliCommandBridge {
   /**
    * Format rule summary for list views
    */
-  private formatRuleSummary(rule: Record<string, unknown>): void {
+  private formatRuleSummary(_rule: Record<string, unknown>): void {
     if (!rule) return;
 
     const ruleId = rule.id || "unknown";
@@ -572,8 +568,7 @@ export const cliBridge = new CliCommandBridge();
  * @param categories Array of command categories to register
  * @param createSubcommands Whether to create category subcommands
  */
-export function registerCategorizedCliCommands(
-  program: Command,
+export function registerCategorizedCliCommands(__program: Command,
   categories: CommandCategory[],
   createSubcommands: boolean = true
 ): void {
@@ -590,9 +585,9 @@ export function registerCategorizedCliCommands(
     categories.forEach((category) => {
       const commands = sharedCommandRegistry.getCommandsByCategory(category);
       commands.forEach((commandDef) => {
-        const command = cliBridge.generateCommand(commandDef.id);
-        if (command) {
-          program.addCommand(command);
+        const _command = cliBridge.generateCommand(commandDef.id);
+        if (_command) {
+          program.addCommand(_command);
         }
       });
     });

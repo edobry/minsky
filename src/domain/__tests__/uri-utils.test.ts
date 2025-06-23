@@ -7,16 +7,15 @@ import {
   UriFormat,
 } from "../uri-utils.js";
 
-
 // We'll skip validation tests since mocking is tricky in Bun
 
 describe("URI Utilities", () => {
   describe("normalizeRepositoryUri", () => {
     test("normalizes HTTPS URLs", () => {
       const uri = "https://github.com/org/repo.git";
-      const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
+      const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(result).toEqual({
+      expect(_result).toEqual({
         uri: "https://github.com/org/repo",
         name: "org/repo",
         format: UriFormat.HTTPS,
@@ -26,9 +25,9 @@ describe("URI Utilities", () => {
 
     test("normalizes SSH URLs", () => {
       const uri = "git@github.com:org/repo.git";
-      const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
+      const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(result).toEqual({
+      expect(_result).toEqual({
         uri: "git@github.com:org/repo",
         name: "org/repo",
         format: UriFormat.SSH,
@@ -38,9 +37,9 @@ describe("URI Utilities", () => {
 
     test("normalizes GitHub shorthand", () => {
       const uri = "org/repo";
-      const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
+      const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
-      expect(result).toEqual({
+      expect(_result).toEqual({
         uri: "https://github.com/org/repo",
         name: "org/repo",
         format: UriFormat.HTTPS,
@@ -52,46 +51,46 @@ describe("URI Utilities", () => {
   describe("convertRepositoryUri", () => {
     test("converts HTTPS to SSH", () => {
       const uri = "https://github.com/org/repo";
-      const result = convertRepositoryUri(uri, UriFormat.SSH);
-      expect(result).toBe("git@github.com:org/repo.git");
+      const _result = convertRepositoryUri(uri, UriFormat.SSH);
+      expect(_result).toBe("git@github.com:org/repo.git");
     });
 
     test("converts SSH to HTTPS", () => {
       const uri = "git@github.com:org/repo.git";
-      const result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(result).toBe("https://github.com/org/repo");
+      const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
+      expect(_result).toBe("https://github.com/org/repo");
     });
 
     test("converts shorthand to HTTPS", () => {
       const uri = "org/repo";
-      const result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(result).toBe("https://github.com/org/repo");
+      const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
+      expect(_result).toBe("https://github.com/org/repo");
     });
 
     test("returns same URI if already in target format", () => {
       const uri = "https://github.com/org/repo";
-      const result = convertRepositoryUri(uri, UriFormat.HTTPS);
-      expect(result).toBe(uri);
+      const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
+      expect(_result).toBe(uri);
     });
   });
 
   describe("extractRepositoryInfo", () => {
     test("extracts info from HTTPS URL", () => {
       const uri = "https://github.com/org/repo.git";
-      const result = extractRepositoryInfo(uri);
-      expect(result).toEqual({ owner: "org", repo: "repo" });
+      const _result = extractRepositoryInfo(uri);
+      expect(_result).toEqual({ owner: "org", repo: "repo" });
     });
 
     test("extracts info from SSH URL", () => {
       const uri = "git@github.com:org/repo.git";
-      const result = extractRepositoryInfo(uri);
-      expect(result).toEqual({ owner: "org", repo: "repo" });
+      const _result = extractRepositoryInfo(uri);
+      expect(_result).toEqual({ owner: "org", repo: "repo" });
     });
 
     test("extracts info from shorthand", () => {
       const uri = "org/repo";
-      const result = extractRepositoryInfo(uri);
-      expect(result).toEqual({ owner: "org", repo: "repo" });
+      const _result = extractRepositoryInfo(uri);
+      expect(_result).toEqual({ owner: "org", repo: "repo" });
     });
   });
 });
