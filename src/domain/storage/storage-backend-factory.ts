@@ -117,13 +117,14 @@ export function createStorageBackend(
       storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!
     );
 
-  case "sqlite":
+  case "sqlite": {
     const sqliteConfig: SqliteStorageConfig = {
       dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
       enableWAL: storageConfig.sqlite?.enableWAL ?? true,
       timeout: storageConfig.sqlite?.timeout ?? 5000,
     };
     return createSqliteStorage(sqliteConfig);
+  }
 
   case "postgres":
     if (!storageConfig.postgres?.connectionUrl) {
