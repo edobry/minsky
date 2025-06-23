@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
+  - Implemented Phase 1: Critical File Operations
+    - Created `session_edit_file` tool with support for Cursor's `// ... existing code ...` pattern
+    - Created `session_search_replace` tool for single occurrence text replacement
+    - Developed FastMCP server infrastructure for tool registration
+    - Added CommandMapper type extensions for tool registration methods
+  - Enhanced session workspace isolation for AI coding operations
+  - All file operations enforce session workspace boundaries through SessionPathResolver
+  - Tools match Cursor's exact interface for compatibility with AI agents
+
+_See: SpecStory history [2025-06-23_session-aware-tools-implementation](mdc:.specstory/history/2025-06-23_session-aware-tools-implementation.md) for Phase 1 implementation._
+
 - **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
   - Implemented comprehensive session workspace tools for AI agents to operate safely within session boundaries
   - Created 6 session workspace tools with MCP integration:

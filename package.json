@@ -19,7 +19,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.29.0",
-    "@modelcontextprotocol/inspector": "^0.14.2",
+    "@modelcontextprotocol/inspector": "^0.14.3",
     "@types/bun": "^1.2.11",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
