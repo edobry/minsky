@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../command-registry.js";
 import { initializeProjectFromParams } from "../../../domain/init.js";
 import { log } from "../../../utils/logger.js";

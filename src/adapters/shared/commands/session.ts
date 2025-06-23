@@ -10,7 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import {
   getSessionFromParams,

@@ -195,8 +195,9 @@ export function parameterToOptionFlag(_name: string,
  * @param shortFlags Optional map of parameter names to short flags
  * @returns The command with options added
  */
-export function addOptionsToCommand(__command: Command,
-  _parameters:shortFlags: Record<string, string> = {}
+export function addOptionsToCommand(command: Command,
+  parameters: CommandParameterMap,
+  shortFlags: Record<string, string> = {}
 ): Command {
   // For each parameter, add an option to the command
   Object.entries(_parameters).forEach(([name, param]) => {
