@@ -8,6 +8,8 @@
 import { describe, test, expect } from "bun:test";
 import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
 
+const BLOCKED_STATUS_INDEX = 4;
+
 describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
   test("should pre-select BLOCKED status for task with BLOCKED status", () => {
     // Test the logic that determines the initialValue parameter
@@ -27,7 +29,7 @@ describe("Task Status Selector Pre-selection (Task #153 Fix)", () => {
     const initialValue = currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO;
 
     // Verify BLOCKED status is found and selected
-    expect(currentStatusIndex).toBe(4); // BLOCKED is at index 4
+    expect(currentStatusIndex).toBe(BLOCKED_STATUS_INDEX); // BLOCKED is at index 4
     expect(initialValue).toBe("BLOCKED");
   });
 

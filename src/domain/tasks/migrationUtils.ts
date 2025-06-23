@@ -6,7 +6,7 @@
  */
 
 import type { TaskBackend } from "./taskBackend";
-import type { TaskData } from "../../types/tasks/taskData";
+import type {} from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
 
 /**
@@ -58,10 +58,9 @@ export class BackendMigrationUtils {
   /**
    * Migrate tasks between different backends
    */
-  async migrateTasksBetweenBackends(
-    sourceBackend: TaskBackend,
+  async migrateTasksBetweenBackends(_sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: MigrationOptions = {}
+    _options: MigrationOptions = {}
   ): Promise<MigrationResult> {
     const {
       preserveIds = true,
@@ -75,11 +74,11 @@ export class BackendMigrationUtils {
     log.debug("Starting task migration", {
       from: sourceBackend.name,
       to: targetBackend.name,
-      options,
+      _options,
     });
 
     let backupData: BackupData | null = null;
-    const result: MigrationResult = {
+    const _result: MigrationResult = {
       success: false,
       migratedCount: 0,
       skippedCount: 0,
@@ -88,7 +87,7 @@ export class BackendMigrationUtils {
 
     try {
       // Pre-flight validation
-      await this.validateMigration(sourceBackend, targetBackend);
+      await this.validateMigration(_sourceBackend, targetBackend);
 
       // Create backup if requested
       if (createBackup && !dryRun) {
@@ -98,21 +97,20 @@ export class BackendMigrationUtils {
 
       // Get source tasks
       const sourceDataResult = await sourceBackend.getTasksData();
-      if (!sourceDataResult.success || !sourceDataResult.content) {
+      if (!sourceDataResult.success || !sourceDataResult._content) {
         throw new Error("Failed to get source tasks data");
       }
-      const sourceTasks = sourceBackend.parseTasks(sourceDataResult.content);
+      const sourceTasks = sourceBackend.parseTasks(sourceDataResult._content);
 
       // Get target tasks to check for conflicts
       const targetDataResult = await targetBackend.getTasksData();
-      if (!targetDataResult.success || !targetDataResult.content) {
+      if (!targetDataResult.success || !targetDataResult._content) {
         throw new Error("Failed to get target tasks data");
       }
-      const targetTasks = targetBackend.parseTasks(targetDataResult.content);
+      const targetTasks = targetBackend.parseTasks(targetDataResult._content);
 
       // Resolve ID conflicts and transform tasks
-      const transformedTasks = await this.transformTasks(
-        sourceTasks,
+      const transformedTasks = await this.transformTasks(_sourceTasks,
         targetTasks,
         sourceBackend,
         targetBackend,
@@ -151,7 +149,7 @@ export class BackendMigrationUtils {
         skippedCount: result.skippedCount,
       });
 
-    } catch (error) {
+    } catch (_error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMessage);
       log.error("Migration failed", { error: errorMessage });
@@ -159,9 +157,9 @@ export class BackendMigrationUtils {
       // Attempt rollback if requested and backup exists
       if (rollbackOnFailure && backupData && !dryRun) {
         try {
-          await this.rollbackMigration(backupData, targetBackend);
+          await this.rollbackMigration(_backupData, targetBackend);
           log.debug("Rollback completed successfully");
-        } catch (rollbackError) {
+        } catch (_error) {
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
             : "Unknown rollback error";
@@ -177,8 +175,7 @@ export class BackendMigrationUtils {
   /**
    * Validate that migration can proceed between backends
    */
-  async validateMigration(
-    sourceBackend: TaskBackend,
+  async validateMigration(_sourceBackend: TaskBackend,
     targetBackend: TaskBackend
   ): Promise<void> {
     // Check that backends are different
@@ -189,7 +186,7 @@ export class BackendMigrationUtils {
     // Validate source backend has data
     try {
       await sourceBackend.getTasksData();
-    } catch (error) {
+    } catch (_error) {
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
@@ -205,7 +202,7 @@ export class BackendMigrationUtils {
       
       // Restore original data
       await targetBackend.saveTasksData(currentData);
-    } catch (error) {
+    } catch (_error) {
       throw new Error(`Cannot write to target backend: ${error}`);
     }
   }
@@ -213,12 +210,12 @@ export class BackendMigrationUtils {
   /**
    * Create backup before migration
    */
-  async createBackupBeforeMigration(backend: TaskBackend): Promise<BackupData> {
+  async createBackupBeforeMigration(_backend: TaskBackend): Promise<BackupData> {
     const timestamp = new Date().toISOString();
     const backupPath = `migration-backup-${backend.name}-${timestamp}`;
     
     const dataResult = await backend.getTasksData();
-    if (!dataResult.success || !dataResult.content) {
+    if (!dataResult.success || !dataResult._content) {
       throw new Error("Failed to get data for backup");
     }
     
@@ -238,8 +235,7 @@ export class BackendMigrationUtils {
   /**
    * Rollback migration using backup data
    */
-  async rollbackMigration(
-    backupData: BackupData,
+  async rollbackMigration(_backupData: BackupData,
     targetBackend: TaskBackend
   ): Promise<void> {
     log.debug("Starting migration rollback", {
@@ -255,12 +251,11 @@ export class BackendMigrationUtils {
   /**
    * Transform tasks from source to target format
    */
-  private async transformTasks(
-    sourceTasks: TaskData[],
+  private async transformTasks(_sourceTasks: TaskData[],
     targetTasks: TaskData[],
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: {
+    _options: {
       preserveIds: boolean;
       statusMapping: Record<string, string>;
       idConflictStrategy: "skip" | "rename" | "overwrite";
@@ -291,7 +286,7 @@ export class BackendMigrationUtils {
 
         // Map status between backends
         finalTask.status = this.mapTaskStatus(
-          task.status,
+          task._status,
           sourceBackend.name,
           targetBackend.name,
           options.statusMapping
@@ -299,8 +294,8 @@ export class BackendMigrationUtils {
 
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
-      } catch (error) {
-        log.warn("Failed to transform task", { taskId: task.id, error });
+      } catch (_error) {
+        log.warn("Failed to transform task", { _taskId: task.id, error });
         skipped.push(task);
       }
     }
@@ -311,8 +306,7 @@ export class BackendMigrationUtils {
   /**
    * Map task status between backends
    */
-  mapTaskStatus(
-    status: string,
+  mapTaskStatus(__status: string,
     fromBackend: string,
     toBackend: string,
     customMapping?: Record<string, string>
@@ -347,7 +341,7 @@ export class BackendMigrationUtils {
   /**
    * Generate a unique ID when conflicts occur
    */
-  private async generateUniqueId(baseId: string, existingIds: Set<string>): Promise<string> {
+  private async generateUniqueId(_baseId: string, existingIds: Set<string>): Promise<string> {
     let newId = `${baseId}-migrated`;
     let counter = 1;
     
@@ -362,13 +356,12 @@ export class BackendMigrationUtils {
   /**
    * Perform a dry run to preview migration results
    */
-  async performDryRun(
-    sourceBackend: TaskBackend,
+  async performDryRun(_sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    options: MigrationOptions
+    _options: MigrationOptions
   ): Promise<MigrationResult> {
-    return this.migrateTasksBetweenBackends(sourceBackend, targetBackend, {
-      ...options,
+    return this.migrateTasksBetweenBackends(_sourceBackend, targetBackend, {
+      ..._options,
       dryRun: true,
       createBackup: false,
     });

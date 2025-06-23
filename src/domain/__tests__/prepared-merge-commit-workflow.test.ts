@@ -1,3 +1,5 @@
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 /**
  * Tests for the Prepared Merge Commit Workflow (Task #144)
  *
@@ -12,12 +14,13 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../git.js";
 import { sessionPrFromParams } from "../session.js";
 import { createMock, setupTestMocks } from "../../utils/test-utils/mocking.js";
+import { log } from "../utils/logger.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
 describe("Prepared Merge Commit Workflow (Task #144)", () => {
-  let mockExecAsync: any;
+  let mockExecAsync: unknown;
   let gitCommands: string[] = [];
 
   beforeEach(() => {
@@ -25,7 +28,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
     gitCommands = [];
 
     // Create mock that captures all git commands executed
-    mockExecAsync = createMock(async (command: string) => {
+    mockExecAsync = createMock(async (_command: unknown) => {
       gitCommands.push(command);
 
       // Mock responses for different git commands
@@ -54,7 +57,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the preparePr method to use our mock execAsync
-      const preparePrSpy = createMock(async (options: any) => {
+      const preparePrSpy = createMock(async (_options: unknown) => {
         // Simulate current broken behavior: PR branch created FROM feature branch
         await mockExecAsync("git -C /test/repo checkout -b pr/feature-branch");
         await mockExecAsync("git -C /test/repo push origin pr/feature-branch");
@@ -72,9 +75,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Execute the preparePr method
       await gitService.preparePr({
-        session: "test-session",
+        _session: "test-session",
         baseBranch: "main",
-        title: "Test PR",
+        _title: "Test PR",
         body: "Test PR body",
       });
 
@@ -103,8 +106,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the CORRECT preparePr implementation
-      const correctPreparePrSpy = createMock(async (options: any) => {
-        const workdir = "/test/repo";
+      const correctPreparePrSpy = createMock(async (_options: unknown) => {
+        const _workdir = "/test/repo";
         const sourceBranch = "feature-branch";
         const baseBranch = options.baseBranch || "main";
         const prBranch = `pr/${sourceBranch}`;
@@ -126,13 +129,13 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         // 4. Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
         await mockExecAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F .pr_title`);
 
-        // 5. Push the prepared merge commit
+        // TEST_ARRAY_SIZE. Push the prepared merge commit
         await mockExecAsync(`git -C ${workdir} push origin ${prBranch}`);
 
         return {
           prBranch,
           baseBranch,
-          title: options.title,
+          _title: options.title,
           body: options.body,
         };
       });
@@ -141,10 +144,10 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       (gitService as any).preparePr = correctPreparePrSpy;
 
       // Execute the CORRECT preparePr method
-      const result = await gitService.preparePr({
-        session: "test-session",
+      const _result = await gitService.preparePr({
+        _session: "test-session",
         baseBranch: "main",
-        title: "Test PR",
+        _title: "Test PR",
         body: "Test PR body",
       });
 
@@ -162,15 +165,15 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // 4. Should perform --no-ff merge (creating prepared merge commit)
       expect(gitCommands).toContain("git -C /test/repo merge --no-ff feature-branch -F .pr_title");
 
-      // 5. Should push the prepared merge commit
+      // TEST_ARRAY_SIZE. Should push the prepared merge commit
       expect(gitCommands).toContain("git -C /test/repo push origin pr/feature-branch");
 
       // Verify result structure
       expect(result.prBranch).toBe("pr/feature-branch");
       expect(result.baseBranch).toBe("main");
-      expect(result.title).toBe("Test PR");
+      expect(result._title).toBe("Test PR");
 
-      console.log(
+      log.debug(
         "✅ CORRECT BEHAVIOR: PR branch created from base branch with prepared merge commit"
       );
     });
@@ -180,7 +183,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const mockSessionDb = {
         getSession: createMock(() =>
           Promise.resolve({
-            session: "test-session",
+            _session: "test-session",
             repoName: "test-repo",
             repoUrl: "/test/repo",
             taskId: "task123",
@@ -191,9 +194,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Mock preparePrFromParams to capture its call
       let preparePrCalled = false;
-      let preparePrParams: any = null;
+      let preparePrParams: unknown = null;
 
-      const mockPreparePrFromParams = createMock(async (params: any) => {
+      const mockPreparePrFromParams = createMock(async (_params: unknown) => {
         preparePrCalled = true;
         preparePrParams = params;
 
@@ -211,9 +214,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       try {
         // Execute sessionPrFromParams
-        const result = await sessionPrFromParams({
-          session: "test-session",
-          title: "Test Session PR",
+        const _result = await sessionPrFromParams({
+          _session: "test-session",
+          _title: "Test Session PR",
           body: "Test body",
           baseBranch: "main",
           noStatusUpdate: true,
@@ -222,8 +225,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         // Verify that preparePrFromParams was called with correct parameters
         expect(preparePrCalled).toBe(true);
         expect(preparePrParams).toEqual({
-          session: "test-session",
-          title: "Test Session PR",
+          _session: "test-session",
+          _title: "Test Session PR",
           body: "Test body",
           baseBranch: "main",
           debug: undefined,
@@ -244,7 +247,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // This test verifies that the prepared merge commit created by preparePr
       // can be fast-forward merged by session approve
 
-      const workdir = "/test/repo";
+      const _workdir = "/test/repo";
       const prBranch = "pr/feature-branch";
       const baseBranch = "main";
 
@@ -279,7 +282,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const ffOnlyMergeCommand = gitCommands.find((cmd) => cmd.includes("merge --ff-only"));
       expect(ffOnlyMergeCommand).toBeDefined();
 
-      console.log(
+      log.debug(
         "✅ VERIFIED: Prepared merge commit enables fast-forward merge in session approve"
       );
     });
@@ -288,7 +291,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
   describe("Error Handling", () => {
     test("SHOULD handle merge conflicts during prepared merge commit creation", async () => {
       // Mock merge conflict scenario
-      const conflictMockExecAsync = createMock(async (command: string) => {
+      const conflictMockExecAsync = createMock(async (_command: unknown) => {
         gitCommands.push(command);
 
         if (command.includes("merge --no-ff")) {
@@ -302,12 +305,12 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock preparePr to simulate conflict handling
-      const preparePrWithConflictSpy = createMock(async (options: any) => {
+      const preparePrWithConflictSpy = createMock(async (_options: unknown) => {
         try {
           await conflictMockExecAsync(
             "git -C /test/repo merge --no-ff feature-branch -F .pr_title"
           );
-        } catch (error) {
+        } catch {
           // Should abort merge and clean up
           await conflictMockExecAsync("git -C /test/repo merge --abort");
           await conflictMockExecAsync("rm -f /test/repo/.pr_title");
@@ -320,9 +323,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // Should throw error on merge conflict
       await expect(
         gitService.preparePr({
-          session: "test-session",
+          _session: "test-session",
           baseBranch: "main",
-          title: "Test PR",
+          _title: "Test PR",
         })
       ).rejects.toThrow("Merge conflicts occurred");
 

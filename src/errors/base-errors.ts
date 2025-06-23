@@ -6,7 +6,7 @@
 // Add declaration for captureStackTrace which might not be in the default Error type
 declare global {
   interface ErrorConstructor {
-    captureStackTrace(error: Error, constructor: (...args: any[]) => any): void;
+    captureStackTrace(_error: Error, constructor: (..._args: unknown[]) => any): void;
   }
 }
 
@@ -15,8 +15,7 @@ declare global {
  * Supports cause chaining for better error context.
  */
 export class MinskyError extends Error {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly cause?: unknown
   ) {
     super(message);
@@ -24,7 +23,7 @@ export class MinskyError extends Error {
 
     // Capture stack trace, excluding constructor call from it
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
+      Error.captureStackTrace(_this, this.constructor);
     }
   }
 }
@@ -34,7 +33,7 @@ export class MinskyError extends Error {
  * @param error Any caught error (which might be a string or other non-Error object)
  * @returns A proper Error or MinskyError object
  */
-export function ensureError(error: unknown): Error {
+export function ensureError(__error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }

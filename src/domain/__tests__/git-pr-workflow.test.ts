@@ -18,7 +18,7 @@ setupTestMocks();
 describe("Session Approve Workflow", () => {
   // Create mocks for dependencies
   const mockGitService = {
-    execInRepository: createMock((workdir, command) => {
+    execInRepository: createMock((_workdir, _command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abc123");
       }
@@ -33,9 +33,9 @@ describe("Session Approve Workflow", () => {
     getTask: createMock((id) =>
       Promise.resolve({
         id,
-        title: "Test Task",
+        _title: "Test Task",
         description: "A test task",
-        status: "in-progress",
+        _status: "in-progress",
       })
     ),
     setTaskStatus: createMock(() => Promise.resolve(true)),
@@ -44,7 +44,7 @@ describe("Session Approve Workflow", () => {
   const mockSessionDB = {
     getSession: createMock((name) =>
       Promise.resolve({
-        session: name,
+        _session: name,
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
         backendType: "local",
@@ -63,8 +63,8 @@ describe("Session Approve Workflow", () => {
   });
 
   test("successfully approves and merges a PR branch with task ID", async () => {
-    const result = await approveSessionFromParams(
-      { session: "test-session" },
+    const _result = await approveSessionFromParams(
+      { _session: "test-session" },
       {
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
@@ -74,7 +74,7 @@ describe("Session Approve Workflow", () => {
     );
 
     // Verify results
-    expect(result.session).toBe("test-session");
+    expect(result._session).toBe("test-session");
     expect(result.commitHash).toBe("abc123");
     expect(result.mergeDate).toBeDefined();
     expect(result.mergedBy).toBe("test-user");
@@ -115,7 +115,7 @@ describe("Session Approve Workflow", () => {
 
     await expect(
       approveSessionFromParams(
-        { session: "non-existent-session" },
+        { _session: "non-existent-session" },
         {
           gitService: mockGitService as any,
           taskService: mockTaskService as any,
@@ -138,7 +138,7 @@ describe("Session Approve Workflow", () => {
 
     await expect(
       approveSessionFromParams(
-        { session: "test-session" },
+        { _session: "test-session" },
         {
           gitService: mockGitServiceWithError as any,
           taskService: mockTaskService as any,

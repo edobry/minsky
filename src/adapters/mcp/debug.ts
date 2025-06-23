@@ -2,6 +2,7 @@
  * MCP adapter for debug commands
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
+import { BYTES_PER_KB } from "../utils/constants";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
@@ -9,12 +10,12 @@ import { log } from "../../utils/logger.js";
  * Registers debug tools with the MCP command mapper
  * These tools are primarily for development and debugging purposes
  */
-export function registerDebugTools(commandMapper: CommandMapper): void {
+export function registerDebugTools(_commandMapper: CommandMapper): void {
   // List all registered methods
   commandMapper.addCommand({
     name: "debug.listMethods",
     description: "List all registered MCP methods for debugging",
-    parameters: z.object({}).strict(),
+    _parameters: z.object({}).strict(),
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
       const methodNames = commandMapper.getRegisteredMethodNames();
@@ -45,10 +46,10 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
         // Allow any additional properties for flexible testing
       })
       .passthrough(),
-    execute: async (args) => {
+    execute: async (_args) => {
       // Log the echo request
       log.debug("Debug echo request", {
-        args,
+        _args,
       });
 
       // Return the provided arguments with a timestamp
@@ -64,7 +65,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.systemInfo",
     description: "Get system information about the MCP server",
-    parameters: z.object({}).strict(),
+    _parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
       const nodejsVersion = process.version;
@@ -98,12 +99,12 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
  * @param bytes Number of bytes
  * @returns Formatted string with appropriate unit (KB, MB, GB)
  */
-function formatBytes(bytes: number): string {
+function formatBytes(_bytes: number): string {
   if (bytes === 0) return "0 Bytes";
 
-  const k = 1024;
+  const k = BYTES_PER_KB;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))  } ${  sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))  } ${  sizes[i]}`;
 }

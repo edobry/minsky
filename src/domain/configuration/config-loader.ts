@@ -114,7 +114,7 @@ export class ConfigurationLoader {
       return parseYaml(content) as GlobalUserConfig;
     } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      // eslint-disable-next-line no-console
+       
       console.error(`Failed to load global user config from ${configPath}:`, _error);
       return null;
     }

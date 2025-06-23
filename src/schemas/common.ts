@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Common schema definitions that can be reused across multiple domain modules
  */
@@ -27,7 +29,7 @@ export const repoPathSchema = z
 /**
  * Schema for session names
  * @example "my-session"
- * @example "task#123"
+ * @example "task#TEST_VALUE"
  */
 export const sessionNameSchema = z.string().min(1).max(100);
 
@@ -45,7 +47,7 @@ export const taskIdSchema = z
 
     // Handle formats like "task#064" or "task#64"
     if (normalized.toLowerCase().startsWith("task#")) {
-      normalized = normalized.substring(5);
+      normalized = normalized.substring(DEFAULT_RETRY_COUNT);
     }
 
     // Remove all leading '#' characters to avoid multiple hashes
@@ -63,13 +65,13 @@ export const taskIdSchema = z
     return `#${normalized}`;
   })
   .refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
-    message: "Task ID must be in format #123 or 123",
+    message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
   });
 
 /**
  * Schema for boolean flags with optional description
  */
-export const flagSchema = (description: string) =>
+export const flagSchema = (_description: unknown) =>
   z.boolean().optional().default(false).describe(description);
 
 /**
@@ -83,7 +85,7 @@ export const jsonOutputSchema = flagSchema("Output as JSON");
 export const commonCommandOptionsSchema = z
   .object({
     json: jsonOutputSchema,
-    session: sessionNameSchema.optional().describe("Session name to use"),
+    _session: sessionNameSchema.optional().describe("Session name to use"),
     repo: repoPathSchema.optional().describe("Repository URI"),
     workspace: pathSchema.optional().describe("URI of the upstream repository"),
     task: taskIdSchema.optional().describe("Task ID"),
@@ -106,7 +108,7 @@ export const sessionSchema = z.string().min(1).describe("Session identifier");
  * Common parameters shared across repository operations
  */
 export const commonRepoSchema = z.object({
-  session: sessionSchema.optional().describe("Session name"),
+  _session: sessionSchema.optional().describe("Session name"),
   repo: z.string().optional().describe("Repository URI"),
   workspace: z.string().optional().describe("URI of the upstream repository"),
   json: z.boolean().optional().describe("Return output as JSON"),

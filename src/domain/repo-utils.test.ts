@@ -29,8 +29,8 @@ describe("Repo Utils", () => {
       getCurrentDirectory: createMock(() => "/current/directory"),
     };
 
-    const result = await resolveRepoPath({ repo: "/test/path" }, mockDeps);
-    expect(result).toBe("/test/path");
+    const _result = await resolveRepoPath({ repo: "/test/path" }, mockDeps);
+    expect(_result).toBe("/test/path");
   });
 
   test("resolveRepoPath resolves from session", async () => {
@@ -41,7 +41,7 @@ describe("Repo Utils", () => {
           Promise.resolve(
             name === "test-session"
               ? {
-                session: "test-session",
+                _session: "test-session",
                 repoName: "test-repo",
                 repoUrl: "/test/repo/url",
                 createdAt: new Date().toISOString(),
@@ -61,8 +61,8 @@ describe("Repo Utils", () => {
       getCurrentDirectory: createMock(() => "/current/directory"),
     };
 
-    const result = await resolveRepoPath({ session: "test-session" }, mockDeps);
-    expect(result).toBe("/test/repo/url");
+    const _result = await resolveRepoPath({ _session: "test-session" }, mockDeps);
+    expect(_result).toBe("/test/repo/url");
     expect(mockDeps.sessionProvider.getSession).toHaveBeenCalledWith("test-session");
   });
 
@@ -83,8 +83,8 @@ describe("Repo Utils", () => {
       getCurrentDirectory: createMock(() => "/current/directory"),
     };
 
-    const result = await resolveRepoPath({}, mockDeps);
-    expect(result).toBe("/git/repo/path");
+    const _result = await resolveRepoPath({}, mockDeps);
+    expect(_result).toBe("/git/repo/path");
     expect(mockDeps.execCwd).toHaveBeenCalledWith("git rev-parse --show-toplevel");
   });
 
@@ -105,8 +105,8 @@ describe("Repo Utils", () => {
       getCurrentDirectory: createMock(() => "/current/directory"),
     };
 
-    const result = await resolveRepoPath({}, mockDeps);
-    expect(result).toBe("/current/directory");
+    const _result = await resolveRepoPath({}, mockDeps);
+    expect(_result).toBe("/current/directory");
     expect(mockDeps.getCurrentDirectory).toHaveBeenCalledWith();
   });
 });

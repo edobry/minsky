@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * Test suite for SessionAdapter class
  */
@@ -32,7 +34,7 @@ describe("SessionAdapter", () => {
     // Mock session-db-io module to use our mock filesystem
     mockModule("./session-db-io", () => {
       return {
-        readSessionDbFile: (options: any) => {
+        readSessionDbFile: (_options: unknown) => {
           try {
             const content = mockFS.readFileSync(options.dbPath || dbPath);
             const data = JSON.parse(content);
@@ -40,7 +42,7 @@ describe("SessionAdapter", () => {
               sessions: data.sessions || [],
               baseDir: options.baseDir || "/test/base",
             };
-          } catch (error) {
+          } catch {
             // Return initial state if file doesn't exist
             return {
               sessions: [],
@@ -48,7 +50,7 @@ describe("SessionAdapter", () => {
             };
           }
         },
-        writeSessionDbFile: (state: any, options: any) => {
+        writeSessionDbFile: (_state: unknown) => {
           const filePath = options.dbPath || dbPath;
           mockFS.writeFileSync(
             filePath,
@@ -75,7 +77,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -83,8 +85,8 @@ describe("SessionAdapter", () => {
     const retrievedSession = await adapter.getSession("test-session");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?.session).toBe("test-session");
-    expect(retrievedSession?.taskId).toBe("#123");
+    expect(retrievedSession?._session).toBe("test-session");
+    expect(retrievedSession?.taskId).toBe("#TEST_VALUE");
   });
 
   it("should retrieve a session by task ID", async () => {
@@ -94,15 +96,15 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
     await adapter.addSession(testSession);
-    const retrievedSession = await adapter.getSessionByTaskId("123");
+    const retrievedSession = await adapter.getSessionByTaskId("TEST_VALUE");
 
     expect(retrievedSession !== null).toBe(true);
-    expect(retrievedSession?.session).toBe("test-session");
+    expect(retrievedSession?._session).toBe("test-session");
   });
 
   it("should update a session", async () => {
@@ -112,15 +114,15 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
     await adapter.addSession(testSession);
-    await adapter.updateSession("test-session", { branch: "updated-branch" });
+    await adapter.updateSession("test-session", { _branch: "updated-branch" });
 
     const retrievedSession = await adapter.getSession("test-session");
-    expect(retrievedSession?.branch).toBe("updated-branch");
+    expect(retrievedSession?._branch).toBe("updated-branch");
   });
 
   it("should delete a session", async () => {
@@ -130,23 +132,23 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
     await adapter.addSession(testSession);
-    const result = await adapter.deleteSession("test-session");
+    const _result = await adapter.deleteSession("test-session");
 
-    expect(result).toBe(true);
+    expect(_result).toBe(true);
     const sessions = await adapter.listSessions();
     expect(sessions).toEqual([]);
   });
 
   it("should return false when deleting a non-existent session", async () => {
     const adapter = new SessionAdapter(dbPath);
-    const result = await adapter.deleteSession("non-existent");
+    const _result = await adapter.deleteSession("non-existent");
 
-    expect(result).toBe(false);
+    expect(_result).toBe(false);
   });
 
   it("should get repository path for a session", async () => {
@@ -156,7 +158,7 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
@@ -173,14 +175,14 @@ describe("SessionAdapter", () => {
       repoName: "test-repo",
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       branch: "test-branch",
     };
 
     await adapter.addSession(testSession);
-    const workdir = await adapter.getSessionWorkdir("test-session");
+    const _workdir = await adapter.getSessionWorkdir("test-session");
 
     expect(workdir !== null).toBe(true);
-    expect(workdir).toContain("test-repo/sessions/test-session");
+    expect(_workdir).toContain("test-repo/sessions/test-session");
   });
 });

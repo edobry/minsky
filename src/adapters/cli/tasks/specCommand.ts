@@ -19,23 +19,23 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
  * This command retrieves and displays task specification content
  */
 export function createSpecCommand(): Command {
-  const command = new Command("spec")
-    .description("Get task specification content")
-    .argument("<task-id>", "ID of the task to retrieve specification content for")
+  const _command = new Command("spec")
+    .description("Get task specification _content")
+    .argument("<task-id>", "ID of the task to retrieve specification _content for")
     .option(
       "--section <section>",
       "Specific section of the specification to retrieve (e.g., 'requirements')"
     );
 
   // Add shared options
-  addRepoOptions(command);
-  addOutputOptions(command);
-  addBackendOptions(command);
+  addRepoOptions(_command);
+  addOutputOptions(_command);
+  addBackendOptions(_command);
 
   command.action(
     async (
-      taskId: string,
-      options: {
+      _taskId: string,
+      _options: {
         section?: string;
         session?: string;
         repo?: string;
@@ -46,7 +46,7 @@ export function createSpecCommand(): Command {
     ) => {
       try {
         // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(taskId);
+        const normalizedTaskId = normalizeTaskId(_taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
             `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
@@ -54,12 +54,12 @@ export function createSpecCommand(): Command {
         }
 
         // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(options);
+        const normalizedParams = normalizeTaskParams(_options);
 
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
-          taskId: normalizedTaskId,
+          _taskId: normalizedTaskId,
           section: options.section,
         };
 
@@ -67,42 +67,36 @@ export function createSpecCommand(): Command {
         const result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
-        outputResult(result, {
+        outputResult(__result, {
           json: options.json,
-          formatter: (data: {
-            task: { id: string; title: string };
-            specPath: string;
-            content: string;
-            section?: string;
-          }) => {
+          formatter: (_data: unknown) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
 
             // If a specific section was requested, try to extract it
             if (data.section) {
               // Simple extraction logic for common section patterns
-              const content = data.content;
               const sectionRegex = new RegExp(`## ${data.section}`, "i");
-              const match = content.match(sectionRegex);
+              const match = data.content.match(sectionRegex);
 
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = content.slice(startIndex + match[0].length).match(/^## /m);
+                const nextSectionMatch = data.content.slice(startIndex + match[0].length).match(/^## /m);
                 const endIndex = nextSectionMatch
                   ? startIndex + match[0].length + nextSectionMatch.index
-                  : content.length;
+                  : data.content.length;
 
-                const sectionContent = content.slice(startIndex, endIndex).trim();
+                const sectionContent = data.content.slice(_startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);
-                log.cli("\nFull specification content:");
+                log.cli("\nFull specification _content:");
                 log.cli(data.content);
               }
             } else {
               // Display the full content
-              log.cli("\nSpecification content:");
+              log.cli("\nSpecification _content:");
               log.cli(data.content);
             }
           },

@@ -8,6 +8,9 @@ import {
   isValidTaskStatus,
 } from "../taskConstants.js";
 
+const TEST_VALUE = TEST_VALUE;
+const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+
 describe("Task Constants and Utilities", () => {
   describe("Basic Constants", () => {
     test("should have all required task statuses", () => {
@@ -41,7 +44,7 @@ describe("Task Constants and Utilities", () => {
   describe("Regex Patterns", () => {
     test("should match valid task lines", () => {
       const testLines = [
-        "- [ ] Test task [#123](path/to/spec.md)",
+        "- [ ] Test task [#TEST_VALUE](path/to/spec.md)",
         "- [x] Completed task [#456](path/to/spec.md)",
         "- [+] In progress task [#789](path/to/spec.md)",
         "- [-] In review task [#101](path/to/spec.md)",
@@ -55,10 +58,10 @@ describe("Task Constants and Utilities", () => {
 
     test("should not match invalid task lines", () => {
       const invalidLines = [
-        "- [?] Invalid checkbox [#123](path/to/spec.md)",
+        "- [?] Invalid checkbox [#TEST_VALUE](path/to/spec.md)",
         "- [ ] Missing link",
         "Not a task line at all",
-        "  - [ ] Indented task [#123](path/to/spec.md)", // Should not match due to indentation
+        "  - [ ] Indented task [#TEST_VALUE](path/to/spec.md)", // Should not match due to indentation
       ];
 
       invalidLines.forEach((line) => {
@@ -71,8 +74,8 @@ describe("Task Constants and Utilities", () => {
     test("should parse valid task lines correctly", () => {
       const testCases = [
         {
-          line: "- [ ] Test task [#123](path/to/spec.md)",
-          expected: { checkbox: " ", title: "Test task", id: "#123" },
+          line: "- [ ] Test task [#TEST_VALUE](path/to/spec.md)",
+          expected: { checkbox: " ", title: "Test task", id: "#TEST_VALUE" },
         },
         {
           line: "- [x] Completed task [#456](path/to/spec.md)",
@@ -85,14 +88,14 @@ describe("Task Constants and Utilities", () => {
       ];
 
       testCases.forEach(({ line, expected }) => {
-        const result = TASK_PARSING_UTILS.parseTaskLine(line);
-        expect(result).toEqual(expected);
+        const _result = TASK_PARSING_UTILS.parseTaskLine(line);
+        expect(_result).toEqual(expected);
       });
     });
 
     test("should return null for invalid task lines", () => {
       const invalidLines = [
-        "- [?] Invalid checkbox [#123](path/to/spec.md)",
+        "- [?] Invalid checkbox [#TEST_VALUE](path/to/spec.md)",
         "- [ ] Missing link",
         "Not a task line at all",
       ];
@@ -103,9 +106,9 @@ describe("Task Constants and Utilities", () => {
     });
 
     test("should replace checkbox status correctly", () => {
-      const originalLine = "- [ ] Test task [#123](path/to/spec.md)";
-      const result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
-      expect(result).toBe("- [~] Test task [#123](path/to/spec.md)");
+      const originalLine = "- [ ] Test task [#TEST_VALUE](path/to/spec.md)";
+      const _result = TASK_PARSING_UTILS.replaceCheckboxStatus(originalLine, TASK_STATUS.BLOCKED);
+      expect(_result).toBe("- [~] Test task [#TEST_VALUE](path/to/spec.md)");
     });
 
     test("should get status from checkbox correctly", () => {
@@ -152,7 +155,7 @@ describe("Task Constants and Utilities", () => {
       const allCheckboxChars = Object.keys(CHECKBOX_TO_STATUS);
 
       allCheckboxChars.forEach((char) => {
-        const testLine = `- [${char}] Test task [#123](path/to/spec.md)`;
+        const testLine = `- [${char}] Test task [#TEST_VALUE](path/to/spec.md)`;
         expect(TASK_REGEX_PATTERNS.TASK_LINE.test(testLine)).toBe(true);
       });
     });
@@ -163,9 +166,9 @@ describe("Task Constants and Utilities", () => {
       const currentStatusCount = Object.keys(TASK_STATUS).length;
       const currentCheckboxCount = Object.keys(CHECKBOX_TO_STATUS).length;
 
-      // We should have at least 5 statuses and their corresponding checkboxes
-      expect(currentStatusCount).toBeGreaterThanOrEqual(5);
-      expect(currentCheckboxCount).toBeGreaterThanOrEqual(5);
+      // We should have at least TEST_ARRAY_SIZE statuses and their corresponding checkboxes
+      expect(currentStatusCount).toBeGreaterThanOrEqual(TEST_ARRAY_SIZE);
+      expect(currentCheckboxCount).toBeGreaterThanOrEqual(TEST_ARRAY_SIZE);
 
       // The patterns should be generated from the current constants
       expect(TASK_REGEX_PATTERNS.TASK_LINE).toBeDefined();

@@ -1,3 +1,5 @@
+const DEFAULT_HTTP_PORT = DEFAULT_HTTP_PORT;
+
 /**
  * Tests for network error handling
  */
@@ -11,14 +13,18 @@ import {
   formatNetworkErrorMessage,
 } from "../network-errors.js";
 
+// Test constants
+const TEST_PORT = DEFAULT_HTTP_PORT;
+const PRIVILEGED_PORT = 80;
+
 describe("Network Error handling", () => {
   describe("NetworkError class", () => {
     test("should create a NetworkError with the correct properties", () => {
-      const error = new NetworkError("Network test error", "TEST_CODE", 8080, "localhost");
+      const error = new NetworkError("Network test error", "TEST_CODE", TEST_PORT, "localhost");
 
       expect(error.message).toBe("Network test error");
       expect(error.code).toBe("TEST_CODE");
-      expect(error.port).toBe(8080);
+      expect(error.port).toBe(DEFAULT_HTTP_PORT);
       expect(error.host).toBe("localhost");
       expect(error instanceof Error).toBe(true);
       expect(error.name).toBe("NetworkError");
@@ -27,35 +33,35 @@ describe("Network Error handling", () => {
 
   describe("PortInUseError class", () => {
     test("should create a PortInUseError with the correct message", () => {
-      const error = new PortInUseError(8080);
+      const error = new PortInUseError(TEST_PORT);
 
-      expect(error.message).toBe("Port 8080 is already in use.");
+      expect(error.message).toBe(`Port ${TEST_PORT} is already in use.`);
       expect(error.code).toBe("EADDRINUSE");
-      expect(error.port).toBe(8080);
+      expect(error.port).toBe(TEST_PORT);
       expect(error.host).toBe("localhost");
     });
 
     test("should provide helpful suggestions", () => {
-      const error = new PortInUseError(8080);
+      const error = new PortInUseError(TEST_PORT);
       const suggestions = error.getSuggestions();
 
       expect(suggestions.length).toBeGreaterThan(0);
       expect(suggestions[0]).toContain("Use a different port");
-      expect(suggestions[1]).toContain("Check what process is using port 8080");
+      expect(suggestions[1]).toContain(`Check what process is using port ${TEST_PORT}`);
     });
   });
 
   describe("NetworkPermissionError class", () => {
     test("should create a NetworkPermissionError with the correct message", () => {
-      const error = new NetworkPermissionError(80);
+      const error = new NetworkPermissionError(PRIVILEGED_PORT);
 
       expect(error.message).toContain("Permission denied");
       expect(error.code).toBe("EACCES");
-      expect(error.port).toBe(80);
+      expect(error.port).toBe(PRIVILEGED_PORT);
     });
 
     test("should provide helpful suggestions", () => {
-      const error = new NetworkPermissionError(80);
+      const error = new NetworkPermissionError(PRIVILEGED_PORT);
       const suggestions = error.getSuggestions();
 
       expect(suggestions.length).toBeGreaterThan(0);
@@ -85,17 +91,17 @@ describe("Network Error handling", () => {
       const originalError = new Error("Address in use");
       (originalError as any).code = "EADDRINUSE";
 
-      const networkError = createNetworkError(originalError, 8080);
+      const networkError = createNetworkError(originalError, TEST_PORT);
 
       expect(networkError instanceof PortInUseError).toBe(true);
-      expect(networkError.message).toBe("Port 8080 is already in use.");
+      expect(networkError.message).toBe(`Port ${TEST_PORT} is already in use.`);
     });
 
     test("should create a NetworkPermissionError for EACCES errors", () => {
       const originalError = new Error("Permission denied");
       (originalError as any).code = "EACCES";
 
-      const networkError = createNetworkError(originalError, 80);
+      const networkError = createNetworkError(originalError, PRIVILEGED_PORT);
 
       expect(networkError instanceof NetworkPermissionError).toBe(true);
       expect(networkError.message).toContain("Permission denied");
@@ -105,7 +111,7 @@ describe("Network Error handling", () => {
       const originalError = new Error("Some other error");
       (originalError as any).code = "SOMETHING_ELSE";
 
-      const networkError = createNetworkError(originalError, 8080);
+      const networkError = createNetworkError(originalError, TEST_PORT);
 
       expect(networkError instanceof NetworkError).toBe(true);
       expect(networkError.message).toContain("Network error");
@@ -114,17 +120,17 @@ describe("Network Error handling", () => {
 
   describe("formatNetworkErrorMessage function", () => {
     test("should format a PortInUseError with suggestions", () => {
-      const error = new PortInUseError(8080);
+      const error = new PortInUseError(TEST_PORT);
       const message = formatNetworkErrorMessage(error);
 
-      expect(message).toContain("Port 8080 is already in use");
+      expect(message).toContain(`Port ${TEST_PORT} is already in use`);
       expect(message).toContain("Suggestions:");
       expect(message).toContain("Use a different port");
       expect(message).toContain("For detailed error information");
     });
 
     test("should not include the debug hint when debug is true", () => {
-      const error = new PortInUseError(8080);
+      const error = new PortInUseError(TEST_PORT);
       const message = formatNetworkErrorMessage(error, true);
 
       // Check that it doesn't contain the debug hint

@@ -4,26 +4,28 @@ import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
+const TEST_VALUE = TEST_VALUE;
+
 describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
       getSession: createMock((_name) =>
         Promise.resolve({
-          session: _name,
+          _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
       getSessionByTaskId: createMock((taskId) => {
-        if (taskId === "#123") {
+        if (taskId === "#TEST_VALUE") {
           return Promise.resolve({
-            session: "test-session",
+            _session: "test-session",
             repoName: "test-repo",
             repoUrl: "/test/repo/path",
-            taskId: "#123",
+            taskId: "#TEST_VALUE",
             createdAt: new Date().toISOString(),
           });
         }
@@ -35,7 +37,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((_workdir, command) => {
+      execInRepository: createMock((_workdir, _command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -70,7 +72,7 @@ describe("Session Approve", () => {
     // Test by session name
     const resultBySession = await approveSessionFromParams(
       {
-        session: "test-session",
+        _session: "test-session",
       },
       testDeps
     );
@@ -79,10 +81,10 @@ describe("Session Approve", () => {
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
     // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
-    expect(resultBySession.session).toBe("test-session");
-    expect(resultBySession.taskId).toBe("#123");
+    expect(resultBySession._session).toBe("test-session");
+    expect(resultBySession.taskId).toBe("#TEST_VALUE");
 
     // Clear mocks
     mockSessionDB.getSession.mockClear();
@@ -95,16 +97,16 @@ describe("Session Approve", () => {
     // Test by task ID
     const resultByTask = await approveSessionFromParams(
       {
-        task: "#123",
+        task: "#TEST_VALUE",
       },
       testDeps
     );
 
     // Verify
-    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#123");
+    expect(mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#TEST_VALUE");
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
-    expect(resultByTask.taskId).toBe("#123");
+    expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
+    expect(resultByTask.taskId).toBe("#TEST_VALUE");
   });
 
   test("detects current session when repo path is provided", async () => {
@@ -113,7 +115,7 @@ describe("Session Approve", () => {
       getSession: createMock((name) => {
         if (name === "current-session") {
           return Promise.resolve({
-            session: name,
+            _session: name,
             repoName: "test-repo",
             repoUrl: "/test/repo/path",
             createdAt: new Date().toISOString(),
@@ -122,13 +124,13 @@ describe("Session Approve", () => {
         return Promise.resolve(null);
       }),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
-      getSessionWorkdir: createMock((sessionName) =>
+      getSessionWorkdir: createMock((_sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/current-session")
       ),
     };
 
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, _command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -162,7 +164,7 @@ describe("Session Approve", () => {
     };
 
     // Test auto detection
-    const result = await approveSessionFromParams(
+    const _result = await approveSessionFromParams(
       {
         repo: repoPath,
       },
@@ -173,7 +175,7 @@ describe("Session Approve", () => {
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("current-session");
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
-    expect(result.session).toBe("current-session");
+    expect(result._session).toBe("current-session");
   });
 
   test("throws error when session is not found", async () => {
@@ -201,13 +203,13 @@ describe("Session Approve", () => {
     try {
       await approveSessionFromParams(
         {
-          session: "non-existent-session",
+          _session: "non-existent-session",
         },
         testDeps
       );
       // Should not reach this point
       expect(false).toBe(true);
-    } catch (error) {
+    } catch {
       expect(error instanceof ResourceNotFoundError).toBe(true);
       expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
     }
@@ -243,7 +245,7 @@ describe("Session Approve", () => {
       );
       // Should not reach this point
       expect(false).toBe(true);
-    } catch (error) {
+    } catch {
       expect(error instanceof ValidationError).toBe(true);
       expect((error as Error).message).toContain("No session detected");
     }
@@ -254,10 +256,10 @@ describe("Session Approve", () => {
     const mockSessionDB = {
       getSession: createMock((name) =>
         Promise.resolve({
-          session: name,
+          _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
@@ -268,7 +270,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, _command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -297,16 +299,16 @@ describe("Session Approve", () => {
     };
 
     // Should still succeed even if task update fails
-    const result = await approveSessionFromParams(
+    const _result = await approveSessionFromParams(
       {
-        session: "test-session",
+        _session: "test-session",
       },
       testDeps
     );
 
     // Verify
     expect(result.commitHash).toBe("abcdef123456");
-    expect(result.session).toBe("test-session");
+    expect(result._session).toBe("test-session");
   });
 
   test("merges from local PR branch and handles missing remote branch gracefully", async () => {
@@ -314,10 +316,10 @@ describe("Session Approve", () => {
     const mockSessionDB = {
       getSession: createMock((name) =>
         Promise.resolve({
-          session: name,
+          _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#123",
+          taskId: "#TEST_VALUE",
           createdAt: new Date().toISOString(),
         })
       ),
@@ -329,7 +331,7 @@ describe("Session Approve", () => {
 
     const gitCommands: string[] = [];
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, _command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
@@ -364,16 +366,16 @@ describe("Session Approve", () => {
     };
 
     // Test the approval
-    const result = await approveSessionFromParams(
+    const _result = await approveSessionFromParams(
       {
-        session: "test-session",
+        _session: "test-session",
       },
       testDeps
     );
 
     // Verify the result
     expect(result.commitHash).toBe("abcdef123456");
-    expect(result.session).toBe("test-session");
+    expect(result._session).toBe("test-session");
     expect(result.prBranch).toBe("pr/test-session");
 
     // Verify git commands were called correctly

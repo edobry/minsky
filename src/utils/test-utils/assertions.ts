@@ -2,63 +2,62 @@
  * Custom assertion helpers to bridge Jest/Vitest and Bun test assertion differences
  *
  * This module provides helper functions that implement Jest/Vitest assertion
- * methods that are not directly available in Bun's test framework.
+ * methods that are not directly available in Bun"s test framework.
  */
 
 import { expect } from "bun:test";
 
 /**
- * Custom matcher to replicate Jest's toMatch functionality
+ * Custom matcher to replicate Jest"s toMatch functionality
  * @param value The string to test
  * @param pattern The regex pattern to match against
  */
-export function expectToMatch(value: string, pattern: RegExp): void {
-  const result = value.match(pattern);
-  expect(result).toBeTruthy();
+export function expectToMatch(_value: string, pattern: RegExp): void {
+  const _result = value.match(pattern);
+  expect(_result).toBeTruthy();
 }
 
 /**
- * Custom matcher to replicate Jest's toHaveLength functionality
+ * Custom matcher to replicate Jest"s toHaveLength functionality
  * @param value The array or string to test
  * @param length The expected length
  */
-export function expectToHaveLength(value: any, length: number): void {
+export function expectToHaveLength(_value: unknown, length: number): void {
   expect(value.length).toBe(length);
 }
 
 /**
- * Custom matcher to replicate Jest's toBeInstanceOf functionality
+ * Custom matcher to replicate Jest"s toBeInstanceOf functionality
  * @param value The value to test
  * @param constructor The expected constructor
  */
-export function expectToBeInstanceOf(value: any, constructor: Function): void {
+export function expectToBeInstanceOf(_value: unknown, constructor: Function): void {
   expect(value instanceof constructor).toBeTruthy();
 }
 
 /**
- * Custom matcher to replicate Jest's not.toBeNull functionality
+ * Custom matcher to replicate Jest"s not.toBeNull functionality
  * @param value The value to test
  */
-export function expectToNotBeNull(value: any): void {
+export function expectToNotBeNull(_value: unknown): void {
   expect(value !== null).toBeTruthy();
 }
 
 /**
- * Custom matcher to replicate Jest's toHaveBeenCalled functionality
+ * Custom matcher to replicate Jest"s toHaveBeenCalled functionality
  * @param mockFn The mock function to check
  */
-export function expectToHaveBeenCalled(mockFn: { mock?: { calls: any[][] } }): void {
+export function expectToHaveBeenCalled(_mockFn: { mock?: { calls: unknown[][] } }): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 }
 
 /**
- * Custom matcher to replicate Jest's toHaveBeenCalledWith functionality
+ * Custom matcher to replicate Jest"s toHaveBeenCalledWith functionality
  * @param mockFn The mock function to check
  * @param expectedArgs The expected arguments
  */
-export function expectToHaveBeenCalledWith(
-  mockFn: { mock?: { calls: any[][] } },
-  ...expectedArgs: any[]
+export function expectToHaveBeenCalledWith(_mockFn: { mock?: { calls: unknown[][] } },
+  ...expectedArgs: unknown[]
 ): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 
@@ -68,7 +67,7 @@ export function expectToHaveBeenCalledWith(
       try {
         expect(arg).toEqual(expectedArgs[index]);
         return true;
-      } catch {
+      } catch (_error) {
         return false;
       }
     });
@@ -84,21 +83,20 @@ export function expectToHaveBeenCalledWith(
  * @param argIndex The argument index (defaults to 0)
  * @returns The argument at the specified position
  */
-export function getMockCallArg(
-  mockFn: { mock?: { calls: any[][] } },
+export function getMockCallArg(_mockFn: { mock?: { calls: unknown[][] } },
   callIndex = 0,
   argIndex = 0
-): any {
+): unknown {
   return mockFn.mock?.calls[callIndex]?.[argIndex];
 }
 
 /**
- * Custom matcher to replicate Jest's toHaveProperty functionality
+ * Custom matcher to replicate Jest"s toHaveProperty functionality
  * @param object The object to test
  * @param propertyPath The path to the property (can be nested using dot notation)
  * @param value Optional expected value of the property
  */
-export function expectToHaveProperty(object: any, propertyPath: string, value?: any): void {
+export function expectToHaveProperty(_object: unknown, propertyPath: string, value?: any): void {
   const parts = propertyPath.split(".");
   let current = object;
 
@@ -115,12 +113,12 @@ export function expectToHaveProperty(object: any, propertyPath: string, value?: 
 }
 
 /**
- * Custom matcher to replicate Jest's toBeCloseTo functionality for floating point comparison
+ * Custom matcher to replicate Jest"s toBeCloseTo functionality for floating point comparison
  * @param received The actual value
  * @param expected The expected value
  * @param precision The number of decimal places to check (default: 2)
  */
-export function expectToBeCloseTo(received: number, expected: number, precision: number = 2): void {
+export function expectToBeCloseTo(_received: number, expected: number, precision: number = 2): void {
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);
@@ -129,16 +127,16 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
 }
 
 /**
- * Custom matcher to replicate Jest's toContainEqual functionality
+ * Custom matcher to replicate Jest"s toContainEqual functionality
  * @param received The array to test
  * @param expected The item that should be found in the array
  */
-export function expectToContainEqual(received: any[], expected: any): void {
+export function expectToContainEqual(_received: unknown[], expected: any): void {
   const found = received.some((item) => {
     try {
       expect(item).toEqual(expected);
       return true;
-    } catch {
+    } catch (_error) {
       return false;
     }
   });
@@ -151,9 +149,9 @@ export function expectToContainEqual(received: any[], expected: any): void {
  * @param testFn The test function to execute with enhanced assertions
  * @returns A wrapped test function with enhanced assertions
  */
-export function withEnhancedAssertions<T extends (...args: any[]) => any>(testFn: T): T {
-  return function (this: any, ...args: any[]) {
+export function withEnhancedAssertions<T extends (..._args: unknown[]) => any>(testFn: T): T {
+  return function (this: unknown, ..._args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
-    return testFn.apply(this, args);
+    return testFn.apply(_this, _args);
   } as any;
 }

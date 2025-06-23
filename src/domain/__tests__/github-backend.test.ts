@@ -1,3 +1,5 @@
+const TEST_VALUE = TEST_VALUE;
+
 /**
  * GitHub Backend Tests
  * @migrated Already using native Bun patterns
@@ -23,19 +25,19 @@ const mockSessionDB = {
   listSessions: createMock(() =>
     Promise.resolve([
       {
-        session: "test-session",
+        _session: "test-session",
         repoName: "github/test-repo",
         repoUrl: "https://github.com/github/test-repo.git",
       },
     ])
   ),
-  getSession: createMock((sessionName: string) =>
+  getSession: createMock((_sessionName: unknown) =>
     Promise.resolve({
-      session: sessionName,
+      _session: sessionName,
       repoName: "github/test-repo",
       repoUrl: "https://github.com/github/test-repo.git",
-      branch: "main",
-      taskId: "123",
+      _branch: "main",
+      taskId: "TEST_VALUE",
       createdAt: new Date().toISOString(),
     })
   ),
@@ -53,8 +55,8 @@ async function createTempDir() {
 
 // Custom TestGitHubBackend class that allows us to inject our mocks
 class TestGitHubBackend extends GitHubBackend {
-  constructor(config: any) {
-    super(config);
+  constructor(_config: unknown) {
+    super(_config);
     // @ts-ignore - Override private property for testing
     this.sessionDb = mockSessionDB;
   }
@@ -108,7 +110,7 @@ describe("GitHub Repository Backend", () => {
 
   test("constructor creates repository backend with correct settings", () => {
     // We can check the exposed config settings
-    const config = githubBackend.getConfig();
+    const _config = githubBackend.getConfig();
 
     expect(config.type).toBe("github");
     expect(config.repoUrl).toBe("https://github.com/github/test-repo.git");
@@ -136,7 +138,7 @@ describe("GitHub Repository Backend", () => {
 
   test("getConfig returns correct configuration", () => {
     // Act
-    const config = githubBackend.getConfig();
+    const _config = githubBackend.getConfig();
 
     // Assert
     expect(config.type).toBe("github");

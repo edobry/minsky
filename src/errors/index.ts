@@ -13,26 +13,24 @@ export { MinskyError, ensureError };
  * Thrown when user input or request parameters fail validation.
  */
 export class ValidationError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly errors?: unknown,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 
 /**
- * Thrown when a requested resource (task, session, repository, etc.) does not exist.
+ * Thrown when a requested resource (task, _session, repository, etc.) does not exist.
  */
 export class ResourceNotFoundError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly resourceType?: string,
     public readonly resourceId?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 
@@ -40,12 +38,11 @@ export class ResourceNotFoundError extends MinskyError {
  * Thrown when a service dependency is unavailable or fails to respond.
  */
 export class ServiceUnavailableError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly serviceName?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 
@@ -53,12 +50,11 @@ export class ServiceUnavailableError extends MinskyError {
  * Thrown when a file system operation fails.
  */
 export class FileSystemError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly path?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 
@@ -66,12 +62,11 @@ export class FileSystemError extends MinskyError {
  * Thrown when there is an issue with configuration values.
  */
 export class ConfigurationError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly configKey?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 
@@ -79,12 +74,11 @@ export class ConfigurationError extends MinskyError {
  * Thrown when a Git operation fails.
  */
 export class GitOperationError extends MinskyError {
-  constructor(
-    message: string,
-    public readonly command?: string,
+  constructor(_message: string,
+    public readonly _command?: string,
     cause?: unknown
   ) {
-    super(message, cause);
+    super(_message, _cause);
   }
 }
 

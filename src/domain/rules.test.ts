@@ -5,6 +5,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { log } from "../utils/logger.js";
+const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+
 describe("RuleService", () => {
   const testDir = path.join(import.meta.dir, "../..", "test-rules-tmp");
   const cursorRulesDir = path.join(testDir, ".cursor", "rules");
@@ -16,7 +18,7 @@ describe("RuleService", () => {
   async function createTestRule(
     id: string,
     content: string,
-    meta: any = {},
+    meta: unknown = {},
     format: RuleFormat = "cursor"
   ): Promise<string> {
     const dir = format === "cursor" ? cursorRulesDir : genericRulesDir;
@@ -40,7 +42,7 @@ describe("RuleService", () => {
     // Clean up test directories
     try {
       await fs.rm(testDir, { recursive: true, force: true });
-    } catch (error) {
+    } catch {
       log.error("Failed to clean up test directory", {
         error: error instanceof Error ? error.message : String(error),
         testDir,
@@ -171,7 +173,7 @@ describe("RuleService", () => {
 
       // Verify file was created
       const filePath = path.join(cursorRulesDir, `${id}.mdc`);
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain(content);
       expect(fileContent).toContain(meta.name);
     });
@@ -196,7 +198,7 @@ describe("RuleService", () => {
 
       // Verify file was created
       const filePath = path.join(cursorRulesDir, `${id}.mdc`);
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain(content);
       expect(fileContent).toContain(meta.description);
 
@@ -231,7 +233,7 @@ describe("RuleService", () => {
 
       // Verify file was updated
       const filePath = path.join(cursorRulesDir, "existing-rule.mdc");
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain("New content");
       expect(fileContent).toContain("Updated Rule");
     });
@@ -259,7 +261,7 @@ describe("RuleService", () => {
 
       // Verify file was updated
       const filePath = path.join(cursorRulesDir, "update-test.mdc");
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain("Updated Name");
       expect(fileContent).toContain("Updated description");
       expect(fileContent).toContain("Original content");
@@ -279,7 +281,7 @@ describe("RuleService", () => {
 
       // Verify file was updated
       const filePath = path.join(cursorRulesDir, "content-update-test.mdc");
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain("Content Test");
       expect(fileContent).toContain("Updated content");
     });
@@ -306,7 +308,7 @@ describe("RuleService", () => {
 
       // Verify file was updated
       const filePath = path.join(cursorRulesDir, "full-update-test.mdc");
-      const fileContent = await fs.readFile(filePath, "utf-8");
+      const fileContent = await fs.readFile(filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
       expect(fileContent).toContain("New Name");
       expect(fileContent).toContain("New description");
       expect(fileContent).toContain("New content");

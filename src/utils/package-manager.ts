@@ -16,20 +16,20 @@ export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
  * @param repoPath Path to the repository
  * @returns Detected package manager or undefined if not detected
  */
-export function detectPackageManager(repoPath: string): PackageManager {
-  if (existsSync(join(repoPath, "bun.lock"))) {
+export function detectPackageManager(__repoPath: string): PackageManager {
+  if (existsSync(join(_repoPath, "bun.lock"))) {
     return "bun";
   }
-  if (existsSync(join(repoPath, "yarn.lock"))) {
+  if (existsSync(join(_repoPath, "yarn.lock"))) {
     return "yarn";
   }
-  if (existsSync(join(repoPath, "pnpm-lock.yaml"))) {
+  if (existsSync(join(_repoPath, "pnpm-lock.yaml"))) {
     return "pnpm";
   }
-  if (existsSync(join(repoPath, "package-lock.json"))) {
+  if (existsSync(join(_repoPath, "package-lock.json"))) {
     return "npm";
   }
-  if (existsSync(join(repoPath, "package.json"))) {
+  if (existsSync(join(_repoPath, "package.json"))) {
     return "npm"; // Default to npm if only package.json exists
   }
   return undefined; // Not a Node.js/Bun project
@@ -40,7 +40,7 @@ export function detectPackageManager(repoPath: string): PackageManager {
  * @param packageManager Package manager type
  * @returns Install command string or undefined if not supported
  */
-export function getInstallCommand(packageManager: PackageManager): string | undefined {
+export function getInstallCommand(__packageManager: PackageManager): string | undefined {
   switch (packageManager) {
   case "bun":
     return "bun install";
@@ -61,9 +61,8 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
  * @param options Configuration options
  * @returns Result object with success status and output/error messages
  */
-export async function installDependencies(
-  repoPath: string,
-  options: {
+export async function installDependencies(__repoPath: string,
+  _options: {
     packageManager?: PackageManager;
     quiet?: boolean;
   } = {}
@@ -94,7 +93,7 @@ export async function installDependencies(
     }
 
     // Execute the install command
-    const result = execSync(installCmd, {
+    const _result = execSync(_installCmd, {
       cwd: repoPath,
       stdio: options.quiet ? "ignore" : "inherit",
     });
@@ -103,7 +102,7 @@ export async function installDependencies(
     const output = result?.toString() || "";
 
     return { success: true, output };
-  } catch (error) {
+  } catch (_error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (!options.quiet) {
