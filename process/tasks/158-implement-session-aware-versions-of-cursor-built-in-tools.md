@@ -299,16 +299,17 @@ Based on research, evaluate whether these tools need session-aware versions:
 - ✅ MCP server integration patterns established
 - ✅ Test infrastructure and patterns established
 
-### Phase 3: Command Execution (LATER)
+### Phase 3: Command Execution (REVERSE ENGINEERING COMPLETED)
 
 **Priority**: Medium - Important but can be phased after core tools
 
-1. [ ] **REVERSE ENGINEER COMMAND TOOLS BEHAVIOR** (PLANNED)
-   - [ ] Systematically test `run_terminal_cmd` behavior and options
-   - [ ] Analyze `list_dir` output formatting and directory handling
-   - [ ] Document `read_file` behavior with various file types and sizes
-   - [ ] Create test cases for command execution patterns
-   - [ ] Document shell context management and environment isolation
+1. [x] **REVERSE ENGINEER COMMAND TOOLS BEHAVIOR** ✅ COMPLETED
+   - ✅ Systematically tested `run_terminal_cmd` behavior and options
+   - ✅ Analyzed `list_dir` output formatting and directory handling  
+   - ✅ Documented `read_file` behavior with various file types and sizes
+   - ✅ Created test cases for command execution patterns
+   - ✅ Documented shell context management and environment isolation
+   - ✅ **Complete behavioral documentation**: `test-verification/phase3-command-tools-analysis.md`
 2. [ ] Implement `session_run_command` using **node-pty** or similar
    - Install/integrate terminal emulation library
    - Execute commands with pwd set to session workspace
@@ -404,7 +405,7 @@ The following documents must be created during the research phase:
 - 95%+ test coverage for implemented tools
 - Successful AI agent workflows without tool-specific modifications
 
-## Current Status: ✅ PHASE 1 & PHASE 2 REVERSE ENGINEERING COMPLETED - READY FOR VALIDATION & IMPLEMENTATION
+## Current Status: ✅ COMPREHENSIVE REVERSE ENGINEERING COMPLETED - READY FOR PHASE 2 IMPLEMENTATION
 
 ### Research Phase: ✅ COMPLETED
 
@@ -440,6 +441,20 @@ The following documents must be created during the research phase:
 - ✅ **Performance Characteristics**: Documented performance profiles and use cases for each tool
 - ✅ **Implementation Test Cases**: Comprehensive validation scenarios including integration and edge cases
 
+**Phase 3 Tools (Command Execution):**
+
+- ✅ **run_terminal_cmd Analysis**: Command execution, shell context persistence, environment variables, error handling
+- ✅ **list_dir Analysis**: Directory formatting, file metadata, size indicators, complete directory contents
+- ✅ **read_file Analysis**: File size handling, line range behavior, intelligent truncation, summary content
+- ✅ **Shell Integration**: Working directory context, command chaining, background process support
+- ✅ **Security Patterns**: Environment isolation, path validation, command execution boundaries
+- ✅ **Complete Documentation**: `test-verification/phase3-command-tools-analysis.md` with full specifications
+
+**External Tools Analysis:**
+
+- ✅ **Strategic Analysis**: `test-verification/external-tools-analysis.md` covering web_search, GitHub tools, diagrams
+- ✅ **Integration Requirements**: Session context needs, security considerations, implementation priorities
+
 ### Current Implementation Details:
 
 **Files Created/Modified:**
@@ -466,6 +481,16 @@ The following documents must be created during the research phase:
 - `test-verification/phase2-implementation-test-cases.ts` - Comprehensive validation test cases for search tools
 - `test-verification/grep-search-results.md` - Initial search tool analysis results
 
+**Phase 3 Analysis:**
+
+- `test-verification/phase3-command-tools-analysis.md` - Complete behavioral documentation for command tools
+- `test-verification/advanced-reapply-analysis.ts` - Advanced pattern testing for reapply tool
+
+**External Tools Analysis:**
+
+- `test-verification/external-tools-analysis.md` - Strategic analysis of external integration tools
+- `test-verification/comprehensive-reverse-engineering-summary.md` - Complete summary of all analysis work
+
 **Key Features Implemented:**
 
 - **Session Workspace Isolation**: All operations confined to session boundaries via SessionPathResolver
@@ -476,29 +501,36 @@ The following documents must be created during the research phase:
 
 ### Next Immediate Steps:
 
-1. **PRIORITY: Validate Phase 1 Implementations Against Reverse Engineering**
-
-   - Run comprehensive test suite from `test-verification/phase1-implementation-test-cases.ts`
-   - Verify our `session_edit_file` and `session_search_replace` match documented Cursor behavior exactly
-   - Address any compatibility gaps identified in behavioral analysis
-   - Ensure session boundary enforcement matches requirements
-
-2. **Implement Phase 2 Search Tools** (Ready for Implementation)
+1. **PRIORITY: Implement Phase 2 Search Tools** (Ready for Implementation)
 
    - `session_grep_search`: Using ripgrep library with exact Cursor compatibility (50 result limit, regex support)
-   - `session_file_search`: Fuzzy matching algorithm matching documented behavior (10 result limit, ranking)
+   - `session_file_search`: Fuzzy matching algorithm matching documented behavior (10 result limit, ranking)  
    - `session_codebase_search`: Semantic search following analyzed patterns (context snippets, intent matching)
+   - **All specifications ready**: Complete behavioral documentation from reverse engineering analysis
 
-3. **Integration Testing**: Validate search tools against comprehensive test cases from Phase 2 analysis
+2. **Validate Phase 2 Implementations Against Reverse Engineering**
 
-4. **Phase 3 Preparation**: Continue reverse engineering for command execution tools (`run_terminal_cmd`, `list_dir`, `read_file`)
+   - Run comprehensive test suite from `test-verification/phase2-implementation-test-cases.ts`
+   - Verify exact interface compatibility with documented Cursor behavior
+   - Test session boundary enforcement for search operations
+   - Performance benchmarking against analysis findings
+
+3. **Phase 3 Implementation**: Command execution tools with complete specifications
+
+   - `session_run_command`: Terminal command execution with shell context persistence
+   - `session_list_dir`: Directory listing with exact formatting from analysis
+   - `session_read_file`: File reading with intelligent truncation and line range handling
+   - **All specifications ready**: Complete behavioral documentation from reverse engineering analysis
+
+4. **Integration Testing**: End-to-end validation of all implemented tools with AI agents
 
 ### Implementation Status by Phase:
 
 1. **✅ COMPLETED**: File operations (`session_edit_file`, `session_search_replace`) + comprehensive reverse engineering
-2. **🔄 VALIDATION READY**: Phase 1 implementations ready for validation against reverse engineering findings
-3. **📋 IMPLEMENTATION READY**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`) with complete behavioral specifications
-4. **📋 PLANNED**: Command execution tools (`session_run_command`, `session_list_dir`, `session_read_file`)
+2. **📋 IMPLEMENTATION READY**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`) with complete behavioral specifications
+3. **📋 IMPLEMENTATION READY**: Command execution tools (`session_run_command`, `session_list_dir`, `session_read_file`) with complete behavioral specifications  
+4. **📋 ANALYSIS COMPLETE**: External tools (`web_search`, GitHub tools, diagrams) with strategic implementation guidance
+5. **🎯 NEXT PRIORITY**: Phase 2 search tools implementation using documented specifications
 
 ## References
 
@@ -511,4 +543,8 @@ The following documents must be created during the research phase:
 - [Phase 1 Implementation Test Cases](../../test-verification/phase1-implementation-test-cases.ts) ✅ Created
 - [Phase 2 Search Tools Analysis](../../test-verification/phase2-search-tools-results.md) ✅ Created
 - [Phase 2 Implementation Test Cases](../../test-verification/phase2-implementation-test-cases.ts) ✅ Created
+- [Phase 3 Command Tools Analysis](../../test-verification/phase3-command-tools-analysis.md) ✅ Created
+- [External Tools Analysis](../../test-verification/external-tools-analysis.md) ✅ Created
+- [Comprehensive Reverse Engineering Summary](../../test-verification/comprehensive-reverse-engineering-summary.md) ✅ Created
+- [Advanced Reapply Analysis](../../test-verification/advanced-reapply-analysis.ts) ✅ Created
 - [Reverse Engineering Plan](../../test-verification/cursor-reverse-engineering-plan.md) ✅ Created
