@@ -35,7 +35,7 @@ async function initGitRepo(repoPath: string) {
 
 // Execute git command safely and return stdout
 function execGit(_command: string, cwd: string): string {
-  const result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
+  const result = execSync(`git ${_command}`, { cwd, encoding: "utf8" });
   return result.toString();
 }
 
@@ -101,7 +101,7 @@ describe.skip("Git Integration Tests", () => {
     await writeFile(join(repoPath, "untracked.txt"), "Untracked file");
 
     // Act
-    const _status = await gitService.getStatus(repoPath);
+    const status = await gitService.getStatus(repoPath);
 
     // Assert
     expect(status.untracked).toContain("untracked.txt");
