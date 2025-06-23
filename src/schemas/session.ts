@@ -120,14 +120,18 @@ export type SessionDirParams = z.infer<typeof sessionDirParamsSchema>;
  */
 export const sessionUpdateParamsSchema = z
   .object({
-    name: sessionNameSchema.describe("Name of the session to update"),
+    name: sessionNameSchema.optional().describe("Name of the session to update"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
     branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
     remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
     noStash: flagSchema("Skip stashing local changes"),
     noPush: flagSchema("Skip pushing changes to remote after update"),
     force: flagSchema("Force update even if the session workspace is dirty"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
+    message: "Either session name or task ID must be provided",
+  });
 
 /**
  * Type for session update parameters

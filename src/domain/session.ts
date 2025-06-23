@@ -786,11 +786,11 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, branch, remote, noStash, noPush, force } = params;
+  const { name, task, branch, remote, noStash, noPush, force } = params;
 
-  // Input validation
-  if (!name) {
-    throw new ValidationError("Session name is required");
+  // Input validation - require either name or task
+  if (!name && !task) {
+    throw new ValidationError("Either session name or task ID must be provided");
   }
 
   // Set up dependencies with defaults
@@ -801,14 +801,32 @@ export async function updateSessionFromParams(
   };
 
   try {
-    // Get session record
-    const sessionRecord = await deps.sessionDB.getSession(name);
-    if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+    // Get session record - prioritize task lookup if provided
+    let sessionRecord: SessionRecord | null = null;
+    let sessionName: string;
+
+    if (task && !name) {
+      // If task is provided but no name, find session by task ID
+      const normalizedTaskId = taskIdSchema.parse(task);
+      sessionRecord = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+      if (!sessionRecord) {
+        throw new ResourceNotFoundError(`No session found for task ${task}`, "session", task);
+      }
+      sessionName = sessionRecord.session;
+    } else if (name) {
+      // If name is provided, get by name
+      sessionRecord = await deps.sessionDB.getSession(name);
+      if (!sessionRecord) {
+        throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+      }
+      sessionName = name;
+    } else {
+      // This should not happen due to validation above, but for type safety
+      throw new ValidationError("Either session name or task ID must be provided");
     }
 
     // Get session working directory
-    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, sessionName);
 
     // Validate that the session workspace directory exists
     try {
@@ -817,9 +835,9 @@ export async function updateSessionFromParams(
     } catch (error) {
       throw new MinskyError(
         `Session workspace directory does not exist: ${workdir}. ` +
-          `The session '${name}' exists in the database but its workspace directory is missing. ` +
+          `The session '${sessionName}' exists in the database but its workspace directory is missing. ` +
           `This can happen if the directory was manually deleted or the session creation was interrupted. ` +
-          `Please delete the session with 'minsky session delete ${name}' and recreate it.`
+          `Please delete the session with 'minsky session delete ${sessionName}' and recreate it.`
       );
     }
 
