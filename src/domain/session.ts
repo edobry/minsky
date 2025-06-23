@@ -593,13 +593,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {

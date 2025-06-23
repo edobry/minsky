@@ -65,9 +65,9 @@ export class TaskTitleMigration {
 
     try {
       if (options.verbose) {
-        console.log(`Starting task title migration...`);
+        console.log("Starting task title migration...");
         console.log(`Workspace: ${this.workspacePath}`);
-        console.log(`Options:`, options);
+        console.log("Options:", options);
       }
 
       // Create backup if requested
@@ -116,7 +116,7 @@ export class TaskTitleMigration {
         console.log(`  Errors: ${result.errors.length}`);
 
         if (result.errors.length > 0) {
-          console.log(`\nErrors:`);
+          console.log("\nErrors:");
           result.errors.forEach(error => console.log(`  - ${error}`));
         }
       }

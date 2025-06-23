@@ -92,7 +92,7 @@ export interface VerificationResult {
    */
   mismatches?: Array<{
     recordId: string;
-    issue: 'missing' | 'modified';
+    issue: "missing" | "modified";
     sourceData?: SessionRecord;
     targetData?: SessionRecord;
   }>;

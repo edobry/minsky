@@ -9,7 +9,7 @@ import { join } from "path";
 import { log } from "../../utils/logger";
 import type { DatabaseStorage } from "./database-storage";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
-import { createJsonFileStorage } from "./json-file-storage";
+import { JsonFileStorage } from "./backends/json-file-storage";
 import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
 
@@ -56,7 +56,7 @@ export function getDefaultStorageConfig(): StorageConfig {
   return {
     backend: "json",
     json: {
-      filePath: join(xdgStateHome, "minsky", "sessions.json"),
+      filePath: join(xdgStateHome, "minsky", "session-db.json"),
     },
     sqlite: {
       dbPath: join(xdgStateHome, "minsky", "sessions.db"),
@@ -113,20 +113,9 @@ export function createStorageBackend(
 
   switch (storageConfig.backend) {
     case "json":
-      return createJsonFileStorage<SessionRecord, SessionDbState>({
-        filePath: storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!,
-        entitiesField: "sessions",
-        idField: "session",
-        initializeState: () => ({
-          sessions: [],
-          baseDir: join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git"
-          ),
-        }),
-        prettyPrint: true,
-      });
+      return new JsonFileStorage(
+        storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!
+      );
 
     case "sqlite":
       const sqliteConfig: SqliteStorageConfig = {

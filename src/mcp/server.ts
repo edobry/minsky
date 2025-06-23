@@ -227,35 +227,35 @@ export class MinskyMCPServer {
         let result: any;
 
         switch (name) {
-          case "git.status":
-            result = await this.handleGitStatus();
-            break;
-          case "git.log":
-            result = await this.handleGitLog(args?.maxCount as number | undefined);
-            break;
-          case "tasks.list":
-            result = await this.handleTasksList();
-            break;
-          case "tasks.create":
-            result = await this.handleTasksCreate(args?.title as string, args?.description as string | undefined);
-            break;
-          case "tasks.update":
-            result = await this.handleTasksUpdate(args?.id as string, args?.title as string | undefined, args?.description as string | undefined);
-            break;
-          case "session.create":
-            result = await this.handleSessionCreate(args?.taskId as string);
-            break;
-          case "session.list":
-            result = await this.handleSessionList();
-            break;
-          case "project.info":
-            result = await this.handleProjectInfo();
-            break;
-          default:
-            throw new McpError(
-              ErrorCode.MethodNotFound,
-              `Unknown tool: ${name}`
-            );
+        case "git.status":
+          result = await this.handleGitStatus();
+          break;
+        case "git.log":
+          result = await this.handleGitLog(args?.maxCount as number | undefined);
+          break;
+        case "tasks.list":
+          result = await this.handleTasksList();
+          break;
+        case "tasks.create":
+          result = await this.handleTasksCreate(args?.title as string, args?.description as string | undefined);
+          break;
+        case "tasks.update":
+          result = await this.handleTasksUpdate(args?.id as string, args?.title as string | undefined, args?.description as string | undefined);
+          break;
+        case "session.create":
+          result = await this.handleSessionCreate(args?.taskId as string);
+          break;
+        case "session.list":
+          result = await this.handleSessionList();
+          break;
+        case "project.info":
+          result = await this.handleProjectInfo();
+          break;
+        default:
+          throw new McpError(
+            ErrorCode.MethodNotFound,
+            `Unknown tool: ${name}`
+          );
         }
 
         const callResult: CallToolResult = {

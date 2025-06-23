@@ -16,7 +16,7 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const expect = bunExpect as any;
 
 describe("Mock Function Compatibility", () => {
