@@ -145,14 +145,72 @@ const sessionDbMigrateRegistration = {
 
       const result = await MigrationService.migrate(migrationOptions);
 
-      return {
-        success: result.success,
-        recordsMigrated: result.recordsMigrated,
-        backupPath: result.backupPath,
-        errors: result.errors,
-        warnings: result.warnings,
-        verificationResult: result.verificationResult,
-      };
+      // Format output for CLI display
+      if (!params.json) {
+        console.log(`\nMigrating session database: ${sourceBackend} → ${targetBackend}`);
+        if (params.dryRun) {
+          console.log("(DRY RUN - no changes will be made)\n");
+        }
+
+        console.log("\n=== Migration Results ===");
+        console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
+        console.log(`Records migrated: ${result.recordsMigrated}`);
+
+        if (result.backupPath) {
+          console.log(`Backup created: ${result.backupPath}`);
+        }
+
+        if (result.errors.length > 0) {
+          console.log("\nErrors:");
+          result.errors.forEach((error) => console.log(`  - ${error}`));
+        }
+
+        if (result.warnings.length > 0) {
+          console.log("\nWarnings:");
+          result.warnings.forEach((warning) => console.log(`  - ${warning}`));
+        }
+
+        if (result.verificationResult) {
+          console.log("\n=== Verification Results ===");
+          console.log(`Status: ${result.verificationResult.success ? "PASSED" : "FAILED"}`);
+          console.log(`Source records: ${result.verificationResult.sourceCount}`);
+          console.log(`Target records: ${result.verificationResult.targetCount}`);
+
+          if (result.verificationResult.missingRecords.length > 0) {
+            console.log(`Missing records: ${result.verificationResult.missingRecords.join(", ")}`);
+          }
+
+          if (result.verificationResult.inconsistencies.length > 0) {
+            console.log("Inconsistencies:");
+            result.verificationResult.inconsistencies.forEach((inc) => console.log(`  - ${inc}`));
+          }
+        }
+
+        if (result.success && !params.dryRun) {
+          console.log("\n=== Next Steps ===");
+          console.log("1. Update your configuration to use the new backend:");
+          console.log(`   sessiondb.backend: "${targetBackend}"`);
+          console.log("2. Test session operations to verify everything works");
+          console.log("3. Remove old database files if no longer needed");
+        }
+      }
+
+      // Return full result for JSON mode, simple result for CLI mode
+      if (params.json) {
+        return {
+          success: result.success,
+          recordsMigrated: result.recordsMigrated,
+          backupPath: result.backupPath,
+          errors: result.errors,
+          warnings: result.warnings,
+          verificationResult: result.verificationResult,
+        };
+      } else {
+        // For CLI mode, just return success status since we already printed the details
+        return {
+          success: result.success,
+        };
+      }
     } catch (error) {
       log.error("Migration failed", {
         targetBackend,
@@ -173,12 +231,12 @@ function generateDefaultPath(backend: string): string | undefined {
   const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
 
   switch (backend) {
-  case "sqlite":
-    return join(xdgStateHome, "minsky", "sessions.db");
-  case "json":
-    return join(xdgStateHome, "minsky", "session-db.json");
-  default:
-    return undefined;
+    case "sqlite":
+      return join(xdgStateHome, "minsky", "sessions.db");
+    case "json":
+      return join(xdgStateHome, "minsky", "session-db.json");
+    default:
+      return undefined;
   }
 }
 

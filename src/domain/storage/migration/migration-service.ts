@@ -135,7 +135,7 @@ export class MigrationService {
         } catch (error) {
           const errorMsg = `Failed to migrate session ${session.session}: ${error instanceof Error ? error.message : String(error)}`;
           result.errors.push(errorMsg);
-          log.error(errorMsg);
+          log.debug(errorMsg); // Use debug level to reduce console noise
         }
       }
 
