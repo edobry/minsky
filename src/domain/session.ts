@@ -882,10 +882,8 @@ export async function updateSessionFromParams(
           repoPath: workdir,
           remote: remote || "origin",
         });
-        log.debug("Changes pushed");
       }
-    } catch (error) {
-      throw error;
+      log.debug("Changes pushed");
     } finally {
       // Always try to restore stashed changes
       if (!noStash) {
