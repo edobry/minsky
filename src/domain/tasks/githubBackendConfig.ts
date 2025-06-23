@@ -1,10 +1,10 @@
-const HTTP_NOT_FOUND = HTTP_NOT_FOUND;
+const HTTP_NOT_FOUND = 404;
 
 /**
  * Configuration helper for GitHub Issues task backend
  */
 
-import { _config } from "@dotenvx/dotenvx";
+import { config } from "@dotenvx/dotenvx";
 import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -20,7 +20,8 @@ if (existsSync(envPath)) {
 /**
  * Extract GitHub repository info from git remote
  */
-function extractGitHubRepoFromRemote(__workspacePath: string
+function extractGitHubRepoFromRemote(
+  __workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
@@ -58,7 +59,8 @@ function extractGitHubRepoFromRemote(__workspacePath: string
 /**
  * Get GitHub backend configuration from environment and git remote
  */
-export function getGitHubBackendConfig(__workspacePath: string,
+export function getGitHubBackendConfig(
+  __workspacePath: string,
   _options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
@@ -95,7 +97,8 @@ export function getGitHubBackendConfig(__workspacePath: string,
 /**
  * Create labels for a GitHub repository
  */
-export async function createGitHubLabels(_octokit: unknown,
+export async function createGitHubLabels(
+  _octokit: unknown,
   owner: string,
   repo: string,
   labels: Record<string, string>

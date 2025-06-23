@@ -11,7 +11,8 @@ import type { TaskBackend } from "./taskBackend";
  * @param shouldLogErrors Whether to log errors when configuration is not available
  * @returns GitHub backend or null if not available
  */
-export async function tryCreateGitHubBackend(__workspacePath: string,
+export async function tryCreateGitHubBackend(
+  __workspacePath: string,
   shouldLogErrors = false
 ): Promise<TaskBackend | null> {
   try {
@@ -21,14 +22,14 @@ export async function tryCreateGitHubBackend(__workspacePath: string,
       import("./githubIssuesTaskBackend"),
     ]);
 
-    const _config = getGitHubBackendConfig(__workspacePath, { logErrors: shouldLogErrors });
+    const config = getGitHubBackendConfig(__workspacePath, { logErrors: shouldLogErrors });
     if (!config || !config.githubToken || !config.owner || !config.repo) {
       return null;
     }
 
     return createGitHubIssuesTaskBackend({
       name: "github-issues",
-      _workspacePath,
+      workspacePath: __workspacePath,
       githubToken: config.githubToken,
       owner: config.owner,
       repo: config.repo,
@@ -46,6 +47,6 @@ export async function tryCreateGitHubBackend(__workspacePath: string,
  * @returns True if GitHub backend can be created
  */
 export async function isGitHubBackendAvailable(__workspacePath: string): Promise<boolean> {
-  const backend = await tryCreateGitHubBackend(_workspacePath);
+  const backend = await tryCreateGitHubBackend(__workspacePath);
   return backend !== null;
 }

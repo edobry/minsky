@@ -87,7 +87,7 @@ export interface ForceOptions {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addRepoOptions(__command: Command): Command {
+export function addRepoOptions(command: Command): Command {
   return command
     .option("--session <session>", SESSION_DESCRIPTION)
     .option("--repo <repositoryUri>", REPO_DESCRIPTION)
@@ -99,7 +99,7 @@ export function addRepoOptions(__command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addOutputOptions(__command: Command): Command {
+export function addOutputOptions(command: Command): Command {
   return command.option("--json", JSON_DESCRIPTION).option("--debug", DEBUG_DESCRIPTION);
 }
 
@@ -108,8 +108,8 @@ export function addOutputOptions(__command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addTaskOptions(__command: Command): Command {
-  return command.option("--task <_taskId>", TASK_ID_DESCRIPTION);
+export function addTaskOptions(command: Command): Command {
+  return command.option("--task <taskId>", TASK_ID_DESCRIPTION);
 }
 
 /**
@@ -117,7 +117,7 @@ export function addTaskOptions(__command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addBackendOptions(__command: Command): Command {
+export function addBackendOptions(command: Command): Command {
   return command.option("-b, --backend <backend>", BACKEND_DESCRIPTION);
 }
 
@@ -126,7 +126,7 @@ export function addBackendOptions(__command: Command): Command {
  * @param command Commander command to add options to
  * @returns The command with options added
  */
-export function addForceOptions(__command: Command): Command {
+export function addForceOptions(command: Command): Command {
   return command.option("-f, --force", FORCE_DESCRIPTION);
 }
 
@@ -140,7 +140,7 @@ export function addForceOptions(__command: Command): Command {
  * @param options CLI repository options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeRepoOptions(__options: RepoOptions): {
+export function normalizeRepoOptions(options: RepoOptions): {
   session?: string;
   repo?: string;
   workspace?: string;
@@ -158,7 +158,7 @@ export function normalizeRepoOptions(__options: RepoOptions): {
  * @param options CLI output options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeOutputOptions(__options: OutputOptions): {
+export function normalizeOutputOptions(options: OutputOptions): {
   json?: boolean;
   debug?: boolean;
 } {
@@ -174,7 +174,7 @@ export function normalizeOutputOptions(__options: OutputOptions): {
  * @param options CLI task options
  * @returns Normalized parameter object for domain functions
  */
-export function normalizeTaskOptions(__options: TaskOptions): {
+export function normalizeTaskOptions(options: TaskOptions): {
   task?: string;
 } {
   // If task ID is provided, normalize it
@@ -193,7 +193,7 @@ export function normalizeTaskOptions(__options: TaskOptions): {
  * @returns Normalized parameter object for task domain functions
  */
 export function normalizeTaskParams<T extends RepoOptions & OutputOptions & BackendOptions>(
-  _options: T
+  options: T
 ): {
   session?: string;
   repo?: string;
@@ -202,8 +202,8 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(_options),
-    ...normalizeOutputOptions(_options),
+    ...normalizeRepoOptions(options),
+    ...normalizeOutputOptions(options),
     backend: options.backend,
   };
 }
@@ -215,7 +215,7 @@ export function normalizeTaskParams<T extends RepoOptions & OutputOptions & Back
  * @returns Normalized parameter object for session domain functions
  */
 export function normalizeSessionParams<T extends RepoOptions & OutputOptions & TaskOptions>(
-  _options: T
+  options: T
 ): {
   session?: string;
   repo?: string;
@@ -224,8 +224,8 @@ export function normalizeSessionParams<T extends RepoOptions & OutputOptions & T
   json?: boolean;
 } {
   return {
-    ...normalizeRepoOptions(_options),
-    ...normalizeOutputOptions(_options),
-    ...normalizeTaskOptions(_options),
+    ...normalizeRepoOptions(options),
+    ...normalizeOutputOptions(options),
+    ...normalizeTaskOptions(options),
   };
 }

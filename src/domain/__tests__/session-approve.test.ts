@@ -4,7 +4,7 @@ import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {

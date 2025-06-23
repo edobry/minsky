@@ -8,7 +8,7 @@ import { TASK_STATUS_VALUES } from "../../domain/tasks/taskConstants.js";
  * Register task-related tools with the MCP server
  * @param commandMapper The command mapper instance
  */
-export function registerTaskTools(__commandMapper: CommandMapper): void {
+export function registerTaskTools(commandMapper: CommandMapper): void {
   // Task list tool
   commandMapper.addTaskCommand(
     "list",
@@ -19,7 +19,7 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
       format: z.enum(["detailed", "simple"]).optional().describe("Format of the task list"),
     }),
     async (
-      _args: z.infer<
+      args: z.infer<
         z.ZodObject<{
           filter: z.ZodOptional<z.ZodString>;
           limit: z.ZodOptional<z.ZodNumber>;
@@ -29,7 +29,7 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
     ) => {
       try {
         // Build the command with appropriate options
-        let _command = "minsky tasks list";
+        let command = "minsky tasks list";
         if (args.filter) {
           command += ` --filter ${args.filter}`;
         }
@@ -39,18 +39,18 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
         command += " --json"; // Always return JSON output for MCP
 
         // Execute the command
-        const output = execSync(_command).toString();
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (_error) {
+      } catch (error) {
         log.error("MCP: Error listing tasks via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to list _tasks: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -61,24 +61,24 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
     "get",
     "Get a specific task by ID",
     z.object({
-      _taskId: z.string().describe("ID of the task to retrieve"),
+      taskId: z.string().describe("ID of the task to retrieve"),
     }),
-    async (_args: unknown) => {
+    async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const _command = `minsky tasks get ${args.taskId} --json`;
-        const output = execSync(_command).toString();
+        const command = `minsky tasks get ${args.taskId} --json`;
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (_error) {
-        log.error(`MCP: Error getting task ${args._taskId} via execSync`, {
+      } catch (error) {
+        log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task ${args._taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -89,27 +89,27 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
     "status.get",
     "Get the status of a task",
     z.object({
-      _taskId: z.string().describe("ID of the task"),
+      taskId: z.string().describe("ID of the task"),
     }),
-    async (_args: unknown) => {
+    async (args: { taskId: string }) => {
       try {
         // Execute the command
-        const _command = `minsky tasks status get ${args.taskId}`;
-        const output = execSync(_command).toString().trim();
+        const command = `minsky tasks status get ${args.taskId}`;
+        const output = execSync(command).toString().trim();
 
         // Format output
         return {
           taskId: args.taskId,
-          _status: output.split(": ")[1], // Extract the status value
+          status: output.split(": ")[1], // Extract the status value
         };
-      } catch (_error) {
-        log.error(`MCP: Error getting task status for ${args._taskId} via execSync`, {
+      } catch (error) {
+        log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task status for ${args._taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -120,38 +120,31 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
     "status.set",
     "Set the status of a task",
     z.object({
-      _taskId: z.string().describe("ID of the task"),
+      taskId: z.string().describe("ID of the task"),
       status: z
         .enum(TASK_STATUS_VALUES as [string, ...string[]])
         .describe("New status for the task"),
     }),
-    async (
-      _args: z.infer<
-        z.ZodObject<{
-          _taskId: z.ZodString;
-          status: z.ZodEnum<typeof TASK_STATUS_VALUES>;
-        }>
-      >
-    ) => {
+    async (args: { taskId: string; status: string }) => {
       try {
         // Execute the command
-        const _command = `minsky tasks status set ${args.taskId} ${args.status}`;
-        execSync(_command);
+        const command = `minsky tasks status set ${args.taskId} ${args.status}`;
+        execSync(command);
 
         // Return success confirmation
         return {
           success: true,
           taskId: args.taskId,
-          _status: args.status,
+          status: args.status,
         };
-      } catch (_error) {
-        log.error(`MCP: Error setting task status for ${args._taskId} via execSync`, {
+      } catch (error) {
+        log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to set task status for ${args._taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to set task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -162,17 +155,17 @@ export function registerTaskTools(__commandMapper: CommandMapper): void {
     "create",
     "Create a new task from a specification document",
     z.object({
-      _specPath: z.string().describe("Path to the task specification document"),
+      specPath: z.string().describe("Path to the task specification document"),
     }),
-    async (_args: unknown) => {
+    async (args: { specPath: string }) => {
       try {
         // Execute the command
-        const _command = `minsky tasks create ${args.specPath} --json`;
-        const output = execSync(_command).toString();
+        const command = `minsky tasks create ${args.specPath} --json`;
+        const output = execSync(command).toString();
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (_error) {
+      } catch (error) {
         log.error("MCP: Error creating task via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,

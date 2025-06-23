@@ -15,7 +15,8 @@ declare global {
  * Supports cause chaining for better error context.
  */
 export class MinskyError extends Error {
-  constructor(_message: string,
+  constructor(
+    message: string,
     public readonly cause?: unknown
   ) {
     super(message);
@@ -23,7 +24,7 @@ export class MinskyError extends Error {
 
     // Capture stack trace, excluding constructor call from it
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(_this, this.constructor);
+      Error.captureStackTrace(this, this.constructor);
     }
   }
 }
@@ -33,7 +34,7 @@ export class MinskyError extends Error {
  * @param error Any caught error (which might be a string or other non-Error object)
  * @returns A proper Error or MinskyError object
  */
-export function ensureError(__error: unknown): Error {
+export function ensureError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }

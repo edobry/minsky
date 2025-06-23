@@ -1,7 +1,7 @@
-const DEFAULT_HTTP_PORT = DEFAULT_HTTP_PORT;
-const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-const TEST_VALUE = TEST_VALUE;
+const DEFAULT_HTTP_PORT = 8080;
+const DEFAULT_DISPLAY_LENGTH = 100;
+const TEST_ARRAY_SIZE = 3;
+const TEST_VALUE = 8081;
 
 // Domain-specific constants to replace magic numbers
 export const DOMAIN_CONSTANTS = {
@@ -9,15 +9,15 @@ export const DOMAIN_CONSTANTS = {
   DEFAULT_DEV_PORT: DEFAULT_HTTP_PORT,
   HTTP_OK: 200,
   STANDARD_HTTPS_PORT: 80,
-  
+
   // System configuration
   DEFAULT_RETRY_COUNT: TEST_ARRAY_SIZE,
   BYTES_PER_KB: 1024,
-  
+
   // Timeouts and intervals (milliseconds)
   DEFAULT_TIMEOUT_MS: 30000,
   MINUTE_IN_SECONDS: 60,
-  
+
   // Test configuration
   TEST_PORT: TEST_VALUE,
   SMALL_DELAY_MS: DEFAULT_DISPLAY_LENGTH,
@@ -33,4 +33,4 @@ export const {
   MINUTE_IN_SECONDS,
   TEST_PORT,
   SMALL_DELAY_MS,
-} = DOMAIN_CONSTANTS; 
+} = DOMAIN_CONSTANTS;

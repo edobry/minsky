@@ -1,4 +1,4 @@
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 /**
  * Integration tests for TaskService with JsonFileTaskBackend (v2 - with mocking)

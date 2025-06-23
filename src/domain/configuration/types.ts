@@ -30,6 +30,16 @@ export interface RepositoryConfig {
     };
     base_dir?: string;
   };
+  ai?: {
+    default_provider?: string;
+    providers?: {
+      openai?: AIProviderRepoConfig;
+      anthropic?: AIProviderRepoConfig;
+      google?: AIProviderRepoConfig;
+      cohere?: AIProviderRepoConfig;
+      mistral?: AIProviderRepoConfig;
+    };
+  };
 }
 
 export interface GlobalUserConfig {
@@ -43,6 +53,13 @@ export interface GlobalUserConfig {
     postgres?: {
       connection_string?: string;
     };
+    ai?: {
+      openai?: AICredentialConfig;
+      anthropic?: AICredentialConfig;
+      google?: AICredentialConfig;
+      cohere?: AICredentialConfig;
+      mistral?: AICredentialConfig;
+    };
   };
   sessiondb?: {
     sqlite?: {
@@ -50,7 +67,16 @@ export interface GlobalUserConfig {
     };
     base_dir?: string;
   };
-  // Future: user preferences
+  ai?: {
+    default_provider?: string;
+    providers?: {
+      openai?: AIProviderUserConfig;
+      anthropic?: AIProviderUserConfig;
+      google?: AIProviderUserConfig;
+      cohere?: AIProviderUserConfig;
+      mistral?: AIProviderUserConfig;
+    };
+  };
 }
 
 export interface DetectionRule {
@@ -64,6 +90,16 @@ export interface ResolvedConfig {
   credentials: CredentialConfig;
   detectionRules: DetectionRule[];
   sessiondb: SessionDbConfig;
+  ai?: {
+    default_provider?: string;
+    providers?: {
+      openai?: AIProviderUserConfig;
+      anthropic?: AIProviderUserConfig;
+      google?: AIProviderUserConfig;
+      cohere?: AIProviderUserConfig;
+      mistral?: AIProviderUserConfig;
+    };
+  };
 }
 
 export interface BackendConfig {
@@ -82,6 +118,13 @@ export interface CredentialConfig {
   };
   postgres?: {
     connection_string?: string;
+  };
+  ai?: {
+    openai?: AICredentialConfig;
+    anthropic?: AICredentialConfig;
+    google?: AICredentialConfig;
+    cohere?: AICredentialConfig;
+    mistral?: AICredentialConfig;
   };
 }
 
@@ -123,6 +166,29 @@ export interface ValidationWarning {
   code: string;
 }
 
+// AI Provider Configuration Types
+export interface AIProviderRepoConfig {
+  default_model?: string;
+  base_url?: string;
+  enabled?: boolean;
+  models?: string[];
+}
+
+export interface AIProviderUserConfig {
+  default_model?: string;
+  base_url?: string;
+  enabled?: boolean;
+  models?: string[];
+  max_tokens?: number;
+  temperature?: number;
+}
+
+export interface AICredentialConfig {
+  source: "environment" | "file" | "prompt";
+  api_key?: string;
+  api_key_file?: string;
+}
+
 export type CredentialSource = "environment" | "file" | "prompt";
 
 export interface ConfigurationService {
@@ -133,7 +199,11 @@ export interface ConfigurationService {
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | null>;
-  setGlobalCredential(_service: "github", _source: CredentialSource, _value?: string): Promise<void>;
+  setGlobalCredential(
+    _service: "github",
+    _source: CredentialSource,
+    _value?: string
+  ): Promise<void>;
   promptForCredential(_service: "github"): Promise<string>;
 }
 
@@ -172,7 +242,7 @@ export const ENV_VARS = {
   BACKEND: "MINSKY_BACKEND",
   GITHUB_TOKEN: "GITHUB_TOKEN",
   SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
-  SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH", 
+  SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
   SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
   SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
 } as const;

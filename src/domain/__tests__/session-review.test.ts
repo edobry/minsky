@@ -5,8 +5,8 @@ import type { SessionProviderInterface, GitServiceInterface } from "../session.j
 import type { TaskServiceInterface } from "../tasks.js";
 import type { WorkspaceUtilsInterface } from "../workspace.js";
 
-const TEST_VALUE = TEST_VALUE;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TEST_VALUE = 123;
+const TEST_ARRAY_SIZE = 3;
 
 describe("sessionReviewFromParams", () => {
   // Mock the SessionProviderInterface

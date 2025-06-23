@@ -3,7 +3,7 @@ import { MarkdownTaskBackend, TaskService, TASK_STATUS } from "./tasks";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import path from "path";
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 const SAMPLE_TASKS_MD = `
 # Tasks

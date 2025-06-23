@@ -2,7 +2,7 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
-import type {TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
+import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants.js";
@@ -13,9 +13,9 @@ import type { TaskStatus } from "./taskConstants.js";
  * @param content Markdown content with task entries
  * @returns Array of task data objects
  */
-export function parseTasksFromMarkdown(__content: string): TaskData[] {
-  const _tasks: TaskData[] = [];
-  if (!_content) return tasks;
+export function parseTasksFromMarkdown(content: string): TaskData[] {
+  const tasks: TaskData[] = [];
+  if (!content) return tasks;
 
   // Split into lines and track code block state
   const lines = content.split("\n");
@@ -33,10 +33,10 @@ export function parseTasksFromMarkdown(__content: string): TaskData[] {
     const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
     if (!parsed) continue;
 
-    const { checkbox, _title, id } = parsed;
+    const { checkbox, title, id } = parsed;
     if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
 
-    const _status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
+    const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
 
     // Aggregate indented lines as description
     let description = "";
@@ -55,8 +55,8 @@ export function parseTasksFromMarkdown(__content: string): TaskData[] {
 
     tasks.push({
       id,
-      _title,
-      _status,
+      title,
+      status,
       description: description.trim(),
     });
   }
@@ -70,12 +70,12 @@ export function parseTasksFromMarkdown(__content: string): TaskData[] {
  * @returns Formatted markdown content
  */
 export function formatTasksToMarkdown(__tasks: TaskData[]): string {
-  if (!tasks || tasks.length === 0) return "";
+  if (!__tasks || __tasks.length === 0) return "";
 
-  return tasks
+  return __tasks
     .map((task) => {
-      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task._status);
-      const _specPath = task.specPath || "#";
+      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
+      const specPath = task.specPath || "#";
       const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
 
       // Always return only the task line - descriptions should remain in spec files
@@ -90,7 +90,7 @@ export function formatTasksToMarkdown(__tasks: TaskData[]): string {
  * @param id Task ID to find
  * @returns Found task or null
  */
-export function getTaskById(__tasks: TaskData[], _id: string): TaskData | null {
+export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   if (!tasks || !id) return null;
 
   // First try exact match
@@ -120,7 +120,7 @@ export function getTaskById(__tasks: TaskData[], _id: string): TaskData | null {
  * @param id Task ID to normalize
  * @returns Normalized task ID or null if invalid
  */
-export function normalizeTaskId(__id: string): string | null {
+export function normalizeTaskId(id: string): string | null {
   if (!id) return null;
 
   // If already in #XXX format, validate and return
@@ -148,9 +148,9 @@ export function normalizeTaskId(__id: string): string | null {
  * @returns Next available task ID
  */
 export function getNextTaskId(__tasks: TaskData[]): string {
-  if (!tasks || tasks.length === 0) return "#001";
+  if (!__tasks || __tasks.length === 0) return "#001";
 
-  const maxId = tasks.reduce((max, task) => {
+  const maxId = __tasks.reduce((max, task) => {
     const id = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(id) && id > max ? id : max;
   }, 0);
@@ -165,7 +165,7 @@ export function getNextTaskId(__tasks: TaskData[]): string {
  * @param status New status
  * @returns New array with the updated task
  */
-export function setTaskStatus(__tasks: TaskData[], _id: string, _status: TaskStatus): TaskData[] {
+export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
   const normalizedId = normalizeTaskId(id);
@@ -190,19 +190,19 @@ export function setTaskStatus(__tasks: TaskData[], _id: string, _status: TaskSta
  * @param newTask New task to add
  * @returns New array with the added task
  */
-export function addTask(__tasks: TaskData[], newTask: TaskData): TaskData[] {
+export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
 
   // Ensure the task has a valid ID
   if (!newTask.id || !normalizeTaskId(newTask.id)) {
     newTask = {
       ...newTask,
-      id: getNextTaskId(_tasks),
+      id: getNextTaskId(tasks),
     };
   }
 
   // Check if task with the same ID already exists
-  const existingTask = getTaskById(__tasks, newTask.id);
+  const existingTask = getTaskById(tasks, newTask.id);
   if (existingTask) {
     // Replace the existing task
     return tasks.map((task) => (task.id === existingTask.id ? newTask : task));
@@ -218,7 +218,7 @@ export function addTask(__tasks: TaskData[], newTask: TaskData): TaskData[] {
  * @param filter Filter criteria
  * @returns Filtered array of tasks
  */
-export function filterTasks(__tasks: TaskData[], filter?: TaskFilter): TaskData[] {
+export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] {
   if (!tasks) return [];
   if (!filter) return tasks;
 
@@ -285,8 +285,8 @@ export function filterTasks(__tasks: TaskData[], filter?: TaskFilter): TaskData[
  * @param content Markdown content of a task specification
  * @returns Parsed task specification data
  */
-export function parseTaskSpecFromMarkdown(__content: string): TaskSpecData {
-  if (!_content) {
+export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
+  if (!content) {
     return { title: "", description: "" };
   }
 
@@ -381,8 +381,8 @@ ${spec.description}
  * @param status Status to validate
  * @returns True if valid, false otherwise
  */
-export function isValidTaskStatus(__status: string): status is TaskStatus {
-  return isValidTaskStatusUtil(_status);
+export function isValidTaskStatus(status: string): status is TaskStatus {
+  return isValidTaskStatusUtil(status);
 }
 
 /**
@@ -390,8 +390,8 @@ export function isValidTaskStatus(__status: string): status is TaskStatus {
  * @param state Task state object
  * @returns Formatted markdown content
  */
-export function formatTaskStateToMarkdown(_state: TaskState): string {
-  return formatTasksToMarkdown(state._tasks);
+export function formatTaskStateToMarkdown(state: TaskState): string {
+  return formatTasksToMarkdown(state.tasks);
 }
 
 /**
@@ -399,9 +399,9 @@ export function formatTaskStateToMarkdown(_state: TaskState): string {
  * @param content Markdown content
  * @returns Task state object
  */
-export function parseMarkdownToTaskState(__content: string): TaskState {
+export function parseMarkdownToTaskState(content: string): TaskState {
   return {
-    tasks: parseTasksFromMarkdown(_content),
+    tasks: parseTasksFromMarkdown(content),
     lastUpdated: new Date().toISOString(),
   };
 }

@@ -5,7 +5,7 @@
  */
 
 import { join } from "path";
-import type {SessionDbState } from "./session-db"; // Type-only imports
+import type { SessionDbState, SessionRecord } from "./session-db"; // Type-only imports
 import {
   initializeSessionDbState,
   listSessionsFn,
@@ -80,10 +80,10 @@ export class SessionAdapter implements LocalSessionProviderInterface {
     if (dbPath) {
       this.dbPath = dbPath;
       // For custom dbPath, set baseDir based on a parallel directory structure
-      this.baseDir = join(_dbPath, "..", "..", "git");
+      this.baseDir = join(dbPath, "..", "..", "git");
     } else {
-      this.dbPath = join(_xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(_xdgStateHome, "minsky", "git");
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
+      this.baseDir = join(xdgStateHome, "minsky", "git");
     }
 
     // Initialize state (will be populated on first read)
@@ -101,7 +101,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Write database to disk
    */
-  private async writeDb(_sessions: SessionRecord[]): Promise<void> {
+  private async writeDb(sessions: SessionRecord[]): Promise<void> {
     // Update state first
     this.state = {
       ...this.state,
@@ -121,9 +121,9 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get a session by name
    */
-  async getSession(__session: string): Promise<SessionRecord | null> {
+  async getSession(session: string): Promise<SessionRecord | null> {
     await this.readDb();
-    return getSessionFn(this.state, _session);
+    return getSessionFn(this.state, session);
   }
 
   /**
@@ -146,9 +146,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  async updateSession(__session: string,
-    _updates: Partial<Omit<"session">>
-  ): Promise<void> {
+  async updateSession(__session: string, _updates: Partial<Omit<"session">>): Promise<void> {
     await this.readDb();
     const newState = updateSessionFn(this.state, _session, _updates);
     await this.writeDb(newState.sessions);

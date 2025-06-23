@@ -121,7 +121,7 @@ export class SharedErrorHandler {
    * @param error The error to get a prefix for
    * @returns A human-readable error prefix
    */
-  static getErrorPrefix(_error: unknown): string {
+  static getErrorPrefix(error: unknown): string {
     if (error instanceof ValidationError) {
       return "Validation error";
     } else if (error instanceof ResourceNotFoundError) {
@@ -160,12 +160,12 @@ export class SharedErrorHandler {
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
+  static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
     // Format error for structured logging
-    const formattedError = SharedErrorHandler.formatError(_error, debug);
+    const formattedError = SharedErrorHandler.formatError(error, debug);
 
     // Log to appropriate channels based on mode
     if (isStructuredMode()) {
@@ -187,12 +187,12 @@ export class CliErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error);
 
     // Get type-specific error prefix
-    const _prefix = SharedErrorHandler.getErrorPrefix(error);
+    const prefix = SharedErrorHandler.getErrorPrefix(error);
 
     // Output human-readable error message
     log.cliError(`${prefix}: ${normalizedError.message}`);
@@ -284,12 +284,12 @@ export const mcpErrorHandler = new McpErrorHandler();
  */
 export function getErrorHandler(_interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-  case "cli":
-    return cliErrorHandler;
-  case "mcp":
-    return mcpErrorHandler;
-  default:
-    // Default to CLI error handler
-    return cliErrorHandler;
+    case "cli":
+      return cliErrorHandler;
+    case "mcp":
+      return mcpErrorHandler;
+    default:
+      // Default to CLI error handler
+      return cliErrorHandler;
   }
 }

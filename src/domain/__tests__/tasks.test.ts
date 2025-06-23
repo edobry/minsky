@@ -1,4 +1,4 @@
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 /**
  * Tests for interface-agnostic task functions
@@ -31,21 +31,19 @@ const mockTask: Task = {
 };
 
 // Create a default implementation for getTask that works for all tests
-const defaultGetTaskMock = (_id: unknown) => Promise.resolve(id === "#TEST_VALUE" ? mockTask : null);
+const defaultGetTaskMock = (id: unknown) => Promise.resolve(id === "#TEST_VALUE" ? mockTask : null);
 
 const mockTaskService = {
   listTasks: createMock(() => Promise.resolve([mockTask])),
   getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((_id: unknown) =>
+  getTaskStatus: createMock((id: unknown) =>
     Promise.resolve(id === "#TEST_VALUE" ? TASK_STATUS.TODO : null)
   ),
   setTaskStatus: createMock(() => Promise.resolve()),
   backends: [] as any,
   currentBackend: {} as any,
   getWorkspacePath: createMock(() => "/mock/workspace/path"),
-  createTask: createMock((_specPath: unknown) =>
-    Promise.resolve({ ...mockTask, id: "#new" })
-  ),
+  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "#new" })),
 };
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
@@ -145,7 +143,9 @@ describe("interface-agnostic task functions", () => {
       // This simulates the updated MarkdownTaskBackend.getTask behavior
       mockTaskService.getTask.mockImplementation((id) =>
         Promise.resolve(
-          parseInt(id.replace(/^#/, ""), 10) === TASKID_WITHOUT_LEADING_ZEROS ? { ...mockTask, id: "#023" } : null
+          parseInt(id.replace(/^#/, ""), 10) === TASKID_WITHOUT_LEADING_ZEROS
+            ? { ...mockTask, id: "#023" }
+            : null
         )
       );
 
@@ -202,7 +202,10 @@ describe("interface-agnostic task functions", () => {
 
       await setTaskStatusFromParams(params, mockDeps);
 
-      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#TEST_VALUE", TASK_STATUS.IN_PROGRESS);
+      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith(
+        "#TEST_VALUE",
+        TASK_STATUS.IN_PROGRESS
+      );
     });
 
     test("should throw ValidationError when status is invalid", async () => {

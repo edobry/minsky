@@ -1,5 +1,5 @@
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-const TEST_VALUE = TEST_VALUE;
+const TEST_ARRAY_SIZE = 3;
+const TEST_VALUE = 123;
 
 /**
  * Tests for enhanced test utilities

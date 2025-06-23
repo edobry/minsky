@@ -3,7 +3,7 @@ import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = 7;
 
 // Added logger import
 import * as jsYaml from "js-yaml";

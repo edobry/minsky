@@ -8,7 +8,7 @@ import {
   type TaskStatusSetParams,
 } from "../../../schemas/tasks.js";
 
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 // Set up automatic mock cleanup
 setupTestMocks();

@@ -12,6 +12,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -163,21 +164,21 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
-    const normalizedTaskId = normalizeTaskId(params._taskId);
+  execute: async (params, ctx: CommandExecutionContext) => {
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
-    const _status = await getTaskStatusFromParams({
+    const status = await getTaskStatusFromParams({
       ...params,
-      _taskId: normalizedTaskId,
+      taskId: normalizedTaskId,
     });
     return {
       success: true,
       taskId: normalizedTaskId,
-      _status: status,
+      status: status,
     };
   },
 };
@@ -192,27 +193,31 @@ const tasksStatusSetRegistration = {
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    if (!params._taskId) throw new ValidationError("Missing required parameter: _taskId");
+    console.log("[DEBUG] Starting tasks.status.set execution");
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
-    const normalizedTaskId = normalizeTaskId(params._taskId);
+    console.log("[DEBUG] About to normalize task ID");
+    const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
 
     // Verify the task exists before prompting for status and get current status
     // This will throw ResourceNotFoundError if task doesn't exist
+    console.log("[DEBUG] About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
-      _taskId: normalizedTaskId,
+      taskId: normalizedTaskId,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params._session,
+      session: params.session,
       backend: params.backend,
     });
+    console.log("[DEBUG] Previous status retrieved successfully");
 
-    let _status = params.status;
+    let status = params.status;
 
     // If status is not provided, prompt for it interactively
     if (!status) {
@@ -238,9 +243,9 @@ const tasksStatusSetRegistration = {
 
       // Prompt for status selection
       const selectedStatus = await select({
-        message: "Select a _status:",
-        _options: statusOptions,
-        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current _status
+        message: "Select a status:",
+        options: statusOptions,
+        initialValue: currentStatusIndex >= 0 ? previousStatus : TASK_STATUS.TODO, // Pre-select the current status
       });
 
       // Handle cancellation
@@ -249,24 +254,25 @@ const tasksStatusSetRegistration = {
         return "Operation cancelled by user";
       }
 
-      status = selectedStatus;
+      // Re-assign status from the interactive prompt
+      status = selectedStatus as string;
     }
 
     if (!status) throw new ValidationError("Missing required parameter: status");
 
     await setTaskStatusFromParams({
-      _taskId: normalizedTaskId,
-      _status: status,
+      taskId: normalizedTaskId,
+      status: status,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params._session,
+      session: params.session,
       backend: params.backend,
     });
 
     return {
       success: true,
       taskId: normalizedTaskId,
-      _status: status,
+      status: status,
       previousStatus: previousStatus,
     };
   },
@@ -281,20 +287,20 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     try {
-      const normalizedTaskId = normalizeTaskId(params._taskId);
+      const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
         throw new ValidationError(
-          `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+          `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
         );
       }
       const result = await getTaskSpecContentFromParams({
         ...params,
-        _taskId: normalizedTaskId,
+        taskId: normalizedTaskId,
       });
       return result;
-    } catch (_error) {
+    } catch (error) {
       log.error("Error getting task specification", { error });
       throw error;
     }
@@ -445,8 +451,8 @@ const tasksListRegistration = {
   name: "list",
   description: "List tasks with optional filtering",
   parameters: tasksListParams,
-  execute: async (params, _ctx) => {
-    const { all = false, _status, filter, ...rest } = params;
+  execute: async (params, ctx) => {
+    const { all = false, status, filter, ...rest } = params;
 
     // Use status parameter if provided, otherwise fall back to filter
     const filterParam = status || filter;
@@ -468,14 +474,14 @@ const tasksGetRegistration = {
   name: "get",
   description: "Get a task by ID",
   parameters: tasksGetParams,
-  execute: async (params, _ctx) => {
-    if (!params._taskId) throw new ValidationError("Missing required parameter: _taskId");
+  execute: async (params, ctx) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
     return await getTaskFromParams({
-      _taskId: params._taskId,
+      taskId: params.taskId,
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params._session,
+      session: params.session,
     });
   },
 };
@@ -489,15 +495,15 @@ const tasksCreateRegistration = {
   name: "create",
   description: "Create a new task from a specification document",
   parameters: tasksCreateParams,
-  execute: async (params, _ctx) => {
+  execute: async (params, ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
     return await createTaskFromParams({
-      _specPath: params._specPath,
+      specPath: params.specPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,
       workspace: params.workspace,
-      _session: params._session,
+      session: params.session,
     });
   },
 };
@@ -582,7 +588,7 @@ const tasksMigrateRegistration = {
       dryRun = false,
       repo,
       workspace,
-      _session,
+      session,
       json = false,
     } = params;
 
@@ -592,24 +598,24 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (_error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${error}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
       }
     }
 
     // Create task services for source and target backends
     const sourceTaskService = new TaskService({
-      _workspacePath: workspace || repo || process.cwd(),
+      workspacePath: workspace || repo || process.cwd(),
       backend: sourceBackend,
     });
 
     const targetTaskService = new TaskService({
-      _workspacePath: workspace || repo || process.cwd(),
+      workspacePath: workspace || repo || process.cwd(),
       backend: targetBackend,
     });
 
     // Use session parameter if provided for session-specific migrations
     if (session) {
-      log.debug(`Migration requested for _session: ${session}`);
+      log.debug(`Migration requested for session: ${session}`);
     }
 
     // Get the actual backend instances
@@ -621,7 +627,8 @@ const tasksMigrateRegistration = {
 
     try {
       // Perform actual migration
-      const _result = await migrationUtils.migrateTasksBetweenBackends(_sourceBackendInstance,
+      const result = await migrationUtils.migrateTasksBetweenBackends(
+        sourceBackendInstance,
         targetBackendInstance,
         {
           preserveIds: true,
@@ -673,7 +680,7 @@ const tasksMigrateRegistration = {
       }
 
       return cliResult;
-    } catch (_error) {
+    } catch (error) {
       throw new ValidationError(
         `Migration failed: ${error instanceof Error ? error.message : String(error)}`
       );

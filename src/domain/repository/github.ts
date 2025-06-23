@@ -16,9 +16,9 @@ import type {
   RepoStatus,
 } from "./index.js";
 
-const HTTP_NOT_FOUND = HTTP_NOT_FOUND;
-const HTTP_UNAUTHORIZED = HTTP_UNAUTHORIZED;
-const HTTP_FORBIDDEN = HTTP_FORBIDDEN;
+const HTTP_NOT_FOUND = 404;
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
 
 // Define a global for process to avoid linting errors
 declare const process: {

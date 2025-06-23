@@ -84,7 +84,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * Create a new JsonFileStorage instance
    * @param options Configuration options
    */
-  constructor(__options: JsonFileStorageOptions<S>) {
+  constructor(options: JsonFileStorageOptions<S>) {
     this.filePath = options.filePath;
     this.initializeState = options.initializeState;
     this.idField = options.idField || "id";

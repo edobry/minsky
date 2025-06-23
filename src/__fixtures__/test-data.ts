@@ -1,4 +1,4 @@
-const TEST_VALUE = TEST_VALUE;
+const TEST_VALUE = 123;
 
 /**
  * Common test fixtures for tests across the application

@@ -1,4 +1,4 @@
-const ALTERNATIVE_HTTP_PORT = ALTERNATIVE_HTTP_PORT;
+const ALTERNATIVE_HTTP_PORT = 8082;
 
 /**
  * Network Error Handling Utilities
@@ -14,7 +14,8 @@ import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
  * Error class for network-related errors
  */
 export class NetworkError extends MinskyError {
-  constructor(_message: string,
+  constructor(
+    _message: string,
     public readonly code?: string,
     public readonly port?: number,
     public readonly host?: string,
@@ -74,7 +75,8 @@ export class NetworkPermissionError extends NetworkError {
  * @param host The host that was being used
  * @returns A specialized network error
  */
-export function createNetworkError(_error: unknown,
+export function createNetworkError(
+  _error: unknown,
   port: number,
   host: string = "localhost"
 ): NetworkError {
@@ -85,18 +87,18 @@ export function createNetworkError(_error: unknown,
   const errorCode = (originalError as any).code || "";
 
   switch (errorCode) {
-  case "EADDRINUSE":
-    return new PortInUseError(_port, host, originalError);
-  case "EACCES":
-    return new NetworkPermissionError(_port, host, originalError);
-  default:
-    return new NetworkError(
-      `Network error: ${originalError.message}`,
-      errorCode,
-      port,
-      host,
-      originalError
-    );
+    case "EADDRINUSE":
+      return new PortInUseError(_port, host, originalError);
+    case "EACCES":
+      return new NetworkPermissionError(_port, host, originalError);
+    default:
+      return new NetworkError(
+        `Network error: ${originalError.message}`,
+        errorCode,
+        port,
+        host,
+        originalError
+      );
   }
 }
 

@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * MCP adapter for rules commands

@@ -1,4 +1,4 @@
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TEST_ARRAY_SIZE = 3;
 
 /**
  * Tests for the Prepared Merge Commit Workflow (Task #144)

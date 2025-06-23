@@ -47,7 +47,7 @@ export type TaskListParams = z.infer<typeof taskListParamsSchema>;
  * Schema for task get parameters
  */
 export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
-  _taskId: z
+  taskId: z
     .union([
       taskIdSchema.describe("ID of the task to retrieve"),
       z.array(taskIdSchema).describe("Array of task IDs to retrieve"),
@@ -69,7 +69,7 @@ export type TaskGetParams = z.infer<typeof taskGetParamsSchema>;
  */
 export const taskStatusGetParamsSchema = z
   .object({
-    _taskId: taskIdSchema.describe("ID of the task"),
+    taskId: taskIdSchema.describe("ID of the task"),
     backend: z
       .string()
       .optional()
@@ -87,7 +87,7 @@ export type TaskStatusGetParams = z.infer<typeof taskStatusGetParamsSchema>;
  */
 export const taskStatusSetParamsSchema = z
   .object({
-    _taskId: taskIdSchema.describe("ID of the task"),
+    taskId: taskIdSchema.describe("ID of the task"),
     status: taskStatusSchema.describe("New status for the task"),
     backend: z
       .string()
@@ -106,7 +106,7 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
  */
 export const taskCreateParamsSchema = z
   .object({
-    _specPath: z.string().min(1).describe("Path to the task specification document"),
+    specPath: z.string().min(1).describe("Path to the task specification document"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
@@ -125,7 +125,7 @@ export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
  */
 export const taskSpecContentParamsSchema = z
   .object({
-    _taskId: taskIdSchema.describe("ID of the task to retrieve specification _content for"),
+    taskId: taskIdSchema.describe("ID of the task to retrieve specification _content for"),
     section: z
       .string()
       .optional()

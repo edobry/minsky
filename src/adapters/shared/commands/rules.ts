@@ -226,11 +226,11 @@ const rulesSearchCommandParams: CommandParameterMap = {
 export function registerRulesCommands(): void {
   // Register rules list command
   sharedCommandRegistry.registerCommand({
-    _id: "rules.list",
+    id: "rules.list",
     category: CommandCategory.RULES,
     name: "list",
     description: "List all rules in the workspace",
-    _parameters: rulesListCommandParams,
+    parameters: rulesListCommandParams,
     execute: async (_params: unknown) => {
       log.debug("Executing rules.list _command", { params, _context });
 
@@ -264,11 +264,11 @@ export function registerRulesCommands(): void {
 
   // Register rules get command
   sharedCommandRegistry.registerCommand({
-    _id: "rules.get",
+    id: "rules.get",
     category: CommandCategory.RULES,
     name: "get",
     description: "Get a specific rule by ID",
-    _parameters: rulesGetCommandParams,
+    parameters: rulesGetCommandParams,
     execute: async (_params: unknown) => {
       log.debug("Executing rules.get _command", { params, _context });
 
@@ -302,11 +302,11 @@ export function registerRulesCommands(): void {
 
   // Register rules create command
   sharedCommandRegistry.registerCommand({
-    _id: "rules.create",
+    id: "rules.create",
     category: CommandCategory.RULES,
     name: "create",
     description: "Create a new rule",
-    _parameters: rulesCreateCommandParams,
+    parameters: rulesCreateCommandParams,
     execute: async (_params: unknown) => {
       log.debug("Executing rules.create _command", { params, _context });
 
@@ -357,11 +357,11 @@ export function registerRulesCommands(): void {
 
   // Register rules update command
   sharedCommandRegistry.registerCommand({
-    _id: "rules.update",
+    id: "rules.update",
     category: CommandCategory.RULES,
     name: "update",
     description: "Update an existing rule",
-    _parameters: rulesUpdateCommandParams,
+    parameters: rulesUpdateCommandParams,
     execute: async (_params: unknown) => {
       log.debug("Executing rules.update _command", { params, _context });
 
@@ -421,11 +421,11 @@ export function registerRulesCommands(): void {
 
   // Register rules search command
   sharedCommandRegistry.registerCommand({
-    _id: "rules.search",
+    id: "rules.search",
     category: CommandCategory.RULES,
     name: "search",
-    description: "Search for rules by _content or metadata",
-    _parameters: rulesSearchCommandParams,
+    description: "Search for rules by content or metadata",
+    parameters: rulesSearchCommandParams,
     execute: async (_params: unknown) => {
       log.debug("Executing rules.search _command", { params, _context });
 

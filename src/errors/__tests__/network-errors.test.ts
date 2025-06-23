@@ -1,4 +1,4 @@
-const DEFAULT_HTTP_PORT = DEFAULT_HTTP_PORT;
+const DEFAULT_HTTP_PORT = 8080;
 
 /**
  * Tests for network error handling

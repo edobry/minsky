@@ -115,7 +115,12 @@ export interface CommandRegistry {
    *
    * @param commandDef Command definition to register
    */
-  registerCommand<T extends CommandParameterMap = Record<string, CommandParameterDefinition>, R = unknown>(commandDef: CommandDefinition<T, R>): void;
+  registerCommand<
+    T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    R = unknown,
+  >(
+    commandDef: CommandDefinition<T, R>
+  ): void;
 
   /**
    * Get a command by its identifier
@@ -123,7 +128,7 @@ export interface CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(__id: string): SharedCommand | undefined;
+  getCommand(id: string): SharedCommand | undefined;
 
   /**
    * Get all commands in a specific category
@@ -154,11 +159,11 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param options Registration options
    * @throws {MinskyError} If command with same ID is already registered and allowOverwrite is false
    */
-  registerCommand<T extends CommandParameterMap = Record<string, CommandParameterDefinition>, R = unknown>(
-    commandDef: CommandDefinition<T, R>,
-    _options: { allowOverwrite?: boolean } = {}
-  ): void {
-    if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
+  registerCommand<
+    T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    R = unknown,
+  >(commandDef: CommandDefinition<T, R>, _options: { allowOverwrite?: boolean } = {}): void {
+    if (this.commands.has(commandDef.id) && !_options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
 
@@ -171,7 +176,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(__id: string): SharedCommand | undefined {
+  getCommand(id: string): SharedCommand | undefined {
     return this.commands.get(id);
   }
 
@@ -182,7 +187,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @returns Array of command definitions
    */
   getCommandsByCategory(_category: CommandCategory): SharedCommand[] {
-    return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
+    return Array.from(this.commands.values()).filter((cmd) => cmd.category === _category);
   }
 
   /**
@@ -200,7 +205,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns True if command is registered, false otherwise
    */
-  hasCommand(__id: string): boolean {
+  hasCommand(id: string): boolean {
     return this.commands.has(id);
   }
 

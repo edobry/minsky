@@ -312,3 +312,5 @@
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
 - [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+
+- [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)

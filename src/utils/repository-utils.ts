@@ -1,6 +1,6 @@
 import {MINUTE_IN_SECONDS } from "../utils/constants";
 
-const DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
+const DEFAULT_TIMEOUT_MS = 5000;
 
 /**
  * Repository utilities for Minsky.

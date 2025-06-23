@@ -1,5 +1,5 @@
-const SIZE_6 = SIZE_6;
-const TEST_VALUE = TEST_VALUE;
+const SIZE_6 = 6;
+const TEST_VALUE = 123;
 
 /**
  * Migration utilities for transitioning from markdown to JSON task storage

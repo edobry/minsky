@@ -1,4 +1,4 @@
-const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 /**
  * Task I/O operations module
@@ -19,15 +19,15 @@ import type {
  * @param filePath Path to the tasks file
  * @returns Promise resolving to file content or error
  */
-export async function readTasksFile(__filePath: string): Promise<TaskReadOperationResult> {
+export async function readTasksFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,
       content,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read tasks file: ${filePath}`, { error: err });
     return {
@@ -44,7 +44,8 @@ export async function readTasksFile(__filePath: string): Promise<TaskReadOperati
  * @param content Content to write
  * @returns Promise resolving to success status or error
  */
-export async function writeTasksFile(_filePath: string,
+export async function writeTasksFile(
+  _filePath: string,
   _content: string
 ): Promise<TaskWriteOperationResult> {
   try {
@@ -94,7 +95,8 @@ export async function readTaskSpecFile(__filePath: string): Promise<TaskReadOper
  * @param content Content to write
  * @returns Promise resolving to success status or error
  */
-export async function writeTaskSpecFile(_filePath: string,
+export async function writeTaskSpecFile(
+  _filePath: string,
   _content: string
 ): Promise<TaskWriteOperationResult> {
   try {
@@ -222,7 +224,11 @@ export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task spec file
  */
-export function getTaskSpecFilePath(__taskId: string, _title: string, _workspacePath: string): string {
+export function getTaskSpecFilePath(
+  __taskId: string,
+  _title: string,
+  _workspacePath: string
+): string {
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);

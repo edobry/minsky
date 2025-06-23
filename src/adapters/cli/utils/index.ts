@@ -41,7 +41,7 @@ export interface OutputOptions {
 /**
  * Format and output command results
  */
-export function outputResult(__result: unknown, _options: OutputOptions = {}): void {
+export function outputResult(result: unknown, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -49,10 +49,10 @@ export function outputResult(__result: unknown, _options: OutputOptions = {}): v
   try {
     if (options.json) {
       // JSON output
-      log.cli(JSON.stringify(__result, null, 2));
+      log.cli(JSON.stringify(result, null, 2));
     } else if (options.formatter) {
       // Custom formatter
-      options.formatter(_result);
+      options.formatter(result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
@@ -82,7 +82,7 @@ export function outputResult(__result: unknown, _options: OutputOptions = {}): v
 /**
  * Handle CLI errors
  */
-export function handleCliError(__error: unknown, _options: { debug?: boolean } = {}): void {
+export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (options.debug) {

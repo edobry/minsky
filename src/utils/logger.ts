@@ -57,6 +57,8 @@ const agentLogFormat = format.combine(
 const programLogFormat = format.combine(
   format.colorize(),
   format.printf((_info: unknown) => {
+    // Cast _info to a proper type
+    const info = _info as { message?: unknown; stack?: string; [key: string]: unknown };
     // Ensure message is a string
     const message = typeof info.message === "string" ? info.message : JSON.stringify(info.message);
     // For user-facing CLI output, just show the message without timestamp and log level
@@ -134,32 +136,35 @@ export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (_message: unknown) => {
+  agent: (message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.info(_message, _context);
+    agentLogger.info(message);
   },
-  debug: (_message: unknown) => {
+  debug: (message: unknown) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // No-op in HUMAN mode to prevent "no transports" warning
       return;
     }
     // Otherwise, use agentLogger as normal
-    agentLogger.debug(_message, _context);
+    agentLogger.debug(message);
   },
-  warn: (_message: unknown) => {
+  warn: (message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.warn(_message, _context);
+    agentLogger.warn(message);
   },
   error: (
     message: string,
-    context?: LogContext | Error | { originalError?: unknown; stack?: string; [key: string]: unknown }
+    context?:
+      | LogContext
+      | Error
+      | { originalError?: unknown; stack?: string; [key: string]: unknown }
   ) => {
     // For errors, in HUMAN mode route to programLogger.error instead of suppressing
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
@@ -174,19 +179,19 @@ export const log = {
         context !== null &&
         (context.originalError || context.stack)
       ) {
-        programLogger.error(`${message}: ${context.originalError || JSON.stringify(_context)}`);
+        programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
         if (context.stack) {
           programLogger.error(context.stack);
         }
       } else {
-        programLogger.error(_message, _context);
+        programLogger.error(message, context);
       }
       return;
     }
 
     // In STRUCTURED mode or if agent logs explicitly enabled, use agentLogger
     if (context instanceof Error) {
-      agentLogger.error(_message, {
+      agentLogger.error(message, {
         originalError: context.message,
         stack: context.stack,
         name: context.name,
@@ -196,27 +201,27 @@ export const log = {
       context !== null &&
       (context.originalError || context.stack)
     ) {
-      agentLogger.error(_message, _context);
+      agentLogger.error(message, context);
     } else {
-      agentLogger.error(_message, _context);
+      agentLogger.error(message, context);
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (_message: unknown) => programLogger.info(_message, ..._args),
-  cliWarn: (_message: unknown) => programLogger.warn(_message, ..._args),
-  cliError: (_message: unknown) => programLogger.error(_message, ..._args),
+  cli: (message: unknown) => programLogger.info(String(message)),
+  cliWarn: (message: unknown) => programLogger.warn(String(message)),
+  cliError: (message: unknown) => programLogger.error(String(message)),
   // Add ability to set log level
-  setLevel: (_level: unknown) => {
+  setLevel: (level: string) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (_message: unknown) => programLogger.debug(_message, ..._args),
+  cliDebug: (message: unknown) => programLogger.debug(String(message)),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
-  systemDebug: (_message: unknown) => {
+  systemDebug: (message: unknown) => {
     // Always log to programLogger (stderr) regardless of mode
-    programLogger.debug(_message, ..._args);
+    programLogger.debug(String(message));
   },
   // Expose log mode information
   mode: currentLogMode,
@@ -231,25 +236,15 @@ const handleExit = async (error?: Error) => {
     programLogger.error("Unhandled error or rejection, exiting.", error);
   }
   // Give logs a moment to flush
-  await new Promise((resolve) => setTimeout(_resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 };
-
-process.on("uncaughtException", async (error) => {
-  await handleExit(error);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", async (reason, _promise) => {
-  await handleExit(reason instanceof Error ? reason : new Error(String(reason)));
-  process.exit(1);
-});
 
 // Basic test to ensure it works - can be removed or moved to a test file
 if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("--- Agent Logger (stdout) ---");
-  log.debug("Agent debug message", { _data: "some debug data" });
-  log.agent("Agent info message", { user: "test" });
-  log.warn("Agent warning message", { code: 100 });
+  log.debug("Agent debug message");
+  log.agent("Agent info message");
+  log.warn("Agent warning message");
   log.error("Agent error message (string)", { details: "string error" });
   log.error("Agent error via Error object", new Error("Test error"));
 
