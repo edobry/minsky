@@ -12,7 +12,7 @@ describe("Session Approve", () => {
     const mockSessionDB = {
       getSession: createMock((_name) =>
         Promise.resolve({
-          _session: _name,
+          _session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#TEST_VALUE",
@@ -332,7 +332,7 @@ describe("Session Approve", () => {
     const gitCommands: string[] = [];
     const mockGitService = {
       execInRepository: createMock((_workdir, _command) => {
-        gitCommands.push(_command);
+        gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");

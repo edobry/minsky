@@ -35,14 +35,14 @@ export async function resolveRepoPath(__options: RepoResolutionOptions,
     getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };
 
-  if (_options.repo) {
+  if (options.repo) {
     return options.repo;
   }
 
-  if (_options.session) {
-    const _record = await deps.sessionProvider.getSession(_options._session);
+  if (options.session) {
+    const _record = await deps.sessionProvider.getSession(options._session);
     if (!record) {
-      throw new Error(`Session '${_options.session}' not found.`);
+      throw new Error(`Session '${options.session}' not found.`);
     }
     return record.repoUrl;
   }

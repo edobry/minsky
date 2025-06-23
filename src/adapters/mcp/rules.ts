@@ -99,8 +99,8 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Convert parameters with type safety
-      const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
-      const tag = isString(_args.tag) ? args.tag : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
+      const tag = isString(args.tag) ? args.tag : undefined;
       const debug = args.debug === true;
 
       // Call domain function
@@ -133,16 +133,16 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(_args.id)) {
+      if (!isString(args.id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Convert parameters with type safety
-      const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const debug = args.debug === true;
 
       // Call domain function
-      const rule = await ruleService.getRule(_args.id, {
+      const rule = await ruleService.getRule(args.id, {
         format,
         debug,
       });
@@ -175,37 +175,37 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(_args.id)) {
+      if (!isString(args.id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Get content from file if it exists, otherwise use as-is
-      const _content = isString(_args._content)
-        ? await readContentFromFileIfExists(_args._content)
+      const _content = isString(args._content)
+        ? await readContentFromFileIfExists(args._content)
         : "# New Rule Content\n\nAdd your rule content here.";
 
       // Parse globs (handling both string and array types)
       let globs: string[] | undefined;
-      if (isString(_args.globs)) {
-        globs = parseGlobs(_args.globs);
-      } else if (Array.isArray(_args.globs)) {
+      if (isString(args.globs)) {
+        globs = parseGlobs(args.globs);
+      } else if (Array.isArray(args.globs)) {
         globs = args.globs;
       }
 
       // Parse tags
-      const tags = isString(_args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
 
       // Convert formats with type safety
-      const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
       const overwrite = args.overwrite === true;
 
       // Call domain function with correct signature
       const rule = await ruleService.createRule(
-        _args.id,
+        args.id,
         _content,
         {
-          description: isString(_args.description) ? args.description : undefined,
-          name: isString(_args.name) ? args.name : undefined,
+          description: isString(args.description) ? args.description : undefined,
+          name: isString(args.name) ? args.name : undefined,
           globs,
           tags,
         },
@@ -245,43 +245,43 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure id is string
-      if (!isString(_args.id)) {
+      if (!isString(args.id)) {
         throw new Error("Rule ID must be a string");
       }
 
       // Process content if provided
       let _content: string | undefined;
-      if (isString(_args._content)) {
-        content = await readContentFromFileIfExists(_args._content);
+      if (isString(args._content)) {
+        content = await readContentFromFileIfExists(args._content);
       }
 
       // Parse globs (handling both string and array types)
       let globs: string[] | undefined;
-      if (isString(_args.globs)) {
-        globs = parseGlobs(_args.globs);
-      } else if (Array.isArray(_args.globs)) {
+      if (isString(args.globs)) {
+        globs = parseGlobs(args.globs);
+      } else if (Array.isArray(args.globs)) {
         globs = args.globs;
       }
 
       // Parse tags
-      const tags = isString(_args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
+      const tags = isString(args.tags) ? args.tags.split(",").map((tag) => tag.trim()) : undefined;
 
       // Convert format with type safety
-      const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
 
       // Create update options object
       const updateOptions: UpdateRuleOptions = {
         content,
         meta: {
-          description: isString(_args.description) ? args.description : undefined,
-          name: isString(_args.name) ? args.name : undefined,
+          description: isString(args.description) ? args.description : undefined,
+          name: isString(args.name) ? args.name : undefined,
           globs,
           tags,
         },
       };
 
       // Call domain function with correct signature
-      const rule = await ruleService.updateRule(_args.id, updateOptions, {
+      const rule = await ruleService.updateRule(args.id, updateOptions, {
         format,
       });
 
@@ -309,13 +309,13 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       const ruleService = new RuleService(_workspacePath);
 
       // Ensure query is string
-      if (!isString(_args.query)) {
+      if (!isString(args.query)) {
         throw new Error("Search query must be a string");
       }
 
       // Convert parameters with type safety
-      const format = isString(_args.format) ? (_args.format as RuleFormat) : undefined;
-      const tag = isString(_args.tag) ? args.tag : undefined;
+      const format = isString(args.format) ? (args.format as RuleFormat) : undefined;
+      const tag = isString(args.tag) ? args.tag : undefined;
 
       // Note: debug parameter is accepted in the command but not passed to the domain
       // as SearchRuleOptions doesn't include a debug option

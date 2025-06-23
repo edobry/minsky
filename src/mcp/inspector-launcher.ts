@@ -80,7 +80,7 @@ export function isInspectorAvailable(): boolean {
  * @returns Inspector launch result
  */
 export function launchInspector(__options: InspectorOptions): InspectorLaunchResult {
-  const { port = INSPECTOR_PORT, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = _options;
+  const { port = INSPECTOR_PORT, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
 
   if (!isInspectorAvailable()) {
     return {

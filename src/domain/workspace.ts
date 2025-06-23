@@ -40,7 +40,7 @@ export async function isSessionWorkspace(__workspacePath: string,
     const gitRoot = stdout.trim();
 
     // Check if the git root contains a session marker
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyPath = join(_xdgStateHome, "minsky", "git");
 
     if (gitRoot.startsWith(minskyPath)) {
@@ -89,7 +89,7 @@ export async function getSessionFromWorkspace(__workspacePath: string,
     const gitRoot = stdout.trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     const minskyPath = join(_xdgStateHome, "minsky", "git");
 
     if (!gitRoot.startsWith(minskyPath)) {
@@ -139,7 +139,7 @@ export async function getSessionFromWorkspace(__workspacePath: string,
     }
 
     return {
-      session: _sessionName,
+      session: sessionName,
       upstreamRepository: sessionRecord.repoUrl,
     };
   } catch (_error) {
@@ -175,7 +175,7 @@ export async function resolveWorkspacePath(
       return options.workspace;
     } catch (_error) {
       throw new Error(
-        `Invalid workspace _path: ${_options.workspace}. Path must be a valid Minsky workspace.`
+        `Invalid workspace _path: ${options.workspace}. Path must be a valid Minsky workspace.`
       );
     }
   }

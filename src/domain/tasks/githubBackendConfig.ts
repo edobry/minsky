@@ -25,7 +25,7 @@ function extractGitHubRepoFromRemote(__workspacePath: string
   try {
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
-      cwd: _workspacePath,
+      cwd: workspacePath,
       encoding: "utf8",
     })
       .toString()
@@ -64,7 +64,7 @@ export function getGitHubBackendConfig(__workspacePath: string,
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {

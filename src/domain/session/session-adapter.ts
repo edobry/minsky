@@ -75,7 +75,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
 
     if (dbPath) {
       this.dbPath = dbPath;

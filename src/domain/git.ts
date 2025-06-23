@@ -227,7 +227,7 @@ export class GitService implements GitServiceInterface {
     this.baseDir =
       baseDir ||
       join(
-        process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+        process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state"),
         "minsky",
         "git"
       );
@@ -257,7 +257,7 @@ export class GitService implements GitServiceInterface {
 
   async clone(__options: CloneOptions): Promise<CloneResult> {
     log.debug("GitService.clone called with _options", {
-      repoUrl: _options.repoUrl,
+      repoUrl: options.repoUrl,
       _session: options._session,
       destination: options.destination,
       _branch: options._branch,
@@ -267,10 +267,10 @@ export class GitService implements GitServiceInterface {
     log.debug("Base directory ensured", { baseDir: this.baseDir });
 
     const _session = options.session || this.generateSessionId();
-    log.debug("Using session name", { _session, wasProvided: !!_options.session });
+    log.debug("Using session name", { _session, wasProvided: !!options.session });
 
     // Get the repository name from the URL
-    const repoName = normalizeRepoName(_options.repoUrl);
+    const repoName = normalizeRepoName(options.repoUrl);
     log.debug("Repository name determined", { repoName });
 
     // For compatibility with other code, ensure consistent normalization
@@ -304,8 +304,8 @@ export class GitService implements GitServiceInterface {
 
     try {
       // Validate repo URL
-      if (!_options.repoUrl || _options.repoUrl.trim() === "") {
-        log.error("Invalid repository URL", { repoUrl: _options.repoUrl });
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
+        log.error("Invalid repository URL", { repoUrl: options.repoUrl });
         throw new MinskyError("Repository URL is required for cloning");
       }
 
@@ -322,7 +322,7 @@ export class GitService implements GitServiceInterface {
       }
 
       // Clone the repository with verbose logging
-      log.debug(`Executing: git clone ${_options.repoUrl} ${workdir}`);
+      log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
         const { stdout, stderr } = await execAsync(cloneCmd);
@@ -387,21 +387,21 @@ export class GitService implements GitServiceInterface {
 
   async branch(__options: BranchOptions): Promise<BranchResult> {
     await this.ensureBaseDir();
-    log.debug("Getting session for _branch", { _session: _options.session });
+    log.debug("Getting session for _branch", { _session: options.session });
 
-    const _record = await this.sessionDb.getSession(_options._session);
+    const _record = await this.sessionDb.getSession(options._session);
     if (!record) {
-      throw new Error(`Session '${_options.session}' not found.`);
+      throw new Error(`Session '${options.session}' not found.`);
     }
 
     // Make sure to use the normalized repo name for consistency
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     log.debug("Branch: got repoName", { repoName });
 
-    const _workdir = this.getSessionWorkdir(_repoName, _options._session);
+    const _workdir = this.getSessionWorkdir(_repoName, options._session);
     log.debug("Branch: calculated workdir", { _workdir });
 
-    await execAsync(`git -C ${workdir} checkout -b ${_options._branch}`);
+    await execAsync(`git -C ${workdir} checkout -b ${options._branch}`);
     return {
       _workdir,
       _branch: options.branch,
@@ -427,10 +427,10 @@ export class GitService implements GitServiceInterface {
 
       const _taskId = await this.determineTaskId(__options, _workdir, _branch, deps);
 
-      if (_taskId && !_options.noStatusUpdate) {
+      if (taskId && !options.noStatusUpdate) {
         try {
           const taskService = new TaskService({
-            _workspacePath: _workdir,
+            _workspacePath: workdir,
             backend: "markdown",
           });
 
@@ -444,13 +444,13 @@ export class GitService implements GitServiceInterface {
             newStatus: TASK_STATUS.IN_REVIEW,
           };
 
-          if (_options.debug) {
+          if (options.debug) {
             log.debug(
-              `Updated task ${_taskId} _status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
+              `Updated task ${taskId} _status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
             );
           }
         } catch (_error) {
-          if (_options.debug) {
+          if (options.debug) {
             log.debug(
               `Failed to update task _status: ${error instanceof Error ? error.message : String(error)}`
             );
@@ -458,7 +458,7 @@ export class GitService implements GitServiceInterface {
         }
       }
     } catch (_error) {
-      if (_options.debug) {
+      if (options.debug) {
         log.debug(
           `Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -473,20 +473,20 @@ export class GitService implements GitServiceInterface {
 
     const _workdir = await this.determineWorkingDirectory(__options, deps);
 
-    if (_options.debug) {
+    if (options.debug) {
       log.debug(`Using _workdir: ${workdir}`);
     }
 
     const _branch = await this.determineCurrentBranch(__workdir, _options, deps);
 
-    if (_options.debug) {
-      log.debug(`Using _branch: ${_branch}`);
+    if (options.debug) {
+      log.debug(`Using _branch: ${branch}`);
     }
 
     const { baseBranch, mergeBase, comparisonDescription } =
       await this.determineBaseBranchAndMergeBase(__workdir, _branch, _options, deps);
 
-    if (_options.debug) {
+    if (options.debug) {
       log.debug(`Using merge base: ${mergeBase}`);
       log.debug(`Comparison: ${comparisonDescription}`);
     }
@@ -504,22 +504,22 @@ export class GitService implements GitServiceInterface {
   private async determineWorkingDirectory(__options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
-    if (_options.repoPath) {
+    if (options.repoPath) {
       return options.repoPath;
     }
 
     // Try to resolve session from taskId if provided
     let _sessionName = options.session;
-    if (!sessionName && _options._taskId) {
+    if (!sessionName && options._taskId) {
       if (!deps.getSessionByTaskId) {
         throw new Error("getSessionByTaskId dependency not available");
       }
-      const sessionRecord = await deps.getSessionByTaskId(_options._taskId);
+      const sessionRecord = await deps.getSessionByTaskId(options._taskId);
       if (!sessionRecord) {
-        throw new Error(`No session found for task ID "${_options._taskId}"`);
+        throw new Error(`No session found for task ID "${options._taskId}"`);
       }
       sessionName = sessionRecord.session;
-      log.debug("Resolved session from task ID", { _taskId: _options._taskId, _session: _sessionName });
+      log.debug("Resolved session from task ID", { _taskId: options._taskId, _session: _sessionName });
     }
 
     if (!sessionName) {
@@ -541,8 +541,8 @@ export class GitService implements GitServiceInterface {
     _options: PrOptions,
     deps: PrDependencies
   ): Promise<string> {
-    if (_options._branch) {
-      log.debug("Using specified _branch for PR", { _branch: _options.branch });
+    if (options._branch) {
+      log.debug("Using specified _branch for PR", { _branch: options.branch });
       return options.branch;
     }
 
@@ -576,7 +576,7 @@ export class GitService implements GitServiceInterface {
     // Try to get the upstream branch
     try {
       const { stdout } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref ${_branch}@{upstream}`
+        `git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`
       );
       const baseBranch = stdout.trim().replace("origin/", "");
       log.debug("Found upstream _branch", { baseBranch });
@@ -628,7 +628,7 @@ export class GitService implements GitServiceInterface {
     try {
       // Find common ancestor of the current branch and the base branch
       const { stdout } = await deps.execAsync(
-        `git -C ${workdir} merge-base origin/${baseBranch} ${_branch}`
+        `git -C ${workdir} merge-base origin/${baseBranch} ${branch}`
       );
       mergeBase = stdout.trim();
       comparisonDescription = `Showing changes from merge-base with ${baseBranch}`;
@@ -833,7 +833,7 @@ export class GitService implements GitServiceInterface {
   ): Promise<string> {
     try {
       const { stdout } = await deps.execAsync(
-        `git -C ${workdir} log --oneline ${mergeBase}..${_branch}`,
+        `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
         { maxBuffer: BYTES_PER_KB * BYTES_PER_KB }
       );
       return stdout;
@@ -857,14 +857,14 @@ export class GitService implements GitServiceInterface {
     try {
       // Get modified files in name-status format for processing
       const { stdout: nameStatus } = await deps.execAsync(
-        `git -C ${workdir} diff --name-status ${mergeBase} ${_branch}`,
+        `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
         { maxBuffer: BYTES_PER_KB * BYTES_PER_KB }
       );
       diffNameStatus = nameStatus;
 
       // Get name-only format for display
       const { stdout: nameOnly } = await deps.execAsync(
-        `git -C ${workdir} diff --name-only ${mergeBase}..${_branch}`,
+        `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
         { maxBuffer: BYTES_PER_KB * BYTES_PER_KB }
       );
       modifiedFiles = nameOnly;
@@ -923,7 +923,7 @@ export class GitService implements GitServiceInterface {
     try {
       // Try to get diff stats from git
       const { stdout: statOutput } = await deps.execAsync(
-        `git -C ${workdir} diff --stat ${mergeBase}..${_branch}`,
+        `git -C ${workdir} diff --stat ${mergeBase}..${branch}`,
         { maxBuffer: BYTES_PER_KB * BYTES_PER_KB }
       );
 
@@ -1064,7 +1064,7 @@ export class GitService implements GitServiceInterface {
 
       // Try to merge the branch
       try {
-        await execAsync(`git -C ${workdir} merge ${_branch}`);
+        await execAsync(`git -C ${workdir} merge ${branch}`);
       } catch (_error) {
         // Check if there are merge conflicts
         const { stdout: _status } = await execAsync(`git -C ${workdir} status --porcelain`);
@@ -1083,7 +1083,7 @@ export class GitService implements GitServiceInterface {
       return { _workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
     } catch (_error) {
       throw new Error(
-        `Failed to merge _branch ${_branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge _branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -1098,15 +1098,15 @@ export class GitService implements GitServiceInterface {
     const remote = options.remote || "origin";
 
     // 1. Resolve workdir
-    if (_options.session) {
-      const _record = await this.sessionDb.getSession(_options._session);
+    if (options.session) {
+      const _record = await this.sessionDb.getSession(options._session);
       if (!record) {
-        throw new Error(`Session '${_options.session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(_repoName, _options._session);
+      workdir = this.getSessionWorkdir(_repoName, options._session);
       branch = options.session; // Session branch is named after the session
-    } else if (_options.repoPath) {
+    } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await execAsync(
@@ -1135,7 +1135,7 @@ export class GitService implements GitServiceInterface {
 
     // 3. Build push command
     let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if (_options.force) {
+    if (options.force) {
       pushCmd += " --force";
     }
 
@@ -1152,7 +1152,7 @@ export class GitService implements GitServiceInterface {
       }
       if (err.stderr && err.stderr.includes("no upstream")) {
         throw new Error(
-          "No upstream _branch is set for this _branch. Set the upstream with 'git push --set-upstream' or push manually first."
+          "No upstream _branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
         );
       }
       throw new Error(err.stderr || err.message || String(err));
@@ -1168,14 +1168,14 @@ export class GitService implements GitServiceInterface {
     deps: PrDependencies
   ): Promise<string | undefined> {
     // 1. Use taskId directly from options if available
-    if (_options._taskId) {
-      log.debug("Using provided task ID", { _taskId: _options._taskId });
+    if (options._taskId) {
+      log.debug("Using provided task ID", { _taskId: options._taskId });
       return options.taskId;
     }
 
     // 2. Try to get taskId from session
-    if (_options.session) {
-      const _session = await deps.getSession(_options._session);
+    if (options.session) {
+      const _session = await deps.getSession(options._session);
       if (session && session._taskId) {
         log.debug("Found task ID in session metadata", { _taskId: session._taskId });
         return session.taskId;
@@ -1223,15 +1223,15 @@ export class GitService implements GitServiceInterface {
     const baseBranch = options.baseBranch || "main";
 
     // Determine working directory and current branch
-    if (_options.session) {
-      const _record = await this.sessionDb.getSession(_options._session);
+    if (options.session) {
+      const _record = await this.sessionDb.getSession(options._session);
       if (!record) {
-        throw new MinskyError(`Session '${_options.session}' not found`);
+        throw new MinskyError(`Session '${options.session}' not found`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(_repoName, _options._session);
+      workdir = this.getSessionWorkdir(_repoName, options._session);
       sourceBranch = options.session; // Session branch is named after the session
-    } else if (_options.repoPath) {
+    } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await execAsync(
@@ -1256,7 +1256,7 @@ export class GitService implements GitServiceInterface {
     log.debug("Creating PR _branch using git _branch as basis", {
       sourceBranch,
       prBranch,
-      usedProvidedBranchName: Boolean(_options.branchName),
+      usedProvidedBranchName: Boolean(options.branchName),
     });
 
     // Verify base branch exists
@@ -1294,7 +1294,7 @@ export class GitService implements GitServiceInterface {
     const commitMsgFile = `${workdir}/.pr_title`;
     try {
       let commitMessage = options.title || `Merge ${sourceBranch} into ${prBranch}`;
-      if (_options.body) {
+      if (options.body) {
         commitMessage += `\n\n${options.body}`;
       }
 
@@ -1331,7 +1331,7 @@ export class GitService implements GitServiceInterface {
 
     // Push changes to the PR branch
     await this.push({
-      _repoPath: _workdir,
+      _repoPath: workdir,
       remote: "origin",
       force: true,
     });
@@ -1362,14 +1362,14 @@ export class GitService implements GitServiceInterface {
     const baseBranch = options.baseBranch || "main";
 
     // 1. Determine working directory
-    if (_options.session) {
-      const _record = await this.sessionDb.getSession(_options._session);
+    if (options.session) {
+      const _record = await this.sessionDb.getSession(options._session);
       if (!record) {
-        throw new Error(`Session '${_options.session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = this.getSessionWorkdir(_repoName, _options._session);
-    } else if (_options.repoPath) {
+      workdir = this.getSessionWorkdir(_repoName, options._session);
+    } else if (options.repoPath) {
       workdir = options.repoPath;
     } else {
       // Try to infer from current directory
@@ -1383,7 +1383,7 @@ export class GitService implements GitServiceInterface {
     await this.execInRepository(__workdir, `git pull origin ${baseBranch}`);
 
     // 4. Merge the PR branch
-    await this.execInRepository(__workdir, `git merge --no-ff ${_options.prBranch}`);
+    await this.execInRepository(__workdir, `git merge --no-ff ${options.prBranch}`);
 
     // DEFAULT_RETRY_COUNT. Get the commit hash of the merge
     const commitHash = (await this.execInRepository(__workdir, "git rev-parse HEAD")).trim();
@@ -1396,7 +1396,7 @@ export class GitService implements GitServiceInterface {
     await this.execInRepository(__workdir, `git push origin ${baseBranch}`);
 
     // COMMIT_HASH_SHORT_LENGTH. Delete the PR branch from the remote
-    await this.execInRepository(__workdir, `git push origin --delete ${_options.prBranch}`);
+    await this.execInRepository(__workdir, `git push origin --delete ${options.prBranch}`);
 
     return {
       prBranch: options.prBranch,
@@ -1541,7 +1541,7 @@ export class GitService implements GitServiceInterface {
 
       // Try to merge the branch
       try {
-        await deps.execAsync(`git -C ${workdir} merge ${_branch}`);
+        await deps.execAsync(`git -C ${workdir} merge ${branch}`);
       } catch (_error) {
         // Check if there are merge conflicts
         const { stdout: _status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
@@ -1560,7 +1560,7 @@ export class GitService implements GitServiceInterface {
       return { _workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
     } catch (_error) {
       throw new Error(
-        `Failed to merge _branch ${_branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge _branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -1620,7 +1620,7 @@ export class GitService implements GitServiceInterface {
     await deps.mkdir(this.baseDir, { recursive: true });
 
     const _session = options.session || this.generateSessionId();
-    const repoName = normalizeRepoName(_options.repoUrl);
+    const repoName = normalizeRepoName(options.repoUrl);
     const normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
 
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
@@ -1630,7 +1630,7 @@ export class GitService implements GitServiceInterface {
 
     try {
       // Validate repo URL
-      if (!_options.repoUrl || _options.repoUrl.trim() === "") {
+      if (!options.repoUrl || options.repoUrl.trim() === "") {
         throw new Error("Repository URL is required for cloning");
       }
 
@@ -1671,15 +1671,15 @@ export class GitService implements GitServiceInterface {
   async branchWithDependencies(__options: BranchOptions,
     deps: PrDependencies
   ): Promise<BranchResult> {
-    const _record = await deps.getSession(_options._session);
+    const _record = await deps.getSession(options._session);
     if (!record) {
-      throw new Error(`Session '${_options.session}' not found.`);
+      throw new Error(`Session '${options.session}' not found.`);
     }
 
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const _workdir = deps.getSessionWorkdir(_repoName, _options._session);
+    const _workdir = deps.getSessionWorkdir(_repoName, options._session);
 
-    await deps.execAsync(`git -C ${workdir} checkout -b ${_options._branch}`);
+    await deps.execAsync(`git -C ${workdir} checkout -b ${options._branch}`);
     return {
       _workdir,
       _branch: options.branch,
@@ -1695,15 +1695,15 @@ export class GitService implements GitServiceInterface {
     const remote = options.remote || "origin";
 
     // 1. Resolve workdir
-    if (_options.session) {
-      const _record = await deps.getSession(_options._session);
+    if (options.session) {
+      const _record = await deps.getSession(options._session);
       if (!record) {
-        throw new Error(`Session '${_options.session}' not found.`);
+        throw new Error(`Session '${options.session}' not found.`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = deps.getSessionWorkdir(_repoName, _options._session);
+      workdir = deps.getSessionWorkdir(_repoName, options._session);
       branch = options.session; // Session branch is named after the session
-    } else if (_options.repoPath) {
+    } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
       const { stdout: branchOut } = await deps.execAsync(
@@ -1732,7 +1732,7 @@ export class GitService implements GitServiceInterface {
 
     // 3. Build push command
     let pushCmd = `git -C ${workdir} push ${remote} ${branch}`;
-    if (_options.force) {
+    if (options.force) {
       pushCmd += " --force";
     }
 
@@ -1749,7 +1749,7 @@ export class GitService implements GitServiceInterface {
       }
       if (err.stderr && err.stderr.includes("no upstream")) {
         throw new Error(
-          "No upstream _branch is set for this _branch. Set the upstream with 'git push --set-upstream' or push manually first."
+          "No upstream _branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first."
         );
       }
       throw new Error(err.stderr || err.message || String(err));

@@ -360,7 +360,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (hasTaskId && existingId) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(existingId);
-      if (existingTask && !_options.force) {
+      if (existingTask && !options.force) {
         throw new Error(`Task ${existingId} already exists. Use --force to overwrite.`);
       }
       taskId = existingId;
@@ -399,7 +399,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Check if the target file already exists
       try {
         await fs.access(fullNewPath);
-        if (!_options.force) {
+        if (!options.force) {
           throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
         }
       } catch (_error) {

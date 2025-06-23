@@ -105,7 +105,7 @@ describe("Workspace Domain Methods", () => {
       // Create mock sessionDB
       const sessionDbMock = {
         getSession: async (_sessionName: unknown) => ({
-          session: _sessionName,
+          session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: "task#TEST_VALUE",
@@ -178,7 +178,7 @@ describe("Workspace Domain Methods", () => {
 
       const sessionDbMock = {
         getSession: async (_sessionName: unknown) => ({
-          session: _sessionName,
+          session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: "task#TEST_VALUE",
@@ -214,7 +214,7 @@ describe("Workspace Domain Methods", () => {
       // Create mock sessionDB
       const sessionDbMock = {
         getSession: async (_sessionName: unknown) => ({
-          session: _sessionName,
+          session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
           branch: "task#TEST_VALUE",

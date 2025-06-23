@@ -177,7 +177,7 @@ const tasksStatusGetRegistration = {
     return {
       success: true,
       taskId: normalizedTaskId,
-      _status: _status,
+      _status: status,
     };
   },
 };
@@ -256,7 +256,7 @@ const tasksStatusSetRegistration = {
 
     await setTaskStatusFromParams({
       _taskId: normalizedTaskId,
-      _status: _status,
+      _status: status,
       repo: params.repo,
       workspace: params.workspace,
       _session: params._session,
@@ -266,7 +266,7 @@ const tasksStatusSetRegistration = {
     return {
       success: true,
       taskId: normalizedTaskId,
-      _status: _status,
+      _status: status,
       previousStatus: previousStatus,
     };
   },

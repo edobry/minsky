@@ -68,13 +68,13 @@ export function addArgumentsFromMappings(__command: Command, mappings: Parameter
       const argName = formatArgumentName(
         mapping.name,
         mapping.paramDef.required,
-        mapping._options.variadic
+        mapping.options.variadic
       );
 
       // Add the argument to the command
       command.argument(_argName,
-        mapping._options.description || mapping.paramDef.description || "",
-        mapping._options.parser
+        mapping.options.description || mapping.paramDef.description || "",
+        mapping.options.parser
       );
     });
 
@@ -91,22 +91,22 @@ function createOptionFromMapping(__mapping: ParameterMapping): Option {
   const schemaType = getZodSchemaType(paramDef.schema);
 
   // Format option flag
-  const flag = formatOptionFlag(_name, _options.alias, schemaType);
+  const flag = formatOptionFlag(_name, options.alias, schemaType);
 
   // Create the option
-  const option = new Option(_flag, _options.description || paramDef.description || "");
+  const option = new Option(_flag, options.description || paramDef.description || "");
 
   // Apply additional configuration
-  if (_options.hidden) {
+  if (options.hidden) {
     option.hideHelp();
   }
 
-  if (paramDef.defaultValue !== undefined || _options.defaultValue !== undefined) {
-    option.default(_options.defaultValue ?? paramDef.defaultValue);
+  if (paramDef.defaultValue !== undefined || options.defaultValue !== undefined) {
+    option.default(options.defaultValue ?? paramDef.defaultValue);
   }
 
   // Add proper type handling based on schema
-  addTypeHandlingToOption(_option, schemaType, _options.parser);
+  addTypeHandlingToOption(_option, schemaType, options.parser);
 
   return option;
 }
@@ -207,7 +207,7 @@ function getZodSchemaType(__schema: z.ZodTypeAny): string | undefined {
 
   // Handle default types (access inner type differently)
   if (schema instanceof z.ZodDefault) {
-    return getZodSchemaType(schema._def.innerType);
+    return getZodSchemaType(schema.def.innerType);
   }
 
   // Handle enums

@@ -40,7 +40,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(__config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "git");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
@@ -108,7 +108,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const _workdir = this.getSessionWorkdir(_session);
 
     // Create the branch in the specified session's repo
-    await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
+    await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
     return {
       _workdir,

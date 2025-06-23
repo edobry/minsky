@@ -22,7 +22,7 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(__options: SessionDbFileOptions = {}): SessionDbState {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(_xdgStateHome, "minsky", "session-db.json");
   const baseDir = options.baseDir || join(_xdgStateHome, "minsky", "git");
 
@@ -58,7 +58,7 @@ export function readSessionDbFile(__options: SessionDbFileOptions = {}): Session
 export function writeSessionDbFile(_state: SessionDbState,
   _options: SessionDbFileOptions = {}
 ): boolean {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(_xdgStateHome, "minsky", "session-db.json");
 
   try {

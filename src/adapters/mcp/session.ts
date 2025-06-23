@@ -114,12 +114,12 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
     }),
     async (_args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
-      if (!_args.name && !_args.task) {
+      if (!args.name && !args.task) {
         throw new Error("Either session name or task ID must be provided");
       }
 
       // Special handling for task-based deletion
-      if (_args.task && !_args.name) {
+      if (args.task && !args.name) {
         // Find the session by task ID first using getSessionFromParams
         const taskParams = {
           task: args.task,
@@ -128,7 +128,7 @@ export function registerSessionTools(_commandMapper: CommandMapper): void {
 
         const _session = await getSessionFromParams(taskParams);
         if (!session) {
-          throw new Error(`No session found for task ${_args.task}`);
+          throw new Error(`No session found for task ${args.task}`);
         }
 
         // Now we can delete with the session name

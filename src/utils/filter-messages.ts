@@ -33,11 +33,11 @@ export function generateFilterMessages(__options: { status?: TaskStatus; all?: b
   const messages: string[] = [];
 
   // Add status filter message if status is provided
-  if (_options.status) {
-    messages.push(getStatusFilterMessage(_options._status));
+  if (options.status) {
+    messages.push(getStatusFilterMessage(options._status));
   }
   // Add active tasks message if not showing all tasks and no specific status filter
-  else if (!_options.all) {
+  else if (!options.all) {
     messages.push(getActiveTasksMessage());
   }
 

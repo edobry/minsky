@@ -29,7 +29,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
     // Create mock that captures all git commands executed
     mockExecAsync = createMock(async (_command: unknown) => {
-      gitCommands.push(_command);
+      gitCommands.push(command);
 
       // Mock responses for different git commands
       if (command.includes("rev-parse --abbrev-ref HEAD")) {
@@ -292,7 +292,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
     test("SHOULD handle merge conflicts during prepared merge commit creation", async () => {
       // Mock merge conflict scenario
       const conflictMockExecAsync = createMock(async (_command: unknown) => {
-        gitCommands.push(_command);
+        gitCommands.push(command);
 
         if (command.includes("merge --no-ff")) {
           // Simulate merge conflict

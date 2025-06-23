@@ -48,7 +48,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(__config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "git");
 
     // Extract GitHub-specific options
@@ -153,7 +153,7 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
-      await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
+      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
       return {
         _workdir,
@@ -328,7 +328,7 @@ export class GitHubBackend implements RepositoryBackend {
             issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
-        } else if (statusCode === HTTP_UNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
+        } else if (statusCode === HTTPUNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
           return {
             valid: false,
             success: false,
@@ -384,8 +384,8 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        _session: _sessionName,
-        repoPath: _workdir,
+        _session: sessionName,
+        repoPath: workdir,
         remote: "origin",
       });
 
@@ -464,7 +464,7 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
-      await execAsync(`git -C ${workdir} checkout ${_branch}`);
+      await execAsync(`git -C ${workdir} checkout ${branch}`);
     } catch (_error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to checkout _branch: ${error.message}`);

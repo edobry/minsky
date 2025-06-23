@@ -30,17 +30,17 @@ function createMockFn<T extends (...args: unknown[]) => any>(
   _resolvedValue?: unknown;
 } {
   const fn: unknown = (..._args: unknown[]) => {
-    fn.calls.push(_args);
-    if (typeof fn._impl === "function") return fn._impl(..._args);
+    fn.calls.push(args);
+    if (typeof fn._impl === "function") return fn.impl(..._args);
     if (fn._resolvedValue !== undefined) return Promise.resolve(fn._resolvedValue);
     return undefined;
   };
   fn.calls = [];
   fn.mockResolvedValue = (__v: unknown) => {
-    fn._resolvedValue = _v;
+    fn._resolvedValue = v;
   };
   fn.mockImplementation = (__fn: unknown) => {
-    fn._impl = _fn;
+    fn._impl = fn;
   };
   fn._impl = impl;
   fn._resolvedValue = undefined;
@@ -113,7 +113,7 @@ describe("Workspace Utils", () => {
   describe("isSessionRepository", () => {
     test("should return true for a session repository path", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       const sessionPath = join(xdgStateHome, "minsky", "git", "repo", "existingSession");
 
       mockExecOutput.stdout = sessionPath;
@@ -161,7 +161,7 @@ describe("Workspace Utils", () => {
 
     test("should return true for a deeply nested session repository path with sessions subdirectory", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       mockExecOutput.stdout = join(
         xdgStateHome,
         "minsky",
@@ -178,7 +178,7 @@ describe("Workspace Utils", () => {
 
     test("should detect multi-level nesting with sessions directory", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       mockExecOutput.stdout = join(
         xdgStateHome,
         "minsky",
@@ -198,7 +198,7 @@ describe("Workspace Utils", () => {
   describe("getSessionFromRepo", () => {
     test("should extract session info from a session repository path", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       const sessionPath = join(xdgStateHome, "minsky", "git", "local", "repo", "existingSession");
 
       mockExecOutput.stdout = sessionPath;
@@ -213,7 +213,7 @@ describe("Workspace Utils", () => {
 
     test("should extract session info from a deeply nested session repository path", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       const sessionPath = join(
         xdgStateHome,
         "minsky",
@@ -243,7 +243,7 @@ describe("Workspace Utils", () => {
 
     test("should return null if the session record is not found", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       const sessionPath = join(xdgStateHome, "minsky", "git", "repo", "nonExistingSession");
 
       mockExecOutput.stdout = sessionPath;
@@ -327,7 +327,7 @@ describe("Workspace Utils", () => {
 
     test("should use current working directory with dependency injection", async () => {
       const home = process.env.HOME || "";
-      const xdgStateHome = process.env.XDG_STATE_HOME || join(home, ".local/state");
+      const xdgStateHome = process.env.XDGSTATE_HOME || join(home, ".local/state");
       const sessionPath = join(xdgStateHome, "minsky", "git", "local", "repo", "existingSession");
 
       mockExecOutput.stdout = sessionPath;
@@ -394,7 +394,7 @@ describe("Workspace Utils", () => {
       mockSessionProvider = createMockSessionProvider({
         getSession: async (_sessionName: unknown) =>
           Promise.resolve({
-            _session: _sessionName,
+            _session: sessionName,
             repoUrl: "/path/to/main/workspace",
             repoName: "workspace",
             createdAt: new Date().toISOString(),

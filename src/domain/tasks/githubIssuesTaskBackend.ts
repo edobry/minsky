@@ -65,7 +65,7 @@ function extractGitHubRepoFromRemote(__workspacePath: string): { owner: string; 
   try {
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
-      cwd: _workspacePath,
+      cwd: workspacePath,
       encoding: "utf8" as BufferEncoding,
     }).toString().trim();
 
@@ -114,7 +114,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
-      auth: _options.githubToken,
+      auth: options.githubToken,
       userAgent: "minsky-cli",
       request: {
         // Add retry logic for rate limiting
@@ -211,13 +211,13 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       const issue = response.data.find((issue) => {
         // Look for issue with matching task ID in title or body
-        return issue.title.includes(_taskId) || issue.body?.includes(_taskId);
+        return issue.title.includes(taskId) || issue.body?.includes(taskId);
       });
 
       if (!issue) {
         return {
           success: false,
-          error: new Error(`No GitHub issue found for task ${_taskId}`),
+          error: new Error(`No GitHub issue found for task ${taskId}`),
         };
       }
 

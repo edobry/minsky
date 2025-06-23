@@ -54,7 +54,7 @@ export class RemoteGitBackend implements RepositoryBackend {
       url: config.url,
     } as RemoteGitConfig;
 
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "git");
     this.sessionDb = new SessionDB();
     this.cache = RepositoryMetadataCache.getInstance();
@@ -325,13 +325,13 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     try {
-      await this.execGit(["checkout", _branch]);
+      await this.execGit(["checkout", branch]);
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (_error) {
       throw new RepositoryError(
-        `Failed to checkout _branch ${_branch}`,
+        `Failed to checkout _branch ${branch}`,
         error instanceof Error ? error : undefined
       );
     }

@@ -139,7 +139,7 @@ export async function executeMcpCommand(__request: McpCommandRequest): Promise<M
     // In a real scenario, a shared response formatter might be used based on context.format
     return {
       success: true,
-      _result: _result,
+      _result: result,
     };
   } catch (error: unknown) {
     const ensuredError = ensureError(error);

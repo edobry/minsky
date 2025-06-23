@@ -4,7 +4,7 @@ import type {} from "logform";
 
 // Environment variable for log level
 // Set default to "info" - explicit LOG_LEVEL="debug" is required for debug logs
-const logLevel = process.env.LOG_LEVEL || "info";
+const logLevel = process.env.LOGLEVEL || "info";
 
 // Environment variable for log mode
 // STRUCTURED: Full JSON logs for machine consumption (for CI/CD, integrations)

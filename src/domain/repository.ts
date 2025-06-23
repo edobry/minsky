@@ -358,7 +358,7 @@ export async function createRepositoryBackend(__config: RepositoryConfig
 
         await gitService.push({
           _session,
-          _repoPath: _workdir,
+          _repoPath: workdir,
         });
       },
 
@@ -407,7 +407,7 @@ export async function createRepositoryBackend(__config: RepositoryConfig
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} checkout ${_branch}`
+          `git -C ${workdir} checkout ${branch}`
         );
       },
 
@@ -470,7 +470,7 @@ export async function resolveRepository(__options: RepositoryResolutionOptions =
     const sessionDb = new SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
     if (!sessionRecord) {
-      throw new ValidationError(`No session found for task: ${_taskId}`);
+      throw new ValidationError(`No session found for task: ${taskId}`);
     }
     repositoryUri = sessionRecord.repoUrl;
     backendType =
@@ -544,8 +544,8 @@ export async function resolveRepoPath(__options: {
 
   try {
     const repository = await resolveRepository({
-      uri: _options.repo,
-      _session: _options._session,
+      uri: options.repo,
+      _session: options._session,
       autoDetect: true,
     });
 

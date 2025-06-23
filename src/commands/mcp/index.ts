@@ -50,17 +50,17 @@ export function createMCPCommand(): Command {
       try {
         // Determine transport type based on options
         let transportType: "stdio" | "httpStream" = "stdio";
-        if (_options.httpStream) {
+        if (options.httpStream) {
           transportType = "httpStream";
         }
 
         // Set port (used for HTTP Stream)
-        const port = parseInt(_options.port, 10);
+        const port = parseInt(options.port, 10);
 
         // Validate and prepare repository path if provided
         let projectContext;
-        if (_options.repo) {
-          const repositoryPath = path.resolve(_options.repo);
+        if (options.repo) {
+          const repositoryPath = path.resolve(options.repo);
           // Validate that the path exists and is a directory
           if (!fs.existsSync(repositoryPath)) {
             log.cliError(`Repository path does not exist: ${repositoryPath}`);
@@ -88,7 +88,7 @@ export function createMCPCommand(): Command {
         log.debug("Starting MCP server", {
           transportType,
           port,
-          host: _options.host,
+          host: options.host,
           repositoryPath: projectContext?.repositoryPath || process.cwd(),
           withInspector: options.withInspector || false,
           inspectorPort: options.inspectorPort,
@@ -129,18 +129,18 @@ export function createMCPCommand(): Command {
           log.cli(`Repository _path: ${projectContext.repositoryPath}`);
         }
         if (transportType !== "stdio") {
-          log.cli(`Listening on ${_options.host}:${port}`);
+          log.cli(`Listening on ${options.host}:${port}`);
         }
 
         // Launch inspector if requested
-        if (_options.withInspector) {
+        if (options.withInspector) {
           // Check if inspector is available
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
             );
           } else {
-            const inspectorPort = parseInt(_options.inspectorPort, 10);
+            const inspectorPort = parseInt(options.inspectorPort, 10);
 
             // Launch the inspector
             const inspectorResult = launchInspector({
@@ -148,7 +148,7 @@ export function createMCPCommand(): Command {
               openBrowser: true,
               mcpTransportType: transportType,
               mcpPort: transportType !== "stdio" ? port : undefined,
-              mcpHost: transportType !== "stdio" ? _options.host : undefined,
+              mcpHost: transportType !== "stdio" ? options.host : undefined,
             });
 
             if (inspectorResult.success) {
@@ -179,8 +179,8 @@ export function createMCPCommand(): Command {
       } catch (_error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: _options.httpStream ? "httpStream" : "stdio",
-          port: _options.port,
+          transportType: options.httpStream ? "httpStream" : "stdio",
+          port: options.port,
           host: options.host,
           withInspector: options.withInspector || false,
           error: error instanceof Error ? error.message : String(error),
@@ -189,8 +189,8 @@ export function createMCPCommand(): Command {
 
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
-          const port = parseInt(_options.port, 10);
-          const networkError = createNetworkError(_error, port, _options.host);
+          const port = parseInt(options.port, 10);
+          const networkError = createNetworkError(_error, port, options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions

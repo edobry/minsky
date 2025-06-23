@@ -145,7 +145,7 @@ describe("interface-agnostic task functions", () => {
       // This simulates the updated MarkdownTaskBackend.getTask behavior
       mockTaskService.getTask.mockImplementation((id) =>
         Promise.resolve(
-          parseInt(id.replace(/^#/, ""), 10) === TASK_ID_WITHOUT_LEADING_ZEROS ? { ...mockTask, id: "#023" } : null
+          parseInt(id.replace(/^#/, ""), 10) === TASKID_WITHOUT_LEADING_ZEROS ? { ...mockTask, id: "#023" } : null
         )
       );
 

@@ -41,9 +41,9 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (_error) {
-        log.error(`Error getting session ${_args.session}`, { error, _session: _args.session });
+        log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
-          `Failed to get session ${_args.session}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -70,10 +70,10 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
       try {
         // Build the command
         let _command = "minsky session start";
-        if (_args.name) {
+        if (args.name) {
           command += ` --name ${args.name}`;
         }
-        if (_args.task) {
+        if (args.task) {
           command += ` --task ${args.task}`;
         }
         // Always add --quiet flag as required by the project rules
@@ -89,7 +89,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
       } catch (_error) {
-        log.error("Error starting session", { error, name: _args.name, task: _args.task });
+        log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
           `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -119,10 +119,10 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
       try {
         // Build the command
         let _command = "minsky session commit";
-        if (_args.message) {
+        if (args.message) {
           command += ` -m "${args.message}"`;
         }
-        if (_args.session) {
+        if (args.session) {
           command += ` --session ${args.session}`;
         }
 
@@ -135,7 +135,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (_error) {
-        log.error("Error committing changes", { error, _session: _args.session });
+        log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -163,7 +163,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
       try {
         // Build the command
         let _command = "minsky session push";
-        if (_args.session) {
+        if (args.session) {
           command += ` --session ${args.session}`;
         }
 
@@ -176,7 +176,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (_error) {
-        log.error("Error pushing changes", { error, _session: _args.session });
+        log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`
         );
