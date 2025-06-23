@@ -64,6 +64,7 @@ export default [
     },
     files: ["**/*.ts", "**/*.js"],
     rules: {
+      "no-unused-vars": "off", // Disabled in favor of @typescript-eslint/no-unused-vars
       indent: ["error", 2],
       "linebreak-style": ["error", "unix"],
       quotes: ["error", "double"],
@@ -74,7 +75,6 @@ export default [
         "warn",
         { argsIgnorePattern: "^_+", varsIgnorePattern: "^_+" },
       ],
-      "no-unused-vars": "off", // Disabled in favor of @typescript-eslint/no-unused-vars
       "no-magic-numbers": [
         "warn",
         { ignore: [0, 1, -1], ignoreArrayIndexes: true, enforceConst: true },
@@ -99,6 +99,7 @@ export default [
     files: ["**/*.ts"],
     rules: {
       "no-undef": "off", // TypeScript handles this better
+      "no-unused-vars": "off", // Disabled for TypeScript files in favor of @typescript-eslint/no-unused-vars
     },
   },
   {
