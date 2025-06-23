@@ -862,15 +862,16 @@ export async function updateSessionFromParams(
       await deps.gitService.pullLatest(workdir, remote || "origin");
       log.debug("Latest changes pulled");
 
-      // Merge specified branch
+      // Merge specified branch from remote (this was the key fix)
       const branchToMerge = branch || "main";
-      log.debug("Merging branch", { branchToMerge, workdir });
-      const mergeResult = await deps.gitService.mergeBranch(workdir, branchToMerge);
+      const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
+      log.debug("Merging branch", { branchToMerge: remoteBranchToMerge, workdir });
+      const mergeResult = await deps.gitService.mergeBranch(workdir, remoteBranchToMerge);
       log.debug("Branch merge completed", { mergeResult });
 
       if (mergeResult.conflicts) {
         throw new MinskyError(
-          `Merge conflicts detected when merging ${branchToMerge}. Please resolve conflicts manually.`
+          `Merge conflicts detected when merging ${remoteBranchToMerge}. Please resolve conflicts manually.`
         );
       }
 
@@ -883,6 +884,8 @@ export async function updateSessionFromParams(
         });
         log.debug("Changes pushed");
       }
+    } catch (error) {
+      throw error;
     } finally {
       // Always try to restore stashed changes
       if (!noStash) {
