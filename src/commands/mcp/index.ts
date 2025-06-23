@@ -1,30 +1,31 @@
+import fs from "fs";
+import path from "path";
 import { Command } from "commander";
 import { DEFAULT_DEV_PORT } from "../utils/constants";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
+import { registerDebugTools } from "../../adapters/mcp/debug";
+import { registerGitTools } from "../../adapters/mcp/git";
+import { registerInitTools } from "../../adapters/mcp/init";
+import { registerRulesTools } from "../../adapters/mcp/rules";
+import { registerSessionTools } from "../../adapters/mcp/session";
+import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+import { registerTaskTools } from "../../adapters/mcp/tasks";
+import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import {
   isNetworkError,
   createNetworkError,
   formatNetworkErrorMessage,
 } from "../../errors/network-errors.js";
-import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
-import fs from "fs";
-import path from "path";
 
-const INSPECTOR_PORT = INSPECTOR_PORT;
+const INSPECTOR_PORT = 3001;
 
 // Import adapter-based tool registrations
-import { registerSessionTools } from "../../adapters/mcp/session";
 // import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 // import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerDebugTools } from "../../adapters/mcp/debug";
 
 /**
  * Create the MCP command
@@ -124,6 +125,7 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
+        registerSessionWorkspaceTools(commandMapper);
         // registerSessionFileTools(commandMapper);
         // registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);

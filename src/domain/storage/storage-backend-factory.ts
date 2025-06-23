@@ -7,11 +7,11 @@
 
 import { join } from "path";
 import { log } from "../../utils/logger";
-import type { DatabaseStorage } from "./database-storage";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
 import { JsonFileStorage } from "./backends/json-file-storage";
-import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
+import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
+import type { DatabaseStorage } from "./database-storage";
 
 /**
  * Available storage backend types

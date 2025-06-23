@@ -2,11 +2,11 @@
  * MCP adapter for session file operations
  * Provides session-scoped file operations that enforce workspace isolation
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
-import { z } from "zod";
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
+import { z } from "zod";
 import { SessionDB } from "../../domain/session.js";
+import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { log } from "../../utils/logger.js";
 
 /**
@@ -203,10 +203,10 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   });
 
   // Session list directory tool
-  commandMapper.addTool(
-    "session_list_directory",
-    "List contents of a directory within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_list_directory",
+    description: "List contents of a directory within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z
         .string()
@@ -219,7 +219,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(false)
         .describe("Include hidden files (starting with .)"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -277,8 +277,8 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
-  );
+    },
+  });
 
   // Session file exists tool
   commandMapper.addTool(

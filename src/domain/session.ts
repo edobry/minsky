@@ -1,7 +1,6 @@
-import { join } from "path";
-import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { existsSync } from "fs";
-import { normalizeRepoName } from "./repo-utils.js";
+import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
+import { join } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -13,18 +12,18 @@ import type {
   SessionUpdateParams,
   SessionPrParams,
 } from "../schemas/session.js";
+import { log } from "../utils/logger.js";
+import { installDependencies } from "../utils/package-manager.js";
 import { type GitServiceInterface, preparePrFromParams } from "./git.js";
+import { createGitService } from "./git.js";
+import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
   getCurrentSessionContext,
 } from "./workspace.js";
-import { resolveRepoPath } from "./repo-utils.js";
 import * as WorkspaceUtils from "./workspace.js";
-import { log } from "../utils/logger.js";
-import { createGitService } from "./git.js";
-import { installDependencies } from "../utils/package-manager.js";
 
 export interface SessionRecord {
   session: string;
@@ -260,7 +259,7 @@ export class SessionDB implements SessionProviderInterface {
     }
 
     // Special handling for CloneResult
-    if (record.cloneResult && record.cloneResult.workdir) {
+    if (record.cloneResult?.workdir) {
       return record.cloneResult.workdir;
     }
 
@@ -380,7 +379,7 @@ export class SessionDB implements SessionProviderInterface {
 
     for (const session of sessions) {
       // Skip sessions that already have a repoPath
-      if (session.repoPath && session.repoPath.includes("/sessions/")) {
+      if (session.repoPath?.includes("/sessions/")) {
         continue;
       }
 
@@ -883,7 +882,6 @@ export async function updateSessionFromParams(
           remote: remote || "origin",
         });
       }
-      log.debug("Changes pushed");
     } finally {
       // Always try to restore stashed changes
       if (!noStash) {
@@ -1323,7 +1321,7 @@ export async function inspectSessionFromParams(params: {
   // Auto-detect the current session from the workspace
   const context = await getCurrentSessionContext(process.cwd());
 
-  if (!context || !context.sessionId) {
+  if (!context?.sessionId) {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
