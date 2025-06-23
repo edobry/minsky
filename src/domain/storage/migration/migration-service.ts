@@ -122,7 +122,7 @@ export class MigrationService {
         result.success = true;
         result.recordsMigrated = sessions.length;
         result.warnings.push(`Dry run: Would migrate ${sessions.length} sessions`);
-        log.info("Dry run completed successfully");
+        log.debug("Dry run completed successfully");
         return result;
       }
 
@@ -151,7 +151,7 @@ export class MigrationService {
 
       result.success = result.errors.length === 0;
 
-      log.info("Migration completed", {
+      log.debug("Migration completed", {
         success: result.success,
         migrated: result.recordsMigrated,
         errors: result.errors.length,
