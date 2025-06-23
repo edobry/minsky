@@ -786,11 +786,13 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, task, branch, remote, noStash, noPush, force } = params;
+  const { name, branch, remote, noStash, noPush, force } = params;
 
-  // Input validation - require either name or task
-  if (!name && !task) {
-    throw new ValidationError("Either session name or task ID must be provided");
+  log.debug("updateSessionFromParams called", { params });
+
+  // Input validation
+  if (!name) {
+    throw new ValidationError("Session name is required");
   }
 
   // Set up dependencies with defaults
@@ -800,50 +802,44 @@ export async function updateSessionFromParams(
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
-  try {
-    // Get session record - prioritize task lookup if provided
-    let sessionRecord: SessionRecord | null = null;
-    let sessionName: string;
+  log.debug("Dependencies set up", {
+    hasGitService: !!deps.gitService,
+    hasSessionDB: !!deps.sessionDB,
+  });
 
-    if (task && !name) {
-      // If task is provided but no name, find session by task ID
-      const normalizedTaskId = taskIdSchema.parse(task);
-      sessionRecord = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
-      if (!sessionRecord) {
-        throw new ResourceNotFoundError(`No session found for task ${task}`, "session", task);
-      }
-      sessionName = sessionRecord.session;
-    } else if (name) {
-      // If name is provided, get by name
-      sessionRecord = await deps.sessionDB.getSession(name);
-      if (!sessionRecord) {
-        throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
-      }
-      sessionName = name;
-    } else {
-      // This should not happen due to validation above, but for type safety
-      throw new ValidationError("Either session name or task ID must be provided");
+  try {
+    // Get session record
+    log.debug("Getting session record", { name });
+    const sessionRecord = await deps.sessionDB.getSession(name);
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
     }
 
+    log.debug("Session record found", { sessionRecord });
+
     // Get session working directory
-    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, sessionName);
+    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
+    log.debug("Session workdir determined", { workdir });
 
     // Validate that the session workspace directory exists
     try {
       const { access } = await import("fs/promises");
       await access(workdir);
+      log.debug("Workspace directory exists", { workdir });
     } catch (error) {
       throw new MinskyError(
         `Session workspace directory does not exist: ${workdir}. ` +
-          `The session '${sessionName}' exists in the database but its workspace directory is missing. ` +
+          `The session '${name}' exists in the database but its workspace directory is missing. ` +
           `This can happen if the directory was manually deleted or the session creation was interrupted. ` +
-          `Please delete the session with 'minsky session delete ${sessionName}' and recreate it.`
+          `Please delete the session with 'minsky session delete ${name}' and recreate it.`
       );
     }
 
     // Check if the workspace is dirty using git status command directly
+    log.debug("Checking workspace status", { workdir });
     const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
     const isDirty = statusOutput.trim().length > 0;
+    log.debug("Workspace status checked", { isDirty, statusOutput: statusOutput.trim() });
 
     if (isDirty && !force) {
       throw new MinskyError(
@@ -853,18 +849,24 @@ export async function updateSessionFromParams(
 
     // Stash changes if needed
     if (!noStash) {
+      log.debug("Stashing changes", { workdir });
       await deps.gitService.stashChanges(workdir);
+      log.debug("Changes stashed");
     }
 
     let stashError: unknown;
 
     try {
       // Pull latest changes
+      log.debug("Pulling latest changes", { workdir, remote: remote || "origin" });
       await deps.gitService.pullLatest(workdir, remote || "origin");
+      log.debug("Latest changes pulled");
 
       // Merge specified branch
       const branchToMerge = branch || "main";
+      log.debug("Merging branch", { branchToMerge, workdir });
       const mergeResult = await deps.gitService.mergeBranch(workdir, branchToMerge);
+      log.debug("Branch merge completed", { mergeResult });
 
       if (mergeResult.conflicts) {
         throw new MinskyError(
@@ -874,16 +876,20 @@ export async function updateSessionFromParams(
 
       // Push changes if needed
       if (!noPush) {
+        log.debug("Pushing changes", { workdir, remote: remote || "origin" });
         await deps.gitService.push({
           repoPath: workdir,
           remote: remote || "origin",
         });
+        log.debug("Changes pushed");
       }
     } finally {
       // Always try to restore stashed changes
       if (!noStash) {
         try {
+          log.debug("Restoring stashed changes", { workdir });
           await deps.gitService.popStash(workdir);
+          log.debug("Stashed changes restored");
         } catch (error) {
           stashError = error;
         }
@@ -899,6 +905,8 @@ export async function updateSessionFromParams(
       );
     }
 
+    log.debug("Session update completed successfully", { sessionName: name });
+
     // Return the updated session information
     return {
       session: sessionRecord.session,
@@ -910,6 +918,10 @@ export async function updateSessionFromParams(
       repoPath: workdir,
     };
   } catch (error) {
+    log.error("Session update failed", {
+      error: error instanceof Error ? error.message : String(error),
+      name,
+    });
     if (error instanceof MinskyError) {
       throw error;
     } else {
