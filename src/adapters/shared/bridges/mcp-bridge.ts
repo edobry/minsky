@@ -7,7 +7,7 @@
 import { type ZodIssue } from "zod";
 import {
   sharedCommandRegistry,
-  typetypetype CommandExecutionContext,
+  type CommandExecutionContext,
 } from "../command-registry.js";
 import { ensureError } from "../../../errors/index.js";
 // Assuming MCP requests come in a specific format, e.g., FastMCP

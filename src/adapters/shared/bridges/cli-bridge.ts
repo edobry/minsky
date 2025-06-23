@@ -8,7 +8,7 @@ import { Command } from "commander";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  typetypetype CommandExecutionContext,
+  type CommandExecutionContext,
   type SharedCommand,
 } from "../command-registry";
 
