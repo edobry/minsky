@@ -109,7 +109,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return {
         success: false,
         error: typedError,
-        filePath: _specPath,
+        filePath: specPath,
       };
     }
   }
@@ -242,7 +242,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       return {
         success: false,
         error: typedError,
-        filePath: _specPath,
+        filePath: specPath,
       };
     }
   }

@@ -146,9 +146,9 @@ export class MarkdownTaskBackend implements TaskBackend {
   async findTaskSpecFiles(__taskId: string): Promise<string[]> {
     try {
       const files = await readdir(this.tasksDirectory);
-      return files.filter((file) => file.startsWith(`${_taskId}-`));
+      return files.filter((file) => file.startsWith(`${taskId}-`));
     } catch (_error) {
-      log.error(`Failed to find task spec file for task #${_taskId}`, {
+      log.error(`Failed to find task spec file for task #${taskId}`, {
         error: error instanceof Error ? error : String(error),
       });
       return [];

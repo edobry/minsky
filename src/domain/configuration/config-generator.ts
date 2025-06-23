@@ -36,8 +36,8 @@ export class ConfigurationGenerator {
     };
 
     // Add GitHub-specific configuration
-    if (_options.backend === "github-issues") {
-      if (!_options.githubOwner || !_options.githubRepo) {
+    if (options.backend === "github-issues") {
+      if (!options.githubOwner || !options.githubRepo) {
         throw new Error("GitHub owner and repo are required for github-issues backend");
       }
       config.backends!["github-issues"] = {
@@ -67,14 +67,14 @@ export class ConfigurationGenerator {
       version: 1
     };
 
-    if (_options.githubToken || _options.githubTokenSource) {
+    if (options.githubToken || options.githubTokenSource) {
       config.credentials = {
         github: {
           source: options.githubTokenSource || "file"
         }
       };
 
-      if (_options.githubToken && _options.githubTokenSource === "file") {
+      if (options.githubToken && options.githubTokenSource === "file") {
         config.credentials.github.token = options.githubToken;
       }
     }

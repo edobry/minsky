@@ -270,8 +270,8 @@ export class BackendMigrationUtils {
         // Handle ID conflicts
         let finalTask = { ...task };
         
-        if (_options.preserveIds && targetIds.has(task.id)) {
-          switch (_options.idConflictStrategy) {
+        if (options.preserveIds && targetIds.has(task.id)) {
+          switch (options.idConflictStrategy) {
           case "skip":
             skipped.push(task);
             continue;
@@ -289,7 +289,7 @@ export class BackendMigrationUtils {
           task._status,
           sourceBackend.name,
           targetBackend.name,
-          _options.statusMapping
+          options.statusMapping
         );
 
         migrated.push(finalTask);

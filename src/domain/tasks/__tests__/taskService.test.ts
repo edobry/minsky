@@ -29,7 +29,7 @@ function createMockBackend(): TaskBackend {
       Promise.resolve({
         success: true,
         content: "# Task #TEST_VALUE: Test Task\n\n## Context\n\nDescription.",
-        filePath: _specPath,
+        filePath: specPath,
       } as TaskReadOperationResult)
     ),
 

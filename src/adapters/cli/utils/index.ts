@@ -47,10 +47,10 @@ export function outputResult(__result: unknown, _options: OutputOptions = {}): v
   }
 
   try {
-    if (_options.json) {
+    if (options.json) {
       // JSON output
       log.cli(JSON.stringify(__result, null, 2));
-    } else if (_options.formatter) {
+    } else if (options.formatter) {
       // Custom formatter
       options.formatter(_result);
     } else {
@@ -85,7 +85,7 @@ export function outputResult(__result: unknown, _options: OutputOptions = {}): v
 export function handleCliError(__error: unknown, _options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
-  if (_options.debug) {
+  if (options.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed:", err);
     if (err.stack) {

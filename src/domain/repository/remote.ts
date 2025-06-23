@@ -40,7 +40,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param config Backend configuration
    */
   constructor(__config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(_xdgStateHome, "minsky", "git");
 
     // Extract configuration options
@@ -138,7 +138,7 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     try {
       // Create the branch in the specified session's repo
-      await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
+      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
       return {
         _workdir,
@@ -302,7 +302,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           const _branch = branchOutput.trim();
 
           // Push to remote
-          await execAsync(`git -C ${workdir} push origin ${_branch}`);
+          await execAsync(`git -C ${workdir} push origin ${branch}`);
         } catch (_error) {
           const _error = pushError instanceof Error ? pushError : new Error(String(pushError));
           if (error.message.includes("Authentication failed")) {
@@ -380,7 +380,7 @@ export class RemoteGitBackend implements RepositoryBackend {
           const _branch = branchOutput.trim();
 
           // Pull from remote
-          await execAsync(`git -C ${workdir} pull origin ${_branch}`);
+          await execAsync(`git -C ${workdir} pull origin ${branch}`);
         } catch (_error) {
           const _error = pullError instanceof Error ? pullError : new Error(String(pullError));
           if (error.message.includes("Authentication failed")) {

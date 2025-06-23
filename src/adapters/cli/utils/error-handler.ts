@@ -126,7 +126,7 @@ export function outputResult<T>(
   result: T,
   _options: { json?: boolean; formatter?: (_result: unknown) => void }
 ): void {
-  if (_options.json) {
+  if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
@@ -136,7 +136,7 @@ export function outputResult<T>(
       // In human mode or when json is explicitly requested, write directly to stdout
       log.cli(JSON.stringify(__result, null, 2));
     }
-  } else if (_options.formatter) {
+  } else if (options.formatter) {
     options.formatter(_result);
   } else {
     log.cli(String(_result));

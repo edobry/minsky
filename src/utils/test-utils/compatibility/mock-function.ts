@@ -217,7 +217,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
       // Track the result
       state.results.push({
         type: "return",
-        value: _result,
+        value: result,
       });
 
       return result;

@@ -94,8 +94,8 @@ export class MinskyMCPServer {
     // Create the MCP server
     this.server = new Server(
       {
-        name: this._options.name,
-        version: this._options.version,
+        name: this.options.name,
+        version: this.options.version,
       },
       {
         capabilities: {
@@ -317,24 +317,24 @@ export class MinskyMCPServer {
    * Start the MCP server with the configured transport
    */
   async start(): Promise<void> {
-    log.agent(`Starting Minsky MCP Server (${this._options.name}) with ${this.options.transportType} transport`);
+    log.agent(`Starting Minsky MCP Server (${this.options.name}) with ${this.options.transportType} transport`);
 
-    if (this._options.transportType === "stdio") {
+    if (this.options.transportType === "stdio") {
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
       log.agent("MCP Server started with stdio transport");
-    } else if (this._options.transportType === "sse") {
+    } else if (this.options.transportType === "sse") {
       const transport = new SSEServerTransport(
-        this._options.sse.path ?? "/sse",
+        this.options.sse.path ?? "/sse",
         {
-          port: this._options.sse.port,
+          port: this.options.sse.port,
           host: this.options.sse.host,
         }
       );
       await this.server.connect(transport);
-      log.agent(`MCP Server started with SSE transport on ${this._options.sse.host ?? "localhost"}:${this._options.sse.port}${this.options.sse.path ?? "/sse"}`);
+      log.agent(`MCP Server started with SSE transport on ${this.options.sse.host ?? "localhost"}:${this.options.sse.port}${this.options.sse.path ?? "/sse"}`);
     } else {
-      throw new Error(`Unsupported transport type: ${this._options.transportType}`);
+      throw new Error(`Unsupported transport type: ${this.options.transportType}`);
     }
   }
 

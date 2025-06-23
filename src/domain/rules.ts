@@ -93,7 +93,7 @@ export class RuleService {
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);
 
-      if (_options.debug) {
+      if (options.debug) {
         log.debug("Listing rules", { directory: dirPath, format });
       }
 
@@ -110,7 +110,7 @@ export class RuleService {
             });
 
             // Filter by tag if specified
-            if (_options.tag && (!rule.tags || !rule.tags.includes(_options.tag))) {
+            if (options.tag && (!rule.tags || !rule.tags.includes(options.tag))) {
               continue;
             }
 
@@ -145,17 +145,17 @@ export class RuleService {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
-    if (_options.debug) {
-      log.debug("Getting rule", { _id: bareId, requestedFormat: _options.format });
+    if (options.debug) {
+      log.debug("Getting rule", { _id: bareId, requestedFormat: options.format });
     }
 
     // If a specific format is requested, try that first
-    if (_options.format) {
+    if (options.format) {
       const requestedFormat = options.format;
       const dirPath = this.getRuleDirPath(requestedFormat);
       const filePath = join(_dirPath, `${bareId}.mdc`);
 
-      if (_options.debug) {
+      if (options.debug) {
         log.debug("Checking requested format", { format: requestedFormat, filePath });
       }
 
@@ -163,7 +163,7 @@ export class RuleService {
         // Check if file exists in the requested format
         await fs.access(filePath);
 
-        if (_options.debug) {
+        if (options.debug) {
           log.debug("File exists in requested format", { filePath });
         }
 
@@ -175,7 +175,7 @@ export class RuleService {
           // Some rule files may have formatting issues in their frontmatter that cause gray-matter to throw
           const { data, _content: ruleContent } = matter(_content);
 
-          if (_options.debug) {
+          if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
               filePath,
               dataKeys: Object.keys(data),
@@ -197,7 +197,7 @@ export class RuleService {
         } catch (_error) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
-          if (_options.debug) {
+          if (options.debug) {
             log.error("Error parsing frontmatter", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
@@ -209,7 +209,7 @@ export class RuleService {
           // Just extract content after the second '---' or use the whole content if no frontmatter markers
           let extractedContent = content;
           const frontmatterEndIndex = content.indexOf("---", 3);
-          if (_content.startsWith("---") && frontmatterEndIndex > 0) {
+          if (content.startsWith("---") && frontmatterEndIndex > 0) {
             extractedContent = content.substring(frontmatterEndIndex + 3).trim();
           }
 
@@ -224,7 +224,7 @@ export class RuleService {
         }
       } catch (_error) {
         // Rule not found in the requested format
-        if (_options.debug) {
+        if (options.debug) {
           log.debug("File not found in requested format", {
             filePath,
             error: error instanceof Error ? error.message : String(error),
@@ -239,12 +239,12 @@ export class RuleService {
 
     for (const format of formatsToSearch) {
       // Skip if we already checked this format above
-      if (_options.format === format) continue;
+      if (options.format === format) continue;
 
       const dirPath = this.getRuleDirPath(format);
       const filePath = join(_dirPath, `${bareId}.mdc`);
 
-      if (_options.debug) {
+      if (options.debug) {
         log.debug("Checking alternative format", { format, filePath });
       }
 
@@ -252,7 +252,7 @@ export class RuleService {
         // Check if file exists
         await fs.access(filePath);
 
-        if (_options.debug) {
+        if (options.debug) {
           log.debug("File exists in alternative format", { filePath });
         }
 
@@ -263,7 +263,7 @@ export class RuleService {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
           const { data, _content: ruleContent } = matter(_content);
 
-          if (_options.debug) {
+          if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
               filePath,
               dataKeys: Object.keys(data),
@@ -272,7 +272,7 @@ export class RuleService {
           }
 
           // If we found the rule in a different format than requested, return with appropriate notice
-          if (_options.format && format !== _options.format) {
+          if (options.format && format !== options.format) {
             const originalFormat = format;
             const requestedFormat = options.format;
 
@@ -306,7 +306,7 @@ export class RuleService {
           };
         } catch (_error) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
-          if (_options.debug) {
+          if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
               error: matterError instanceof Error ? matterError.message : String(matterError),
@@ -317,7 +317,7 @@ export class RuleService {
           // Same frontmatter error handling as above for consistency
           let extractedContent = content;
           const frontmatterEndIndex = content.indexOf("---", 3);
-          if (_content.startsWith("---") && frontmatterEndIndex > 0) {
+          if (content.startsWith("---") && frontmatterEndIndex > 0) {
             extractedContent = content.substring(frontmatterEndIndex + 3).trim();
           }
 
@@ -330,7 +330,7 @@ export class RuleService {
         }
       } catch (_error) {
         // File doesn't exist in this format, try the next one
-        if (_options.debug) {
+        if (options.debug) {
           log.debug("File not found in alternative format", {
             filePath,
             error: error instanceof Error ? error.message : String(error),
@@ -341,13 +341,13 @@ export class RuleService {
     }
 
     // If we reach here, the rule was not found in any format
-    if (_options.debug) {
-      log.error("Rule not found in any format", { _id: bareId, requestedFormat: _options.format });
+    if (options.debug) {
+      log.error("Rule not found in any format", { _id: bareId, requestedFormat: options.format });
     }
 
-    if (_options.format) {
+    if (options.format) {
       throw new Error(
-        `Rule '${id}' not found in '${_options.format}' format or any other available format`
+        `Rule '${id}' not found in '${options.format}' format or any other available format`
       );
     } else {
       throw new Error(`Rule not found: ${id}`);
@@ -415,7 +415,7 @@ export class RuleService {
     const rule = await this.getRule(_id, ruleOptions);
 
     // No changes needed
-    if (!_options._content && !options.meta) {
+    if (!options.content && !options.meta) {
       return rule;
     }
 
@@ -455,8 +455,8 @@ export class RuleService {
       _path: rule.path,
       id,
       format: rule.format,
-      contentChanged: !!_options._content,
-      metaChanged: !!_options.meta,
+      contentChanged: !!options._content,
+      metaChanged: !!options.meta,
     });
 
     return this.getRule(_id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
@@ -468,12 +468,12 @@ export class RuleService {
   async searchRules(__options: SearchRuleOptions = {}): Promise<Rule[]> {
     // Get all rules first (with format filtering if specified)
     const rules = await this.listRules({
-      format: _options.format,
-      tag: _options.tag,
+      format: options.format,
+      tag: options.tag,
     });
 
     // No search query, just return the filtered rules
-    if (!_options.query) {
+    if (!options.query) {
       return rules;
     }
 
@@ -482,7 +482,7 @@ export class RuleService {
     // Filter by search term
     return rules.filter((rule) => {
       // Search in content
-      if (rule._content.toLowerCase().includes(searchTerm)) {
+      if (rule.content.toLowerCase().includes(searchTerm)) {
         return true;
       }
 

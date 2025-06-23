@@ -67,16 +67,16 @@ export class TaskTitleMigration {
     };
 
     try {
-      if (_options.verbose) {
+      if (options.verbose) {
         log.debug("Starting task title migration...");
         log.debug(`Workspace: ${this.workspacePath}`);
         log.debug("Options:", _options);
       }
 
       // Create backup if requested
-      if (_options.backup && !_options.dryRun) {
+      if (options.backup && !options.dryRun) {
         result.backupPath = await this.createBackup();
-        if (_options.verbose) {
+        if (options.verbose) {
           log.debug(`Created backup at: ${result.backupPath}`);
         }
       }
@@ -85,13 +85,13 @@ export class TaskTitleMigration {
       const taskFiles = await this.findTaskSpecFiles();
       result.totalFiles = taskFiles.length;
 
-      if (_options.verbose) {
+      if (options.verbose) {
         log.debug(`Found ${taskFiles.length} task specification files`);
       }
 
       // Migrate each file
       for (const filePath of taskFiles) {
-        const migrationResult = await this.migrateTask(_filePath, _options.dryRun);
+        const migrationResult = await this.migrateTask(_filePath, options.dryRun);
         result.results.push(migrationResult);
 
         if (migrationResult.success && migrationResult.wasModified) {
@@ -102,7 +102,7 @@ export class TaskTitleMigration {
           result.errors.push(`${filePath}: ${migrationResult.error}`);
         }
 
-        if (_options.verbose && migrationResult.wasModified) {
+        if (options.verbose && migrationResult.wasModified) {
           const _status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
           log.debug(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
         }
@@ -111,8 +111,8 @@ export class TaskTitleMigration {
       result.success = result.errors.length === 0;
 
       // Summary
-      if (_options.verbose || !result.success) {
-        log.debug(`\nMigration ${_options.dryRun ? "preview" : "completed"}:`);
+      if (options.verbose || !result.success) {
+        log.debug(`\nMigration ${options.dryRun ? "preview" : "completed"}:`);
         log.debug(`  Total files: ${result.totalFiles}`);
         log.debug(`  Modified: ${result.modifiedFiles}`);
         log.debug(`  Skipped: ${result.skippedFiles}`);
@@ -341,7 +341,7 @@ if (import.meta.main) {
 
   const migration = new TaskTitleMigration(_workspacePath);
 
-  if (_options.rollback) {
+  if (options.rollback) {
     const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];
     if (!backupPath) {
       log.error("Error: --rollback requires --backup-path=<path>");
@@ -361,7 +361,7 @@ if (import.meta.main) {
     migration.migrateAllTasks(_options)
       .then(result => {
         if (result.success) {
-          log.debug(`Migration ${_options.dryRun ? "preview" : "completed"} successfully`);
+          log.debug(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
           process.exit(0);
         } else {
           log.error("Migration failed");

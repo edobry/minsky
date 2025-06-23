@@ -224,7 +224,7 @@ export class TaskService {
     if (spec.id) {
       // Verify the task ID doesn't already exist
       const existingTask = await this.getTask(spec.id);
-      if (existingTask && !_options.force) {
+      if (existingTask && !options.force) {
         throw new Error(`Task ${spec.id} already exists. Use --force to overwrite.`);
       }
       taskId = spec.id;

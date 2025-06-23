@@ -30,7 +30,7 @@ export function createConfigListCommand(): Command {
         const _workingDir = options.workingDir || process.cwd();
         const _result = await configurationService.loadConfiguration(_workingDir);
         
-        if (_options.json) {
+        if (options.json) {
           log.debug(JSON.stringify(__result, null, 2));
         } else {
           displayConfigurationSources(result.sources);

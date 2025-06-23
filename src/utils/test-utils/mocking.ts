@@ -284,7 +284,7 @@ export function createMockExecSync(_commandResponses: Record<string, string>
   return createMock((_command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
-      if (_command.includes(pattern)) {
+      if (command.includes(pattern)) {
         return response;
       }
     }
@@ -340,14 +340,14 @@ export function createMockExecSync(_commandResponses: Record<string, string>
  * expect(fs.existsSync("/path/to/file.txt")).toBe(false);
  *
  * // Access internal files map for verification
- * expect(mockFS._files.has("/path/to/new-file.txt")).toBe(true);
+ * expect(mockFS.files.has("/path/to/new-file.txt")).toBe(true);
  */
 export function createMockFileSystem(__initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const directories = new Set<string>();
 
   // Initialize with provided files
-  Object.entries(initialFiles).forEach(([path, _content]) => {
+  Object.entries(initialFiles).forEach(([path, content]) => {
     files.set(_path, _content);
     // Also add all parent directories
     const parts = path.split("/");

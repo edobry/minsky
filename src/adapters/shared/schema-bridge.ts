@@ -75,7 +75,7 @@ export function addValuePlaceholder(__flag: string, schema: z.ZodTypeAny): strin
   // Determine if the parameter takes a value
   const isBooleanType =
     schema instanceof z.ZodBoolean ||
-    (schema instanceof z.ZodOptional && schema._def.innerType instanceof z.ZodBoolean);
+    (schema instanceof z.ZodOptional && schema.def.innerType instanceof z.ZodBoolean);
 
   // Boolean options don't need a value placeholder
   if (isBooleanType) {
@@ -93,7 +93,7 @@ export function addValuePlaceholder(__flag: string, schema: z.ZodTypeAny): strin
     placeholder = "enum";
   } else if (schema instanceof z.ZodOptional) {
     // Recurse to check the inner type
-    return addValuePlaceholder(_flag, schema._def.innerType);
+    return addValuePlaceholder(_flag, schema.def.innerType);
   }
 
   return `${flag} <${placeholder}>`;
@@ -119,8 +119,8 @@ export function getSchemaDescription(_schema: z.ZodTypeAny,
     schema.description.length > 0
   ) {
     description = schema.description;
-  } else if (schema instanceof z.ZodOptional && "description" in schema._def.innerType) {
-    const innerDesc = schema._def.innerType.description;
+  } else if (schema instanceof z.ZodOptional && "description" in schema.def.innerType) {
+    const innerDesc = schema.def.innerType.description;
     if (typeof innerDesc === "string" && innerDesc.length > 0) {
       description = innerDesc;
     }
@@ -136,7 +136,7 @@ export function getSchemaDescription(_schema: z.ZodTypeAny,
  * @returns Array of enum values
  */
 export function getEnumValues(__schema: z.ZodEnum<[string, ...string[]]>): string[] {
-  return schema._def.values;
+  return schema.def.values;
 }
 
 /**

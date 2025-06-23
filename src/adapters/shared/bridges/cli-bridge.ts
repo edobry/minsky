@@ -142,14 +142,14 @@ export class CliCommandBridge {
     const _command = new Command(commandDef.name).description(commandDef.description);
 
     // Add aliases if specified
-    if (_options.aliases?.length) {
-      _command.aliases(_options.aliases);
+    if (options.aliases?.length) {
+      command.aliases(options.aliases);
     }
 
     // Hide from help if specified
-    if (_options.hidden) {
+    if (options.hidden) {
       // Alternative approach: use a special prefix that can be filtered out
-      _command.description(`[HIDDEN] ${_command.description()}`);
+      command.description(`[HIDDEN] ${command.description()}`);
     }
 
     // Create parameter mappings
@@ -160,15 +160,15 @@ export class CliCommandBridge {
 
     // Add options to the command
     createOptionsFromMappings(mappings).forEach((option) => {
-      _command.addOption(option);
+      command.addOption(option);
     });
 
     // Add action handler
-    _command.action(async (...args) => {
+    command.action(async (...args) => {
       // Last argument is always the Command instance in Commander.js
       const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, _args.length - 1);
+      const positionalArgs = args.slice(0, args.length - 1);
 
       try {
         // Create combined parameters from options and arguments
@@ -197,9 +197,9 @@ export class CliCommandBridge {
         const _result = await commandDef.execute(_normalizedParams, _context);
 
         // Handle output
-        if (_options.outputFormatter) {
+        if (options.outputFormatter) {
           // Use custom formatter if provided
-          _options.outputFormatter(_result);
+          options.outputFormatter(_result);
         } else {
           // Use standard outputResult utility with JSON handling
           if (context.format === "json") {
@@ -348,10 +348,10 @@ export class CliCommandBridge {
   private createCommandParameterMappings(_commandDef: SharedCommand,
     _options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(commandDef._parameters, _options.parameters || {});
+    const mappings = createParameterMappings(commandDef._parameters, options.parameters || {});
 
     // If automatic argument generation is enabled
-    if (_options.useFirstRequiredParamAsArgument && !_options.forceOptions) {
+    if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
       // Find the first required parameter to use as an argument
       const firstRequiredIndex = mappings.findIndex((mapping) => mapping.paramDef.required);
 
@@ -387,11 +387,11 @@ export class CliCommandBridge {
     // Assign positional arguments to their corresponding parameters
     argumentMappings.forEach((mapping, index) => {
       if (index < positionalArgs.length) {
-        _result[mapping.name] = positionalArgs[index];
+        result[mapping.name] = positionalArgs[index];
       }
     });
 
-    return _result;
+    return result;
   }
 
   /**
@@ -519,7 +519,7 @@ export class CliCommandBridge {
     const _taskId = session.taskId ? ` (${session._taskId})` : "";
     const repoName = session.repoName ? ` - ${session.repoName}` : "";
 
-    log.cli(`${sessionName}${_taskId}${repoName}`);
+    log.cli(`${sessionName}${taskId}${repoName}`);
   }
 
   /**

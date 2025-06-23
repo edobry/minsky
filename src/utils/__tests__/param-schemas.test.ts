@@ -21,25 +21,25 @@ describe("Parameter Schemas", () => {
   describe("Schema Helpers", () => {
     it("optionalString should create an optional string schema with description", () => {
       const schema = schemas.optionalString("Test description");
-      expect(schema._def.typeName).toBe("ZodOptional");
-      expect(schema._def.innerType._def.typeName).toBe("ZodString");
+      expect(schema.def.typeName).toBe("ZodOptional");
+      expect(schema.def.innerType.def.typeName).toBe("ZodString");
 
-      const innerType = schema._def.innerType as z.ZodString;
+      const innerType = schema.def.innerType as z.ZodString;
       expect(innerType.description).toBe("Test description");
     });
 
     it("requiredString should create a required string schema with description", () => {
       const schema = schemas.requiredString("Test description");
-      expect(schema._def.typeName).toBe("ZodString");
+      expect(schema.def.typeName).toBe("ZodString");
       expect(schema.description).toBe("Test description");
     });
 
     it("optionalBoolean should create an optional boolean schema with description", () => {
       const schema = schemas.optionalBoolean("Test description");
-      expect(schema._def.typeName).toBe("ZodOptional");
-      expect(schema._def.innerType._def.typeName).toBe("ZodBoolean");
+      expect(schema.def.typeName).toBe("ZodOptional");
+      expect(schema.def.innerType.def.typeName).toBe("ZodBoolean");
 
-      const innerType = schema._def.innerType as z.ZodBoolean;
+      const innerType = schema.def.innerType as z.ZodBoolean;
       expect(innerType.description).toBe("Test description");
     });
   });
@@ -75,8 +75,8 @@ describe("Parameter Schemas", () => {
       // Verify each schema has a description
       for (const schema of paramSchemas) {
         // For optional schemas, the description is on the inner type
-        if (schema._def.typeName === "ZodOptional" && schema._def.innerType) {
-          const innerType = schema._def.innerType;
+        if (schema.def.typeName === "ZodOptional" && schema.def.innerType) {
+          const innerType = schema.def.innerType;
           expect(hasDescription(innerType)).toBe(true);
 
           if (hasDescription(innerType)) {

@@ -26,7 +26,7 @@ export function createConfigShowCommand(): Command {
         const _workingDir = options.workingDir || process.cwd();
         const _result = await configurationService.loadConfiguration(_workingDir);
         
-        if (_options.json) {
+        if (options.json) {
           process.stdout.write(`${JSON.stringify(result.resolved, null, 2)  }\n`);
         } else {
           displayResolvedConfiguration(result.resolved);

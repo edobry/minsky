@@ -48,15 +48,15 @@ describe("TaskService JsonFile Integration (v2)", () => {
       writeFile: mockFS.writeFile,
       mkdir: mockFS.mkdir,
       access: async (_path: unknown) => {
-        if (!mockFS._files.has(path) && !mockFS._directories.has(path)) {
+        if (!mockFS.files.has(path) && !mockFS.directories.has(path)) {
           throw new Error(`ENOENT: no such file or directory, access '${path}'`);
         }
       },
       unlink: async (_path: unknown) => {
-        if (!mockFS._files.has(path)) {
+        if (!mockFS.files.has(path)) {
           throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
         }
-        mockFS._files.delete(path);
+        mockFS.files.delete(path);
       },
     }));
 
@@ -107,7 +107,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
         "# Task #TEST_VALUE: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
 
       // Write file to mock filesystem
-      mockFS._files.set(_specPath, specContent);
+      mockFS.files.set(_specPath, specContent);
 
       // Use relative path from workspace for task creation
       const relativeSpecPath = "process/tasks/test-task.md";
@@ -134,7 +134,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       const specContent =
         "# Task #124: Status Test Task\n\n## Context\n\nTest task status updates.";
 
-      mockFS._files.set(_specPath, specContent);
+      mockFS.files.set(_specPath, specContent);
 
       // Create task using relative path
       const relativeSpecPath = "process/tasks/status-test.md";
@@ -159,11 +159,11 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create multiple test tasks
       const task1Spec = join(_workspacePath, "process", "tasks", "filter-test-1.md");
       const task1Content = "# Task #125: Filter Test 1\n\n## Context\n\nFirst test task.";
-      mockFS._files.set(task1Spec, task1Content);
+      mockFS.files.set(task1Spec, task1Content);
 
       const task2Spec = join(_workspacePath, "process", "tasks", "filter-test-2.md");
       const task2Content = "# Task #126: Filter Test 2\n\n## Context\n\nSecond test task.";
-      mockFS._files.set(task2Spec, task2Content);
+      mockFS.files.set(task2Spec, task2Content);
 
       // Create tasks using relative paths
       await taskService.createTask("process/tasks/filter-test-1.md");
@@ -215,7 +215,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create a test task first
       const _specPath = join(_workspacePath, "process", "tasks", "validation-test.md");
       const specContent = "# Task #127: Validation Test\n\n## Context\n\nTest validation.";
-      mockFS._files.set(_specPath, specContent);
+      mockFS.files.set(_specPath, specContent);
       await taskService.createTask("process/tasks/validation-test.md");
 
       // Should reject invalid status
@@ -230,7 +230,7 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create task with first service instance
       const _specPath = join(_workspacePath, "process", "tasks", "persistence-test.md");
       const specContent = "# Task #128: Persistence Test\n\n## Context\n\nTest persistence.";
-      mockFS._files.set(_specPath, specContent);
+      mockFS.files.set(_specPath, specContent);
 
       await taskService.createTask("process/tasks/persistence-test.md");
       await taskService.setTaskStatus("#128", "IN-PROGRESS");

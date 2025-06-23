@@ -40,9 +40,9 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     }),
     async (_args) => {
       // Log the repository path being used
-      if (_args.repositoryPath) {
+      if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.list", {
-          repositoryPath: _args.repositoryPath,
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -74,9 +74,9 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     }),
     async (_args) => {
       // Log the repository path being used
-      if (_args.repositoryPath) {
+      if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.get", {
-          repositoryPath: _args.repositoryPath,
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -102,9 +102,9 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     }),
     async (_args) => {
       // Log the repository path being used
-      if (_args.repositoryPath) {
+      if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.get", {
-          repositoryPath: _args.repositoryPath,
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -135,9 +135,9 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     }),
     async (_args) => {
       // Log the repository path being used
-      if (_args.repositoryPath) {
+      if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.set", {
-          repositoryPath: _args.repositoryPath,
+          repositoryPath: args.repositoryPath,
         });
       }
 
@@ -169,9 +169,9 @@ export function registerTaskTools(_commandMapper: CommandMapper): void {
     }),
     async (_args) => {
       // Log the repository path being used
-      if (_args.repositoryPath) {
+      if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.create", {
-          repositoryPath: _args.repositoryPath,
+          repositoryPath: args.repositoryPath,
         });
       }
 

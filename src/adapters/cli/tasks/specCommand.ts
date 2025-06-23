@@ -49,7 +49,7 @@ export function createSpecCommand(): Command {
         const normalizedTaskId = normalizeTaskId(_taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 
@@ -60,7 +60,7 @@ export function createSpecCommand(): Command {
         const params: TaskSpecContentParams = {
           ...normalizedParams,
           _taskId: normalizedTaskId,
-          section: _options.section,
+          section: options.section,
         };
 
         // Call the domain function
@@ -68,36 +68,36 @@ export function createSpecCommand(): Command {
 
         // Format and display the result
         outputResult(__result, {
-          json: _options.json,
+          json: options.json,
           formatter: (_data: unknown) => {
-            log.cli(`Task ${_data.task.id}: ${_data.task.title}`);
-            log.cli(`Specification file: ${_data.specPath}`);
+            log.cli(`Task ${data.task.id}: ${data.task.title}`);
+            log.cli(`Specification file: ${data.specPath}`);
 
             // If a specific section was requested, try to extract it
-            if (_data.section) {
+            if (data.section) {
               // Simple extraction logic for common section patterns
-              const sectionRegex = new RegExp(`## ${_data.section}`, "i");
-              const match = _data.content.match(sectionRegex);
+              const sectionRegex = new RegExp(`## ${data.section}`, "i");
+              const match = data.content.match(sectionRegex);
 
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = _data.content.slice(startIndex + match[0].length).match(/^## /m);
+                const nextSectionMatch = data.content.slice(startIndex + match[0].length).match(/^## /m);
                 const endIndex = nextSectionMatch
                   ? startIndex + match[0].length + nextSectionMatch.index
-                  : _data.content.length;
+                  : data.content.length;
 
-                const sectionContent = _data.content.slice(_startIndex, endIndex).trim();
+                const sectionContent = data.content.slice(_startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
-                log.cli(`\nSection "${_data.section}" not found in specification.`);
+                log.cli(`\nSection "${data.section}" not found in specification.`);
                 log.cli("\nFull specification _content:");
-                log.cli(_data.content);
+                log.cli(data.content);
               }
             } else {
               // Display the full content
               log.cli("\nSpecification _content:");
-              log.cli(_data.content);
+              log.cli(data.content);
             }
           },
         });
