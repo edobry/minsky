@@ -106,7 +106,7 @@ export class CliCommandBridge {
   private getCommandOptions(commandId: string): CliCommandOptions {
     const defaults: CliCommandOptions = {
       useFirstRequiredParamAsArgument: true,
-      _parameters: {},
+      parameters: {},
       hidden: false,
       forceOptions: false,
     };
@@ -143,13 +143,13 @@ export class CliCommandBridge {
 
     // Add aliases if specified
     if (_options.aliases?.length) {
-      command.aliases(_options.aliases);
+      _command.aliases(_options.aliases);
     }
 
     // Hide from help if specified
     if (_options.hidden) {
       // Alternative approach: use a special prefix that can be filtered out
-      command.description(`[HIDDEN] ${_command.description()}`);
+      _command.description(`[HIDDEN] ${_command.description()}`);
     }
 
     // Create parameter mappings
@@ -160,20 +160,20 @@ export class CliCommandBridge {
 
     // Add options to the command
     createOptionsFromMappings(mappings).forEach((option) => {
-      command.addOption(option);
+      _command.addOption(option);
     });
 
     // Add action handler
-    command.action(async (..._args) => {
+    _command.action(async (...args) => {
       // Last argument is always the Command instance in Commander.js
       const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, _args.length - 1);
+      const positionalArgs = args.slice(0, args.length - 1);
 
       try {
         // Create combined parameters from options and arguments
         const rawParameters = this.extractRawParameters(
-          commandDef._parameters,
+          commandDef.parameters,
           commandInstance.opts(),
           positionalArgs,
           mappings
@@ -191,7 +191,7 @@ export class CliCommandBridge {
         };
 
         // Normalize parameters
-        const normalizedParams = normalizeCliParameters(commandDef._parameters, rawParameters);
+        const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
         // Execute the command with parameters and context
         const _result = await commandDef.execute(normalizedParams, _context);
@@ -199,7 +199,7 @@ export class CliCommandBridge {
         // Handle output
         if (_options.outputFormatter) {
           // Use custom formatter if provided
-          options.outputFormatter(_result);
+          _options.outputFormatter(_result);
         } else {
           // Use standard outputResult utility with JSON handling
           if (context.format === "json") {
@@ -369,11 +369,12 @@ export class CliCommandBridge {
    * Extract raw parameters from CLI options and arguments
    */
   private extractRawParameters(
-    _parameters:_options: Record<string, unknown>,
+    _parameters: Record<string, unknown>,
+    _options: Record<string, unknown>,
     positionalArgs: unknown[],
     mappings: ParameterMapping[]
   ): Record<string, unknown> {
-    const _result = { ...options };
+    const _result = { ..._options };
 
     // Map positional arguments to parameter names
     const argumentMappings = mappings
@@ -388,11 +389,11 @@ export class CliCommandBridge {
     // Assign positional arguments to their corresponding parameters
     argumentMappings.forEach((mapping, index) => {
       if (index < positionalArgs.length) {
-        result[mapping.name] = positionalArgs[index];
+        _result[mapping.name] = positionalArgs[index];
       }
     });
 
-    return result;
+    return _result;
   }
 
   /**
