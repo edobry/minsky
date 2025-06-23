@@ -1,10 +1,3 @@
-const SIZE_6 = SIZE_6;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-const TEST_ANSWER = TEST_ANSWER;
-const CONSTANT_0 = CONSTANT_0;
-const CONSTANT_0 = CONSTANT_0;
-const CONSTANT_0 = CONSTANT_0;
-
 /**
  * Tests for custom assertion helpers
  */
@@ -18,7 +11,10 @@ import {
   expectToContainEqual,
 } from "../assertions";
 
-const EXPECTED_ARRAY_LENGTH = 4;
+const TEST_ARRAY_SIZE = 5;
+const SIZE_6 = 6;
+const TEST_ANSWER = 42;
+const FLOAT_PRECISION = 5;
 
 describe("Custom Assertion Helpers", () => {
   describe("expectToMatch", () => {
@@ -45,7 +41,7 @@ describe("Custom Assertion Helpers", () => {
       // Should fail
       let failed = false;
       try {
-        expectToHaveLength([1, 2, 3], EXPECTED_ARRAY_LENGTH);
+        expectToHaveLength([1, 2, 3], 4);
       } catch (error) {
         failed = true;
       }
@@ -121,12 +117,12 @@ describe("Custom Assertion Helpers", () => {
   describe("expectToBeCloseTo", () => {
     test("should compare floating point numbers with precision", () => {
       // Should succeed
-      expectToBeCloseTo(CONSTANT_0 + CONSTANT_0, CONSTANT_0, TEST_ARRAY_SIZE);
+      expectToBeCloseTo(0.1 + 0.2, 0.3, FLOAT_PRECISION);
 
       // Should fail
       let failed = false;
       try {
-        expectToBeCloseTo(CONSTANT_0, CONSTANT_0, TEST_ARRAY_SIZE);
+        expectToBeCloseTo(0.1, 0.2, FLOAT_PRECISION);
       } catch (error) {
         failed = true;
       }
