@@ -43,7 +43,7 @@ type NewSessionRecord = typeof sessionsTable.$inferInsert;
  * SQLite storage implementation using Drizzle ORM with Bun's native driver
  */
 export class SqliteStorage<TEntity extends Record<string, any>, TState>
-implements DatabaseStorage<TEntity, TState>
+  implements DatabaseStorage<TEntity, TState>
 {
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
@@ -185,7 +185,8 @@ implements DatabaseStorage<TEntity, TState>
 
       return (result[0] as TEntity) || null;
     } catch (error) {
-      log.error("Failed to get entity from SQLite", { error, id });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to get session '${id}': ${errorMessage}`);
       return null;
     }
   }
@@ -199,7 +200,8 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = await this.drizzleDb.select().from(sessionsTable);
       return sessions as TEntity[];
     } catch (error) {
-      log.error("Failed to get entities from SQLite", { error });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`Failed to get sessions: ${errorMessage}`);
       return [];
     }
   }
@@ -223,7 +225,8 @@ implements DatabaseStorage<TEntity, TState>
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
-      log.error("Failed to create entity in SQLite", { error, entity });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
       throw error;
     }
   }
