@@ -46,8 +46,8 @@ export class TaskTitleMigration {
   private workspacePath: string;
   private backupTimestamp: string;
 
-  constructor(workspacePath: string = process.cwd()) {
-    this.workspacePath = resolve(workspacePath);
+  constructor(_workspacePath: string = process.cwd()) {
+    this.workspacePath = resolve(_workspacePath);
     this.backupTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
   }
 
@@ -55,7 +55,7 @@ export class TaskTitleMigration {
    * Migrate all task specification files
    */
   async migrateAllTasks(_options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
-    const result: MigrationResult = {
+    const _result: MigrationResult = {
       success: false,
       totalFiles: 0,
       modifiedFiles: 0,
@@ -101,7 +101,7 @@ export class TaskTitleMigration {
         }
 
         if (_options.verbose && migrationResult.wasModified) {
-          const status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
+          const _status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
           log.debug(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
         }
       }
@@ -134,7 +134,7 @@ export class TaskTitleMigration {
    * Migrate a single task specification file
    */
   async migrateTask(filePath: string, dryRun: boolean = false): Promise<TaskMigrationResult> {
-    const result: TaskMigrationResult = {
+    const _result: TaskMigrationResult = {
       filePath,
       success: false,
       oldTitle: "",
@@ -215,7 +215,7 @@ export class TaskTitleMigration {
     const cleanTitleMatch = titleLine.match(/^# (.+)$/);
     if (cleanTitleMatch && cleanTitleMatch[1]) {
       // Already clean format, but verify it's not starting with "Task "
-      const title = cleanTitleMatch[1];
+      const _title = cleanTitleMatch[1];
       if (!title.startsWith("Task #") && !title.startsWith("Task:")) {
         return title;
       }
@@ -229,7 +229,7 @@ export class TaskTitleMigration {
    */
   private async findTaskSpecFiles(): Promise<string[]> {
     const taskFiles: string[] = [];
-    const tasksDir = join(this.workspacePath, "process", "tasks");
+    const tasksDir = join(this._workspacePath, "process", "tasks");
 
     if (!existsSync(tasksDir)) {
       return taskFiles;
@@ -257,7 +257,7 @@ export class TaskTitleMigration {
    * Create backup of all task files
    */
   async createBackup(): Promise<string> {
-    const backupDir = join(this.workspacePath, ".task-migration-backup", this.backupTimestamp);
+    const backupDir = join(this._workspacePath, ".task-migration-backup", this.backupTimestamp);
     await mkdir(backupDir, { recursive: true });
 
     const taskFiles = await this.findTaskSpecFiles();
@@ -280,7 +280,7 @@ export class TaskTitleMigration {
     }
 
     const backupFiles = await readdir(backupPath);
-    const tasksDir = join(this.workspacePath, "process", "tasks");
+    const tasksDir = join(this._workspacePath, "process", "tasks");
 
     for (const fileName of backupFiles) {
       const backupFilePath = join(backupPath, fileName);
@@ -328,16 +328,16 @@ export class TaskTitleMigration {
 // CLI interface if run directly
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const options: MigrationOptions = {
+  const _options: MigrationOptions = {
     dryRun: args.includes("--dry-run"),
     backup: !args.includes("--no-backup"),
     verbose: args.includes("--verbose") || args.includes("-v"),
     rollback: args.includes("--rollback"),
   };
 
-  const workspacePath = args.find(arg => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
+  const _workspacePath = args.find(arg => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
 
-  const migration = new TaskTitleMigration(workspacePath);
+  const migration = new TaskTitleMigration(_workspacePath);
 
   if (_options.rollback) {
     const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];

@@ -5,9 +5,7 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { TaskService } from "../taskService.js";
 import type { TaskBackend } from "../taskBackend.js";
-import type {
-  TaskData,
-  TaskReadOperationResult,
+import type {TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../../types/tasks/taskData.js";
 
@@ -29,7 +27,7 @@ function createMockBackend(): TaskBackend {
       Promise.resolve({
         success: true,
         content: "# Task #123: Test Task\n\n## Context\n\nDescription.",
-        filePath: specPath,
+        filePath: _specPath,
       } as TaskReadOperationResult)
     ),
 
@@ -59,7 +57,7 @@ function createMockBackend(): TaskBackend {
     })),
 
     formatTaskSpec: mock(
-      (spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
+      (_spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
     ),
 
     // Mock side effect methods
@@ -100,17 +98,17 @@ describe("TaskService", () => {
 
   describe("listTasks", () => {
     test("should get tasks data and parse it", async () => {
-      const tasks = await taskService.listTasks();
+      const _tasks = await taskService.listTasks();
 
       expect(mockBackend.getTasksData).toHaveBeenCalled();
       expect(mockBackend.parseTasks).toHaveBeenCalled();
-      expect(tasks).toHaveLength(2);
+      expect(_tasks).toHaveLength(2);
       expect(tasks[0].id).toBe("#001");
-      expect(tasks[1].status).toBe("IN-PROGRESS");
+      expect(tasks[1]._status).toBe("IN-PROGRESS");
     });
 
     test("should filter tasks by status if provided", async () => {
-      const tasks = await taskService.listTasks({ status: "TODO" });
+      const _tasks = await taskService.listTasks({ _status: "TODO" });
 
       expect(tasks.length).toBe(1);
       expect(tasks[0].id).toBe("#001");
@@ -126,8 +124,8 @@ describe("TaskService", () => {
         })
       );
 
-      const tasks = await taskService.listTasks();
-      expect(tasks).toEqual([]);
+      const _tasks = await taskService.listTasks();
+      expect(_tasks).toEqual([]);
     });
   });
 
@@ -137,7 +135,7 @@ describe("TaskService", () => {
 
       expect(task).not.toBeNull();
       expect(task?.id).toBe("#001");
-      expect(task?.title).toBe("Task 1");
+      expect(task?._title).toBe("Task 1");
     });
 
     test("should find a task by ID without # prefix", async () => {
@@ -155,13 +153,13 @@ describe("TaskService", () => {
 
   describe("getTaskStatus", () => {
     test("should get a task's status", async () => {
-      const status = await taskService.getTaskStatus("#002");
-      expect(status).toBe("IN-PROGRESS");
+      const _status = await taskService.getTaskStatus("#002");
+      expect(_status).toBe("IN-PROGRESS");
     });
 
     test("should return null if task not found", async () => {
-      const status = await taskService.getTaskStatus("#999");
-      expect(status).toBeNull();
+      const _status = await taskService.getTaskStatus("#999");
+      expect(_status).toBeNull();
     });
   });
 
@@ -182,7 +180,7 @@ describe("TaskService", () => {
       // Verify tasks passed to formatTasks had the updated status
       const updatedTasks = formatTasksSpy.mock.calls[0][0];
       const updatedTask = updatedTasks.find((_t: unknown) => t.id === "#001");
-      expect(updatedTask?.status).toBe("DONE");
+      expect(updatedTask?._status).toBe("DONE");
     });
 
     test("should throw error for invalid status", async () => {
@@ -212,8 +210,8 @@ describe("TaskService", () => {
       expect(mockBackend.saveTasksData).toHaveBeenCalled();
 
       expect(task.id).toBe("#123");
-      expect(task.title).toBe("Test Task");
-      expect(task.status).toBe("TODO");
+      expect(task._title).toBe("Test Task");
+      expect(task._status).toBe("TODO");
     });
 
     test("should throw error if spec file read fails", async () => {
@@ -241,7 +239,7 @@ describe("TaskService", () => {
 
     test("should use markdown backend by default", () => {
       // No custom backends, default backend should be created
-      const defaultService = new TaskService({ workspacePath: "/tmp" });
+      const defaultService = new TaskService({ _workspacePath: "/tmp" });
       expect(defaultService).toBeDefined();
     });
   });

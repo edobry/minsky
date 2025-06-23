@@ -65,7 +65,7 @@ class AnythingMatcher extends AsymmetricMatcherBase {
  * Matcher that matches any instance of a given constructor
  */
 class AnyMatcher extends AsymmetricMatcherBase {
-  private readonly expectedType: any;
+  private readonly expectedType: unknown;
 
   constructor(expectedType: unknown) {
     super("Any");
@@ -183,9 +183,9 @@ class StringMatchingMatcher extends AsymmetricMatcherBase {
  * Matcher that matches objects containing specific properties
  */
 class ObjectContainingMatcher extends AsymmetricMatcherBase {
-  private readonly expectedObject: Record<string, any>;
+  private readonly expectedObject: Record<string, unknown>;
 
-  constructor(expectedObject: Record<string, any>) {
+  constructor(expectedObject: Record<string, unknown>) {
     super("ObjectContaining");
     this.expectedObject = expectedObject;
   }
@@ -195,7 +195,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
       return false;
     }
 
-    const otherObject = other as Record<string, any>;
+    const otherObject = other as Record<string, unknown>;
 
     for (const key in this.expectedObject) {
       if (!(key in otherObject)) {
@@ -221,7 +221,7 @@ class ObjectContainingMatcher extends AsymmetricMatcherBase {
   /**
    * Checks if two values are equal, handling object and array comparison
    */
-  private valuesAreEqual(expected: any, actual: any): boolean {
+  private valuesAreEqual(expected: unknown, actual: any): boolean {
     // If types don't match, they're not equal
     if (typeof expected !== typeof actual) {
       return false;
@@ -373,7 +373,7 @@ export const asymmetricMatchers = {
    *
    * @param obj The object with properties to match
    */
-  objectContaining(obj: Record<string, any>): AsymmetricMatcher {
+  objectContaining(obj: Record<string, unknown>): AsymmetricMatcher {
     return new ObjectContainingMatcher(obj);
   },
 
@@ -424,7 +424,7 @@ export function setupAsymmetricMatchers(): void {
       const originalEqualsFn = originalEquals;
 
       // Override with matcher-aware version
-      (bun.expect as any).equals = (a: any, b: any): boolean => {
+      (bun.expect as any).equals = (a: unknown, b: any): boolean => {
         // Check if either value is an asymmetric matcher
         if (isAsymmetricMatcher(a)) {
           return a.asymmetricMatch(b);

@@ -54,8 +54,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       };
 
       // Return task array and cast to Record<string, unknown> to satisfy TypeScript
-      const tasks = await listTasksFromParams(params);
-      return { tasks } as Record<string, unknown>;
+      const _tasks = await listTasksFromParams(params);
+      return { _tasks } as Record<string, unknown>;
     }
   );
 
@@ -114,12 +114,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
-      const status = await getTaskStatusFromParams(params);
+      const _status = await getTaskStatusFromParams(params);
 
       // Format the response for MCP
       return {
         taskId: args.taskId,
-        status,
+        _status,
       };
     }
   );
@@ -143,7 +143,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
 
       const params = {
         ...args,
-        status: args.status as TaskStatus, // Use proper type instead of hardcoded union
+        _status: args.status as TaskStatus, // Use proper type instead of hardcoded union
         repo: args.repositoryPath, // Pass the repository path to the domain function
       };
 
@@ -153,7 +153,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       return {
         success: true,
         taskId: args.taskId,
-        status: args.status,
+        _status: args.status,
       };
     }
   );
@@ -163,7 +163,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "create",
     "Create a new task from a specification file",
     z.object({
-      specPath: z.string().describe("Path to the task specification file"),
+      _specPath: z.string().describe("Path to the task specification file"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),

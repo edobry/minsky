@@ -26,7 +26,7 @@ export function createRobustTempDir(
       if (!fs.existsSync(base)) {
         fs.mkdirSync(base, { recursive: true });
       }
-      const tempDir = fs.mkdtempSync(path.join(base, prefix));
+      const tempDir = fs.mkdtempSync(path.join(base, _prefix));
       if (process.env.DEBUG_TEST_UTILS) {
         log.debug(`createRobustTempDir: ${tempDir}`);
       }

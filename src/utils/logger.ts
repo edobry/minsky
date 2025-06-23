@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import winston, { format, transports } from "winston";
-import type { TransformableInfo } from "logform";
+import type {} from "logform";
 
 // Environment variable for log level
 // Set default to "info" - explicit LOG_LEVEL="debug" is required for debug logs
@@ -65,7 +65,7 @@ const programLogFormat = format.combine(
       log += `\n${info.stack}`;
     }
     // Add other metadata if it exists
-    const metadata = Object.keys(info).reduce(
+    const _metadata = Object.keys(info).reduce(
       (acc, key) => {
         if (["level", "message", "timestamp", "stack"].includes(key)) {
           return acc;
@@ -73,12 +73,12 @@ const programLogFormat = format.combine(
         acc[key] = info[key];
         return acc;
       },
-      {} as Record<string, any>
+      {} as Record<string, unknown>
     );
 
-    if (Object.keys(metadata).length > 0) {
+    if (Object.keys(_metadata).length > 0) {
       try {
-        log += ` ${JSON.stringify(metadata)}`;
+        log += ` ${JSON.stringify(_metadata)}`;
       } catch {
         // ignore serialization errors for metadata in text logs
       }
@@ -123,7 +123,7 @@ programLogger.exceptions.handle(new transports.Console({ format: programLogForma
 programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
 
 interface LogContext {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Check if we're in structured mode
@@ -139,7 +139,7 @@ export const log = {
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.info(message, context);
+    agentLogger.info(message, _context);
   },
   debug: (_message: unknown) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
@@ -148,18 +148,18 @@ export const log = {
       return;
     }
     // Otherwise, use agentLogger as normal
-    agentLogger.debug(message, context);
+    agentLogger.debug(message, _context);
   },
   warn: (_message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.warn(message, context);
+    agentLogger.warn(message, _context);
   },
   error: (
     message: string,
-    context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
+    context?: LogContext | Error | { originalError?: unknown; stack?: string; [key: string]: unknown }
   ) => {
     // For errors, in HUMAN mode route to programLogger.error instead of suppressing
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
@@ -174,12 +174,12 @@ export const log = {
         context !== null &&
         (context.originalError || context.stack)
       ) {
-        programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
+        programLogger.error(`${message}: ${context.originalError || JSON.stringify(_context)}`);
         if (context.stack) {
           programLogger.error(context.stack);
         }
       } else {
-        programLogger.error(message, context);
+        programLogger.error(message, _context);
       }
       return;
     }
@@ -196,9 +196,9 @@ export const log = {
       context !== null &&
       (context.originalError || context.stack)
     ) {
-      agentLogger.error(message, context);
+      agentLogger.error(message, _context);
     } else {
-      agentLogger.error(message, context);
+      agentLogger.error(message, _context);
     }
   },
   // Program/CLI logs (plain text to stderr)
@@ -239,7 +239,7 @@ process.on("uncaughtException", async (error) => {
   process.exit(1);
 });
 
-process.on("unhandledRejection", async (reason, promise) => {
+process.on("unhandledRejection", async (reason, _promise) => {
   await handleExit(reason instanceof Error ? reason : new Error(String(reason)));
   process.exit(1);
 });

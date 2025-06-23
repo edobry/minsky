@@ -53,7 +53,7 @@ export class SharedErrorHandler {
   static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const result: Record<string, unknown> = {
+    const _result: Record<string, unknown> = {
       message: normalizedError.message,
     };
 
@@ -106,9 +106,9 @@ export class SharedErrorHandler {
 
       // Add cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
-        const cause = normalizedError.cause;
+        const _cause = normalizedError.cause;
         result.cause =
-          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(cause);
+          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(_cause);
       }
     }
 
@@ -192,7 +192,7 @@ export class CliErrorHandler implements ErrorHandler {
     const normalizedError = ensureError(error);
 
     // Get type-specific error prefix
-    const prefix = SharedErrorHandler.getErrorPrefix(error);
+    const _prefix = SharedErrorHandler.getErrorPrefix(error);
 
     // Output human-readable error message
     log.cliError(`${prefix}: ${normalizedError.message}`);
@@ -224,11 +224,11 @@ export class CliErrorHandler implements ErrorHandler {
       // Log cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
         log.cliError("\nCaused by:");
-        const cause = normalizedError.cause;
+        const _cause = normalizedError.cause;
         if (cause instanceof Error) {
           log.cliError(cause.stack || cause.message);
         } else {
-          log.cliError(String(cause));
+          log.cliError(String(_cause));
         }
       }
     }

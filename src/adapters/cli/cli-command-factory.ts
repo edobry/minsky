@@ -222,12 +222,12 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
         },
       },
       "tasks.status.set": {
-        parameters: {
+        _parameters: {
           _taskId: {
             asArgument: true,
             description: "ID of the task to update",
           },
-          status: {
+          _status: {
             asArgument: true,
             description: "New status for the task (optional, will prompt if omitted)",
           },
@@ -240,7 +240,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
   cliFactory.customizeCategory(CommandCategory.GIT, {
     commandOptions: {
       "git.commit": {
-        parameters: {
+        _parameters: {
           message: {
             alias: "m",
           },
@@ -264,7 +264,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
         },
       },
       "session.start": {
-        parameters: {
+        _parameters: {
           name: {
             asArgument: true,
             description: "Session name (optional)",
@@ -277,7 +277,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       },
       "session.get": {
         useFirstRequiredParamAsArgument: true,
-        parameters: {
+        _parameters: {
           sessionId: {
             asArgument: true,
             description: "Session ID or name",
@@ -294,7 +294,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       },
       "session.pr": {
         useFirstRequiredParamAsArgument: false,
-        parameters: {
+        _parameters: {
           title: {
             description: "Title for the PR (required)",
           },
@@ -317,7 +317,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
  */
 export function initializeCliCommands(_program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
-  cliFactory.initialize(config);
+  cliFactory.initialize(_config);
 
   // Setup common customizations
   setupCommonCommandCustomizations(_program);

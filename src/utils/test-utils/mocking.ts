@@ -25,7 +25,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
       value: TReturn | Error;
     }>;
   };
-  mockImplementation: (fn: (...args: any[]) => TReturn) => MockFunction<TReturn, TArgs>;
+  mockImplementation: (fn: (...args: unknown[]) => TReturn) => MockFunction<TReturn, TArgs>;
   mockReturnValue: (_value: unknown) => MockFunction<TReturn, TArgs>;
   mockResolvedValue: <U>(_value: unknown) => MockFunction<Promise<U>, TArgs>;
   mockRejectedValue: (_reason: unknown) => MockFunction<Promise<never>, TArgs>;
@@ -43,7 +43,7 @@ export interface MockFunction<TReturn = any, TArgs extends any[] = any[]> {
  * // Create a type-safe mock with implementation
  * type GreetFn = (_name: unknown) => string;
  * const mockGreet = mockFunction<GreetFn>((name) => `Hello, ${name}!`);
- * const result = mockGreet("World"); // TypeScript knows this returns string
+ * const _result = mockGreet("World"); // TypeScript knows this returns string
  */
 export function mockFunction<T extends (..._args: unknown[]) => any>(implementation?: T) {
   // Cast to unknown first to avoid TypeScript errors
@@ -442,7 +442,7 @@ export function createMockFileSystem(_initialFiles: Record<string, string> = {})
  * // Define an interface
  * interface UserService {
  *   getUser(_id: string): Promise<User | null>;
- *   updateUser(_id: string, data: any): Promise<boolean>;
+ *   updateUser(_id: string, data: unknown): Promise<boolean>;
  *   deleteUser(_id: string): Promise<boolean>;
  * }
  *
@@ -489,12 +489,12 @@ export function createPartialMock<T extends object>(implementations: Partial<T> 
  *
  * @example
  * // Mock a readonly property
- * const config = {
+ * const _config = {
  *   get environment() { return "production"; }
  * };
  *
  * // Mock the property
- * mockReadonlyProperty(config, "environment", "test");
+ * mockReadonlyProperty(_config, "environment", "test");
  *
  * // Now accessing the property returns the mock value
  * expect(config.environment).toBe("test");

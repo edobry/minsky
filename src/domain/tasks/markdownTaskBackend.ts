@@ -9,9 +9,7 @@ import { log } from "../../utils/logger.js";
 import matter from "gray-matter";
 
 import type { TaskBackend } from "./taskBackend.js";
-import type {
-  TaskData,
-  TaskSpecData,
+import type {TaskSpecData,
   TaskBackendConfig,
   TaskReadOperationResult,
   TaskWriteOperationResult,
@@ -47,10 +45,10 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly tasksFilePath: string;
   private readonly tasksDirectory: string;
 
-  constructor(config: TaskBackendConfig) {
+  constructor(_config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.tasksFilePath = getTasksFilePath(this.workspacePath);
-    this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+    this.tasksFilePath = getTasksFilePath(this._workspacePath);
+    this.tasksDirectory = join(this._workspacePath, "process", "tasks");
   }
 
   // ---- Data Retrieval ----
@@ -59,15 +57,15 @@ export class MarkdownTaskBackend implements TaskBackend {
     return readTasksFile(this.tasksFilePath);
   }
 
-  async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+  async getTaskSpecData(_specPath: string): Promise<TaskReadOperationResult> {
+    const fullPath = specPath.startsWith("/") ? specPath : join(this._workspacePath, _specPath);
     return readTaskSpecFile(fullPath);
   }
 
   // ---- Pure Operations ----
 
   parseTasks(_content: string): TaskData[] {
-    const tasks = parseTasksFromMarkdown(_content);
+    const _tasks = parseTasksFromMarkdown(_content);
 
     // Process tasks to ensure they have spec paths if available
     // This is done synchronously to match the interface
@@ -83,8 +81,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     return tasks;
   }
 
-  formatTasks(tasks: TaskData[]): string {
-    return formatTasksToMarkdown(tasks);
+  formatTasks(_tasks: TaskData[]): string {
+    return formatTasksToMarkdown(_tasks);
   }
 
   parseTaskSpec(_content: string): TaskSpecData {
@@ -92,22 +90,22 @@ export class MarkdownTaskBackend implements TaskBackend {
     const { data, _content: markdownContent } = matter(_content);
 
     // Then parse the markdown content
-    const spec = parseTaskSpecFromMarkdown(markdownContent);
+    const _spec = parseTaskSpecFromMarkdown(markdownContent);
 
     // Combine with any metadata from frontmatter
     return {
       ...spec,
-      metadata: data || {},
+      _metadata: data || {},
     };
   }
 
-  formatTaskSpec(spec: TaskSpecData): string {
+  formatTaskSpec(_spec: TaskSpecData): string {
     // First format the markdown content
-    const markdownContent = formatTaskSpecToMarkdown(spec);
+    const markdownContent = formatTaskSpecToMarkdown(_spec);
 
     // Then add any metadata as frontmatter
-    if (spec.metadata && Object.keys(spec.metadata).length > 0) {
-      return matter.stringify(markdownContent, spec.metadata);
+    if (spec.metadata && Object.keys(spec._metadata).length > 0) {
+      return matter.stringify(markdownContent, spec._metadata);
     }
 
     return markdownContent;
@@ -119,8 +117,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     return writeTasksFile(this.tasksFilePath, _content);
   }
 
-  async saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+  async saveTaskSpecData(_specPath: string, _content: string): Promise<TaskWriteOperationResult> {
+    const fullPath = specPath.startsWith("/") ? specPath : join(this._workspacePath, _specPath);
     return writeTaskSpecFile(fullPath, _content);
   }
 
@@ -130,8 +128,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  getTaskSpecPath(_taskId: string, title: string): string {
-    return getTaskSpecFilePath(_taskId, title, this.workspacePath);
+  getTaskSpecPath(_taskId: string, _title: string): string {
+    return getTaskSpecFilePath(_taskId, _title, this._workspacePath);
   }
 
   async fileExists(_path: string): Promise<boolean> {
@@ -164,5 +162,5 @@ export class MarkdownTaskBackend implements TaskBackend {
  * @returns MarkdownTaskBackend instance
  */
 export function createMarkdownTaskBackend(_config: TaskBackendConfig): TaskBackend {
-  return new MarkdownTaskBackend(config);
+  return new MarkdownTaskBackend(_config);
 }

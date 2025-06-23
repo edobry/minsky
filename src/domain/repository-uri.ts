@@ -140,7 +140,7 @@ export function parseRepositoryURI(_uri: string): RepositoryURIComponents {
  */
 export function normalizeRepositoryURI(_uri: string): string {
   try {
-    const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
+    const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
     return result.name;
   } catch {
     // Fallback to simple basename normalization

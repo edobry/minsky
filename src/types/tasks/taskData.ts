@@ -101,10 +101,10 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
 export function toTaskData(_task: unknown): TaskData {
   return {
     id: task.id,
-    title: task.title,
+    _title: task.title,
     description: task.description,
-    status: task.status,
-    specPath: task.specPath,
+    _status: task.status,
+    _specPath: task.specPath,
     worklog: task.worklog,
     mergeInfo: task.mergeInfo,
   };
@@ -118,10 +118,10 @@ export function toTaskData(_task: unknown): TaskData {
 export function fromTaskData(_taskData: TaskData): unknown {
   return {
     id: taskData.id,
-    title: taskData.title,
+    _title: taskData.title,
     description: taskData.description,
-    status: taskData.status,
-    specPath: taskData.specPath,
+    _status: taskData.status,
+    _specPath: taskData.specPath,
     worklog: taskData.worklog,
     mergeInfo: taskData.mergeInfo,
   };

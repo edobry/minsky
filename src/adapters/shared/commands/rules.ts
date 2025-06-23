@@ -10,8 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
-  type CommandExecutionContext,
+  typetype CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import { RuleService, type RuleFormat } from "../../../domain/rules.js";
 import { resolveWorkspacePath } from "../../../domain/workspace.js";
@@ -231,14 +230,14 @@ export function registerRulesCommands(): void {
     category: CommandCategory.RULES,
     name: "list",
     description: "List all rules in the workspace",
-    parameters: rulesListCommandParams,
+    _parameters: rulesListCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.list _command", { params, context });
+      log.debug("Executing rules.list _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert parameters
         const format = params.format as RuleFormat | undefined;
@@ -269,14 +268,14 @@ export function registerRulesCommands(): void {
     category: CommandCategory.RULES,
     name: "get",
     description: "Get a specific rule by ID",
-    parameters: rulesGetCommandParams,
+    _parameters: rulesGetCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.get _command", { params, context });
+      log.debug("Executing rules.get _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert parameters
         const format = params.format as RuleFormat | undefined;
@@ -307,14 +306,14 @@ export function registerRulesCommands(): void {
     category: CommandCategory.RULES,
     name: "create",
     description: "Create a new rule",
-    parameters: rulesCreateCommandParams,
+    _parameters: rulesCreateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.create _command", { params, context });
+      log.debug("Executing rules.create _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Process content (could be file path)
         const _content = await readContentFromFileIfExists(params._content);
@@ -362,14 +361,14 @@ export function registerRulesCommands(): void {
     category: CommandCategory.RULES,
     name: "update",
     description: "Update an existing rule",
-    parameters: rulesUpdateCommandParams,
+    _parameters: rulesUpdateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.update _command", { params, context });
+      log.debug("Executing rules.update _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Process content if provided (could be file path)
         const _content = params.content
@@ -383,7 +382,7 @@ export function registerRulesCommands(): void {
           : undefined;
 
         // Prepare metadata updates
-        const meta: Record<string, any> = {};
+        const meta: Record<string, unknown> = {};
 
         if (params.name !== undefined) meta.name = params.name;
         if (params.description !== undefined) meta.description = params.description;
@@ -426,14 +425,14 @@ export function registerRulesCommands(): void {
     category: CommandCategory.RULES,
     name: "search",
     description: "Search for rules by _content or metadata",
-    parameters: rulesSearchCommandParams,
+    _parameters: rulesSearchCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing rules.search _command", { params, context });
+      log.debug("Executing rules.search _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert format
         const format = params.format as RuleFormat | undefined;

@@ -35,7 +35,7 @@ async function initGitRepo(repoPath: string) {
 
 // Execute git command safely and return stdout
 function execGit(_command: string, cwd: string): string {
-  const result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
+  const _result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
   return result.toString();
 }
 
@@ -71,24 +71,24 @@ describe.skip("Git Integration Tests", () => {
 
   test("execInRepository executes git commands in the repository", async () => {
     // Act
-    const result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
+    const _result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
 
     // Assert
-    expect(result).toContain("Initial commit");
+    expect(_result).toContain("Initial commit");
   }, TEST_TIMEOUT_MS);
 
   test("getSessionWorkdir returns the correct workdir path", () => {
     // Arrange
     const repoName = "test-repo";
-    const sessionName = "test-session";
+    const _sessionName = "test-session";
 
     // Act
-    const workdir = gitService.getSessionWorkdir(repoName, sessionName);
+    const _workdir = gitService.getSessionWorkdir(repoName, _sessionName);
 
     // Assert
-    expect(workdir).toContain(repoName);
-    expect(workdir).toContain(sessionName);
-    expect(workdir).toContain("sessions");
+    expect(_workdir).toContain(repoName);
+    expect(_workdir).toContain(_sessionName);
+    expect(_workdir).toContain("sessions");
   }, TEST_TIMEOUT_MS);
 
   test("getStatus returns correct file status", async () => {
@@ -101,7 +101,7 @@ describe.skip("Git Integration Tests", () => {
     await writeFile(join(repoPath, "untracked.txt"), "Untracked file");
 
     // Act
-    const status = await gitService.getStatus(repoPath);
+    const _status = await gitService.getStatus(repoPath);
 
     // Assert
     expect(status.untracked).toContain("untracked.txt");
@@ -132,9 +132,9 @@ describe.skip("Git Integration Tests", () => {
     await gitService.stageAll(repoPath);
 
     // Assert
-    const status = execGit("status --porcelain", repoPath);
-    expect(status).toContain("A  staged1.txt");
-    expect(status).toContain("A  staged2.txt");
+    const _status = execGit("status --porcelain", repoPath);
+    expect(_status).toContain("A  staged1.txt");
+    expect(_status).toContain("A  staged2.txt");
   }, TEST_TIMEOUT_MS);
 
   test("getCommitsOnBranch gets formatted commits", async () => {
@@ -148,14 +148,14 @@ describe.skip("Git Integration Tests", () => {
     execGit("commit -m 'Add file2'", repoPath);
 
     // Act - We need to call execInRepository directly since getCommitsOnBranch is private
-    const result = await gitService.execInRepository(
+    const _result = await gitService.execInRepository(
       repoPath,
       "git log --pretty=format:'%h %s' -n 2"
     );
 
     // Assert
-    expect(result).toContain("Add file2");
-    expect(result).toContain("Add file1");
+    expect(_result).toContain("Add file2");
+    expect(_result).toContain("Add file1");
   }, TEST_TIMEOUT_MS);
 
   // Skip tests that require stashing for now, as they're more complex

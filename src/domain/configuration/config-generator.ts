@@ -28,7 +28,7 @@ export class ConfigurationGenerator {
    * Generate and write repository configuration file
    */
   generateRepositoryConfig(_workingDir: string, _options: RepositoryConfigOptions): void {
-    const config: RepositoryConfig = {
+    const _config: RepositoryConfig = {
       version: 1,
       backends: {
         default: options.backend
@@ -56,14 +56,14 @@ export class ConfigurationGenerator {
       ]
     };
 
-    this.writeRepositoryConfig(_workingDir, config);
+    this.writeRepositoryConfig(_workingDir, _config);
   }
 
   /**
    * Generate and write global user configuration file
    */
   generateGlobalUserConfig(_options: GlobalUserConfigOptions): void {
-    const config: GlobalUserConfig = {
+    const _config: GlobalUserConfig = {
       version: 1
     };
 
@@ -79,13 +79,13 @@ export class ConfigurationGenerator {
       }
     }
 
-    this.writeGlobalUserConfig(config);
+    this.writeGlobalUserConfig(_config);
   }
 
   /**
    * Write repository configuration file
    */
-  private writeRepositoryConfig(_workingDir: string, config: RepositoryConfig): void {
+  private writeRepositoryConfig(_workingDir: string, _config: RepositoryConfig): void {
     const configDir = join(_workingDir, ".minsky");
     const configPath = join(configDir, "config.yaml");
 
@@ -94,7 +94,7 @@ export class ConfigurationGenerator {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = this.generateYamlHeader("Repository") + stringifyYaml(config, {
+    const yamlContent = this.generateYamlHeader("Repository") + stringifyYaml(_config, {
       indent: 2,
       lineWidth: 100,
       quotingType: "\""
@@ -106,7 +106,7 @@ export class ConfigurationGenerator {
   /**
    * Write global user configuration file
    */
-  private writeGlobalUserConfig(config: GlobalUserConfig): void {
+  private writeGlobalUserConfig(_config: GlobalUserConfig): void {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
     const configDir = dirname(configPath);
 
@@ -115,7 +115,7 @@ export class ConfigurationGenerator {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = this.generateYamlHeader("Global User") + stringifyYaml(config, {
+    const yamlContent = this.generateYamlHeader("Global User") + stringifyYaml(_config, {
       indent: 2,
       lineWidth: 100,
       quotingType: "\""

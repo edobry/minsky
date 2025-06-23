@@ -10,8 +10,7 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
-  type CommandExecutionContext,
+  typetype CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import {
   getSessionFromParams,
@@ -326,9 +325,9 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
-    parameters: sessionListCommandParams,
+    _parameters: sessionListCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.list _command", { params, context });
+      log.debug("Executing session.list _command", { params, _context });
 
       try {
         const sessions = await listSessionsFromParams({
@@ -355,13 +354,13 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "get",
     description: "Get details of a specific session",
-    parameters: sessionGetCommandParams,
+    _parameters: sessionGetCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.get _command", { params, context });
+      log.debug("Executing session.get _command", { params, _context });
 
       try {
-        const session = await getSessionFromParams({
-          name: params.session,
+        const _session = await getSessionFromParams({
+          name: params._session,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -374,7 +373,7 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          session,
+          _session,
         };
       } catch {
         log.error("Failed to get session", {
@@ -393,9 +392,9 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "start",
     description: "Start a new session",
-    parameters: sessionStartCommandParams,
+    _parameters: sessionStartCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.start _command", { params, context });
+      log.debug("Executing session.start _command", { params, _context });
 
       // Validate that either name or task is provided
       if (!params.name && !params.task) {
@@ -403,12 +402,12 @@ export function registerSessionCommands(): void {
       }
 
       try {
-        const session = await startSessionFromParams({
+        const _session = await startSessionFromParams({
           name: params.name,
           task: params.task,
           _branch: params._branch,
           repo: params.repo,
-          session: params.session,
+          session: params._session,
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
@@ -418,7 +417,7 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          session,
+          _session,
         };
       } catch {
         log.error("Failed to start session", {
@@ -437,13 +436,13 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "dir",
     description: "Get the directory of a session",
-    parameters: sessionDirCommandParams,
+    _parameters: sessionDirCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.dir _command", { params, context });
+      log.debug("Executing session.dir _command", { params, _context });
 
       try {
         const directory = await getSessionDirFromParams({
-          name: params.session,
+          name: params._session,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -470,13 +469,13 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "delete",
     description: "Delete a session",
-    parameters: sessionDeleteCommandParams,
+    _parameters: sessionDeleteCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.delete _command", { params, context });
+      log.debug("Executing session.delete _command", { params, _context });
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: params.session,
+          name: params._session,
           force: params.force,
           repo: params.repo,
           json: params.json,
@@ -484,7 +483,7 @@ export function registerSessionCommands(): void {
 
         return {
           success: deleted,
-          session: params.session,
+          _session: params.session,
         };
       } catch {
         log.error("Failed to delete session", {
@@ -502,13 +501,13 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "update",
     description: "Update a session",
-    parameters: sessionUpdateCommandParams,
+    _parameters: sessionUpdateCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.update _command", { params, context });
+      log.debug("Executing session.update _command", { params, _context });
 
       try {
         await updateSessionFromParams({
-          name: params.session,
+          name: params._session,
           task: params.task,
           repo: params.repo,
           _branch: params._branch,
@@ -520,7 +519,7 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          session: params.session || params.task,
+          _session: params.session || params.task,
         };
       } catch {
         log.error("Failed to update session", {
@@ -539,13 +538,13 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "approve",
     description: "Approve a session pull request",
-    parameters: sessionApproveCommandParams,
+    _parameters: sessionApproveCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.approve _command", { params, context });
+      log.debug("Executing session.approve _command", { params, _context });
 
       try {
-        const result = await approveSessionFromParams({
-          _session: params.session,
+        const _result = await approveSessionFromParams({
+          _session: params._session,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -572,16 +571,16 @@ export function registerSessionCommands(): void {
     category: CommandCategory.SESSION,
     name: "pr",
     description: "Create a pull request for a session",
-    parameters: sessionPrCommandParams,
+    _parameters: sessionPrCommandParams,
     execute: async (_params: unknown) => {
-      log.debug("Executing session.pr _command", { params, context });
+      log.debug("Executing session.pr _command", { params, _context });
 
       try {
-        const result = await sessionPrFromParams({
-          title: params.title,
+        const _result = await sessionPrFromParams({
+          title: params._title,
           body: params.body,
           bodyPath: params.bodyPath,
-          _session: params.session,
+          _session: params._session,
           task: params.task,
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
@@ -618,16 +617,16 @@ export function registerSessionCommands(): void {
       },
     },
     execute: async (_params: unknown) => {
-      log.debug("Executing session.inspect _command", { params, context });
+      log.debug("Executing session.inspect _command", { params, _context });
 
       try {
-        const session = await inspectSessionFromParams({
+        const _session = await inspectSessionFromParams({
           json: params.json,
         });
 
         return {
           success: true,
-          session,
+          _session,
         };
       } catch {
         log.error("Failed to inspect session", {

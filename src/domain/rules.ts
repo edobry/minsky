@@ -40,7 +40,7 @@ export interface RuleMeta {
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
-  [key: string]: any; // Allow for additional custom fields
+  [key: string]: unknown; // Allow for additional custom fields
 }
 
 export type RuleFormat = "cursor" | "generic";
@@ -70,14 +70,14 @@ export interface SearchRuleOptions {
 export class RuleService {
   private workspacePath: string;
 
-  constructor(workspacePath: string) {
+  constructor(_workspacePath: string) {
     this.workspacePath = workspacePath;
     // Log workspace path on initialization for debugging
-    log.debug("RuleService initialized", { workspacePath });
+    log.debug("RuleService initialized", { _workspacePath });
   }
 
   private getRuleDirPath(format: RuleFormat): string {
-    const dirPath = join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    const dirPath = join(this._workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
     return dirPath;
   }
 

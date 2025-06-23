@@ -32,12 +32,12 @@ export interface TestDependencies {
  * @returns true if in a session workspace, false otherwise
  */
 export async function isSessionWorkspace(
-  workspacePath: string,
+  _workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: _workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if the git root contains a session marker
@@ -78,7 +78,7 @@ export const isSessionRepository = isSessionWorkspace;
  * @returns Information about the session if found, null otherwise
  */
 export async function getSessionFromWorkspace(
-  workspacePath: string,
+  _workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{
@@ -87,7 +87,7 @@ export async function getSessionFromWorkspace(
 } | null> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: _workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if this is in the minsky sessions directory structure
@@ -110,7 +110,7 @@ export async function getSessionFromWorkspace(
     }
 
     // Get the session name from the path parts
-    let sessionName;
+    let _sessionName;
     if (pathParts.length >= 3 && pathParts[1] === "sessions") {
       // New path format: <repo_name>/sessions/<session_name>
       sessionName = pathParts[2];
@@ -134,14 +134,14 @@ export async function getSessionFromWorkspace(
     }
 
     const db = sessionDbOverride || new SessionDB();
-    const sessionRecord = await db.getSession(sessionName);
+    const sessionRecord = await db.getSession(_sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
     }
 
     return {
-      session: sessionName,
+      session: _sessionName,
       upstreamRepository: sessionRecord.repoUrl,
     };
   } catch {
@@ -242,7 +242,7 @@ export async function getCurrentSessionContext(
     const sessionRecord = await db.getSession(currentSessionName);
     if (!sessionRecord) {
       log.warn("Session record not found in database", {
-        sessionName: currentSessionName,
+        _sessionName: currentSessionName,
         cwd,
       });
       return null;
@@ -253,7 +253,7 @@ export async function getCurrentSessionContext(
     };
   } catch {
     log.error("Error fetching session record", {
-      sessionName: currentSessionName,
+      _sessionName: currentSessionName,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
       cwd,
@@ -285,7 +285,7 @@ export interface WorkspaceUtilsInterface {
   /**
    * Get the session name from a workspace path
    */
-  getSessionFromWorkspace(workspacePath: string): Promise<string | null>;
+  getSessionFromWorkspace(_workspacePath: string): Promise<string | null>;
 
   /**
    * Resolve a workspace path from inputs
@@ -319,7 +319,7 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     },
 
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
-      const result = await getSessionFromWorkspace(workspacePath);
+      const _result = await getSessionFromWorkspace(_workspacePath);
       return result ? result.session : null;
     },
 

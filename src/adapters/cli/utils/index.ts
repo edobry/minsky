@@ -41,7 +41,7 @@ export interface OutputOptions {
 /**
  * Format and output command results
  */
-export function outputResult(_result: any, _options: OutputOptions = {}): void {
+export function outputResult(_result: unknown, _options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -49,16 +49,16 @@ export function outputResult(_result: any, _options: OutputOptions = {}): void {
   try {
     if (_options.json) {
       // JSON output
-      log.cli(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(_result, null, 2));
     } else if (_options.formatter) {
       // Custom formatter
-      options.formatter(result);
+      options.formatter(_result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result);
+        log.cli(_result);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(result)) {
+        if (Array.isArray(_result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item);
@@ -67,15 +67,15 @@ export function outputResult(_result: any, _options: OutputOptions = {}): void {
             }
           });
         } else {
-          log.cli(JSON.stringify(result, null, 2));
+          log.cli(JSON.stringify(_result, null, 2));
         }
       } else {
-        log.cli(String(result));
+        log.cli(String(_result));
       }
     }
   } catch {
     log.cliError("Failed to format output:", error);
-    log.cli(String(result));
+    log.cli(String(_result));
   }
 }
 

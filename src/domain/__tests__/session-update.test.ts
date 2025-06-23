@@ -14,9 +14,9 @@ setupTestMocks();
 
 describe("updateSessionFromParams", () => {
   // Mock dependencies
-  let mockGitService: any;
-  let mockSessionProvider: any;
-  let mockGetCurrentSession: any;
+  let mockGitService: unknown;
+  let mockSessionProvider: unknown;
+  let mockGetCurrentSession: unknown;
 
   beforeEach(() => {
     // Create fresh mocks for each test
@@ -33,10 +33,10 @@ describe("updateSessionFromParams", () => {
     mockSessionProvider = {
       getSession: createMock(() =>
         Promise.resolve({
-          session: "test-session",
+          _session: "test-session",
           repoName: "test-repo",
           repoUrl: "https://example.com/test-repo",
-          branch: "test-branch",
+          _branch: "test-branch",
           createdAt: "2023-01-01",
           taskId: "123",
         })
@@ -79,7 +79,7 @@ describe("updateSessionFromParams", () => {
   });
 
   test("returns session information when update is successful", async () => {
-    const result = await updateSessionFromParams(
+    const _result = await updateSessionFromParams(
       { name: "test-session", noStash: false, noPush: false, force: false },
       {
         sessionDB: mockSessionProvider,
@@ -88,11 +88,11 @@ describe("updateSessionFromParams", () => {
       }
     );
 
-    expect(result).toEqual({
-      session: "test-session",
+    expect(_result).toEqual({
+      _session: "test-session",
       repoName: "test-repo",
       repoUrl: "https://example.com/test-repo",
-      branch: "test-branch",
+      _branch: "test-branch",
       createdAt: "2023-01-01",
       taskId: "123",
       repoPath: "/mock/session/workdir",
@@ -128,7 +128,7 @@ describe("updateSessionFromParams", () => {
     // Mock dirty workspace
     mockGitService.execInRepository.mockImplementation(() => Promise.resolve("M file.txt"));
 
-    const result = await updateSessionFromParams(
+    const _result = await updateSessionFromParams(
       { name: "test-session", force: true, noStash: false, noPush: false },
       {
         sessionDB: mockSessionProvider,
@@ -137,11 +137,11 @@ describe("updateSessionFromParams", () => {
       }
     );
 
-    expect(result).toEqual({
-      session: "test-session",
+    expect(_result).toEqual({
+      _session: "test-session",
       repoName: "test-repo",
       repoUrl: "https://example.com/test-repo",
-      branch: "test-branch",
+      _branch: "test-branch",
       createdAt: "2023-01-01",
       taskId: "123",
       repoPath: "/mock/session/workdir",

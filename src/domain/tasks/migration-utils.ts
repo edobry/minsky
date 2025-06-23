@@ -7,7 +7,7 @@
 
 import { readFile, writeFile, access } from "fs/promises";
 import { join } from "path";
-import type { TaskData, TaskState } from "../../types/tasks/taskData";
+import type {} from "../../types/tasks/taskData";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import { log } from "../../utils/logger";
 
@@ -58,7 +58,7 @@ export class TaskMigrationUtils {
   private readonly createBackup: boolean;
   private readonly preserveOriginal: boolean;
 
-  constructor(config: MigrationConfig) {
+  constructor(_config: MigrationConfig) {
     this.workspacePath = config.workspacePath;
     this.targetDbPath =
       config.targetDbPath || join(getHomeDirectory(), ".local", "state", "minsky", "tasks.json");
@@ -71,7 +71,7 @@ export class TaskMigrationUtils {
    * @returns Promise resolving to migration result
    */
   async migrateToJson(): Promise<MigrationResult> {
-    const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+    const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
     let backupFile: string | undefined;
 
     try {
@@ -89,7 +89,7 @@ export class TaskMigrationUtils {
 
       // Read and parse tasks.md
       const _content = (await readFile(tasksFilePath, "utf8")) as string;
-      const tasks = this.parseMarkdownTasks(_content);
+      const _tasks = this.parseMarkdownTasks(_content);
 
       if (tasks.length === 0) {
         log.debug("No tasks found in tasks.md to migrate");
@@ -109,7 +109,7 @@ export class TaskMigrationUtils {
       }
 
       // Create JSON storage and initialize
-      const storage = createJsonFileStorage<TaskData, TaskState>({
+      const storage = createJsonFileStorage<TaskState>({
         filePath: this.targetDbPath,
         entitiesField: "tasks",
         idField: "id",
@@ -132,7 +132,7 @@ export class TaskMigrationUtils {
       const existingTasks = stateResult.success && stateResult.data ? stateResult.data.tasks : [];
 
       // Merge with migrated tasks, avoiding duplicates
-      const mergedTasks = this.mergeTasks(existingTasks, tasks);
+      const mergedTasks = this.mergeTasks(existingTasks, _tasks);
 
       // Create new state
       const newState: TaskState = {
@@ -183,12 +183,12 @@ export class TaskMigrationUtils {
    * @returns Promise resolving to migration result
    */
   async migrateFromJson(): Promise<MigrationResult> {
-    const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+    const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
     let backupFile: string | undefined;
 
     try {
       // Create JSON storage instance
-      const storage = createJsonFileStorage<TaskData, TaskState>({
+      const storage = createJsonFileStorage<TaskState>({
         filePath: this.targetDbPath,
         entitiesField: "tasks",
         idField: "id",
@@ -212,7 +212,7 @@ export class TaskMigrationUtils {
         };
       }
 
-      const tasks = stateResult.data.tasks;
+      const _tasks = stateResult.data.tasks;
 
       // Create backup of existing tasks.md if it exists
       if (this.createBackup) {
@@ -228,7 +228,7 @@ export class TaskMigrationUtils {
       }
 
       // Convert tasks to markdown format
-      const markdownContent = this.formatTasksToMarkdown(tasks);
+      const markdownContent = this.formatTasksToMarkdown(_tasks);
 
       // Write to tasks.md
       await writeFile(tasksFilePath, markdownContent, "utf8");
@@ -275,7 +275,7 @@ export class TaskMigrationUtils {
     };
   }> {
     try {
-      const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+      const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
 
       // Read markdown tasks
       let markdownTasks: TaskData[] = [];
@@ -289,7 +289,7 @@ export class TaskMigrationUtils {
       // Read JSON tasks
       let jsonTasks: TaskData[] = [];
       try {
-        const storage = createJsonFileStorage<TaskData, TaskState>({
+        const storage = createJsonFileStorage<TaskState>({
           filePath: this.targetDbPath,
           entitiesField: "tasks",
           idField: "id",
@@ -343,7 +343,7 @@ export class TaskMigrationUtils {
    * @private
    */
   private parseMarkdownTasks(_content: string): TaskData[] {
-    const tasks: TaskData[] = [];
+    const _tasks: TaskData[] = [];
     const lines = content.split("\n");
 
     for (const line of lines) {
@@ -354,8 +354,8 @@ export class TaskMigrationUtils {
 
         // Extract task ID and title from different possible formats
         let id = "";
-        let title = "";
-        let specPath = "";
+        let _title = "";
+        let _specPath = "";
 
         // Try format: Title [#123](path/to/spec.md)
         const linkMatch = taskLine.match(/^(.+?)\s+\[#(\d+)\]\(([^)]+)\)/);
@@ -387,9 +387,9 @@ export class TaskMigrationUtils {
         if (title && id) {
           tasks.push({
             id,
-            title,
-            status: completed ? "DONE" : "TODO",
-            specPath: specPath || undefined,
+            _title,
+            _status: completed ? "DONE" : "TODO",
+            _specPath: specPath || undefined,
           });
         }
       }
@@ -404,7 +404,7 @@ export class TaskMigrationUtils {
    * @returns Formatted markdown content
    * @private
    */
-  private formatTasksToMarkdown(tasks: TaskData[]): string {
+  private formatTasksToMarkdown(_tasks: TaskData[]): string {
     const lines: string[] = [];
 
     // Add header
@@ -493,7 +493,7 @@ export class TaskMigrationUtils {
    * @returns True if tasks are equal
    * @private
    */
-  private tasksEqual(task1: TaskData, task2: TaskData): boolean {
+  private tasksEqual(task1:task2: TaskData): boolean {
     return (
       task1.id === task2.id &&
       task1.title === task2.title &&
@@ -509,7 +509,7 @@ export class TaskMigrationUtils {
  * @returns TaskMigrationUtils instance
  */
 export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUtils {
-  return new TaskMigrationUtils(config);
+  return new TaskMigrationUtils(_config);
 }
 
 /**
@@ -519,11 +519,11 @@ export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUti
  * @returns Promise resolving to migration result
  */
 export async function migrateWorkspaceToJson(
-  workspacePath: string,
+  _workspacePath: string,
   _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
-    workspacePath,
+    _workspacePath,
     ..._options,
   });
   return utils.migrateToJson();
@@ -536,11 +536,11 @@ export async function migrateWorkspaceToJson(
  * @returns Promise resolving to migration result
  */
 export async function migrateWorkspaceFromJson(
-  workspacePath: string,
+  _workspacePath: string,
   _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
-    workspacePath,
+    _workspacePath,
     ..._options,
   });
   return utils.migrateFromJson();

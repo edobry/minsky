@@ -23,7 +23,7 @@ const mockSessionDB = {
   listSessions: createMock(() =>
     Promise.resolve([
       {
-        session: "test-session",
+        _session: "test-session",
         repoName: "github/test-repo",
         repoUrl: "https://github.com/github/test-repo.git",
       },
@@ -31,10 +31,10 @@ const mockSessionDB = {
   ),
   getSession: createMock((_sessionName: unknown) =>
     Promise.resolve({
-      session: sessionName,
+      _session: _sessionName,
       repoName: "github/test-repo",
       repoUrl: "https://github.com/github/test-repo.git",
-      branch: "main",
+      _branch: "main",
       taskId: "123",
       createdAt: new Date().toISOString(),
     })
@@ -53,8 +53,8 @@ async function createTempDir() {
 
 // Custom TestGitHubBackend class that allows us to inject our mocks
 class TestGitHubBackend extends GitHubBackend {
-  constructor(config: unknown) {
-    super(config);
+  constructor(_config: unknown) {
+    super(_config);
     // @ts-ignore - Override private property for testing
     this.sessionDb = mockSessionDB;
   }
@@ -108,7 +108,7 @@ describe("GitHub Repository Backend", () => {
 
   test("constructor creates repository backend with correct settings", () => {
     // We can check the exposed config settings
-    const config = githubBackend.getConfig();
+    const _config = githubBackend.getConfig();
 
     expect(config.type).toBe("github");
     expect(config.repoUrl).toBe("https://github.com/github/test-repo.git");
@@ -128,7 +128,7 @@ describe("GitHub Repository Backend", () => {
 
   test("validate succeeds for a valid GitHub repository", async () => {
     // Act
-    const result = await githubBackend.validate();
+    const _result = await githubBackend.validate();
 
     // Assert
     expect(result.valid).toBe(true);
@@ -136,7 +136,7 @@ describe("GitHub Repository Backend", () => {
 
   test("getConfig returns correct configuration", () => {
     // Act
-    const config = githubBackend.getConfig();
+    const _config = githubBackend.getConfig();
 
     // Assert
     expect(config.type).toBe("github");

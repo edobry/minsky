@@ -8,7 +8,6 @@ import {
   ErrorCode,
   ListToolsResult,
   CallToolResult,
-  CallToolRequest,
   Tool
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
@@ -212,7 +211,7 @@ export class MinskyMCPServer {
         },
       ];
 
-      const result: ListToolsResult = {
+      const _result: ListToolsResult = {
         tools,
       };
 
@@ -224,7 +223,7 @@ export class MinskyMCPServer {
       const { name, arguments: _args } = request.params;
 
       try {
-        let result: any;
+        let _result: unknown;
 
         switch (name) {
         case "git.status":
@@ -262,7 +261,7 @@ export class MinskyMCPServer {
           content: [
             {
               type: "text",
-              text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+              text: typeof result === "string" ? result : JSON.stringify(_result, null, 2),
             },
           ],
         };
@@ -292,7 +291,7 @@ export class MinskyMCPServer {
     return "Tasks list - placeholder implementation";
   }
 
-  private async handleTasksCreate(title: string, description?: string): Promise<string> {
+  private async handleTasksCreate(_title: string, description?: string): Promise<string> {
     return `Created task: ${title}${description ? ` - ${description}` : ""}`;
   }
 

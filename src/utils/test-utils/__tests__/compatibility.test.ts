@@ -119,8 +119,8 @@ describe("Mock Function Compatibility", () => {
     mockFn.mockResolvedValue("resolved");
 
     // Verify resolved value by directly calling the function
-    const result = await mockFn();
-    expect(result).toBe("resolved");
+    const _result = await mockFn();
+    expect(_result).toBe("resolved");
 
     // Create another mock for rejection testing
     const mockFn2 = compat.createCompatMock();

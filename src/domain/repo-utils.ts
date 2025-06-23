@@ -41,7 +41,7 @@ export async function resolveRepoPath(
   }
 
   if (_options.session) {
-    const record = await deps.sessionProvider.getSession(_options.session);
+    const _record = await deps.sessionProvider.getSession(_options._session);
     if (!record) {
       throw new Error(`Session '${_options.session}' not found.`);
     }

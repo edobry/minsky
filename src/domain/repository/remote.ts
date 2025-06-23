@@ -39,7 +39,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * Create a new RemoteGitBackend instance
    * @param config Backend configuration
    */
-  constructor(config: RepositoryBackendConfig) {
+  constructor(_config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky", "git");
 
@@ -77,7 +77,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    */
   private getSessionWorkdir(_session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, this.repoName, "sessions", session);
+    return join(this.baseDir, this.repoName, "sessions", _session);
   }
 
   /**
@@ -93,7 +93,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(_session);
 
     try {
       // Clone the repository
@@ -107,8 +107,8 @@ export class RemoteGitBackend implements RepositoryBackend {
       await execAsync(cloneCmd);
 
       return {
-        workdir,
-        session,
+        _workdir,
+        _session,
       };
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -134,15 +134,15 @@ export class RemoteGitBackend implements RepositoryBackend {
    */
   async branch(_session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(_session);
 
     try {
       // Create the branch in the specified session's repo
       await execAsync(`git -C ${workdir} checkout -b ${_branch}`);
 
       return {
-        workdir,
-        branch,
+        _workdir,
+        _branch,
       };
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -156,14 +156,14 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @returns Repository status information
    */
   async getStatus(_session: string): Promise<RepoStatus> {
-    const workdir = this.getSessionWorkdir(session);
+    const _workdir = this.getSessionWorkdir(_session);
 
     try {
       // Get current branch
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const branch = branchOutput.trim();
+      const _branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -190,19 +190,19 @@ export class RemoteGitBackend implements RepositoryBackend {
       const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
       return {
-        branch,
+        _branch,
         ahead,
         behind,
         dirty,
         remotes,
-        workdir,
+        _workdir,
         defaultBranch: this.defaultBranch,
         clean: !dirty,
         changes: [],
       };
     } catch {
       const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get Git repository status: ${error.message}`);
+      throw new Error(`Failed to get Git repository _status: ${error.message}`);
     }
   }
 
@@ -212,7 +212,7 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @returns Full path to the repository
    */
   async getPath(_session: string): Promise<string> {
-    return this.getSessionWorkdir(session);
+    return this.getSessionWorkdir(_session);
   }
 
   /**
@@ -291,15 +291,15 @@ export class RemoteGitBackend implements RepositoryBackend {
       }
 
       // For each session with this repository, push changes
-      for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session.session);
+      for (const _session of currentSessions) {
+        const _workdir = this.getSessionWorkdir(session._session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = branchOutput.trim();
+          const _branch = branchOutput.trim();
 
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${_branch}`);
@@ -369,15 +369,15 @@ export class RemoteGitBackend implements RepositoryBackend {
       }
 
       // For each session with this repository, pull changes
-      for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session.session);
+      for (const _session of currentSessions) {
+        const _workdir = this.getSessionWorkdir(session._session);
 
         try {
           // Determine current branch
           const { stdout: branchOutput } = await execAsync(
             `git -C ${workdir} rev-parse --abbrev-ref HEAD`
           );
-          const branch = branchOutput.trim();
+          const _branch = branchOutput.trim();
 
           // Pull from remote
           await execAsync(`git -C ${workdir} pull origin ${_branch}`);

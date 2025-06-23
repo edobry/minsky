@@ -18,7 +18,7 @@ export class CommandMapper {
   addCommand(_command: {
     name: string;
     description: string;
-    inputSchema?: any;
+    inputSchema?: unknown;
   }): void {
     log.debug(`Registering _command as MCP tool: ${_command.name}`, {
       description: command.description,

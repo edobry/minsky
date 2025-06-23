@@ -109,8 +109,8 @@ export function createTestDeps(_overrides: Partial<DomainDependencies> = {}): Do
     createTask: () =>
       Promise.resolve({
         _id: "#test",
-        title: "Test Task",
-        status: "TODO",
+        _title: "Test Task",
+        _status: "TODO",
       }),
     ...(overrides.taskService || {}),
   });
@@ -150,8 +150,8 @@ export function createTaskTestDeps(_overrides: Partial<TaskDependencies> = {}): 
     createTask: () =>
       Promise.resolve({
         _id: "#test",
-        title: "Test Task",
-        status: "TODO",
+        _title: "Test Task",
+        _status: "TODO",
       }),
     ...(overrides.taskService || {}),
   });

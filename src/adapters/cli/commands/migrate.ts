@@ -26,7 +26,7 @@ interface MigrateCommandOptions {
  * Create and configure the migrate command
  */
 export function createMigrateCommand(): Command {
-  const command = new Command("migrate");
+  const _command = new Command("migrate");
 
   command
     .description("Migrate tasks between different backends")
@@ -108,7 +108,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
       createBackup: options.createBackup ?? true,
     };
 
-    const result = await migrationUtils.migrateTasksBetweenBackends(
+    const _result = await migrationUtils.migrateTasksBetweenBackends(
       sourceBackendInstance,
       targetBackendInstance,
       migrationOptions
@@ -143,8 +143,8 @@ async function promptConfirmation(_message: string): Promise<boolean> {
   // Import prompts dynamically to avoid dependency issues
   try {
     const { confirm } = await import("@clack/prompts");
-    const result = await confirm({ message });
-    return Boolean(result);
+    const _result = await confirm({ message });
+    return Boolean(_result);
   } catch {
     // Fallback - just log warning and proceed
     log.cliWarn("Interactive prompts not available. Proceeding with migration...");

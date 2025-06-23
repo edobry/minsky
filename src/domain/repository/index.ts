@@ -199,7 +199,7 @@ export interface Result {
  * @returns Repository backend instance
  */
 export async function createRepositoryBackend(
-  config: RepositoryBackendConfig
+  _config: RepositoryBackendConfig
 ): Promise<RepositoryBackend> {
   // Validate common configuration
   if (!config.type) {
@@ -235,7 +235,7 @@ export async function createRepositoryBackend(
     }
 
     const { LocalGitBackend } = await import("./local");
-    return new LocalGitBackend(config);
+    return new LocalGitBackend(_config);
   }
 
   case RepositoryBackendType.REMOTE: {
@@ -269,7 +269,7 @@ export async function createRepositoryBackend(
     }
 
     const { RemoteGitBackend } = await import("./remote");
-    return new RemoteGitBackend(config);
+    return new RemoteGitBackend(_config);
   }
 
   case RepositoryBackendType.GITHUB: {
@@ -290,7 +290,7 @@ export async function createRepositoryBackend(
     }
 
     const { GitHubBackend } = await import("./github");
-    return new GitHubBackend(config);
+    return new GitHubBackend(_config);
   }
 
   default:

@@ -201,7 +201,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
       state.invocationCallOrder.push(++globalInvocationCount);
 
       // Determine which implementation to use
-      let result: ReturnType<T>;
+      let _result: ReturnType<T>;
       if (state.implementationsOnce.length > 0) {
         // Use a one-time implementation
         const implOnce = state.implementationsOnce.shift()!;
@@ -217,7 +217,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
       // Track the result
       state.results.push({
         type: "return",
-        value: result,
+        value: _result,
       });
 
       return result;

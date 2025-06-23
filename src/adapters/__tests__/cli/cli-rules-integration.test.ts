@@ -24,7 +24,7 @@ describe("Rules CLI Helper Functions Integration", () => {
   // Test direct path content handling
   test("readContentFromFileIfExists returns input when not a file", async () => {
     const nonFilePath = "This is just content, not a file path";
-    const result = await readContentFromFileIfExists(nonFilePath);
-    expect(result).toBe(nonFilePath);
+    const _result = await readContentFromFileIfExists(nonFilePath);
+    expect(_result).toBe(nonFilePath);
   });
 });

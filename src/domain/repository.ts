@@ -3,7 +3,6 @@
  * Defines the contract for different repository backends (local, remote, GitHub).
  */
 import { normalizeRepoName } from "./repo-utils.js";
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
@@ -236,16 +235,16 @@ export type RepositoryBackendConfig = RepositoryConfig;
  * @returns RepositoryBackend instance
  */
 export async function createRepositoryBackend(
-  config: RepositoryConfig
+  _config: RepositoryConfig
 ): Promise<RepositoryBackend> {
   switch (config.type) {
   case RepositoryBackendType.LOCAL: {
     const { LocalGitBackend } = await import("./localGitBackend.js");
-    return new LocalGitBackend(config);
+    return new LocalGitBackend(_config);
   }
   case RepositoryBackendType.REMOTE: {
     const { RemoteGitBackend } = await import("./remoteGitBackend.js");
-    return new RemoteGitBackend(config);
+    return new RemoteGitBackend(_config);
   }
   case RepositoryBackendType.GITHUB: {
     const { GitService } = await import("./git.js");
@@ -256,7 +255,7 @@ export async function createRepositoryBackend(
       clone: async (_session: string): Promise<CloneResult> => {
         return await gitService.clone({
           repoUrl: config.url || "",
-          session,
+          _session,
           github: {
             token: (config as GitHubConfig).token,
             owner: (config as GitHubConfig).owner,
@@ -279,7 +278,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        const workdir = gitService.getSessionWorkdir(repoName, session);
+        const _workdir = gitService.getSessionWorkdir(repoName, _session);
 
         const gitStatus = await gitService.getStatus(_workdir);
 
@@ -290,7 +289,7 @@ export async function createRepositoryBackend(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
-        const branch = branchOutput.trim();
+        const _branch = branchOutput.trim();
         return {
           clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
           changes: [
@@ -323,7 +322,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        return gitService.getSessionWorkdir(repoName, session);
+        return gitService.getSessionWorkdir(repoName, _session);
       },
 
       validate: async (): Promise<ValidationResult> => {
@@ -355,11 +354,11 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const session = repoSession.session;
-        const workdir = gitService.getSessionWorkdir(repoName, session);
+        const _session = repoSession.session;
+        const _workdir = gitService.getSessionWorkdir(repoName, _session);
 
         await gitService.push({
-          session,
+          _session,
           _repoPath: _workdir,
         });
       },
@@ -375,13 +374,13 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
+        const _workdir = gitService.getSessionWorkdir(repoName, repoSession._session);
         await gitService.pullLatest(_workdir);
       },
 
       branch: async (_session: string, name: string): Promise<BranchResult> => {
         const repoName = normalizeRepoName(config.url || "");
-        const workdir = gitService.getSessionWorkdir(repoName, session);
+        const _workdir = gitService.getSessionWorkdir(repoName, _session);
 
         // Execute branch creation via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -389,8 +388,8 @@ export async function createRepositoryBackend(
         );
 
         return {
-          workdir,
-          branch: name,
+          _workdir,
+          _branch: name,
         };
       },
 
@@ -405,7 +404,7 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const workdir = gitService.getSessionWorkdir(repoName, repoSession.session);
+        const _workdir = gitService.getSessionWorkdir(repoName, repoSession._session);
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -447,7 +446,7 @@ export async function createRepositoryBackend(
 export async function resolveRepository(
   _options: RepositoryResolutionOptions = {}
 ): Promise<ResolvedRepository> {
-  const { uri, session, _taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
+  const { uri, _session, _taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
   let repositoryUri: string | undefined;
   let backendType = RepositoryBackendType.LOCAL;
@@ -459,7 +458,7 @@ export async function resolveRepository(
   // 2. Try to resolve from session
   else if (session) {
     const sessionDb = new SessionDB();
-    const sessionRecord = await sessionDb.getSession(session);
+    const sessionRecord = await sessionDb.getSession(_session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
@@ -489,7 +488,7 @@ export async function resolveRepository(
   // DEFAULT_RETRY_COUNT. No resolution method available
   else {
     throw new ValidationError(
-      "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"
+      "Cannot resolve repository: no URI, _session, or task ID provided, and auto-detection is disabled"
     );
   }
 
@@ -548,7 +547,7 @@ export async function resolveRepoPath(_options: {
   try {
     const repository = await resolveRepository({
       uri: _options.repo,
-      _session: _options.session,
+      _session: _options._session,
       autoDetect: true,
     });
 

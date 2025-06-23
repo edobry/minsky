@@ -3,10 +3,7 @@
  * Separates data retrieval, pure operations, and side effects
  */
 
-import type {
-  TaskData,
-  TaskState,
-  TaskSpecData,
+import type {TaskSpecData,
   TaskBackendConfig,
 } from "../../types/tasks/taskData.js";
 import type {
@@ -38,7 +35,7 @@ export interface TaskBackend {
    * @param specPath Path to the task specification file
    * @returns Promise resolving to raw task spec data
    */
-  getTaskSpecData(specPath: string): Promise<TaskReadOperationResult>;
+  getTaskSpecData(_specPath: string): Promise<TaskReadOperationResult>;
 
   // ---- Pure Operations (no side effects) ----
 
@@ -54,7 +51,7 @@ export interface TaskBackend {
    * @param tasks Array of task data objects
    * @returns Formatted content
    */
-  formatTasks(tasks: TaskData[]): string;
+  formatTasks(_tasks: TaskData[]): string;
 
   /**
    * Parse raw task specification content
@@ -68,7 +65,7 @@ export interface TaskBackend {
    * @param spec Task specification data
    * @returns Formatted content
    */
-  formatTaskSpec(spec: TaskSpecData): string;
+  formatTaskSpec(_spec: TaskSpecData): string;
 
   // ---- Side Effects (file I/O, API calls) ----
 
@@ -85,7 +82,7 @@ export interface TaskBackend {
    * @param content Formatted task specification content
    * @returns Promise resolving to operation result
    */
-  saveTaskSpecData(specPath: string, _content: string): Promise<TaskWriteOperationResult>;
+  saveTaskSpecData(_specPath: string, _content: string): Promise<TaskWriteOperationResult>;
 
   // ---- Helper Methods ----
 
@@ -101,7 +98,7 @@ export interface TaskBackend {
    * @param title Task title
    * @returns Task specification file path
    */
-  getTaskSpecPath(_taskId: string, title: string): string;
+  getTaskSpecPath(_taskId: string, _title: string): string;
 
   /**
    * Check if file exists
@@ -120,5 +117,5 @@ export interface TaskBackendFactory {
    * @param config Backend configuration
    * @returns Task backend instance
    */
-  createBackend(config: TaskBackendConfig): TaskBackend;
+  createBackend(_config: TaskBackendConfig): TaskBackend;
 }

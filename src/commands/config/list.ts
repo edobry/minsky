@@ -25,11 +25,11 @@ export function createConfigListCommand(): Command {
     .option("--working-dir <dir>", "Working directory", process.cwd())
     .action(async (_options: unknown) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(_workingDir);
+        const _workingDir = options.workingDir || process.cwd();
+        const _result = await configurationService.loadConfiguration(_workingDir);
         
         if (_options.json) {
-          log.debug(JSON.stringify(result, null, 2));
+          log.debug(JSON.stringify(_result, null, 2));
         } else {
           displayConfigurationSources(result.sources);
           log.debug(`\n${  "=".repeat(SEPARATOR_LENGTH)}`);
@@ -149,12 +149,12 @@ function displayResolvedConfiguration(_resolved: unknown) {
 }
 
 function displayConfigSection(_config: unknown) {
-  if (!config || Object.keys(config).length === 0) {
+  if (!config || Object.keys(_config).length === 0) {
     log.debug("  (empty)");
     return;
   }
 
-  for (const [key, value] of Object.entries(config)) {
+  for (const [key, value] of Object.entries(_config)) {
     if (typeof value === "object" && value !== null) {
       log.debug(`  ${key}:`);
       for (const [subKey, subValue] of Object.entries(value)) {

@@ -18,7 +18,7 @@ export interface ParameterMappingOptions {
   /** Override the parameter description */
   description?: string;
   /** Override the default value */
-  defaultValue?: any;
+  defaultValue?: unknown;
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
@@ -223,10 +223,10 @@ function getZodSchemaType(_schema: z.ZodTypeAny): string | undefined {
  * Create parameter mappings from a CommandParameterMap
  */
 export function createParameterMappings(
-  parameters: Record<string, CommandParameterDefinition>,
+  _parameters: Record<string, CommandParameterDefinition>,
   customOptions: Record<string, ParameterMappingOptions> = {}
 ): ParameterMapping[] {
-  return Object.entries(parameters).map(([name, paramDef]) => ({
+  return Object.entries(_parameters).map(([name, paramDef]) => ({
     name,
     paramDef,
     _options: {
@@ -244,9 +244,9 @@ export function createParameterMappings(
  */
 export function normalizeCliParameters(
   parametersSchema: Record<string, CommandParameterDefinition>,
-  cliParameters: Record<string, any>
-): Record<string, any> {
-  const result: Record<string, any> = {};
+  cliParameters: Record<string, unknown>
+): Record<string, unknown> {
+  const _result: Record<string, unknown> = {};
 
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {

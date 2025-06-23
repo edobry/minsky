@@ -84,10 +84,10 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
     
     // This assertion should pass once the bug is fixed
-    expect(result).toBe(TASK_STATUS.BLOCKED);
+    expect(_result).toBe(TASK_STATUS.BLOCKED);
   });
 
   test("should return TODO status for task with [ ] checkbox", async () => {
@@ -125,8 +125,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.TODO);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.TODO);
   });
 
   test("should return IN_PROGRESS status for task with [+] checkbox", async () => {
@@ -164,8 +164,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.IN_PROGRESS);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.IN_PROGRESS);
   });
 
   test("should return DONE status for task with [x] checkbox", async () => {
@@ -203,8 +203,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.DONE);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.DONE);
   });
 
   test("should throw ResourceNotFoundError for non-existent task", async () => {

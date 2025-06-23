@@ -145,7 +145,7 @@ export class DefaultCredentialManager implements CredentialManager {
   /**
    * Save global configuration
    */
-  private async saveGlobalConfig(config: GlobalUserConfig): Promise<void> {
+  private async saveGlobalConfig(_config: GlobalUserConfig): Promise<void> {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
     const configDir = dirname(configPath);
 
@@ -154,7 +154,7 @@ export class DefaultCredentialManager implements CredentialManager {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = stringifyYaml(config, {
+    const yamlContent = stringifyYaml(_config, {
       indent: 2,
       lineWidth: 100
     });

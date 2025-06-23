@@ -51,7 +51,7 @@ describe("Shared Tasks Commands", () => {
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, EXPECTED_TASKS_COMMANDS_COUNT); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
+    expectToHaveLength(tasksCommands, EXPECTED_TASKS_COMMANDS_COUNT); // All 7 tasks commands: list, get, create, status.get, status.set, _spec, migrate
 
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
@@ -91,8 +91,8 @@ describe("Shared Tasks Commands", () => {
       taskId: "123",
       repo: "/test/repo",
     };
-    const context = { interface: "test" };
-    const result = await getCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await getCommand!.execute(params, _context);
 
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
@@ -102,10 +102,10 @@ describe("Shared Tasks Commands", () => {
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
       taskId: "#123",
-      status: "TODO",
+      _status: "TODO",
     });
   });
 
@@ -123,8 +123,8 @@ describe("Shared Tasks Commands", () => {
       status: "IN-PROGRESS",
       session: "test-session",
     };
-    const context = { interface: "test" };
-    const result = await setCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await setCommand!.execute(params, _context);
 
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
@@ -132,7 +132,7 @@ describe("Shared Tasks Commands", () => {
       taskId: "#123",
       repo: undefined,
       workspace: undefined,
-      session: "test-session",
+      _session: "test-session",
       backend: undefined,
     });
 
@@ -140,18 +140,18 @@ describe("Shared Tasks Commands", () => {
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
       taskId: "#123",
-      status: "IN-PROGRESS",
+      _status: "IN-PROGRESS",
       repo: undefined,
       workspace: undefined,
-      session: "test-session",
+      _session: "test-session",
       backend: undefined,
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
       taskId: "#123",
-      status: "IN-PROGRESS",
+      _status: "IN-PROGRESS",
       previousStatus: "TODO",
     });
   });

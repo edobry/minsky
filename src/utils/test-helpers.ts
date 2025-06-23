@@ -93,7 +93,7 @@ export interface MinskyTestEnv {
 /**
  * Creates a unique test directory name
  */
-export function createUniqueTestDir(prefix: string): string {
+export function createUniqueTestDir(_prefix: string): string {
   return `/tmp/${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
@@ -172,7 +172,7 @@ export const mockFS = {
  * @param result Result from spawnSync
  * @throws Error If command execution failed
  */
-export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
+export function ensureValidCommandResult(_result: SpawnSyncReturns<string>): void {
   if (!result || result.status === null) {
     log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");

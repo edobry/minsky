@@ -203,7 +203,7 @@ export async function listFiles(_dirPath: string): Promise<string[] | null> {
  * @returns Path to the tasks file
  */
 export function getTasksFilePath(_workspacePath: string): string {
-  return join(workspacePath, "process", "tasks.md");
+  return join(_workspacePath, "process", "tasks.md");
 }
 
 /**
@@ -212,18 +212,18 @@ export function getTasksFilePath(_workspacePath: string): string {
  * @returns Path to the task specs directory
  */
 export function getTaskSpecsDirectoryPath(_workspacePath: string): string {
-  return join(workspacePath, "process", "tasks");
+  return join(_workspacePath, "process", "tasks");
 }
 
 /**
- * Get task spec file path from task ID, title, and workspace path
+ * Get task spec file path from task ID, _title, and workspace path
  * @param taskId Task ID (with or without # prefix)
  * @param title Task title
  * @param workspacePath Workspace path
  * @returns Path to the task spec file
  */
-export function getTaskSpecFilePath(_taskId: string, title: string, workspacePath: string): string {
+export function getTaskSpecFilePath(_taskId: string, _title: string, _workspacePath: string): string {
   const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+  return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

@@ -2,7 +2,7 @@
  * Configuration helper for GitHub Issues task backend
  */
 
-import { config } from "@dotenvx/dotenvx";
+import { _config } from "@dotenvx/dotenvx";
 import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -19,12 +19,12 @@ if (existsSync(envPath)) {
  * Extract GitHub repository info from git remote
  */
 function extractGitHubRepoFromRemote(
-  workspacePath: string
+  _workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
-      cwd: workspacePath,
+      cwd: _workspacePath,
       encoding: "utf8",
     })
       .toString()
@@ -47,7 +47,7 @@ function extractGitHubRepoFromRemote(
     return null;
   } catch {
     log.debug("Failed to extract GitHub repo from git remote", {
-      workspacePath,
+      _workspacePath,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -58,7 +58,7 @@ function extractGitHubRepoFromRemote(
  * Get GitHub backend configuration from environment and git remote
  */
 export function getGitHubBackendConfig(
-  workspacePath: string,
+  _workspacePath: string,
   _options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
@@ -74,7 +74,7 @@ export function getGitHubBackendConfig(
   }
 
   // Try to auto-detect repository from git remote
-  const repoInfo = extractGitHubRepoFromRemote(workspacePath);
+  const repoInfo = extractGitHubRepoFromRemote(_workspacePath);
 
   if (!repoInfo) {
     if (logErrors) {
@@ -85,7 +85,7 @@ export function getGitHubBackendConfig(
 
   return {
     name: "github-issues",
-    workspacePath,
+    _workspacePath,
     githubToken,
     owner: repoInfo.owner,
     repo: repoInfo.repo,
@@ -96,7 +96,7 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
-  octokit: any,
+  octokit: unknown,
   owner: string,
   repo: string,
   labels: Record<string, string>
@@ -124,7 +124,7 @@ export async function createGitHubLabels(
         owner,
         repo,
         name: labelName,
-        color: getColorForStatus(status),
+        color: getColorForStatus(_status),
         description: `Minsky task status: ${status}`,
       });
 

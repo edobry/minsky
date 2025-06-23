@@ -1,4 +1,4 @@
-import { DEFAULT_RETRY_COUNT, MINUTE_IN_SECONDS } from "../utils/constants";
+import {MINUTE_IN_SECONDS } from "../utils/constants";
 
 /**
  * Repository utilities for Minsky.
@@ -90,9 +90,9 @@ export class RepositoryMetadataCache {
    *
    * @param prefix Cache key prefix to match
    */
-  invalidateByPrefix(prefix: string): void {
+  invalidateByPrefix(_prefix: string): void {
     for (const key of Array.from(this.cache.keys())) {
-      if (key.startsWith(prefix)) {
+      if (key.startsWith(_prefix)) {
         this.cache.delete(key);
       }
     }

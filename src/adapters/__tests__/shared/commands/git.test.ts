@@ -88,8 +88,8 @@ describe("Shared Git Commands", () => {
       all: true,
       repo: "/test/repo",
     };
-    const context = { interface: "test" };
-    const result = await commitCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await commitCommand!.execute(params, _context);
 
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(commitSpy);
@@ -99,11 +99,11 @@ describe("Shared Git Commands", () => {
       repo: "/test/repo",
       amend: undefined,
       noStage: undefined,
-      session: undefined,
+      _session: undefined,
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
       commitHash: "mocked-commit-hash",
       message: "mocked-commit-message",
@@ -123,8 +123,8 @@ describe("Shared Git Commands", () => {
       repo: "/test/repo",
       force: true,
     };
-    const context = { interface: "test" };
-    const result = await pushCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await pushCommand!.execute(params, _context);
 
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(pushSpy);
@@ -132,12 +132,12 @@ describe("Shared Git Commands", () => {
       repo: "/test/repo",
       force: true,
       remote: undefined,
-      session: undefined,
+      _session: undefined,
       debug: undefined,
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
       _workdir: "/mocked/workdir",
     });

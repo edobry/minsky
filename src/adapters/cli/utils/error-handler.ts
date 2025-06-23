@@ -89,11 +89,11 @@ export function handleCliError(_error: unknown): never {
     // Log cause chain if available
     if (normalizedError instanceof MinskyError && normalizedError.cause) {
       log.cliError("\nCaused by:");
-      const cause = normalizedError.cause;
+      const _cause = normalizedError.cause;
       if (cause instanceof Error) {
         log.cliError(cause.stack || cause.message);
       } else {
-        log.cliError(String(cause));
+        log.cliError(String(_cause));
       }
     }
   }
@@ -131,14 +131,14 @@ export function outputResult<T>(
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent("Command result", { result });
+      log.agent("Command result", { _result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(_result, null, 2));
     }
   } else if (_options.formatter) {
-    options.formatter(result);
+    options.formatter(_result);
   } else {
-    log.cli(String(result));
+    log.cli(String(_result));
   }
 }

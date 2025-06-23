@@ -165,8 +165,8 @@ describe("Shared Rules Commands", () => {
     ];
 
     expectedCommands.forEach((cmdId) => {
-      const command = sharedCommandRegistry.getCommand(cmdId);
-      expect(command).toBeDefined();
+      const _command = sharedCommandRegistry.getCommand(cmdId);
+      expect(_command).toBeDefined();
       expect(command?.category).toBe(CommandCategory.RULES);
     });
   });
@@ -186,8 +186,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await listCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await listCommand!.execute(params, _context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -222,8 +222,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await getCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await getCommand!.execute(params, _context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -260,8 +260,8 @@ describe("Shared Rules Commands", () => {
       workspace: "/custom/workspace",
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await createCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await createCommand!.execute(params, _context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -299,8 +299,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await updateCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await updateCommand!.execute(params, _context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -331,8 +331,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const context = { interface: "test" };
-    const result = await searchCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await searchCommand!.execute(params, _context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);

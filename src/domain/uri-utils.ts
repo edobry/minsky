@@ -3,7 +3,6 @@
  * Provides functions for normalizing, validating, and converting repository URIs.
  */
 import { existsSync } from "fs";
-import { DEFAULT_RETRY_COUNT } from "../utils/constants";
 import { basename } from "path";
 import { ValidationError } from "../errors/index.js";
 /**
