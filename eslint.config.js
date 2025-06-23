@@ -1,29 +1,15 @@
-import js from "@eslint/js";
 import tsEslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
-import importPlugin from "eslint-plugin-import";
 
 export default [
-  js.configs.recommended,
   {
-    ignores: [
-      // Exclude codemod scripts from linting
-      "codemods/**",
-      // Exclude other development/temporary files
-      "test-tmp/**",
-      "test-analysis/**",
-      "test-verification/**",
-    ],
+    ignores: ["codemods/**", "test-tmp/**", "test-analysis/**", "test-verification/**"],
   },
   {
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
       parser: tsParser,
-      parserOptions: {
-        ecmaVersion: "latest",
-        sourceType: "module",
-      },
       globals: {
         process: "readonly",
         Buffer: "readonly",
@@ -60,46 +46,45 @@ export default [
     },
     plugins: {
       "@typescript-eslint": tsEslint,
-      import: importPlugin,
     },
     files: ["**/*.ts", "**/*.js"],
     rules: {
-      "no-unused-vars": "off", // Disabled in favor of @typescript-eslint/no-unused-vars
+      // Core ESLint rules
+      "no-unused-vars": "off", // EXPLICITLY DISABLED
+      "no-undef": "off",
       indent: ["error", 2],
       "linebreak-style": ["error", "unix"],
       quotes: ["error", "double"],
       semi: ["error", "always"],
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/explicit-function-return-type": "off",
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_+", varsIgnorePattern: "^_+" },
-      ],
-      "no-magic-numbers": [
-        "warn",
-        { ignore: [0, 1, -1], ignoreArrayIndexes: true, enforceConst: true },
-      ],
       "prefer-template": "error",
       "no-var": "error",
-      "prefer-const": "off",
       "no-throw-literal": "error",
       "prefer-promise-reject-errors": "error",
       "no-useless-catch": "error",
       "no-console": "error",
-      "max-lines": "off",
-      "no-restricted-globals": "off",
-      "import/extensions": "off",
-      "import/no-unresolved": ["off", { ignore: [".ts"] }],
       "no-useless-escape": "off",
+
+      // TypeScript rules
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/explicit-function-return-type": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_+",
+          varsIgnorePattern: "^_+",
+        },
+      ],
       "@typescript-eslint/ban-types": "off",
-      "no-undef": "off", // TypeScript handles this better
-    },
-  },
-  {
-    files: ["**/*.ts"],
-    rules: {
-      "no-undef": "off", // TypeScript handles this better
-      "no-unused-vars": "off", // Disabled for TypeScript files in favor of @typescript-eslint/no-unused-vars
+
+      // Magic numbers
+      "no-magic-numbers": [
+        "warn",
+        {
+          ignore: [0, 1, -1],
+          ignoreArrayIndexes: true,
+          enforceConst: true,
+        },
+      ],
     },
   },
   {
@@ -112,7 +97,7 @@ export default [
     files: ["**/test/**", "**/*.test.ts", "**/__tests__/**"],
     rules: {
       "no-console": "warn",
-      "@typescript-eslint/no-explicit-any": "off", // Allow any in test files for mocking
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 ];
