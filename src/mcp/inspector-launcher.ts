@@ -64,9 +64,12 @@ export interface InspectorLaunchResult {
  */
 export function isInspectorAvailable(): boolean {
   try {
-    // Try to resolve the inspector package
-    require.resolve("@modelcontextprotocol/inspector");
-    return true;
+    // Check if the binary exists in node_modules/.bin
+    const { existsSync } = require("fs");
+    const { join } = require("path");
+
+    const binPath = join(process.cwd(), "node_modules", ".bin", "mcp-inspector");
+    return existsSync(binPath);
   } catch (error) {
     return false;
   }
@@ -108,8 +111,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
 
     log.debug("Launching MCP Inspector with arguments", { args });
 
-    // Spawn the inspector process
-    const inspectorProcess = spawn("mcp-inspector", args, {
+    // Spawn the inspector process using bunx to ensure proper path resolution
+    const inspectorProcess = spawn("bunx", ["mcp-inspector", ...args], {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });
