@@ -593,13 +593,13 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
@@ -830,7 +830,7 @@ export async function updateSessionFromParams(
       throw new MinskyError(
         `Session workspace directory does not exist: ${workdir}. ` +
           `The session '${name}' exists in the database but its workspace directory is missing. ` +
-          `This can happen if the directory was manually deleted or the session creation was interrupted. ` +
+          "This can happen if the directory was manually deleted or the session creation was interrupted. " +
           `Please delete the session with 'minsky session delete ${name}' and recreate it.`
       );
     }

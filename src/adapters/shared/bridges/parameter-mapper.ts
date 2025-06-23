@@ -169,23 +169,23 @@ function addTypeHandlingToOption(_option: Option,
 
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-    case "number":
-      return option.argParser((value) => {
-        const num = Number(value);
-        if (isNaN(num)) {
-          throw new Error("Option requires a number value");
-        }
-        return num;
-      });
+  case "number":
+    return option.argParser((value) => {
+      const num = Number(value);
+      if (isNaN(num)) {
+        throw new Error("Option requires a number value");
+      }
+      return num;
+    });
 
-    case "boolean":
-      return option;
+  case "boolean":
+    return option;
 
-    case "array":
-      return option.argParser((value) => value.split(",").map((v) => v.trim()));
+  case "array":
+    return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
-    default:
-      return option;
+  default:
+    return option;
   }
 }
 
