@@ -599,7 +599,7 @@ When starting a session, you can specify the backend type and related options:
 minsky session start my-session --repo /path/to/local/repo
 
 # Start a session with a remote Git repository
-minsky session start my-session --backend remote --repo-url https://example.com/repo.git
+minsky session start my-session --backend remote --repo-url https://gitlab.com/group/project.git
 
 # Start a session with GitHub repository
 minsky session start my-session --backend github --github-owner octocat --github-repo hello-world
