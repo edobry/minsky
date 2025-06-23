@@ -100,9 +100,13 @@ export function createMCPCommand(): Command {
           transportType,
           projectContext,
           sse: {
-            port,
+            port: 8080, // Default SSE port (not currently used via CLI)
             host: options.host,
             path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
+          },
+          httpStream: {
+            port: transportType === "httpStream" ? port : 8080,
+            endpoint: "/mcp",
           },
         });
 
@@ -136,9 +140,31 @@ export function createMCPCommand(): Command {
 
         // Launch inspector if requested
         if (options.withInspector) {
-          log.cliError("MCP Inspector integration is currently disabled due to interface changes.");
-          log.cliError("The MCP server will continue running without the inspector.");
-          log.cli("You can still connect to the server directly at the HTTP Stream endpoint.");
+          // Check if inspector is available
+          if (!isInspectorAvailable()) {
+            log.cliError(
+              "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
+            );
+          } else {
+            const inspectorPort = parseInt(options.inspectorPort, 10);
+
+            // Launch the inspector
+            const inspectorResult = launchInspector({
+              port: inspectorPort,
+              openBrowser: true,
+              mcpTransportType: transportType,
+              mcpPort: transportType !== "stdio" ? port : undefined,
+              mcpHost: transportType !== "stdio" ? options.host : undefined,
+            });
+
+            if (inspectorResult.success) {
+              log.cli(`MCP Inspector started on port ${inspectorPort}`);
+              log.cli(`Open your browser at ${inspectorResult.url} to access the inspector`);
+            } else {
+              log.cliError(`Failed to start MCP Inspector: ${inspectorResult.error}`);
+              log.cliError("The MCP server will continue running without the inspector.");
+            }
+          }
         }
 
         log.cli("Press Ctrl+C to stop");
