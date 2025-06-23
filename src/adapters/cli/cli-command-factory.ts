@@ -14,6 +14,7 @@ import {
   type CliCommandOptions,
   type CategoryCommandOptions,
 } from "../shared/bridges/cli-bridge.js";
+import { log } from "../../utils/logger.js";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly
@@ -312,6 +313,33 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   // Config/SessionDB commands customization
   cliFactory.customizeCategory(CommandCategory.CONFIG, {
     commandOptions: {
+      "config.list": {
+        outputFormatter: (result: any) => {
+          if (result.success && result.sources && result.resolved) {
+            const sourcesOutput = formatConfigurationSources(result.sources);
+            const resolvedOutput = formatResolvedConfiguration(result.resolved);
+            log.cli(
+              `${sourcesOutput}\n${"=".repeat(60)}\nRESOLVED CONFIGURATION\n${"=".repeat(60)}\n${resolvedOutput}`
+            );
+          } else if (result.error) {
+            log.cli(`Failed to load configuration: ${result.error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
+      "config.show": {
+        outputFormatter: (result: any) => {
+          if (result.success && result.configuration) {
+            const output = formatResolvedConfiguration(result.configuration);
+            log.cli(output);
+          } else if (result.error) {
+            log.cli(`Failed to load configuration: ${result.error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
       "sessiondb.migrate": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
@@ -343,6 +371,179 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
     },
   });
+}
+
+// Helper functions for formatting config output
+function formatConfigurationSources(sources: any): string {
+  const cliFlags =
+    Object.keys(sources.cliFlags).length > 0
+      ? formatConfigSection(sources.cliFlags)
+      : "  (none specified)";
+
+  const environment =
+    Object.keys(sources.environment).length > 0
+      ? formatConfigSection(sources.environment)
+      : "  (none set)";
+
+  const globalUser = sources.globalUser
+    ? formatGlobalUserConfig(sources.globalUser)
+    : "  (file not found)";
+
+  const repository = sources.repository
+    ? formatRepositoryConfig(sources.repository)
+    : "  (file not found)";
+
+  const defaults = formatConfigSection(sources.defaults);
+
+  return `CONFIGURATION SOURCES
+${"=".repeat(60)}
+
+1. CLI Flags (highest priority):
+${cliFlags}
+
+2. Environment Variables:
+${environment}
+
+3. Global User Config (~/.config/minsky/config.yaml):
+${globalUser}
+
+4. Repository Config (.minsky/config.yaml):
+${repository}
+
+5. Built-in Defaults (lowest priority):
+${defaults}`;
+}
+
+function formatResolvedConfiguration(resolved: any): string {
+  let output = `Backend: ${resolved.backend}`;
+
+  if (Object.keys(resolved.backendConfig).length > 0) {
+    output += "\n\nBackend Configuration:";
+    for (const [backend, config] of Object.entries(resolved.backendConfig)) {
+      if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
+        output += `\n  ${backend}:`;
+        for (const [key, value] of Object.entries(config as object)) {
+          output += `\n    ${key}: ${value}`;
+        }
+      }
+    }
+  }
+
+  if (Object.keys(resolved.credentials).length > 0) {
+    output += "\n\nCredentials:";
+    for (const [service, creds] of Object.entries(resolved.credentials)) {
+      if (creds && typeof creds === "object") {
+        output += `\n  ${service}:`;
+        const credsObj = creds as any;
+        if (credsObj.source) {
+          output += `\n    Source: ${credsObj.source}`;
+        }
+        if (credsObj.token) {
+          output += `\n    Token: ${"*".repeat(20)} (hidden)`;
+        }
+      }
+    }
+  }
+
+  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
+    output += "\n\nDetection Rules:";
+    resolved.detectionRules.forEach((rule: any, index: number) => {
+      output += `\n  ${index + 1}. ${rule.condition} → ${rule.backend}`;
+    });
+  }
+
+  return output;
+}
+
+function formatGlobalUserConfig(globalUser: any): string {
+  let output = `  Version: ${globalUser.version}`;
+
+  if (globalUser.credentials?.github) {
+    output += `\n  GitHub Credentials: ${globalUser.credentials.github.source} source`;
+    if (globalUser.credentials.github.token) {
+      output += `\n    Token: ${"*".repeat(20)} (hidden)`;
+    }
+    if (globalUser.credentials.github.token_file) {
+      output += `\n    Token File: ${globalUser.credentials.github.token_file}`;
+    }
+  }
+
+  return output;
+}
+
+function formatRepositoryConfig(repository: any): string {
+  let output = `  Version: ${repository.version}`;
+
+  if (repository.backends?.default) {
+    output += `\n  Default Backend: ${repository.backends.default}`;
+  }
+
+  if (repository.backends?.["github-issues"]) {
+    const github = repository.backends["github-issues"];
+    output += `\n  GitHub Issues Backend:\n    Owner: ${github.owner}\n    Repo: ${github.repo}`;
+  }
+
+  if (repository.repository?.auto_detect_backend !== undefined) {
+    output += `\n  Auto-detect Backend: ${repository.repository.auto_detect_backend}`;
+  }
+
+  if (repository.repository?.detection_rules) {
+    output += `\n  Detection Rules: ${repository.repository.detection_rules.length} rules`;
+  }
+
+  return output;
+}
+
+function formatConfigSection(config: any): string {
+  if (!config || Object.keys(config).length === 0) {
+    return "  (empty)";
+  }
+
+  let output = "";
+  for (const [key, value] of Object.entries(config)) {
+    if (Array.isArray(value)) {
+      output += `  ${key}: (${value.length} items)\n`;
+      value.forEach((item, index) => {
+        if (typeof item === "object" && item !== null) {
+          output += `    ${index}: ${JSON.stringify(item)}\n`;
+        } else {
+          output += `    ${index}: ${item}\n`;
+        }
+      });
+    } else if (typeof value === "object" && value !== null) {
+      output += `  ${key}:\n`;
+      for (const [subKey, subValue] of Object.entries(value)) {
+        if (typeof subValue === "object" && subValue !== null) {
+          // Special handling for credentials
+          if (key === "credentials") {
+            const sanitized = sanitizeCredentials(subValue);
+            output += `    ${subKey}: ${JSON.stringify(sanitized)}\n`;
+          } else {
+            output += `    ${subKey}: ${JSON.stringify(subValue)}\n`;
+          }
+        } else {
+          output += `    ${subKey}: ${subValue}\n`;
+        }
+      }
+    } else {
+      output += `  ${key}: ${value}\n`;
+    }
+  }
+
+  return output.trimEnd();
+}
+
+function sanitizeCredentials(creds: any): any {
+  if (!creds || typeof creds !== "object") {
+    return creds;
+  }
+
+  const sanitized = { ...creds };
+  if (sanitized.token) {
+    sanitized.token = `${"*".repeat(20)} (hidden)`;
+  }
+
+  return sanitized;
 }
 
 /**

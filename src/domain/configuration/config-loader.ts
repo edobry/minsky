@@ -110,7 +110,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, "utf8");
+      const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as GlobalUserConfig;
     } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
@@ -131,7 +131,7 @@ export class ConfigurationLoader {
     }
 
     try {
-      const content = readFileSync(configPath, "utf8");
+      const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as RepositoryConfig;
     } catch (_error) {
       // Silently fail - configuration loading should be resilient
@@ -151,6 +151,7 @@ export class ConfigurationLoader {
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
       detectionRules: [...(defaults.detectionRules || [])],
+      sessiondb: { ...defaults.sessiondb } as SessionDbConfig,
     };
 
     // Apply repository config
@@ -183,7 +184,12 @@ export class ConfigurationLoader {
       resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
     }
     if (globalUser?.sessiondb) {
-      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalUser.sessiondb);
+      // Convert global user sessiondb format to SessionDbConfig format
+      const globalSessionDb: Partial<SessionDbConfig> = {
+        dbPath: globalUser.sessiondb.sqlite?.path,
+        baseDir: globalUser.sessiondb.base_dir,
+      };
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
     }
 
     // Apply environment overrides
@@ -250,14 +256,20 @@ export class ConfigurationLoader {
    * Merge sessiondb configurations
    */
   private mergeSessionDbConfig(
-    existing: SessionDbConfig,
+    existing: SessionDbConfig | undefined,
     newSessionDb: Partial<SessionDbConfig>
   ): SessionDbConfig {
+    const existingConfig = existing || {
+      backend: "json",
+      baseDir: undefined,
+      dbPath: undefined,
+      connectionString: undefined,
+    };
     return {
-      backend: newSessionDb.backend || existing.backend,
-      baseDir: newSessionDb.baseDir || existing.baseDir,
-      dbPath: newSessionDb.dbPath || existing.dbPath,
-      connectionString: newSessionDb.connectionString || existing.connectionString,
+      backend: newSessionDb.backend || existingConfig.backend,
+      baseDir: newSessionDb.baseDir || existingConfig.baseDir,
+      dbPath: newSessionDb.dbPath || existingConfig.dbPath,
+      connectionString: newSessionDb.connectionString || existingConfig.connectionString,
     };
   }
 
