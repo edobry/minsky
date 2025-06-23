@@ -123,7 +123,7 @@ export interface CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(_id: string): SharedCommand | undefined;
+  getCommand(__id: string): SharedCommand | undefined;
 
   /**
    * Get all commands in a specific category
@@ -131,7 +131,7 @@ export interface CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): SharedCommand[];
+  getCommandsByCategory(_category: CommandCategory): SharedCommand[];
 
   /**
    * List all registered commands
@@ -171,7 +171,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns Command definition or undefined if not found
    */
-  getCommand(_id: string): SharedCommand | undefined {
+  getCommand(__id: string): SharedCommand | undefined {
     return this.commands.get(id);
   }
 
@@ -181,7 +181,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): SharedCommand[] {
+  getCommandsByCategory(_category: CommandCategory): SharedCommand[] {
     return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
   }
 
@@ -200,7 +200,7 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param id Command identifier
    * @returns True if command is registered, false otherwise
    */
-  hasCommand(_id: string): boolean {
+  hasCommand(__id: string): boolean {
     return this.commands.has(id);
   }
 

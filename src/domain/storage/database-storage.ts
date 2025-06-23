@@ -52,7 +52,7 @@ export interface DatabaseStorage<T, S> {
    * @param state The state to write
    * @returns Promise resolving to the result of the write operation
    */
-  writeState(state: S): Promise<DatabaseWriteResult>;
+  writeState(_state: S): Promise<DatabaseWriteResult>;
 
   /**
    * Get a single entity by ID
@@ -60,7 +60,7 @@ export interface DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  getEntity(_id: string, _options?: DatabaseQueryOptions): Promise<T | null>;
+  getEntity(__id: string, _options?: DatabaseQueryOptions): Promise<T | null>;
 
   /**
    * Get all entities that match the query options
@@ -74,7 +74,7 @@ export interface DatabaseStorage<T, S> {
    * @param entity The entity to create
    * @returns Promise resolving to the created entity
    */
-  createEntity(entity: T): Promise<T>;
+  createEntity(_entity: T): Promise<T>;
 
   /**
    * Update an existing entity
@@ -82,21 +82,21 @@ export interface DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  updateEntity(_id: string, _updates: Partial<T>): Promise<T | null>;
+  updateEntity(__id: string, _updates: Partial<T>): Promise<T | null>;
 
   /**
    * Delete an entity by ID
    * @param id Entity identifier
    * @returns Promise resolving to true if deleted, false if not found
    */
-  deleteEntity(_id: string): Promise<boolean>;
+  deleteEntity(__id: string): Promise<boolean>;
 
   /**
    * Check if an entity exists
    * @param id Entity identifier
    * @returns Promise resolving to true if exists, false otherwise
    */
-  entityExists(_id: string): Promise<boolean>;
+  entityExists(__id: string): Promise<boolean>;
 
   /**
    * Get the storage location or connection info

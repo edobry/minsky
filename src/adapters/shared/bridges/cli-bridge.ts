@@ -89,21 +89,21 @@ export class CliCommandBridge {
   /**
    * Register command customization options
    */
-  registerCommandCustomization(commandId: string, _options: CliCommandOptions): void {
-    this.customizations.set(commandId, _options);
+  registerCommandCustomization(_commandId: string, _options: CliCommandOptions): void {
+    this.customizations.set(_commandId, _options);
   }
 
   /**
    * Register category customization options
    */
-  registerCategoryCustomization(category: CommandCategory, _options: CategoryCommandOptions): void {
-    this.categoryCustomizations.set(category, _options);
+  registerCategoryCustomization(_category: CommandCategory, _options: CategoryCommandOptions): void {
+    this.categoryCustomizations.set(_category, _options);
   }
 
   /**
    * Get combined command options (defaults + customizations)
    */
-  private getCommandOptions(commandId: string): CliCommandOptions {
+  private getCommandOptions(_commandId: string): CliCommandOptions {
     const defaults: CliCommandOptions = {
       useFirstRequiredParamAsArgument: true,
       parameters: {},
@@ -123,7 +123,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
+  generateCommand(_commandId: string, context?: { viaFactory?: boolean }): Command | null {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -153,10 +153,10 @@ export class CliCommandBridge {
     }
 
     // Create parameter mappings
-    const mappings = this.createCommandParameterMappings(commandDef, _options);
+    const mappings = this.createCommandParameterMappings(_commandDef, _options);
 
     // Add arguments to the command
-    addArgumentsFromMappings(_command, mappings);
+    addArgumentsFromMappings(__command, mappings);
 
     // Add options to the command
     createOptionsFromMappings(mappings).forEach((option) => {
@@ -168,7 +168,7 @@ export class CliCommandBridge {
       // Last argument is always the Command instance in Commander.js
       const commandInstance = args[args.length - 1] as Command;
       // Previous arguments are positional arguments
-      const positionalArgs = args.slice(0, args.length - 1);
+      const positionalArgs = args.slice(0, _args.length - 1);
 
       try {
         // Create combined parameters from options and arguments
@@ -194,7 +194,7 @@ export class CliCommandBridge {
         const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
         // Execute the command with parameters and context
-        const _result = await commandDef.execute(normalizedParams, _context);
+        const _result = await commandDef.execute(_normalizedParams, _context);
 
         // Handle output
         if (_options.outputFormatter) {
@@ -204,18 +204,18 @@ export class CliCommandBridge {
           // Use standard outputResult utility with JSON handling
           if (context.format === "json") {
             // For JSON output, bypass the default formatter and output JSON directly
-            outputResult(_result, {
+            outputResult(__result, {
               json: true,
             });
           } else {
             // Use default formatter for text output
-            outputResult(_result, {
+            outputResult(__result, {
               json: false,
               formatter: this.getDefaultFormatter(commandDef),
             });
           }
         }
-      } catch {
+      } catch (_error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);
       }
@@ -230,7 +230,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCategoryCommand(category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
+  generateCategoryCommand(_category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -289,7 +289,7 @@ export class CliCommandBridge {
         let parentCommand = commandGroups.get(parentName);
         if (!parentCommand) {
           parentCommand = new Command(parentName).description(`${parentName} commands`);
-          commandGroups.set(parentName, parentCommand);
+          commandGroups.set(_parentName, parentCommand);
           categoryCommand.addCommand(parentCommand);
         }
 
@@ -319,7 +319,7 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateAllCategoryCommands(_program: Command, context?: { viaFactory?: boolean }): void {
+  generateAllCategoryCommands(__program: Command, context?: { viaFactory?: boolean }): void {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -335,7 +335,7 @@ export class CliCommandBridge {
 
     // Generate commands for each category
     categories.forEach((category) => {
-      const categoryCommand = this.generateCategoryCommand(category, _context);
+      const categoryCommand = this.generateCategoryCommand(_category, _context);
       if (categoryCommand) {
         program.addCommand(categoryCommand);
       }
@@ -345,8 +345,7 @@ export class CliCommandBridge {
   /**
    * Create parameter mappings for a command
    */
-  private createCommandParameterMappings(
-    commandDef: SharedCommand,
+  private createCommandParameterMappings(_commandDef: SharedCommand,
     _options: CliCommandOptions
   ): ParameterMapping[] {
     const mappings = createParameterMappings(commandDef._parameters, _options.parameters || {});
@@ -368,8 +367,7 @@ export class CliCommandBridge {
   /**
    * Extract raw parameters from CLI options and arguments
    */
-  private extractRawParameters(
-    _parameters: Record<string, unknown>,
+  private extractRawParameters(__parameters: Record<string, unknown>,
     _options: Record<string, unknown>,
     positionalArgs: unknown[],
     mappings: ParameterMapping[]
@@ -399,7 +397,7 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (_result: unknown) => void {
+  private getDefaultFormatter(_commandDef: SharedCommand): (_result: unknown) => void {
     // Very simple default formatter
     return (_result: unknown) => {
       if (Array.isArray(_result)) {
@@ -495,7 +493,7 @@ export class CliCommandBridge {
   /**
    * Format session details for human-readable output
    */
-  private formatSessionDetails(_session: Record<string, unknown>): void {
+  private formatSessionDetails(__session: Record<string, unknown>): void {
     if (!session) return;
 
     // Display session information in a user-friendly format
@@ -514,7 +512,7 @@ export class CliCommandBridge {
   /**
    * Format session summary for list views
    */
-  private formatSessionSummary(_session: Record<string, unknown>): void {
+  private formatSessionSummary(__session: Record<string, unknown>): void {
     if (!session) return;
 
     const _sessionName = session.session || "unknown";
@@ -527,7 +525,7 @@ export class CliCommandBridge {
   /**
    * Format rule details for human-readable output
    */
-  private formatRuleDetails(rule: Record<string, unknown>): void {
+  private formatRuleDetails(_rule: Record<string, unknown>): void {
     if (!rule) return;
 
     // Display rule information in a user-friendly format
@@ -546,7 +544,7 @@ export class CliCommandBridge {
   /**
    * Format rule summary for list views
    */
-  private formatRuleSummary(rule: Record<string, unknown>): void {
+  private formatRuleSummary(_rule: Record<string, unknown>): void {
     if (!rule) return;
 
     const ruleId = rule.id || "unknown";
@@ -570,8 +568,7 @@ export const cliBridge = new CliCommandBridge();
  * @param categories Array of command categories to register
  * @param createSubcommands Whether to create category subcommands
  */
-export function registerCategorizedCliCommands(
-  _program: Command,
+export function registerCategorizedCliCommands(__program: Command,
   categories: CommandCategory[],
   createSubcommands: boolean = true
 ): void {

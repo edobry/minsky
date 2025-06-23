@@ -14,14 +14,13 @@ import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
  * Error class for network-related errors
  */
 export class NetworkError extends MinskyError {
-  constructor(
-    message: string,
+  constructor(_message: string,
     public readonly code?: string,
     public readonly port?: number,
     public readonly host?: string,
     cause?: unknown
   ) {
-    super(message, _cause);
+    super(_message, _cause);
   }
 }
 
@@ -29,7 +28,7 @@ export class NetworkError extends MinskyError {
  * Error class specifically for port-in-use (EADDRINUSE) errors
  */
 export class PortInUseError extends NetworkError {
-  constructor(port: number, host: string = "localhost", cause?: unknown) {
+  constructor(_port: number, host: string = "localhost", cause?: unknown) {
     super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, _cause);
   }
 
@@ -52,7 +51,7 @@ export class PortInUseError extends NetworkError {
  * Error class for permission-related network errors (EACCES)
  */
 export class NetworkPermissionError extends NetworkError {
-  constructor(port: number, host: string = "localhost", cause?: unknown) {
+  constructor(_port: number, host: string = "localhost", cause?: unknown) {
     super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, _cause);
   }
 
@@ -75,8 +74,7 @@ export class NetworkPermissionError extends NetworkError {
  * @param host The host that was being used
  * @returns A specialized network error
  */
-export function createNetworkError(
-  error: unknown,
+export function createNetworkError(_error: unknown,
   port: number,
   host: string = "localhost"
 ): NetworkError {
@@ -88,9 +86,9 @@ export function createNetworkError(
 
   switch (errorCode) {
   case "EADDRINUSE":
-    return new PortInUseError(port, host, originalError);
+    return new PortInUseError(_port, host, originalError);
   case "EACCES":
-    return new NetworkPermissionError(port, host, originalError);
+    return new NetworkPermissionError(_port, host, originalError);
   default:
     return new NetworkError(
       `Network error: ${originalError.message}`,
@@ -108,7 +106,7 @@ export function createNetworkError(
  * @param error The error to check
  * @returns Whether the error is a network error
  */
-export function isNetworkError(error: unknown): boolean {
+export function isNetworkError(_error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
   // Check for typical network error codes
@@ -131,7 +129,7 @@ export function isNetworkError(error: unknown): boolean {
  * @param debug Whether to include debug information
  * @returns A formatted error message
  */
-export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = false): string {
+export function formatNetworkErrorMessage(_error: NetworkError, debug: boolean = false): string {
   let message = `Error: ${error.message}\n`;
 
   // Add suggestions if available

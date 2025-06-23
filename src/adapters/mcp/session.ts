@@ -28,7 +28,7 @@ import {
 /**
  * Registers session tools with the MCP command mapper
  */
-export function registerSessionTools(commandMapper: CommandMapper): void {
+export function registerSessionTools(_commandMapper: CommandMapper): void {
   // Session list command
   commandMapper.addSessionCommand(
     "list",

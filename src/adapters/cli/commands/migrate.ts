@@ -47,7 +47,7 @@ export function createMigrateCommand(): Command {
 /**
  * Handle the migrate command execution
  */
-async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<void> {
+async function handleMigrateCommand(__options: MigrateCommandOptions): Promise<void> {
   try {
     // Parse status mapping
     const statusMapping: Record<string, string> = {};
@@ -108,8 +108,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
       createBackup: options.createBackup ?? true,
     };
 
-    const _result = await migrationUtils.migrateTasksBetweenBackends(
-      sourceBackendInstance,
+    const _result = await migrationUtils.migrateTasksBetweenBackends(_sourceBackendInstance,
       targetBackendInstance,
       migrationOptions
     );
@@ -129,7 +128,7 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
       throw new Error("Migration operation failed");
     }
 
-  } catch {
+  } catch (_error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.cliError(`Migration failed: ${errorMessage}`);
     throw new Error(errorMessage);
@@ -139,13 +138,13 @@ async function handleMigrateCommand(_options: MigrateCommandOptions): Promise<vo
 /**
  * Prompt user for confirmation
  */
-async function promptConfirmation(_message: string): Promise<boolean> {
+async function promptConfirmation(__message: string): Promise<boolean> {
   // Import prompts dynamically to avoid dependency issues
   try {
     const { confirm } = await import("@clack/prompts");
     const _result = await confirm({ message });
     return Boolean(_result);
-  } catch {
+  } catch (_error) {
     // Fallback - just log warning and proceed
     log.cliWarn("Interactive prompts not available. Proceeding with migration...");
     log.cli(`Confirmation requested: ${message}`);

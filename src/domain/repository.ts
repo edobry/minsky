@@ -165,7 +165,7 @@ export interface RepositoryBackend {
    * @param session Session identifier
    * @returns CloneResult with working directory information
    */
-  clone(_session: string): Promise<CloneResult>;
+  clone(__session: string): Promise<CloneResult>;
 
   /**
    * Get the status of the repository.
@@ -207,14 +207,14 @@ export interface RepositoryBackend {
    * @param name Branch name to create
    * @returns BranchResult with working directory and branch information
    */
-  branch(_session: string, name: string): Promise<BranchResult>;
+  branch(__session: string, name: string): Promise<BranchResult>;
 
   /**
    * Checkout an existing branch.
    * @param branch Branch name to checkout
    * @returns void
    */
-  checkout(_branch: string): Promise<void>;
+  checkout(__branch: string): Promise<void>;
 
   /**
    * Get the repository configuration.
@@ -234,8 +234,7 @@ export type RepositoryBackendConfig = RepositoryConfig;
  * @param config Repository configuration
  * @returns RepositoryBackend instance
  */
-export async function createRepositoryBackend(
-  _config: RepositoryConfig
+export async function createRepositoryBackend(__config: RepositoryConfig
 ): Promise<RepositoryBackend> {
   switch (config.type) {
   case RepositoryBackendType.LOCAL: {
@@ -278,7 +277,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(repoName, _session);
+        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
 
         const gitStatus = await gitService.getStatus(_workdir);
 
@@ -322,7 +321,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        return gitService.getSessionWorkdir(repoName, _session);
+        return gitService.getSessionWorkdir(_repoName, _session);
       },
 
       validate: async (): Promise<ValidationResult> => {
@@ -355,7 +354,7 @@ export async function createRepositoryBackend(
         }
 
         const _session = repoSession.session;
-        const _workdir = gitService.getSessionWorkdir(repoName, _session);
+        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
 
         await gitService.push({
           _session,
@@ -374,13 +373,13 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(repoName, repoSession._session);
+        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
         await gitService.pullLatest(_workdir);
       },
 
       branch: async (_session: string, name: string): Promise<BranchResult> => {
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(repoName, _session);
+        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
 
         // Execute branch creation via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -404,7 +403,7 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(repoName, repoSession._session);
+        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -443,8 +442,7 @@ export async function createRepositoryBackend(
  * @returns Resolved repository information
  * @throws ValidationError if repository cannot be resolved
  */
-export async function resolveRepository(
-  _options: RepositoryResolutionOptions = {}
+export async function resolveRepository(__options: RepositoryResolutionOptions = {}
 ): Promise<ResolvedRepository> {
   const { uri, _session, _taskId, autoDetect = true, cwd = getCurrentWorkingDirectory() } = options;
 
@@ -526,7 +524,7 @@ export async function resolveRepository(
       backendType,
       format: normalized.format,
     };
-  } catch {
+  } catch (_error) {
     if (error instanceof ValidationError) {
       throw error;
     }
@@ -538,7 +536,7 @@ export async function resolveRepository(
  * Deprecated: Use resolveRepository instead.
  * This is kept for backward compatibility.
  */
-export async function resolveRepoPath(_options: {
+export async function resolveRepoPath(__options: {
   session?: string;
   repo?: string;
 }): Promise<string> {
@@ -557,7 +555,7 @@ export async function resolveRepoPath(_options: {
       // For backward compatibility, return the URI for remote repositories
       return repository.uri;
     }
-  } catch {
+  } catch (_error) {
     throw new MinskyError(
       `Failed to resolve repository _path: ${error instanceof Error ? error.message : String(error)}`
     );

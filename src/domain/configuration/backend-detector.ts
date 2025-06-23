@@ -16,9 +16,9 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Detect the most appropriate backend based on detection rules
    */
-  async detectBackend(_workingDir: string, rules: DetectionRule[]): Promise<string> {
+  async detectBackend(__workingDir: string, rules: DetectionRule[]): Promise<string> {
     for (const rule of rules) {
-      const matches = await this.checkCondition(_workingDir, rule.condition);
+      const matches = await this.checkCondition(__workingDir, rule.condition);
       if (matches) {
         return rule.backend;
       }
@@ -31,24 +31,23 @@ export class DefaultBackendDetector implements BackendDetector {
   /**
    * Check if JSON file exists
    */
-  async jsonFileExists(_workingDir: string): Promise<boolean> {
-    const jsonFilePath = join(_workingDir, ".minsky", "tasks.json");
+  async jsonFileExists(__workingDir: string): Promise<boolean> {
+    const jsonFilePath = join(__workingDir, ".minsky", "tasks.json");
     return existsSync(jsonFilePath);
   }
 
   /**
    * Check if tasks.md file exists
    */
-  async tasksMdExists(_workingDir: string): Promise<boolean> {
-    const tasksMdPath = join(_workingDir, "process", "tasks.md");
+  async tasksMdExists(__workingDir: string): Promise<boolean> {
+    const tasksMdPath = join(__workingDir, "process", "tasks.md");
     return existsSync(tasksMdPath);
   }
 
   /**
    * Check a specific detection condition
    */
-  private async checkCondition(
-    _workingDir: string,
+  private async checkCondition(__workingDir: string,
     condition: "json_file_exists" | "tasks_md_exists" | "always"
   ): Promise<boolean> {
     switch (condition) {
@@ -64,7 +63,7 @@ export class DefaultBackendDetector implements BackendDetector {
   }
 
   // Legacy method - kept for backward compatibility but not used in new detection
-  async githubRemoteExists(_workingDir: string): Promise<boolean> {
+  async githubRemoteExists(__workingDir: string): Promise<boolean> {
     return false; // Disabled - GitHub Issues requires explicit configuration
   }
 }

@@ -33,7 +33,7 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(_error: unknown): never {
+export function handleCliError(__error: unknown): never {
   const normalizedError = ensureError(error);
 
   // In human mode, use programLogger for all user-facing errors
@@ -134,7 +134,7 @@ export function outputResult<T>(
       log.agent("Command result", { _result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(_result, null, 2));
+      log.cli(JSON.stringify(__result, null, 2));
     }
   } else if (_options.formatter) {
     options.formatter(_result);

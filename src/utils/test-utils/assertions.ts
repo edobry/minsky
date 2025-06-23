@@ -12,7 +12,7 @@ import { expect } from "bun:test";
  * @param value The string to test
  * @param pattern The regex pattern to match against
  */
-export function expectToMatch(value: string, pattern: RegExp): void {
+export function expectToMatch(_value: string, pattern: RegExp): void {
   const _result = value.match(pattern);
   expect(_result).toBeTruthy();
 }
@@ -22,7 +22,7 @@ export function expectToMatch(value: string, pattern: RegExp): void {
  * @param value The array or string to test
  * @param length The expected length
  */
-export function expectToHaveLength(value: unknown, length: number): void {
+export function expectToHaveLength(_value: unknown, length: number): void {
   expect(value.length).toBe(length);
 }
 
@@ -31,7 +31,7 @@ export function expectToHaveLength(value: unknown, length: number): void {
  * @param value The value to test
  * @param constructor The expected constructor
  */
-export function expectToBeInstanceOf(value: unknown, constructor: Function): void {
+export function expectToBeInstanceOf(_value: unknown, constructor: Function): void {
   expect(value instanceof constructor).toBeTruthy();
 }
 
@@ -39,7 +39,7 @@ export function expectToBeInstanceOf(value: unknown, constructor: Function): voi
  * Custom matcher to replicate Jest"s not.toBeNull functionality
  * @param value The value to test
  */
-export function expectToNotBeNull(value: unknown): void {
+export function expectToNotBeNull(_value: unknown): void {
   expect(value !== null).toBeTruthy();
 }
 
@@ -47,7 +47,7 @@ export function expectToNotBeNull(value: unknown): void {
  * Custom matcher to replicate Jest"s toHaveBeenCalled functionality
  * @param mockFn The mock function to check
  */
-export function expectToHaveBeenCalled(mockFn: { mock?: { calls: unknown[][] } }): void {
+export function expectToHaveBeenCalled(_mockFn: { mock?: { calls: unknown[][] } }): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 }
 
@@ -56,8 +56,7 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: unknown[][] } }
  * @param mockFn The mock function to check
  * @param expectedArgs The expected arguments
  */
-export function expectToHaveBeenCalledWith(
-  mockFn: { mock?: { calls: unknown[][] } },
+export function expectToHaveBeenCalledWith(_mockFn: { mock?: { calls: unknown[][] } },
   ...expectedArgs: unknown[]
 ): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
@@ -68,7 +67,7 @@ export function expectToHaveBeenCalledWith(
       try {
         expect(arg).toEqual(expectedArgs[index]);
         return true;
-      } catch {
+      } catch (_error) {
         return false;
       }
     });
@@ -84,8 +83,7 @@ export function expectToHaveBeenCalledWith(
  * @param argIndex The argument index (defaults to 0)
  * @returns The argument at the specified position
  */
-export function getMockCallArg(
-  mockFn: { mock?: { calls: unknown[][] } },
+export function getMockCallArg(_mockFn: { mock?: { calls: unknown[][] } },
   callIndex = 0,
   argIndex = 0
 ): unknown {
@@ -98,7 +96,7 @@ export function getMockCallArg(
  * @param propertyPath The path to the property (can be nested using dot notation)
  * @param value Optional expected value of the property
  */
-export function expectToHaveProperty(object: unknown, propertyPath: string, value?: any): void {
+export function expectToHaveProperty(_object: unknown, propertyPath: string, value?: any): void {
   const parts = propertyPath.split(".");
   let current = object;
 
@@ -120,7 +118,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
  * @param expected The expected value
  * @param precision The number of decimal places to check (default: 2)
  */
-export function expectToBeCloseTo(received: number, expected: number, precision: number = 2): void {
+export function expectToBeCloseTo(_received: number, expected: number, precision: number = 2): void {
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);
@@ -133,12 +131,12 @@ export function expectToBeCloseTo(received: number, expected: number, precision:
  * @param received The array to test
  * @param expected The item that should be found in the array
  */
-export function expectToContainEqual(received: unknown[], expected: any): void {
+export function expectToContainEqual(_received: unknown[], expected: any): void {
   const found = received.some((item) => {
     try {
       expect(item).toEqual(expected);
       return true;
-    } catch {
+    } catch (_error) {
       return false;
     }
   });
@@ -154,6 +152,6 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
 export function withEnhancedAssertions<T extends (..._args: unknown[]) => any>(testFn: T): T {
   return function (this: unknown, ..._args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
-    return testFn.apply(this, _args);
+    return testFn.apply(_this, _args);
   } as any;
 }

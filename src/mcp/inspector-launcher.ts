@@ -69,7 +69,7 @@ export function isInspectorAvailable(): boolean {
     // Try to resolve the inspector package
     require.resolve("@modelcontextprotocol/inspector");
     return true;
-  } catch {
+  } catch (_error) {
     return false;
   }
 }
@@ -79,7 +79,7 @@ export function isInspectorAvailable(): boolean {
  * @param options Inspector launch options
  * @returns Inspector launch result
  */
-export function launchInspector(_options: InspectorOptions): InspectorLaunchResult {
+export function launchInspector(__options: InspectorOptions): InspectorLaunchResult {
   const { port = INSPECTOR_PORT, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = _options;
 
   if (!isInspectorAvailable()) {
@@ -109,7 +109,7 @@ export function launchInspector(_options: InspectorOptions): InspectorLaunchResu
     log.debug("Launching MCP Inspector with arguments", { args });
 
     // Spawn the inspector process
-    const inspectorProcess = spawn("mcp-inspector", args, {
+    const inspectorProcess = spawn("mcp-inspector", _args, {
       stdio: ["ignore", "pipe", "pipe"],
       detached: false,
     });

@@ -31,7 +31,7 @@ export function createConfigListCommand(): Command {
         const _result = await configurationService.loadConfiguration(_workingDir);
         
         if (_options.json) {
-          log.debug(JSON.stringify(_result, null, 2));
+          log.debug(JSON.stringify(__result, null, 2));
         } else {
           displayConfigurationSources(result.sources);
           log.debug(`\n${  "=".repeat(SEPARATOR_LENGTH)}`);
@@ -39,14 +39,14 @@ export function createConfigListCommand(): Command {
           log.debug("=".repeat(SEPARATOR_LENGTH));
           displayResolvedConfiguration(result.resolved);
         }
-      } catch {
+      } catch (_error) {
         log.error("Failed to load configuration:", error);
         process.exit(1);
       }
     });
 }
 
-function displayConfigurationSources(_sources: ConfigurationSources) {
+function displayConfigurationSources(__sources: ConfigurationSources) {
   log.debug("CONFIGURATION SOURCES");
   log.debug("=".repeat(SEPARATOR_LENGTH));
 
@@ -111,7 +111,7 @@ function displayConfigurationSources(_sources: ConfigurationSources) {
   displayConfigSection(sources.defaults);
 }
 
-function displayResolvedConfiguration(_resolved: unknown) {
+function displayResolvedConfiguration(__resolved: unknown) {
   log.debug(`Backend: ${resolved.backend}`);
   
   if (Object.keys(resolved.backendConfig).length > 0) {
@@ -150,7 +150,7 @@ function displayResolvedConfiguration(_resolved: unknown) {
   }
 }
 
-function displayConfigSection(_config: unknown) {
+function displayConfigSection(__config: unknown) {
   if (!config || Object.keys(_config).length === 0) {
     log.debug("  (empty)");
     return;

@@ -61,7 +61,7 @@ export class TaskMigrationUtils {
   private readonly createBackup: boolean;
   private readonly preserveOriginal: boolean;
 
-  constructor(_config: MigrationConfig) {
+  constructor(__config: MigrationConfig) {
     this.workspacePath = config.workspacePath;
     this.targetDbPath =
       config.targetDbPath || join(getHomeDirectory(), ".local", "state", "minsky", "tasks.json");
@@ -81,7 +81,7 @@ export class TaskMigrationUtils {
       // Check if tasks.md exists
       try {
         await access(tasksFilePath);
-      } catch {
+      } catch (_error) {
         return {
           success: false,
           error: new Error(`tasks.md not found at ${tasksFilePath}`),
@@ -91,7 +91,7 @@ export class TaskMigrationUtils {
       }
 
       // Read and parse tasks.md
-      const _content = (await readFile(tasksFilePath, "utf8")) as string;
+      const _content = (await readFile(_tasksFilePath, "utf8")) as string;
       const _tasks = this.parseMarkdownTasks(_content);
 
       if (tasks.length === 0) {
@@ -107,7 +107,7 @@ export class TaskMigrationUtils {
       // Create backup if requested
       if (this.createBackup) {
         backupFile = `${tasksFilePath}.backup.${Date.now()}`;
-        await writeFile(backupFile, _content, "utf8");
+        await writeFile(_backupFile, _content, "utf8");
         log.debug(`Created backup at ${backupFile}`);
       }
 
@@ -135,7 +135,7 @@ export class TaskMigrationUtils {
       const existingTasks = stateResult.success && stateResult.data ? stateResult.data.tasks : [];
 
       // Merge with migrated tasks, avoiding duplicates
-      const mergedTasks = this.mergeTasks(existingTasks, _tasks);
+      const mergedTasks = this.mergeTasks(_existingTasks, _tasks);
 
       // Create new state
       const newState: TaskState = {
@@ -166,7 +166,7 @@ export class TaskMigrationUtils {
         newDbFile: this.targetDbPath,
         backupFile,
       };
-    } catch {
+    } catch (_error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Migration failed", { error: typedError.message });
 
@@ -221,11 +221,11 @@ export class TaskMigrationUtils {
       if (this.createBackup) {
         try {
           await access(tasksFilePath);
-          const existingContent = await readFile(tasksFilePath, "utf8");
+          const existingContent = await readFile(_tasksFilePath, "utf8");
           backupFile = `${tasksFilePath}.backup.${Date.now()}`;
-          await writeFile(backupFile, existingContent, "utf8");
+          await writeFile(_backupFile, existingContent, "utf8");
           log.debug(`Created backup at ${backupFile}`);
-        } catch {
+        } catch (_error) {
           // tasks.md doesn't exist, no backup needed
         }
       }
@@ -234,7 +234,7 @@ export class TaskMigrationUtils {
       const markdownContent = this.formatTasksToMarkdown(_tasks);
 
       // Write to tasks.md
-      await writeFile(tasksFilePath, markdownContent, "utf8");
+      await writeFile(_tasksFilePath, markdownContent, "utf8");
 
       log.debug(
         `Successfully migrated ${tasks.length} tasks from JSON database to ${tasksFilePath}`
@@ -247,7 +247,7 @@ export class TaskMigrationUtils {
         newDbFile: tasksFilePath,
         backupFile,
       };
-    } catch {
+    } catch (_error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Reverse migration failed", { error: typedError.message });
 
@@ -283,9 +283,9 @@ export class TaskMigrationUtils {
       // Read markdown tasks
       let markdownTasks: TaskData[] = [];
       try {
-        const _content = (await readFile(tasksFilePath, "utf8")) as string;
+        const _content = (await readFile(_tasksFilePath, "utf8")) as string;
         markdownTasks = this.parseMarkdownTasks(_content);
-      } catch {
+      } catch (_error) {
         // tasks.md doesn't exist or can't be read
       }
 
@@ -308,12 +308,12 @@ export class TaskMigrationUtils {
         if (stateResult.success && stateResult.data) {
           jsonTasks = stateResult.data.tasks;
         }
-      } catch {
+      } catch (_error) {
         // JSON database doesn't exist or can't be read
       }
 
       // Compare tasks
-      const differences = this.compareTasks(markdownTasks, jsonTasks);
+      const differences = this.compareTasks(_markdownTasks, jsonTasks);
 
       return {
         success: true,
@@ -321,7 +321,7 @@ export class TaskMigrationUtils {
         jsonTasks,
         differences,
       };
-    } catch {
+    } catch (_error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -345,7 +345,7 @@ export class TaskMigrationUtils {
    * @returns Array of task data
    * @private
    */
-  private parseMarkdownTasks(_content: string): TaskData[] {
+  private parseMarkdownTasks(__content: string): TaskData[] {
     const _tasks: TaskData[] = [];
     const lines = content.split("\n");
 
@@ -407,7 +407,7 @@ export class TaskMigrationUtils {
    * @returns Formatted markdown content
    * @private
    */
-  private formatTasksToMarkdown(_tasks: TaskData[]): string {
+  private formatTasksToMarkdown(__tasks: TaskData[]): string {
     const lines: string[] = [];
 
     // Add header
@@ -434,7 +434,7 @@ export class TaskMigrationUtils {
    * @returns Merged tasks array
    * @private
    */
-  private mergeTasks(existing: TaskData[], incoming: TaskData[]): TaskData[] {
+  private mergeTasks(_existing: TaskData[], incoming: TaskData[]): TaskData[] {
     const merged = [...existing];
     const existingIds = new Set(existing.map((t) => t.id));
 
@@ -454,7 +454,7 @@ export class TaskMigrationUtils {
    * @returns Comparison result
    * @private
    */
-  private compareTasks(markdownTasks: TaskData[], jsonTasks: TaskData[]) {
+  private compareTasks(_markdownTasks: TaskData[], jsonTasks: TaskData[]) {
     const markdownMap = new Map(markdownTasks.map((t) => [t.id, t]));
     const jsonMap = new Map(jsonTasks.map((t) => [t.id, t]));
 
@@ -469,7 +469,7 @@ export class TaskMigrationUtils {
       } else {
         // Check if they're different
         const jsonTask = jsonMap.get(task.id)!;
-        if (!this.tasksEqual(task, jsonTask)) {
+        if (!this.tasksEqual(_task, jsonTask)) {
           different.push({ _id: task.id, markdown: task, json: jsonTask });
         }
       }
@@ -496,7 +496,7 @@ export class TaskMigrationUtils {
    * @returns True if tasks are equal
    * @private
    */
-  private tasksEqual(task1:task2: TaskData): boolean {
+  private tasksEqual(task1: TaskData, task2: TaskData): boolean {
     return (
       task1.id === task2.id &&
       task1.title === task2.title &&
@@ -511,7 +511,7 @@ export class TaskMigrationUtils {
  * @param config Migration configuration
  * @returns TaskMigrationUtils instance
  */
-export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUtils {
+export function createMigrationUtils(__config: MigrationConfig): TaskMigrationUtils {
   return new TaskMigrationUtils(_config);
 }
 
@@ -521,8 +521,7 @@ export function createMigrationUtils(_config: MigrationConfig): TaskMigrationUti
  * @param options Migration options
  * @returns Promise resolving to migration result
  */
-export async function migrateWorkspaceToJson(
-  _workspacePath: string,
+export async function migrateWorkspaceToJson(__workspacePath: string,
   _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
@@ -538,8 +537,7 @@ export async function migrateWorkspaceToJson(
  * @param options Migration options
  * @returns Promise resolving to migration result
  */
-export async function migrateWorkspaceFromJson(
-  _workspacePath: string,
+export async function migrateWorkspaceFromJson(__workspacePath: string,
   _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({

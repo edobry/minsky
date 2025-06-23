@@ -117,22 +117,22 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a new implementation for the mock function.
    */
-  mockImplementation(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementation(_fn: (..._args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time implementation for the next call.
    */
-  mockImplementationOnce(_fn: unknown) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementationOnce(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets the return value for all calls to the mock function.
    */
-  mockReturnValue(value: TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockReturnValue(_value: TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time return value for the next call.
    */
-  mockReturnValueOnce(value: TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockReturnValueOnce(_value: TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a promise return value that resolves to the given value.
@@ -147,12 +147,12 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a promise return value that rejects with the given value.
    */
-  mockRejectedValue(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValue(_value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 
   /**
    * Sets a one-time promise return value that rejects with the given value.
    */
-  mockRejectedValueOnce(value: unknown): CompatMockFunction<Promise<never>, TArgs>;
+  mockRejectedValueOnce(_value: unknown): CompatMockFunction<Promise<never>, TArgs>;
 }
 
 // Global counter for tracking invocation order
@@ -221,7 +221,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
       });
 
       return result;
-    } catch {
+    } catch (_error) {
       // Track the error
       state.results.push({
         type: "throw",
@@ -236,7 +236,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
 
   // Instead of trying to modify Bun"s mock function directly (which may be read-only),
   // create a new function that delegates to it
-  const mockFn = function (..._args: Parameters<T>): ReturnType<T> {
+  const _mockFn = function (..._args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
     return implementationFn(..._args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
@@ -381,9 +381,9 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const mockFn = createCompatMock((..._args: unknown[]) => {
+  const _mockFn = createCompatMock((..._args: unknown[]) => {
     if (typeof original === \"function\") {
-      return (original as Function).apply(object, _args);
+      return (original as Function).apply(_object, _args);
     }
     return undefined;
   });

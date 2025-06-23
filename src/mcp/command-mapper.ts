@@ -7,7 +7,7 @@ import { log } from "../utils/logger";
 export class CommandMapper {
   private server: Server;
 
-  constructor(server: Server) {
+  constructor(_server: Server) {
     this.server = server;
   }
 
@@ -15,7 +15,7 @@ export class CommandMapper {
    * Add a command as an MCP tool
    * This is a simplified implementation for the migration
    */
-  addCommand(_command: {
+  addCommand(__command: {
     name: string;
     description: string;
     inputSchema?: unknown;

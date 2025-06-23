@@ -41,7 +41,7 @@ export interface OutputOptions {
 /**
  * Format and output command results
  */
-export function outputResult(_result: unknown, _options: OutputOptions = {}): void {
+export function outputResult(__result: unknown, _options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -49,7 +49,7 @@ export function outputResult(_result: unknown, _options: OutputOptions = {}): vo
   try {
     if (_options.json) {
       // JSON output
-      log.cli(JSON.stringify(_result, null, 2));
+      log.cli(JSON.stringify(__result, null, 2));
     } else if (_options.formatter) {
       // Custom formatter
       options.formatter(_result);
@@ -63,17 +63,17 @@ export function outputResult(_result: unknown, _options: OutputOptions = {}): vo
             if (typeof item === "string") {
               log.cli(item);
             } else {
-              log.cli(JSON.stringify(item, null, 2));
+              log.cli(JSON.stringify(_item, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(_result, null, 2));
+          log.cli(JSON.stringify(__result, null, 2));
         }
       } else {
         log.cli(String(_result));
       }
     }
-  } catch {
+  } catch (_error) {
     log.cliError("Failed to format output:", error);
     log.cli(String(_result));
   }
@@ -82,7 +82,7 @@ export function outputResult(_result: unknown, _options: OutputOptions = {}): vo
 /**
  * Handle CLI errors
  */
-export function handleCliError(_error: unknown, _options: { debug?: boolean } = {}): void {
+export function handleCliError(__error: unknown, _options: { debug?: boolean } = {}): void {
   const err = ensureError(error);
 
   if (_options.debug) {

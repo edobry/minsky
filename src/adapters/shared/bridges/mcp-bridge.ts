@@ -54,7 +54,7 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @param request The MCP command request.
  * @returns A promise that resolves to an MCP command response.
  */
-export async function executeMcpCommand(_request: McpCommandRequest): Promise<McpCommandResponse> {
+export async function executeMcpCommand(__request: McpCommandRequest): Promise<McpCommandResponse> {
   const commandDef = sharedCommandRegistry.getCommand(request.commandId);
 
   if (!commandDef) {
@@ -158,7 +158,7 @@ export async function executeMcpCommand(_request: McpCommandRequest): Promise<Mc
 
     // Optional: Log the error server-side using a dedicated MCP error logger if available
     // const mcpErrorLogger = getErrorHandler("mcp");
-    // mcpErrorLogger.logDetailedError(ensuredError, request); // Example method
+    // mcpErrorLogger.logDetailedError(_ensuredError, request); // Example method
 
     return {
       success: false,
@@ -170,7 +170,7 @@ export async function executeMcpCommand(_request: McpCommandRequest): Promise<Mc
 // Example of how this might be registered or used with an MCP server (e.g., FastMCP)
 // This is highly dependent on the MCP framework being used.
 /*
-export function registerMcpCommands(_mcpServer: FastMcpServer) {
+export function registerMcpCommands(__mcpServer: FastMcpServer) {
   const commands = sharedCommandRegistry.getAllCommands();
   commands.forEach(commandDef => {
     mcpServer.addCommandHandler(commandDef.id, async (_payload: unknown) => {

@@ -76,7 +76,7 @@ export function createMCPCommand(): Command {
             log.debug("Using repository path from _command line", {
               repositoryPath,
             });
-          } catch {
+          } catch (_error) {
             log.cliError(`Invalid repository _path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
@@ -176,7 +176,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch {
+      } catch (_error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: _options.httpStream ? "httpStream" : "stdio",
@@ -190,11 +190,11 @@ export function createMCPCommand(): Command {
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
           const port = parseInt(_options.port, 10);
-          const networkError = createNetworkError(error, port, _options.host);
+          const networkError = createNetworkError(_error, port, _options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions
-          log.cliError(formatNetworkErrorMessage(networkError, isDebug));
+          log.cliError(formatNetworkErrorMessage(_networkError, isDebug));
 
           // Only show stack trace in debug mode
           if (isDebug && error instanceof Error && error.stack) {

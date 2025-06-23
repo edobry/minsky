@@ -28,7 +28,7 @@ import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
 /**
  * Registers task tools with the MCP command mapper
  */
-export function registerTaskTools(commandMapper: CommandMapper): void {
+export function registerTaskTools(_commandMapper: CommandMapper): void {
   // Task list command
   commandMapper.addTaskCommand(
     "list",
