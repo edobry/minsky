@@ -650,7 +650,7 @@ export function createTestSuite() {
  * });
  * // Cleanup happens automatically after the test
  */
-export function withCleanup(___cleanupFn: unknown) => void | Promise<void>): void {
+export function withCleanup(cleanupFn: () => void | Promise<void>): void {
   if (!currentTestContext) {
     throw new Error(
       "withCleanup called outside of a test context. Make sure to call beforeEachTest in a beforeEach hook."

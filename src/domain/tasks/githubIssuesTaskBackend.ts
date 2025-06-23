@@ -395,11 +395,11 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
-  async fileExists(__path: string): Promise<boolean> {
+  async fileExists(_path: string): Promise<boolean> {
     try {
       // For GitHub backend, we check if an issue exists rather than local files
       return true; // Simplified for now
-    } catch (_error) {
+    } catch {
       return false;
     }
   }

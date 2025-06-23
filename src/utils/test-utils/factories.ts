@@ -187,7 +187,7 @@ export function createFieldData(_fieldName: string): unknown {
   case "active":
   case "enabled":
   case "visible":
-    return Math.random() > 0.TEST_ARRAY_SIZE;
+    return Math.random() > 0.5;
   case "count":
   case "age":
   case "quantity":
