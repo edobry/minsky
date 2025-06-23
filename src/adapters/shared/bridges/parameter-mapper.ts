@@ -8,6 +8,7 @@
 import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
+import { paramNameToFlag } from "../schema-bridge";
 
 /**
  * Configuration options for parameter mapping
@@ -124,8 +125,8 @@ function formatOptionFlag(name: string, alias?: string, schemaType?: string): st
     flag += `-${alias}, `;
   }
 
-  // Add main flag
-  flag += `--${name}`;
+  // Add main flag with kebab-case conversion
+  flag += `--${paramNameToFlag(name)}`;
 
   // Add value placeholder for non-boolean types
   if (schemaType !== "boolean") {
@@ -171,23 +172,23 @@ function addTypeHandlingToOption(
 
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-  case "number":
-    return option.argParser((value) => {
-      const num = Number(value);
-      if (isNaN(num)) {
-        throw new Error("Option requires a number value");
-      }
-      return num;
-    });
+    case "number":
+      return option.argParser((value) => {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error("Option requires a number value");
+        }
+        return num;
+      });
 
-  case "boolean":
-    return option;
+    case "boolean":
+      return option;
 
-  case "array":
-    return option.argParser((value) => value.split(",").map((v) => v.trim()));
+    case "array":
+      return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
-  default:
-    return option;
+    default:
+      return option;
   }
 }
 
