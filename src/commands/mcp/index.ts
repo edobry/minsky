@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
-import { DEFAULT_DEV_PORT } from "../utils/constants";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
@@ -10,7 +9,7 @@ import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
-import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+// import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import {
@@ -20,6 +19,7 @@ import {
 } from "../../errors/network-errors.js";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
+import { DEFAULT_DEV_PORT } from "../../utils/constants";
 
 const INSPECTOR_PORT = 3001;
 
@@ -41,15 +41,15 @@ export function createMCPCommand(): Command {
   startCommand
     .option("--stdio", "Use stdio transport (default)")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", "DEFAULT_DEV_PORT")
+    .option("-p, --port <port>", "Port for HTTP Stream server", DEFAULT_DEV_PORT.toString())
     .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", "INSPECTOR_PORT")
-    .action(async (_options) => {
+    .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
+    .action(async (options) => {
       try {
         // Determine transport type based on options
         let transportType: "stdio" | "sse" | "httpStream" = "stdio";
@@ -79,8 +79,8 @@ export function createMCPCommand(): Command {
             log.debug("Using repository path from _command line", {
               repositoryPath,
             });
-          } catch (_error) {
-            log.cliError(`Invalid repository _path: ${repositoryPath}`);
+          } catch (error) {
+            log.cliError(`Invalid repository path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
             }
@@ -125,7 +125,7 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        registerSessionWorkspaceTools(commandMapper);
+        // registerSessionWorkspaceTools(commandMapper);
         // registerSessionFileTools(commandMapper);
         // registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
