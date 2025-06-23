@@ -175,7 +175,14 @@ export class ConfigurationLoader {
 
       // Merge sessiondb config from repository
       if (repository.sessiondb) {
-        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repository.sessiondb);
+        // Convert repository sessiondb format to SessionDbConfig format
+        const repoSessionDb: Partial<SessionDbConfig> = {
+          backend: repository.sessiondb.backend,
+          dbPath: repository.sessiondb.sqlite?.path,
+          baseDir: repository.sessiondb.base_dir,
+          connectionString: repository.sessiondb.postgres?.connection_string,
+        };
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
       }
     }
 
