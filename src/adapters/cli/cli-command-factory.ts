@@ -371,57 +371,41 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 }
 
 function formatResolvedConfiguration(resolved: any): string {
-  let output = "📋 CURRENT MINSKY CONFIGURATION\n";
-  output += `${"─".repeat(50)}\n`;
+  let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  output += "\n📁 Task Storage";
-  output += `\n   Using: ${getBackendDisplayName(resolved.backend)}`;
+  output += `📁 Task Storage: ${getBackendDisplayName(resolved.backend)}`;
   if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
     const github = resolved.backendConfig["github-issues"];
-    output += `\n   Repository: ${github.owner}/${github.repo}`;
+    output += ` (${github.owner}/${github.repo})`;
   }
 
   // Authentication
   if (Object.keys(resolved.credentials).length > 0) {
-    output += "\n\n🔐 Authentication";
+    output += "\n🔐 Authentication: ";
+    const authServices = [];
     for (const [service, creds] of Object.entries(resolved.credentials)) {
       if (creds && typeof creds === "object") {
         const credsObj = creds as any;
         const serviceName = service === "github" ? "GitHub" : service;
-        output += `\n   ${serviceName}: ✅ Configured`;
-        if (credsObj.source) {
-          const sourceDisplay =
-            credsObj.source === "environment" ? "environment variable" : credsObj.source;
-          output += ` (from ${sourceDisplay})`;
-        }
+        const source = credsObj.source === "environment" ? "env" : credsObj.source;
+        authServices.push(`${serviceName} (${source})`);
       }
     }
+    output += authServices.join(", ");
   }
 
-  // Backend Detection
-  if (resolved.detectionRules && resolved.detectionRules.length > 0) {
-    output += "\n\n🔍 Backend Auto-Detection Rules";
-    output += "\n   Minsky will choose task backend based on:";
-    resolved.detectionRules.forEach((rule: any, index: number) => {
-      const condition = formatDetectionCondition(rule.condition);
-      const backend = getBackendDisplayName(rule.backend);
-      output += `\n   ${index + 1}. ${condition} → use ${backend}`;
-    });
-  }
-
-  // Session Database
+  // Session Storage
   if (resolved.sessiondb) {
-    output += "\n\n💾 Session Storage";
     const sessionBackend = resolved.sessiondb.backend || "json";
-    output += `\n   Type: ${getSessionBackendDisplayName(sessionBackend)}`;
+    output += `\n💾 Session Storage: ${getSessionBackendDisplayName(sessionBackend)}`;
 
     if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
-      output += `\n   Database: ${resolved.sessiondb.dbPath}`;
+      output += ` (${resolved.sessiondb.dbPath})`;
     } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
-      output += "\n   Database: PostgreSQL (configured)";
+      output += " (configured)";
     } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      output += `\n   Directory: ${resolved.sessiondb.baseDir}`;
+      output += ` (${resolved.sessiondb.baseDir})`;
     }
   }
 
