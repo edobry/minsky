@@ -1,0 +1,6 @@
+version: 1
+sessiondb:
+  backend: sqlite
+  sqlite:
+    path: /Users/edobry/.local/state/minsky/sessions.db
+  base_dir: /Users/edobry/.local/state/minsky/git

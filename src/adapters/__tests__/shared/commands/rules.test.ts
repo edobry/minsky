@@ -1,5 +1,3 @@
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-
 /**
  * Shared Rules Commands Tests
  * @migrated Migrated to native Bun patterns
@@ -20,11 +18,11 @@ import {
 
 // Define interfaces for mock object types
 interface MockRuleService {
-  listRules: (_options?: unknown) => Promise<any[]>;
-  getRule: (_id: unknown) => Promise<any>;
-  createRule: (_id: unknown) => Promise<any>;
-  updateRule: (_id: unknown) => Promise<any>;
-  searchRules: (_options?: unknown) => Promise<any[]>;
+  listRules: (options?: any) => Promise<any[]>;
+  getRule: (id: string, options?: any) => Promise<any>;
+  createRule: (id: string, content: string, meta: any, options?: any) => Promise<any>;
+  updateRule: (id: string, updates: any, options?: any) => Promise<any>;
+  searchRules: (options?: any) => Promise<any[]>;
 }
 
 describe("Shared Rules Commands", () => {
@@ -42,8 +40,8 @@ describe("Shared Rules Commands", () => {
   beforeEach(() => {
     // Mock rules helper functions with correct module path
     mock.module("../../../../utils/rules-helpers.js", () => ({
-      readContentFromFileIfExists: async (_path: unknown) => "# Rule Content from File",
-      parseGlobs: (_globs: unknown) => globs.split(",").map((g) => g.trim()),
+      readContentFromFileIfExists: async (path: string) => "# Rule Content from File",
+      parseGlobs: (globs: string) => globs.split(",").map((g) => g.trim()),
     }));
 
     // Set up spy for workspace path resolution
@@ -53,7 +51,7 @@ describe("Shared Rules Commands", () => {
 
     // Create mock object for methods
     mockRuleService = {
-      listRules: (_options?: unknown) =>
+      listRules: (_options?: any) =>
         Promise.resolve([
           {
             id: "test-rule-1",
@@ -76,13 +74,13 @@ describe("Shared Rules Commands", () => {
             tags: ["docs"],
           },
         ]),
-      getRule: (id: string, options?: any) =>
+      getRule: (id: string, _options?: any) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
           description: `Description for rule ${id}`,
           content: `# Content for rule ${id}`,
-          format: options?.format || "cursor",
+          format: _options?.format || "cursor",
           path: `/test/workspace/.cursor/rules/${id}.mdc`,
           globs: ["*.ts"],
           tags: ["test"],
@@ -109,7 +107,7 @@ describe("Shared Rules Commands", () => {
           globs: updates.meta?.globs || ["*.ts"],
           tags: updates.meta?.tags || ["test"],
         }),
-      searchRules: (options?: unknown) =>
+      searchRules: (options?: any) =>
         Promise.resolve([
           {
             id: "test-search-rule",
@@ -155,7 +153,7 @@ describe("Shared Rules Commands", () => {
 
     // Verify commands were registered
     const rulesCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.RULES);
-    expectToHaveLength(rulesCommands, TEST_ARRAY_SIZE);
+    expectToHaveLength(rulesCommands, 5);
 
     // Verify individual commands
     const expectedCommands = [
@@ -167,8 +165,8 @@ describe("Shared Rules Commands", () => {
     ];
 
     expectedCommands.forEach((cmdId) => {
-      const _command = sharedCommandRegistry.getCommand(cmdId);
-      expect(_command).toBeDefined();
+      const command = sharedCommandRegistry.getCommand(cmdId);
+      expect(command).toBeDefined();
       expect(command?.category).toBe(CommandCategory.RULES);
     });
   });
@@ -188,8 +186,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const _context = { interface: "test" };
-    const _result = await listCommand!.execute(params, _context);
+    const context = { interface: "test" };
+    const result = await listCommand!.execute(params, context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -224,8 +222,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const _context = { interface: "test" };
-    const _result = await getCommand!.execute(params, _context);
+    const context = { interface: "test" };
+    const result = await getCommand!.execute(params, context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -262,8 +260,8 @@ describe("Shared Rules Commands", () => {
       workspace: "/custom/workspace",
       json: true,
     };
-    const _context = { interface: "test" };
-    const _result = await createCommand!.execute(params, _context);
+    const context = { interface: "test" };
+    const result = await createCommand!.execute(params, context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -301,8 +299,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const _context = { interface: "test" };
-    const _result = await updateCommand!.execute(params, _context);
+    const context = { interface: "test" };
+    const result = await updateCommand!.execute(params, context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);
@@ -333,8 +331,8 @@ describe("Shared Rules Commands", () => {
       debug: true,
       json: true,
     };
-    const _context = { interface: "test" };
-    const _result = await searchCommand!.execute(params, _context);
+    const context = { interface: "test" };
+    const result = await searchCommand!.execute(params, context);
 
     // Verify workspace path resolution was called
     expectToHaveBeenCalled(resolveWorkspacePathSpy);

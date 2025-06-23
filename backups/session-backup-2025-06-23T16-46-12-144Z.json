@@ -1,0 +1,2119 @@
+{
+  "timestamp": "2025-06-23T16:46:12.144Z",
+  "version": "1.0",
+  "data": {
+    "sessions": [
+      {
+        "session": "task#002",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "task#002",
+        "createdAt": "2024-04-29T15:23:00.000Z",
+        "taskId": "#002",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#002"
+      },
+      {
+        "session": "004",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "004",
+        "createdAt": "2024-04-29T15:01:00.000Z",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/004"
+      },
+      {
+        "session": "task#001",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "task#001",
+        "createdAt": "2024-04-29T15:01:00.000Z",
+        "taskId": "#001",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#001"
+      },
+      {
+        "session": "task#011",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "task#011",
+        "createdAt": "2024-04-29T15:18:00.000Z",
+        "taskId": "#011",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#011"
+      },
+      {
+        "session": "task#008",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "task#008",
+        "createdAt": "2025-04-29T20:47:11.534Z",
+        "taskId": "#008",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#008"
+      },
+      {
+        "session": "task#015",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "task#015",
+        "createdAt": "2025-04-29T20:49:03.705Z",
+        "taskId": "#015",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#015"
+      },
+      {
+        "session": "task#016",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "task#016",
+        "createdAt": "2025-04-29T20:49:21.605Z",
+        "taskId": "#016",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#016"
+      },
+      {
+        "session": "test-session-ma3a3wge",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "test-session-ma3a3wge",
+        "createdAt": "2025-04-30T01:50:10.218Z",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/test-session-ma3a3wge"
+      },
+      {
+        "session": "task#012",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "branch": "task#012",
+        "createdAt": "2025-04-30T03:25:22.759Z",
+        "taskId": "#012",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#012"
+      },
+      {
+        "session": "test-dir-structure",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "test-dir-structure",
+        "createdAt": "2025-04-30T19:42:36.482Z",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/test-dir-structure"
+      },
+      {
+        "session": "test-new-structure",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "test-new-structure",
+        "createdAt": "2025-04-30T19:59:20.477Z",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/test-new-structure"
+      },
+      {
+        "session": "test-migrations",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "branch": "test-migrations",
+        "createdAt": "2025-04-30T19:59:47.511Z",
+        "repoName": "local/minsky"
+      },
+      {
+        "session": "session017",
+        "repoUrl": "file:///Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/session017",
+        "createdAt": "2025-04-30T20:09:05.821Z",
+        "branch": "session017"
+      },
+      {
+        "session": "test-task-002-validation",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-04-30T21:32:37.209Z",
+        "branch": "test-task-002-validation"
+      },
+      {
+        "session": "task#024",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T15:41:39.460Z",
+        "taskId": "#024",
+        "branch": "task#024"
+      },
+      {
+        "session": "task#022",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T15:41:59.213Z",
+        "taskId": "#022",
+        "branch": "task#022"
+      },
+      {
+        "session": "task#006",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T15:43:05.530Z",
+        "taskId": "#006",
+        "branch": "task#006"
+      },
+      {
+        "session": "task#023",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T15:49:03.020Z",
+        "taskId": "#023",
+        "branch": "task#023"
+      },
+      {
+        "session": "task#009",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T16:47:56.069Z",
+        "taskId": "#009",
+        "branch": "task#009"
+      },
+      {
+        "session": "task#026",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T17:04:48.958Z",
+        "taskId": "#026",
+        "branch": "task#026"
+      },
+      {
+        "session": "task#027",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T19:41:07.303Z",
+        "taskId": "#027",
+        "branch": "task#027"
+      },
+      {
+        "session": "task#014",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T20:32:32.547Z",
+        "taskId": "#014",
+        "branch": "task#014"
+      },
+      {
+        "session": "task#030",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T21:25:13.422Z",
+        "taskId": "#030",
+        "branch": "task#030"
+      },
+      {
+        "session": "task#003",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T21:26:18.247Z",
+        "taskId": "#003",
+        "branch": "task#003"
+      },
+      {
+        "session": "task#021",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-01T21:51:42.344Z",
+        "taskId": "#021",
+        "branch": "task#021"
+      },
+      {
+        "session": "027",
+        "repoUrl": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#027",
+        "repoName": "local/task#027",
+        "createdAt": "2025-05-02T18:54:51.254Z",
+        "branch": "027"
+      },
+      {
+        "session": "task#031",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-05T19:58:26.773Z",
+        "taskId": "#031",
+        "branch": "task#031"
+      },
+      {
+        "session": "task#036",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-05T20:08:22.011Z",
+        "taskId": "#036",
+        "branch": "task#036"
+      },
+      {
+        "session": "task#005",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-06T17:44:51.423Z",
+        "taskId": "#005",
+        "branch": "task#005"
+      },
+      {
+        "session": "task#035",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-06T18:57:28.817Z",
+        "taskId": "#035",
+        "branch": "task#035"
+      },
+      {
+        "session": "my-test-session",
+        "repoUrl": "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/task#036",
+        "repoName": "local/task#036",
+        "createdAt": "2025-05-06T20:32:55.035Z",
+        "branch": "my-test-session"
+      },
+      {
+        "session": "test-fixes",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-06T20:37:57.646Z",
+        "branch": "test-fixes"
+      },
+      {
+        "session": "037",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-08T17:17:41.204Z",
+        "branch": "037"
+      },
+      {
+        "session": "task#037",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-08T17:23:41.353Z",
+        "taskId": "#037",
+        "branch": "task#037"
+      },
+      {
+        "session": "task#040",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T13:34:09.027Z",
+        "taskId": "#040",
+        "branch": "task#040"
+      },
+      {
+        "session": "038",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T14:32:47.725Z",
+        "branch": "038"
+      },
+      {
+        "session": "task#038",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T14:57:56.096Z",
+        "taskId": "#038",
+        "branch": "task#038"
+      },
+      {
+        "session": "task#034",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T15:00:56.027Z",
+        "taskId": "#034",
+        "branch": "task#034"
+      },
+      {
+        "session": "task#028",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T15:05:18.536Z",
+        "taskId": "#028",
+        "branch": "task#028"
+      },
+      {
+        "session": "task#043",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T16:35:28.121Z",
+        "taskId": "#043",
+        "branch": "task#043"
+      },
+      {
+        "session": "task#044",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T16:38:26.617Z",
+        "taskId": "#044",
+        "branch": "task#044"
+      },
+      {
+        "session": "task#032",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-09T19:35:27.915Z",
+        "taskId": "#032",
+        "branch": "task#032"
+      },
+      {
+        "session": "task#050",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T18:48:36.150Z",
+        "taskId": "#050",
+        "branch": "task#050"
+      },
+      {
+        "session": "fix-tests-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T19:46:33.229Z",
+        "branch": "fix-tests-session"
+      },
+      {
+        "session": "task#039",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T20:05:56.919Z",
+        "taskId": "#039",
+        "branch": "task#039"
+      },
+      {
+        "session": "task#029",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T20:06:10.480Z",
+        "taskId": "#029",
+        "branch": "task#029"
+      },
+      {
+        "session": "task#053",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T20:08:19.226Z",
+        "taskId": "#053",
+        "branch": "task#053"
+      },
+      {
+        "session": "task#019",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T21:42:18.628Z",
+        "taskId": "#019",
+        "branch": "task#019"
+      },
+      {
+        "session": "task#047",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T22:04:59.320Z",
+        "taskId": "#047",
+        "branch": "task#047"
+      },
+      {
+        "session": "fix-rules-linting",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-10T22:17:40.249Z",
+        "branch": "fix-rules-linting"
+      },
+      {
+        "session": "task#048",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-12T20:19:15.830Z",
+        "taskId": "#048",
+        "branch": "task#048"
+      },
+      {
+        "session": "test-session-2",
+        "repoName": "test-repo",
+        "repoUrl": "https://github.com/test/repo",
+        "createdAt": "2025-05-16T02:17:41.246Z",
+        "taskId": "#002",
+        "branch": "test-session-2"
+      },
+      {
+        "session": "task#064",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-13T14:34:25.251Z",
+        "taskId": "#064",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#064"
+      },
+      {
+        "session": "task#069",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-13T16:27:15.352Z",
+        "taskId": "#069",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#069"
+      },
+      {
+        "session": "task#070",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-07T18:17:08.553Z",
+        "taskId": "#070",
+        "branch": "task#070"
+      },
+      {
+        "session": "task#072",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-13T16:57:49.239Z",
+        "taskId": "#072",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#072"
+      },
+      {
+        "session": "investigate-task-issue",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-13T22:00:15.824Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "investigate-task-issue"
+      },
+      {
+        "session": "task-071-tests",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-13T22:33:12.560Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task-071-tests"
+      },
+      {
+        "session": "git-pr-fixes",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-14T16:36:44.002Z",
+        "branch": "git-pr-fixes"
+      },
+      {
+        "session": "task#075",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-14T16:02:40.090Z",
+        "taskId": "#075",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#075"
+      },
+      {
+        "session": "task#071",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-14T16:03:33.238Z",
+        "taskId": "#071",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#071"
+      },
+      {
+        "session": "task#068",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-14T16:08:23.179Z",
+        "taskId": "#068",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#068"
+      },
+      {
+        "session": "065",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T20:03:24.314Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "065"
+      },
+      {
+        "session": "task#059",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T20:30:08.689Z",
+        "taskId": "#059",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#059"
+      },
+      {
+        "session": "task#067",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T20:44:34.577Z",
+        "taskId": "#067",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#067"
+      },
+      {
+        "session": "task#076",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T20:51:37.496Z",
+        "taskId": "#076",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#076"
+      },
+      {
+        "session": "task#077",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T20:59:51.827Z",
+        "taskId": "#077",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#077"
+      },
+      {
+        "session": "test-session-1",
+        "repoName": "test-repo",
+        "repoUrl": "https://github.com/test/repo",
+        "createdAt": "2025-05-16T02:17:41.248Z",
+        "taskId": "#001",
+        "branch": "test-session-1"
+      },
+      {
+        "session": "task#025",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-15T22:58:08.529Z",
+        "taskId": "#025",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "branch": "task#025"
+      },
+      {
+        "session": "fix-test-failures",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-15T23:23:03.123Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/Projects/minsky/local-minsky/sessions/fix-test-failures",
+        "branch": "fix-test-failures"
+      },
+      {
+        "session": "test-fix-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-15T23:23:07.984Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/Projects/minsky/local-minsky/sessions/test-fix-session",
+        "branch": "test-fix-session"
+      },
+      {
+        "session": "investigate-test-failures",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T01:53:53.968Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/Projects/minsky/local-minsky/sessions/investigate-test-failures",
+        "branch": "investigate-test-failures"
+      },
+      {
+        "session": "fix-session-bugs",
+        "repoUrl": ".",
+        "repoName": "local--",
+        "createdAt": "2025-05-16T15:58:00.001Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "local--/sessions/fix-session-bugs",
+        "branch": "fix-session-bugs"
+      },
+      {
+        "session": "fix-session-bugs-2",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T15:59:46.279Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/Projects/minsky/local-minsky/sessions/fix-session-bugs-2",
+        "branch": "fix-session-bugs-2"
+      },
+      {
+        "session": "test-session-location",
+        "repoName": "local/my-repo",
+        "repoUrl": "/tmp/my-repo",
+        "createdAt": "2025-05-16T16:05:10.116Z",
+        "repoPath": "/tmp/dummy-path",
+        "branch": "main"
+      },
+      {
+        "session": "test-fix",
+        "repoUrl": ".",
+        "repoName": "local--",
+        "createdAt": "2025-05-16T16:44:27.326Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "local--/sessions/test-fix",
+        "branch": "test-fix"
+      },
+      {
+        "session": "pr-fix-test",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:50:02.641Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/Projects/minsky/local-minsky/sessions/pr-fix-test",
+        "branch": "pr-fix-test"
+      },
+      {
+        "session": "pr-fix-test-2",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:51:08.112Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-2",
+        "branch": "pr-fix-test-2"
+      },
+      {
+        "session": "pr-fix-test-3",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:51:35.795Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-3",
+        "branch": "pr-fix-test-3"
+      },
+      {
+        "session": "pr-fix-test-4",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:55:29.920Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-4",
+        "branch": "pr-fix-test-4"
+      },
+      {
+        "session": "pr-fix-test-5",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:56:32.830Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-5",
+        "branch": "pr-fix-test-5"
+      },
+      {
+        "session": "fix-taskid-normalization-cli",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:57:04.838Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-taskid-normalization-cli",
+        "branch": "fix-taskid-normalization-cli"
+      },
+      {
+        "session": "pr-fix-test-6",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T16:57:18.630Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-6",
+        "branch": "pr-fix-test-6"
+      },
+      {
+        "session": "pr-fix-test-debug",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T17:03:39.609Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-debug",
+        "branch": "pr-fix-test-debug"
+      },
+      {
+        "session": "pr-fix-test-final",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T17:06:20.956Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-fix-test-final",
+        "branch": "pr-fix-test-final"
+      },
+      {
+        "session": "auto-detect-test",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T17:06:43.336Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/auto-detect-test",
+        "branch": "auto-detect-test"
+      },
+      {
+        "session": "fix-test-errors",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T18:00:10.097Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-test-errors",
+        "branch": "fix-test-errors"
+      },
+      {
+        "session": "task025",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T22:08:23.977Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task025",
+        "branch": "task025"
+      },
+      {
+        "session": "task#079",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-16T22:16:33.321Z",
+        "backendType": "local",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#079",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#079",
+        "branch": "task#079"
+      },
+      {
+        "session": "task#078",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T01:29:13.684Z",
+        "backendType": "local",
+        "branch": "task#078",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#078",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#078"
+      },
+      {
+        "session": "task#083",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T16:23:04.241Z",
+        "backendType": "local",
+        "branch": "task#083",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#083",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#083"
+      },
+      {
+        "session": "task#081",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T16:25:37.168Z",
+        "backendType": "local",
+        "branch": "task#081",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#081",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#081"
+      },
+      {
+        "session": "fix-rules-name-parameter",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T16:45:57.378Z",
+        "backendType": "local",
+        "branch": "fix-rules-name-parameter",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-rules-name-parameter"
+      },
+      {
+        "session": "task#085",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T20:02:21.226Z",
+        "backendType": "local",
+        "branch": "task#085",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#085",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#085"
+      },
+      {
+        "session": "task#84",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T20:08:51.212Z",
+        "backendType": "local",
+        "branch": "task#84",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#84",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#84"
+      },
+      {
+        "session": "test-approval-workflow",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T20:11:24.425Z",
+        "backendType": "local",
+        "branch": "test-approval-workflow",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-approval-workflow"
+      },
+      {
+        "session": "fix-merge-pr-function",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-17T20:38:03.738Z",
+        "backendType": "local",
+        "branch": "fix-merge-pr-function",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-merge-pr-function"
+      },
+      {
+        "session": "pr-merge-commit-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-18T22:18:35.478Z",
+        "backendType": "local",
+        "branch": "pr-merge-commit-fix",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/pr-merge-commit-fix"
+      },
+      {
+        "session": "task#080",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-18T23:13:45.029Z",
+        "backendType": "local",
+        "branch": "task#080",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#080",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#080"
+      },
+      {
+        "session": "test-pr-workflow",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-18T23:15:09.374Z",
+        "backendType": "local",
+        "branch": "test-pr-workflow",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-pr-workflow"
+      },
+      {
+        "session": "task#042",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T15:01:25.579Z",
+        "backendType": "local",
+        "branch": "task#042",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#042",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#042"
+      },
+      {
+        "session": "session-error-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T15:02:49.662Z",
+        "backendType": "local",
+        "branch": "session-error-fix",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/session-error-fix"
+      },
+      {
+        "session": "task#86",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T15:57:21.451Z",
+        "backendType": "local",
+        "branch": "task#86",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#86",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#86"
+      },
+      {
+        "session": "task#92",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T18:53:10.353Z",
+        "backendType": "local",
+        "branch": "task#92",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#92",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#92"
+      },
+      {
+        "session": "task#093",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T19:10:09.390Z",
+        "backendType": "local",
+        "branch": "task#093",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#093",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#093"
+      },
+      {
+        "session": "task#51",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T19:48:12.804Z",
+        "backendType": "local",
+        "branch": "task#51",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#51",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#51"
+      },
+      {
+        "session": "#87",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T19:49:06.048Z",
+        "backendType": "local",
+        "branch": "#87",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/#87"
+      },
+      {
+        "session": "task#87",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T19:49:19.614Z",
+        "backendType": "local",
+        "branch": "task#87",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#87",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#87"
+      },
+      {
+        "session": "task#52",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T19:49:51.136Z",
+        "backendType": "local",
+        "branch": "task#52",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#52",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#52"
+      },
+      {
+        "session": "task#88",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T20:39:12.205Z",
+        "backendType": "local",
+        "branch": "task#88",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#88",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#88"
+      },
+      {
+        "session": "investigate-session-issue",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T20:40:52.659Z",
+        "backendType": "local",
+        "branch": "investigate-session-issue",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/investigate-session-issue"
+      },
+      {
+        "session": "task#100",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T20:42:06.993Z",
+        "backendType": "local",
+        "branch": "task#100",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#100",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#100"
+      },
+      {
+        "session": "task#89",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T20:43:46.169Z",
+        "backendType": "local",
+        "branch": "task#89",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#89",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#89"
+      },
+      {
+        "session": "#99",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:05:36.201Z",
+        "backendType": "local",
+        "branch": "#99",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/#99"
+      },
+      {
+        "session": "99",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:05:44.133Z",
+        "backendType": "local",
+        "branch": "99",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/99"
+      },
+      {
+        "session": "task#99",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:05:50.841Z",
+        "backendType": "local",
+        "branch": "task#99",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "taskId": "#99",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#99"
+      },
+      {
+        "session": "test-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:07:12.394Z",
+        "backendType": "local",
+        "branch": "test-session",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-session"
+      },
+      {
+        "session": "new-session-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:08:24.998Z",
+        "backendType": "local",
+        "branch": "new-session-fix",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/new-session-fix"
+      },
+      {
+        "session": "test-fix-session2",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:10:04.610Z",
+        "backendType": "local",
+        "branch": "test-fix-session2",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-fix-session2"
+      },
+      {
+        "session": "new-test-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:28:33.448Z",
+        "backendType": "local",
+        "branch": "new-test-session",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/new-test-session"
+      },
+      {
+        "session": "new-debug-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:29:08.708Z",
+        "backendType": "local",
+        "branch": "new-debug-session",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/new-debug-session"
+      },
+      {
+        "session": "debug-session-final",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local-minsky",
+        "createdAt": "2025-05-19T21:30:08.888Z",
+        "backendType": "local",
+        "branch": "debug-session-final",
+        "remote": {
+          "authMethod": "ssh",
+          "depth": 1
+        },
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/debug-session-final"
+      },
+      {
+        "session": "final-test-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-19T21:32:48.374Z"
+      },
+      {
+        "session": "test-fix-session2022",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T16:31:51.554Z"
+      },
+      {
+        "session": "fix-test-failures-x78f2",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T16:32:48.265Z"
+      },
+      {
+        "session": "task-96",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T18:20:52.175Z"
+      },
+      {
+        "session": "task#101",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T20:48:51.744Z",
+        "taskId": "#101"
+      },
+      {
+        "session": "105",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:18:49.479Z"
+      },
+      {
+        "session": "task#102",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:28:51.260Z",
+        "taskId": "#102"
+      },
+      {
+        "session": "task#98",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:31:44.637Z",
+        "taskId": "#98",
+        "branch": "task#98"
+      },
+      {
+        "session": "test-branch-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:32:09.053Z",
+        "branch": "test-branch-fix"
+      },
+      {
+        "session": "task#103",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:32:14.818Z",
+        "taskId": "#103",
+        "branch": "task#103"
+      },
+      {
+        "session": "98",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:41:58.468Z",
+        "branch": "98"
+      },
+      {
+        "session": "102",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-20T23:43:16.631Z",
+        "branch": "102"
+      },
+      {
+        "session": "106",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:34:59.304Z",
+        "branch": "106"
+      },
+      {
+        "session": "task#106",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:36:42.309Z",
+        "taskId": "#106",
+        "branch": "task#106"
+      },
+      {
+        "session": "test-fix-session3",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:46:53.752Z",
+        "branch": "test-fix-session3"
+      },
+      {
+        "session": "test-fix-session4",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:47:52.373Z",
+        "branch": "test-fix-session4",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-fix-session4"
+      },
+      {
+        "session": "test-fix-session9",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:49:51.683Z",
+        "branch": "test-fix-session9",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-fix-session9"
+      },
+      {
+        "session": "107",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:52:23.316Z",
+        "branch": "107",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/107"
+      },
+      {
+        "session": "task#108",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:52:43.409Z",
+        "taskId": "#108",
+        "branch": "task#108",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#108"
+      },
+      {
+        "session": "task#107",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T01:55:08.046Z",
+        "branch": "task#107"
+      },
+      {
+        "session": "108",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T02:00:47.198Z",
+        "branch": "108",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/108"
+      },
+      {
+        "session": "103",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T03:42:56.979Z",
+        "branch": "103",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/103"
+      },
+      {
+        "session": "task#109",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T04:41:28.903Z",
+        "taskId": "#109",
+        "branch": "task#109",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#109"
+      },
+      {
+        "session": "fix-failing-tests",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T14:32:59.155Z",
+        "branch": "fix-failing-tests",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-failing-tests"
+      },
+      {
+        "session": "097",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T15:03:18.388Z",
+        "branch": "097",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/097"
+      },
+      {
+        "session": "task#104",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T15:23:21.493Z",
+        "taskId": "#104",
+        "branch": "task#104",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#104"
+      },
+      {
+        "session": "task#110",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T15:26:56.537Z",
+        "taskId": "#110",
+        "branch": "task#110",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#110"
+      },
+      {
+        "session": "test-mcp-session-1",
+        "repoUrl": "minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T16:14:10.728Z",
+        "branch": "test-mcp-session-1",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-mcp-session-1"
+      },
+      {
+        "session": "test-mcp-session-2",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T16:14:36.248Z",
+        "branch": "test-mcp-session-2",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-mcp-session-2"
+      },
+      {
+        "session": "task#111",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T16:32:51.072Z",
+        "taskId": "#111",
+        "branch": "task#111",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#111"
+      },
+      {
+        "session": "task#121",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:15:42.803Z",
+        "taskId": "#121",
+        "branch": "task#121",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#121"
+      },
+      {
+        "session": "task#123",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:20:48.924Z",
+        "taskId": "#123",
+        "branch": "task#123",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#123"
+      },
+      {
+        "session": "task122-improve-mcp-error-handling",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:21:59.456Z",
+        "taskId": "#122",
+        "branch": "task122-improve-mcp-error-handling",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task122-improve-mcp-error-handling"
+      },
+      {
+        "session": "mcp-test-session",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:25:28.740Z",
+        "branch": "mcp-test-session",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/mcp-test-session"
+      },
+      {
+        "session": "task#112",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:34:51.301Z",
+        "taskId": "#112",
+        "branch": "task#112",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#112"
+      },
+      {
+        "session": "mcp-tools-investigation",
+        "repoUrl": "/",
+        "repoName": "local/",
+        "createdAt": "2025-05-21T17:52:57.052Z",
+        "branch": "mcp-tools-investigation",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-/sessions/mcp-tools-investigation"
+      },
+      {
+        "session": "task#113",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T17:55:47.821Z",
+        "taskId": "#113",
+        "branch": "task#113",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#113"
+      },
+      {
+        "session": "task#120",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:06:40.395Z",
+        "taskId": "#120",
+        "branch": "task#120",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#120"
+      },
+      {
+        "session": "task#125",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:07:40.917Z",
+        "taskId": "#125",
+        "branch": "task#125",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#125"
+      },
+      {
+        "session": "task#124",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:16:37.216Z",
+        "taskId": "#124",
+        "branch": "task#124",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#124"
+      },
+      {
+        "session": "119",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:17:35.478Z",
+        "branch": "119",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/119"
+      },
+      {
+        "session": "117",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:19:43.064Z",
+        "branch": "117",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/117"
+      },
+      {
+        "session": "task#118",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:34:14.005Z",
+        "taskId": "#118",
+        "branch": "task#118",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#118"
+      },
+      {
+        "session": "task#126",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T18:50:37.379Z",
+        "taskId": "#126",
+        "branch": "task#126",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#126"
+      },
+      {
+        "session": "114",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T19:11:15.253Z",
+        "branch": "114",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/114"
+      },
+      {
+        "session": "127",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T19:18:36.135Z",
+        "branch": "127",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/127"
+      },
+      {
+        "session": "task#074",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-21T19:33:55.800Z",
+        "taskId": "#074",
+        "branch": "task#074",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#074"
+      },
+      {
+        "session": "task#97",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-22T00:10:15.950Z",
+        "taskId": "#97",
+        "branch": "task#97",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#97"
+      },
+      {
+        "session": "129",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-22T15:55:53.038Z",
+        "branch": "129",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/129"
+      },
+      {
+        "session": "task#130",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T04:40:53.396Z",
+        "taskId": "#130",
+        "branch": "task#130",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#130"
+      },
+      {
+        "session": "task#115",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T17:07:53.674Z",
+        "taskId": "#115",
+        "branch": "task#115",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#115"
+      },
+      {
+        "session": "task#131",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T19:00:12.223Z",
+        "taskId": "#131",
+        "branch": "task#131",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#131"
+      },
+      {
+        "session": "task#132",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T19:10:53.068Z",
+        "taskId": "#132",
+        "branch": "task#132",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#132"
+      },
+      {
+        "session": "task#010",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T19:16:22.474Z",
+        "taskId": "#010",
+        "branch": "task#010",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#010"
+      },
+      {
+        "session": "task-134-test-fixes",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T19:49:35.265Z",
+        "branch": "task-134-test-fixes",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task-134-test-fixes"
+      },
+      {
+        "session": "task#133",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T19:53:06.950Z",
+        "taskId": "#133",
+        "branch": "task#133",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#133"
+      },
+      {
+        "session": "task#135",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:12:52.841Z",
+        "taskId": "#135",
+        "branch": "task#135",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#135"
+      },
+      {
+        "session": "task#134",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:16:03.070Z",
+        "taskId": "#134",
+        "branch": "task#134",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#134"
+      },
+      {
+        "session": "test-success-issue",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:18:54.511Z",
+        "taskId": "999",
+        "branch": "test-success-issue",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-success-issue"
+      },
+      {
+        "session": "test-success-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:19:25.757Z",
+        "taskId": "998",
+        "branch": "test-success-fix",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-success-fix"
+      },
+      {
+        "session": "test-final-fix",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:19:47.761Z",
+        "taskId": "997",
+        "branch": "test-final-fix",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-final-fix"
+      },
+      {
+        "session": "fix-task-status-errors",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:47:00.828Z",
+        "taskId": "136",
+        "branch": "fix-task-status-errors",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-task-status-errors"
+      },
+      {
+        "session": "task#116",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-05-23T21:59:16.689Z",
+        "taskId": "#116",
+        "branch": "task#116",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#116"
+      },
+      {
+        "session": "task#138",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T22:56:12.583Z",
+        "taskId": "#138",
+        "branch": "task#138",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#138"
+      },
+      {
+        "session": "task#139",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T22:56:39.893Z",
+        "taskId": "#139",
+        "branch": "task#139",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#139"
+      },
+      {
+        "session": "task#049",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:23:00.610Z",
+        "taskId": "#049",
+        "branch": "task#049",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#049"
+      },
+      {
+        "session": "task#140",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:29:07.716Z",
+        "taskId": "#140",
+        "branch": "task#140",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#140"
+      },
+      {
+        "session": "task#141",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:29:15.772Z",
+        "taskId": "#141",
+        "branch": "task#141",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#141"
+      },
+      {
+        "session": "#142",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:32:23.528Z",
+        "branch": "#142",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/#142"
+      },
+      {
+        "session": "142",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:32:32.152Z",
+        "branch": "142",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/142"
+      },
+      {
+        "session": "task#142",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:33:27.057Z",
+        "taskId": "#142",
+        "branch": "task#142",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#142"
+      },
+      {
+        "session": "test-session-only",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:33:43.235Z",
+        "branch": "test-session-only",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-session-only"
+      },
+      {
+        "session": "test-with-task",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-17T23:34:11.923Z",
+        "taskId": "143",
+        "branch": "test-with-task",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/test-with-task"
+      },
+      {
+        "session": "investigate-git-pr-error",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-18T22:21:10.698Z",
+        "branch": "investigate-git-pr-error",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/investigate-git-pr-error"
+      },
+      {
+        "session": "task#144",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-18T22:55:30.210Z",
+        "taskId": "#144",
+        "branch": "task#144",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#144"
+      },
+      {
+        "session": "task#128",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-18T23:48:17.741Z",
+        "taskId": "#128",
+        "branch": "task#128",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#128"
+      },
+      {
+        "session": "task#146",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T00:59:55.759Z",
+        "taskId": "#146",
+        "branch": "task#146",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#146"
+      },
+      {
+        "session": "136",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T16:55:11.723Z",
+        "branch": "136",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/136"
+      },
+      {
+        "session": "task#147",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T18:56:16.575Z",
+        "taskId": "#147",
+        "branch": "task#147",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#147"
+      },
+      {
+        "session": "task#148",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T19:34:26.890Z",
+        "taskId": "#148",
+        "branch": "task#148",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#148"
+      },
+      {
+        "session": "task#149",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T20:54:00.178Z",
+        "taskId": "#149",
+        "branch": "task#149",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#149"
+      },
+      {
+        "session": "task#151",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T21:20:02.151Z",
+        "taskId": "#151",
+        "branch": "task#151",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#151"
+      },
+      {
+        "session": "150",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T21:42:45.304Z",
+        "branch": "150",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/150"
+      },
+      {
+        "session": "task#152",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T22:25:16.921Z",
+        "taskId": "#152",
+        "branch": "task#152",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#152"
+      },
+      {
+        "session": "task#153",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T22:27:29.791Z",
+        "taskId": "#153",
+        "branch": "task#153",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#153"
+      },
+      {
+        "session": "141",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-19T23:04:58.548Z",
+        "branch": "141",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/141"
+      },
+      {
+        "session": "task#154",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-20T03:33:28.378Z",
+        "taskId": "#154",
+        "branch": "task#154",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#154"
+      },
+      {
+        "session": "session-dir-positional-args",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-20T17:03:11.790Z",
+        "branch": "session-dir-positional-args",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/session-dir-positional-args"
+      },
+      {
+        "session": "task#155",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-20T17:34:18.046Z",
+        "taskId": "#155",
+        "branch": "task#155",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#155"
+      },
+      {
+        "session": "fix-getTaskStatusFromParams-null-bug",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-20T18:37:57.889Z",
+        "branch": "fix-getTaskStatusFromParams-null-bug",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/fix-getTaskStatusFromParams-null-bug"
+      },
+      {
+        "session": "091",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-21T19:27:47.901Z",
+        "branch": "091",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/091"
+      },
+      {
+        "session": "task#091",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-21T19:28:01.662Z",
+        "taskId": "#091",
+        "branch": "task#091",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#091"
+      },
+      {
+        "session": "157",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-21T21:22:40.896Z",
+        "branch": "157",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/157"
+      },
+      {
+        "session": "task#157",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-22T20:47:42.862Z",
+        "taskId": "#157",
+        "branch": "task#157",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#157"
+      },
+      {
+        "session": "158",
+        "repoUrl": "/Users/edobry/Projects/minsky",
+        "repoName": "local/minsky",
+        "createdAt": "2025-06-22T22:31:18.697Z",
+        "branch": "158",
+        "repoPath": "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/158"
+      }
+    ],
+    "baseDir": "/Users/edobry/.local/state/git"
+  }
+}

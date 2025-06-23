@@ -1,5 +1,3 @@
-const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
-
 /**
  * minsky config show command
  * 
@@ -8,8 +6,6 @@ const DEFAULT_DISPLAY_LENGTH = DEFAULT_DISPLAY_LENGTH;
 
 import { Command } from "commander";
 import { configurationService } from "../../domain/configuration";
-
-const SHOW_SEPARATOR_LENGTH = 40;
 
 interface ShowOptions {
   json?: boolean;
@@ -21,26 +17,26 @@ export function createConfigShowCommand(): Command {
     .description("Show the final resolved configuration")
     .option("--json", "Output in JSON format", false)
     .option("--working-dir <dir>", "Working directory", process.cwd())
-    .action(async (_options: unknown) => {
+    .action(async (options: ShowOptions) => {
       try {
-        const _workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(_workingDir);
+        const workingDir = options.workingDir || process.cwd();
+        const result = await configurationService.loadConfiguration(workingDir);
         
         if (options.json) {
           process.stdout.write(`${JSON.stringify(result.resolved, null, 2)  }\n`);
         } else {
           displayResolvedConfiguration(result.resolved);
         }
-      } catch (_error) {
+      } catch (error) {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
         process.exit(1);
       }
     });
 }
 
-function displayResolvedConfiguration(__resolved: unknown) {
+function displayResolvedConfiguration(resolved: any) {
   process.stdout.write("RESOLVED CONFIGURATION\n");
-  process.stdout.write(`${"=".repeat(SHOW_SEPARATOR_LENGTH)  }\n`);
+  process.stdout.write(`${"=".repeat(40)  }\n`);
   
   process.stdout.write(`Backend: ${resolved.backend}\n`);
   
@@ -66,7 +62,7 @@ function displayResolvedConfiguration(__resolved: unknown) {
           process.stdout.write(`    Source: ${credsObj.source}\n`);
         }
         if (credsObj.token) {
-          process.stdout.write(`    Token: ${"*".repeat(DEFAULT_DISPLAY_LENGTH)} (hidden)\n`);
+          process.stdout.write(`    Token: ${"*".repeat(20)} (hidden)\n`);
         }
       }
     }
@@ -74,7 +70,7 @@ function displayResolvedConfiguration(__resolved: unknown) {
 
   if (resolved.detectionRules && resolved.detectionRules.length > 0) {
     process.stdout.write("\nDetection Rules:\n");
-    resolved.detectionRules.forEach((_rule: unknown) => {
+    resolved.detectionRules.forEach((rule: any, index: number) => {
       process.stdout.write(`  ${index + 1}. ${rule.condition} → ${rule.backend}\n`);
     });
   }

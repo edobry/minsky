@@ -1,15 +1,13 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "../utils/logger.js";
 
-const INSPECTOR_PORT = INSPECTOR_PORT;
-
 /**
  * Configuration options for the MCP Inspector
  */
 export interface InspectorOptions {
   /**
    * Port for the inspector to listen on
-   * @default INSPECTOR_PORT
+   * @default 6274
    */
   port?: number;
 
@@ -66,10 +64,13 @@ export interface InspectorLaunchResult {
  */
 export function isInspectorAvailable(): boolean {
   try {
-    // Try to resolve the inspector package
-    require.resolve("@modelcontextprotocol/inspector");
-    return true;
-  } catch (_error) {
+    // Check if the binary exists in node_modules/.bin
+    const { existsSync } = require("fs");
+    const { join } = require("path");
+
+    const binPath = join(process.cwd(), "node_modules", ".bin", "mcp-inspector");
+    return existsSync(binPath);
+  } catch (error) {
     return false;
   }
 }
@@ -79,8 +80,8 @@ export function isInspectorAvailable(): boolean {
  * @param options Inspector launch options
  * @returns Inspector launch result
  */
-export function launchInspector(__options: InspectorOptions): InspectorLaunchResult {
-  const { port = INSPECTOR_PORT, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
+export function launchInspector(options: InspectorOptions): InspectorLaunchResult {
+  const { port = 6274, openBrowser = true, mcpTransportType, mcpPort, mcpHost } = options;
 
   if (!isInspectorAvailable()) {
     return {
@@ -91,28 +92,41 @@ export function launchInspector(__options: InspectorOptions): InspectorLaunchRes
   }
 
   try {
-    // Prepare arguments for the inspector
-    const args = ["--port", port.toString()];
+    // For the new MCP inspector, we use the client start script
+    // and configure it to connect to our existing server
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      CLIENT_PORT: port.toString(),
+      SERVER_PORT: (port + 3).toString(), // Use a different port for the inspector server
+    };
 
-    // Set open browser flag
+    // Configure auto-open based on openBrowser option
     if (!openBrowser) {
-      args.push("--no-open");
+      env.MCP_AUTO_OPEN_ENABLED = "false";
     }
 
-    // Configure MCP server connection based on transport type
-    if (mcpTransportType === "stdio") {
-      args.push("--stdio");
-    } else if (mcpTransportType === "httpStream" && mcpPort) {
-      args.push("--sse", `${mcpHost || "localhost"}:${mcpPort}`);
-    }
+    // For security, we'll need to set this for auto-open to work
+    env.DANGEROUSLY_OMIT_AUTH = "true";
 
-    log.debug("Launching MCP Inspector with arguments", { args });
-
-    // Spawn the inspector process
-    const inspectorProcess = spawn("mcp-inspector", _args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: false,
+    log.debug("Launching MCP Inspector", {
+      clientPort: port,
+      serverPort: port + 3,
+      openBrowser,
+      mcpTransportType,
+      mcpPort,
+      mcpHost,
     });
+
+    // Use the client start script directly
+    const inspectorProcess = spawn(
+      "node",
+      ["node_modules/@modelcontextprotocol/inspector/client/bin/start.js"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: false,
+        env,
+      }
+    );
 
     // Check for immediate launch errors
     if (!inspectorProcess.pid) {

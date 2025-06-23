@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-const COMMIT_HASH_SHORT_LENGTH = 8;
-
 /**
  * Task Title Migration Script
  * 
@@ -15,7 +13,6 @@ const COMMIT_HASH_SHORT_LENGTH = 8;
 import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
-import { log } from "../utils/logger.js";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -48,16 +45,16 @@ export class TaskTitleMigration {
   private workspacePath: string;
   private backupTimestamp: string;
 
-  constructor(__workspacePath: string = process.cwd()) {
-    this.workspacePath = resolve(_workspacePath);
+  constructor(workspacePath: string = process.cwd()) {
+    this.workspacePath = resolve(workspacePath);
     this.backupTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
   }
 
   /**
    * Migrate all task specification files
    */
-  async migrateAllTasks(__options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
-    const _result: MigrationResult = {
+  async migrateAllTasks(options: MigrationOptions = { dryRun: false, backup: true, verbose: false }): Promise<MigrationResult> {
+    const result: MigrationResult = {
       success: false,
       totalFiles: 0,
       modifiedFiles: 0,
@@ -68,16 +65,16 @@ export class TaskTitleMigration {
 
     try {
       if (options.verbose) {
-        log.debug("Starting task title migration...");
-        log.debug(`Workspace: ${this.workspacePath}`);
-        log.debug("Options:", _options);
+        console.log("Starting task title migration...");
+        console.log(`Workspace: ${this.workspacePath}`);
+        console.log("Options:", options);
       }
 
       // Create backup if requested
       if (options.backup && !options.dryRun) {
         result.backupPath = await this.createBackup();
         if (options.verbose) {
-          log.debug(`Created backup at: ${result.backupPath}`);
+          console.log(`Created backup at: ${result.backupPath}`);
         }
       }
 
@@ -86,12 +83,12 @@ export class TaskTitleMigration {
       result.totalFiles = taskFiles.length;
 
       if (options.verbose) {
-        log.debug(`Found ${taskFiles.length} task specification files`);
+        console.log(`Found ${taskFiles.length} task specification files`);
       }
 
       // Migrate each file
       for (const filePath of taskFiles) {
-        const migrationResult = await this.migrateTask(_filePath, options.dryRun);
+        const migrationResult = await this.migrateTask(filePath, options.dryRun);
         result.results.push(migrationResult);
 
         if (migrationResult.success && migrationResult.wasModified) {
@@ -103,8 +100,8 @@ export class TaskTitleMigration {
         }
 
         if (options.verbose && migrationResult.wasModified) {
-          const _status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
-          log.debug(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
+          const status = options.dryRun ? "[DRY RUN]" : "[MIGRATED]";
+          console.log(`${status} ${filePath}: "${migrationResult.oldTitle}" → "${migrationResult.newTitle}"`);
         }
       }
 
@@ -112,19 +109,19 @@ export class TaskTitleMigration {
 
       // Summary
       if (options.verbose || !result.success) {
-        log.debug(`\nMigration ${options.dryRun ? "preview" : "completed"}:`);
-        log.debug(`  Total files: ${result.totalFiles}`);
-        log.debug(`  Modified: ${result.modifiedFiles}`);
-        log.debug(`  Skipped: ${result.skippedFiles}`);
-        log.debug(`  Errors: ${result.errors.length}`);
+        console.log(`\nMigration ${options.dryRun ? "preview" : "completed"}:`);
+        console.log(`  Total files: ${result.totalFiles}`);
+        console.log(`  Modified: ${result.modifiedFiles}`);
+        console.log(`  Skipped: ${result.skippedFiles}`);
+        console.log(`  Errors: ${result.errors.length}`);
 
         if (result.errors.length > 0) {
-          log.debug("\nErrors:");
-          result.errors.forEach(error => log.debug(`  - ${error}`));
+          console.log("\nErrors:");
+          result.errors.forEach(error => console.log(`  - ${error}`));
         }
       }
 
-    } catch (_error) {
+    } catch (error) {
       result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
       result.success = false;
     }
@@ -135,8 +132,8 @@ export class TaskTitleMigration {
   /**
    * Migrate a single task specification file
    */
-  async migrateTask(_filePath: string, dryRun: boolean = false): Promise<TaskMigrationResult> {
-    const _result: TaskMigrationResult = {
+  async migrateTask(filePath: string, dryRun: boolean = false): Promise<TaskMigrationResult> {
+    const result: TaskMigrationResult = {
       filePath,
       success: false,
       oldTitle: "",
@@ -146,7 +143,7 @@ export class TaskTitleMigration {
 
     try {
       // Read the file
-      const _content = await readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+      const content = await readFile(filePath, "utf-8");
       const lines = content.split("\n");
 
       // Find the title line
@@ -182,13 +179,13 @@ export class TaskTitleMigration {
         // Replace the title line and write back
         lines[titleLineIndex] = newTitleLine;
         const updatedContent = lines.join("\n");
-        await writeFile(_filePath, updatedContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+        await writeFile(filePath, updatedContent, "utf-8");
       }
 
       result.success = true;
       result.wasModified = true;
 
-    } catch (_error) {
+    } catch (error) {
       result.error = error instanceof Error ? error.message : String(error);
     }
 
@@ -198,7 +195,7 @@ export class TaskTitleMigration {
   /**
    * Extract clean title from any title format
    */
-  private extractCleanTitle(_titleLine: string): string | null {
+  private extractCleanTitle(titleLine: string): string | null {
     // Handle different title formats:
     // 1. "# Task #XXX: Title" → "Title"
     // 2. "# Task: Title" → "Title"  
@@ -217,7 +214,7 @@ export class TaskTitleMigration {
     const cleanTitleMatch = titleLine.match(/^# (.+)$/);
     if (cleanTitleMatch && cleanTitleMatch[1]) {
       // Already clean format, but verify it's not starting with "Task "
-      const _title = cleanTitleMatch[1];
+      const title = cleanTitleMatch[1];
       if (!title.startsWith("Task #") && !title.startsWith("Task:")) {
         return title;
       }
@@ -231,24 +228,24 @@ export class TaskTitleMigration {
    */
   private async findTaskSpecFiles(): Promise<string[]> {
     const taskFiles: string[] = [];
-    const tasksDir = join(this._workspacePath, "process", "tasks");
+    const tasksDir = join(this.workspacePath, "process", "tasks");
 
     if (!existsSync(tasksDir)) {
       return taskFiles;
     }
 
     try {
-      const entries = await readdir(_tasksDir, { withFileTypes: true });
+      const entries = await readdir(tasksDir, { withFileTypes: true });
       
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith(".md")) {
           // Check if it's a task file (starts with number)
           if (/^\d+-.+\.md$/.test(entry.name)) {
-            taskFiles.push(join(_tasksDir, entry.name));
+            taskFiles.push(join(tasksDir, entry.name));
           }
         }
       }
-    } catch (_error) {
+    } catch (error) {
       throw new Error(`Failed to read tasks directory: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -259,15 +256,15 @@ export class TaskTitleMigration {
    * Create backup of all task files
    */
   async createBackup(): Promise<string> {
-    const backupDir = join(this._workspacePath, ".task-migration-backup", this.backupTimestamp);
-    await mkdir(_backupDir, { recursive: true });
+    const backupDir = join(this.workspacePath, ".task-migration-backup", this.backupTimestamp);
+    await mkdir(backupDir, { recursive: true });
 
     const taskFiles = await this.findTaskSpecFiles();
     
     for (const filePath of taskFiles) {
       const fileName = filePath.split("/").pop()!;
-      const backupPath = join(_backupDir, fileName);
-      await copyFile(_filePath, backupPath);
+      const backupPath = join(backupDir, fileName);
+      await copyFile(filePath, backupPath);
     }
 
     return backupDir;
@@ -276,21 +273,21 @@ export class TaskTitleMigration {
   /**
    * Rollback migration using backup
    */
-  async rollback(_backupPath: string): Promise<void> {
+  async rollback(backupPath: string): Promise<void> {
     if (!existsSync(backupPath)) {
       throw new Error(`Backup directory not found: ${backupPath}`);
     }
 
     const backupFiles = await readdir(backupPath);
-    const tasksDir = join(this._workspacePath, "process", "tasks");
+    const tasksDir = join(this.workspacePath, "process", "tasks");
 
     for (const fileName of backupFiles) {
-      const backupFilePath = join(_backupPath, fileName);
-      const originalFilePath = join(_tasksDir, fileName);
-      await copyFile(_backupFilePath, originalFilePath);
+      const backupFilePath = join(backupPath, fileName);
+      const originalFilePath = join(tasksDir, fileName);
+      await copyFile(backupFilePath, originalFilePath);
     }
 
-    log.debug(`Rollback completed from backup: ${backupPath}`);
+    console.log(`Rollback completed from backup: ${backupPath}`);
   }
 
   /**
@@ -302,7 +299,7 @@ export class TaskTitleMigration {
 
     for (const filePath of taskFiles) {
       try {
-        const _content = await readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = await readFile(filePath, "utf-8");
         const lines = content.split("\n");
         const titleLine = lines.find(line => line.startsWith("# "));
 
@@ -315,7 +312,7 @@ export class TaskTitleMigration {
         if (titleLine.match(/^# Task #\d+:/) || titleLine.match(/^# Task:/)) {
           errors.push(`${filePath}: Still has old title format: ${titleLine}`);
         }
-      } catch (_error) {
+      } catch (error) {
         errors.push(`${filePath}: Failed to validate - ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -330,46 +327,46 @@ export class TaskTitleMigration {
 // CLI interface if run directly
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const _options: MigrationOptions = {
+  const options: MigrationOptions = {
     dryRun: args.includes("--dry-run"),
     backup: !args.includes("--no-backup"),
     verbose: args.includes("--verbose") || args.includes("-v"),
     rollback: args.includes("--rollback"),
   };
 
-  const _workspacePath = args.find(arg => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
+  const workspacePath = args.find(arg => arg.startsWith("--workspace="))?.split("=")[1] || process.cwd();
 
-  const migration = new TaskTitleMigration(_workspacePath);
+  const migration = new TaskTitleMigration(workspacePath);
 
   if (options.rollback) {
     const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];
     if (!backupPath) {
-      log.error("Error: --rollback requires --backup-path=<path>");
+      console.error("Error: --rollback requires --backup-path=<path>");
       process.exit(1);
     }
     
     migration.rollback(backupPath)
       .then(() => {
-        log.debug("Rollback completed successfully");
+        console.log("Rollback completed successfully");
         process.exit(0);
       })
       .catch(error => {
-        log.error(`Rollback failed: ${error.message}`);
+        console.error(`Rollback failed: ${error.message}`);
         process.exit(1);
       });
   } else {
-    migration.migrateAllTasks(_options)
+    migration.migrateAllTasks(options)
       .then(result => {
         if (result.success) {
-          log.debug(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
+          console.log(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
           process.exit(0);
         } else {
-          log.error("Migration failed");
+          console.error("Migration failed");
           process.exit(1);
         }
       })
       .catch(error => {
-        log.error(`Migration error: ${error.message}`);
+        console.error(`Migration error: ${error.message}`);
         process.exit(1);
       });
   }

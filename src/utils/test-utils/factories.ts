@@ -1,27 +1,19 @@
-const SIZE_100000 = 100000;
-const SIZE_6 = 6;
-const TEST_VALUE = 123;
-const TEST_ARRAY_SIZE = 4;
-const TIMEOUT_900_MS = 900;
-const CONSTANT_0 = 0.5;
-
 /**
  * Test data factory functions for creating test fixtures
  * This module provides functions to create test data for various domain entities
  */
-import type {} from "../../types/tasks/taskData";
-
+import type { TaskData } from "../../types/tasks/taskData";
 /**
  * Creates a test task with specified overrides
  * @param overrides Optional properties to override defaults
  * @returns A task data object for testing
  */
-export function createTaskData(_overrides: Partial<TaskData> = {}): TaskData {
-  const defaultId = `#${String(Math.floor(Math.random() * TIMEOUT_900_MS) + 100)}`; // Random 3-digit ID
+export function createTaskData(overrides: Partial<TaskData> = {}): TaskData {
+  const defaultId = `#${String(Math.floor(Math.random() * 900) + 100)}`; // Random 3-digit ID
 
   return {
     id: defaultId,
-    _title: "Test Task",
+    title: "Test Task",
     status: "TODO",
     description: "This is a test task",
     worklog: [
@@ -40,7 +32,8 @@ export function createTaskData(_overrides: Partial<TaskData> = {}): TaskData {
  * @param commonOverrides Properties to apply to all tasks
  * @returns Array of task data objects
  */
-export function createTaskDataArray(_count: number,
+export function createTaskDataArray(
+  count: number,
   commonOverrides: Partial<TaskData> = {}
 ): TaskData[] {
   return Array(count)
@@ -60,7 +53,8 @@ export function createTaskDataArray(_count: number,
  * @param overrides Optional properties to override defaults
  * @returns A session data object for testing
  */
-export function createSessionData(_overrides: {
+export function createSessionData(
+  overrides: {
     session?: string;
     taskId?: string;
     repoName?: string;
@@ -68,12 +62,12 @@ export function createSessionData(_overrides: {
     branch?: string;
     createdAt?: string;
   } = {}
-): unknown {
-  const taskId = overrides.taskId || "TEST_VALUE";
-  const _session = overrides.session || `task#${taskId}`;
+): any {
+  const taskId = overrides.taskId || "123";
+  const session = overrides.session || `task#${taskId}`;
 
   return {
-    _session,
+    session,
     taskId,
     repoName: overrides.repoName || "test/repo",
     repoPath: overrides.repoPath || `/mock/repo/${createRandomId()}`,
@@ -88,15 +82,16 @@ export function createSessionData(_overrides: {
  * @param commonOverrides Properties to apply to all sessions
  * @returns Array of session data objects
  */
-export function createSessionDataArray(_count: number,
-  commonOverrides: Partial<Record<string, unknown>> = {}
-): unknown[] {
+export function createSessionDataArray(
+  count: number,
+  commonOverrides: Partial<Record<string, any>> = {}
+): any[] {
   return Array(count)
     .fill(0)
     .map((_, index) => {
-      const _taskId = `${100 + index}`;
+      const taskId = `${100 + index}`;
       return createSessionData({
-        _taskId,
+        taskId,
         ...commonOverrides,
       });
     });
@@ -107,13 +102,14 @@ export function createSessionDataArray(_count: number,
  * @param overrides Optional properties to override defaults
  * @returns A repository data object for testing
  */
-export function createRepositoryData(_overrides: {
+export function createRepositoryData(
+  overrides: {
     name?: string;
     type?: string;
     repoUrl?: string;
     path?: string;
   } = {}
-): unknown {
+): any {
   return {
     name: overrides.name || "test-repo",
     type: overrides.type || "local",
@@ -127,16 +123,16 @@ export function createRepositoryData(_overrides: {
  * @param prefix Optional prefix for the ID
  * @returns A random string ID
  */
-export function createRandomId(__prefix: string = "test"): string {
-  return `${prefix}-${Math.floor(Math.random() * SIZE_100000)}`;
+export function createRandomId(prefix: string = "test"): string {
+  return `${prefix}-${Math.floor(Math.random() * 100000)}`;
 }
 
 /**
  * Creates a random task ID for testing
- * @returns A random task ID in the format #TEST_VALUE
+ * @returns A random task ID in the format #123
  */
 export function createTaskId(): string {
-  return `#${String(Math.floor(Math.random() * TIMEOUT_900_MS) + 100)}`;
+  return `#${String(Math.floor(Math.random() * 900) + 100)}`;
 }
 
 /**
@@ -144,7 +140,7 @@ export function createTaskId(): string {
  * @param length Length of the string to generate
  * @returns A random string
  */
-export function createRandomString(_length: number = 10): string {
+export function createRandomString(length: number = 10): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let result = "";
   for (let i = 0; i < length; i++) {
@@ -158,10 +154,10 @@ export function createRandomString(_length: number = 10): string {
  * @param extension Optional file extension
  * @returns A random file path
  */
-export function createRandomFilePath(_extension: string = "txt"): string {
+export function createRandomFilePath(extension: string = "txt"): string {
   const dirs = ["src", "test", "config", "docs"];
   const dir = dirs[Math.floor(Math.random() * dirs.length)];
-  const filename = createRandomString(SIZE_6);
+  const filename = createRandomString(6);
   return `${dir}/${filename}.${extension}`;
 }
 
@@ -170,32 +166,32 @@ export function createRandomFilePath(_extension: string = "txt"): string {
  * @param fieldName The name of the field to generate data for
  * @returns Appropriate test data for the field
  */
-export function createFieldData(_fieldName: string): unknown {
+export function createFieldData(fieldName: string): any {
   // Generate appropriate data based on common field names
   switch (fieldName.toLowerCase()) {
-  case "id":
-    return createRandomId();
-  case "name":
-    return `Test ${createRandomString(TEST_ARRAY_SIZE)}`;
-  case "email":
-    return `test.${createRandomString(TEST_ARRAY_SIZE)}@example.com`;
-  case "date":
-  case "createdat":
-  case "updatedat":
-  case "timestamp":
-    return new Date().toISOString();
-  case "active":
-  case "enabled":
-  case "visible":
-    return Math.random() > 0.5;
-  case "count":
-  case "age":
-  case "quantity":
-    return Math.floor(Math.random() * 100);
-  case "price":
-  case "amount":
-    return parseFloat((Math.random() * 100).toFixed(2));
-  default:
-    return `Test ${fieldName} ${createRandomString(TEST_ARRAY_SIZE)}`;
+    case "id":
+      return createRandomId();
+    case "name":
+      return `Test ${createRandomString(5)}`;
+    case "email":
+      return `test.${createRandomString(5)}@example.com`;
+    case "date":
+    case "createdat":
+    case "updatedat":
+    case "timestamp":
+      return new Date().toISOString();
+    case "active":
+    case "enabled":
+    case "visible":
+      return Math.random() > 0.5;
+    case "count":
+    case "age":
+    case "quantity":
+      return Math.floor(Math.random() * 100);
+    case "price":
+    case "amount":
+      return parseFloat((Math.random() * 100).toFixed(2));
+    default:
+      return `Test ${fieldName} ${createRandomString(5)}`;
   }
 }

@@ -1,21 +1,18 @@
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
-
 /**
  * Configuration loader for Minsky
- * 
- * Implements the TEST_ARRAY_SIZE-level configuration hierarchy:
+ *
+ * Implements the 5-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
  * 3. Global user config (~/.config/minsky/config.yaml)
  * 4. Repository config (.minsky/config.yaml)
- * TEST_ARRAY_SIZE. Built-in defaults (lowest priority)
+ * 5. Built-in defaults (lowest priority)
  */
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { homedir } from "os";
-import { log } from "../../utils/logger";
 import {
   ConfigurationLoadResult,
   ConfigurationSources,
@@ -24,17 +21,18 @@ import {
   GlobalUserConfig,
   BackendConfig,
   CredentialConfig,
-  DetectionRule,
+  SessionDbConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
-  ENV_VARS
+  ENV_VARS,
 } from "./types";
 
 export class ConfigurationLoader {
   /**
    * Load configuration from all sources with proper precedence
    */
-  async loadConfiguration(__workingDir: string,
+  async loadConfiguration(
+    workingDir: string,
     cliFlags: Partial<ResolvedConfig> = {}
   ): Promise<ConfigurationLoadResult> {
     // Load from all sources
@@ -42,8 +40,8 @@ export class ConfigurationLoader {
       cliFlags,
       environment: this.loadEnvironmentConfig(),
       globalUser: await this.loadGlobalUserConfig(),
-      repository: await this.loadRepositoryConfig(_workingDir),
-      defaults: DEFAULT_CONFIG
+      repository: await this.loadRepositoryConfig(workingDir),
+      defaults: DEFAULT_CONFIG,
     };
 
     // Merge with precedence: CLI > env > global user > repo > defaults
@@ -51,7 +49,7 @@ export class ConfigurationLoader {
 
     return {
       resolved,
-      sources
+      sources,
     };
   }
 
@@ -59,7 +57,7 @@ export class ConfigurationLoader {
    * Load environment variable overrides
    */
   private loadEnvironmentConfig(): Partial<ResolvedConfig> {
-    const _config: Partial<ResolvedConfig> = {};
+    const config: Partial<ResolvedConfig> = {};
 
     // Backend override
     if (process.env[ENV_VARS.BACKEND]) {
@@ -71,9 +69,31 @@ export class ConfigurationLoader {
       config.credentials = {
         github: {
           token: process.env[ENV_VARS.GITHUB_TOKEN],
-          source: "environment"
-        }
+          source: "environment",
+        },
       };
+    }
+
+    // SessionDB configuration overrides
+    const sessionDbConfig: Partial<SessionDbConfig> = {};
+    if (process.env[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = process.env[ENV_VARS.SESSIONDB_BACKEND];
+      if (backend === "json" || backend === "sqlite" || backend === "postgres") {
+        sessionDbConfig.backend = backend;
+      }
+    }
+    if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR];
+    }
+
+    if (Object.keys(sessionDbConfig).length > 0) {
+      config.sessiondb = sessionDbConfig as SessionDbConfig;
     }
 
     return config;
@@ -84,17 +104,18 @@ export class ConfigurationLoader {
    */
   private async loadGlobalUserConfig(): Promise<GlobalUserConfig | null> {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
-    
+
     if (!existsSync(configPath)) {
       return null;
     }
 
     try {
-      const _content = readFileSync(_configPath, { encoding: "utf8" });
-      return parseYaml(_content) as GlobalUserConfig;
+      const content = readFileSync(configPath, { encoding: "utf8" });
+      return parseYaml(content) as GlobalUserConfig;
     } catch (_error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      log.error(`Failed to load global user config from ${configPath}:`, error);
+      // eslint-disable-next-line no-console
+      console.error(`Failed to load global user config from ${configPath}:`, _error);
       return null;
     }
   }
@@ -102,16 +123,16 @@ export class ConfigurationLoader {
   /**
    * Load repository configuration
    */
-  private async loadRepositoryConfig(__workingDir: string): Promise<RepositoryConfig | null> {
-    const configPath = join(__workingDir, CONFIG_PATHS.REPOSITORY);
-    
+  private async loadRepositoryConfig(workingDir: string): Promise<RepositoryConfig | null> {
+    const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
+
     if (!existsSync(configPath)) {
       return null;
     }
 
     try {
-      const _content = readFileSync(_configPath, { encoding: "utf8" });
-      return parseYaml(_content) as RepositoryConfig;
+      const content = readFileSync(configPath, { encoding: "utf8" });
+      return parseYaml(content) as RepositoryConfig;
     } catch (_error) {
       // Silently fail - configuration loading should be resilient
       return null;
@@ -121,7 +142,7 @@ export class ConfigurationLoader {
   /**
    * Merge configurations with proper precedence
    */
-  private mergeConfigurations(_sources: ConfigurationSources): ResolvedConfig {
+  private mergeConfigurations(sources: ConfigurationSources): ResolvedConfig {
     const { cliFlags, environment, globalUser, repository, defaults } = sources;
 
     // Start with defaults
@@ -129,7 +150,8 @@ export class ConfigurationLoader {
       backend: defaults.backend || "json-file",
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
-      detectionRules: [...(defaults.detectionRules || [])]
+      detectionRules: [...(defaults.detectionRules || [])],
+      sessiondb: { ...defaults.sessiondb } as SessionDbConfig,
     };
 
     // Apply repository config
@@ -150,14 +172,31 @@ export class ConfigurationLoader {
       if (repository.repository?.detection_rules) {
         resolved.detectionRules = repository.repository.detection_rules;
       }
+
+      // Merge sessiondb config from repository
+      if (repository.sessiondb) {
+        // Convert repository sessiondb format to SessionDbConfig format
+        const repoSessionDb: Partial<SessionDbConfig> = {
+          backend: repository.sessiondb.backend,
+          dbPath: repository.sessiondb.sqlite?.path,
+          baseDir: repository.sessiondb.base_dir,
+          connectionString: repository.sessiondb.postgres?.connection_string,
+        };
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
+      }
     }
 
     // Apply global user config
     if (globalUser?.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        globalUser.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
+    }
+    if (globalUser?.sessiondb) {
+      // Convert global user sessiondb format to SessionDbConfig format
+      const globalSessionDb: Partial<SessionDbConfig> = {
+        dbPath: globalUser.sessiondb.sqlite?.path,
+        baseDir: globalUser.sessiondb.base_dir,
+      };
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
     }
 
     // Apply environment overrides
@@ -165,10 +204,10 @@ export class ConfigurationLoader {
       resolved.backend = environment.backend;
     }
     if (environment.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        environment.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, environment.credentials);
+    }
+    if (environment.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
     // Apply CLI flags (highest priority)
@@ -179,10 +218,10 @@ export class ConfigurationLoader {
       resolved.backendConfig = { ...resolved.backendConfig, ...cliFlags.backendConfig };
     }
     if (cliFlags.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        cliFlags.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, cliFlags.credentials);
+    }
+    if (cliFlags.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -191,7 +230,8 @@ export class ConfigurationLoader {
   /**
    * Merge backend configurations
    */
-  private mergeBackendConfig(_existing: BackendConfig,
+  private mergeBackendConfig(
+    existing: BackendConfig,
     repositoryBackends: RepositoryConfig["backends"]
   ): BackendConfig {
     const merged = { ...existing };
@@ -206,7 +246,8 @@ export class ConfigurationLoader {
   /**
    * Merge credential configurations
    */
-  private mergeCredentials(_existing: CredentialConfig,
+  private mergeCredentials(
+    existing: CredentialConfig,
     newCredentials: GlobalUserConfig["credentials"] | CredentialConfig
   ): CredentialConfig {
     const merged = { ...existing };
@@ -219,12 +260,33 @@ export class ConfigurationLoader {
   }
 
   /**
+   * Merge sessiondb configurations
+   */
+  private mergeSessionDbConfig(
+    existing: SessionDbConfig | undefined,
+    newSessionDb: Partial<SessionDbConfig>
+  ): SessionDbConfig {
+    const existingConfig = existing || {
+      backend: "json",
+      baseDir: undefined,
+      dbPath: undefined,
+      connectionString: undefined,
+    };
+    return {
+      backend: newSessionDb.backend || existingConfig.backend,
+      baseDir: newSessionDb.baseDir || existingConfig.baseDir,
+      dbPath: newSessionDb.dbPath || existingConfig.dbPath,
+      connectionString: newSessionDb.connectionString || existingConfig.connectionString,
+    };
+  }
+
+  /**
    * Expand tilde in file paths
    */
-  private expandTilde(_filePath: string): string {
+  private expandTilde(filePath: string): string {
     if (filePath.startsWith("~/")) {
       return join(homedir(), filePath.slice(2));
     }
     return filePath;
   }
-} 
+}

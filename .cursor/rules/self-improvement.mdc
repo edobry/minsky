@@ -1,11 +1,58 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs: 
+globs:
 alwaysApply: false
 ---
 # Self-Improvement
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
+
+## CLI Command Output Design Principles
+
+**Learned from config command redesign experience**
+
+### Core Philosophy: State, Not Process
+- **Show WHAT is active**, not HOW it was determined
+- **Current state only**, not implementation details or decision logic
+- **Facts, not explanations** - users want to see their configuration, not learn about the system
+
+### Follow Established CLI Tool Patterns
+Study and emulate successful CLI tools:
+- `git config --list` → shows key=value pairs, no explanations
+- `docker info` → current system state, not how Docker works
+- `kubectl config view` → effective configuration, not resolution logic
+- `npm config list` → current values, not where they came from
+
+### Anti-Patterns to Avoid
+❌ **Verbose explanations**: "Minsky will choose task backend based on..."
+❌ **Implementation details**: Auto-detection rules, decision trees, precedence explanations
+❌ **Documentation in output**: Configuration source explanations, how the system works
+❌ **Technical jargon**: "Backend: markdown" instead of "Task Storage: Markdown files"
+
+### Good Patterns to Follow
+✅ **Concise state**: `📁 Task Storage: Markdown files (process/tasks.md)`
+✅ **User-focused labels**: "Task Storage" not "Backend", "Authentication" not "Credentials"
+✅ **Essential context only**: Show file paths/sources when relevant to user action
+✅ **Consistent format**: Similar to other CLI tools users already know
+
+### Design Process
+1. **Start with user needs**: What do they need to know to take action?
+2. **Study comparable tools**: How do git, docker, kubectl handle similar output?
+3. **Remove explanations**: If it explains HOW something works, remove it
+4. **Test holistically**: Does this feel like other professional CLI tools?
+
+### When to Show Details
+- **Error output**: Show diagnostic information to help user fix problems
+- **Debug flags**: `--verbose` or `--debug` can show implementation details
+- **Help text**: Explanations belong in `--help`, not regular output
+- **Documentation**: Complex explanations belong in docs, not command output
+
+### Implementation Guidelines
+- Use clear, user-facing terminology instead of internal technical terms
+- Group related information logically
+- Show paths and identifiers that users can act on
+- Keep output scannable - users should find what they need quickly
+- Consider both new and experienced users - concise but not cryptic
 
 ## Error Detection Signals
 
