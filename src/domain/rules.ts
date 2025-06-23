@@ -5,7 +5,7 @@ import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
 import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = COMMIT_HASH_SHORT_LENGTH;
 
- // Added logger import
+// Added logger import
 import * as jsYaml from "js-yaml";
 
 const matter = (grayMatterNamespace as any).default || grayMatterNamespace;

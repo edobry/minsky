@@ -256,7 +256,7 @@ const tasksStatusSetRegistration = {
 
     await setTaskStatusFromParams({
       _taskId: normalizedTaskId,
-      status: _status,
+      _status: _status,
       repo: params.repo,
       workspace: params.workspace,
       _session: params._session,
@@ -492,7 +492,7 @@ const tasksCreateRegistration = {
   execute: async (params, _ctx) => {
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
     return await createTaskFromParams({
-      specPath: params._specPath,
+      _specPath: params._specPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,

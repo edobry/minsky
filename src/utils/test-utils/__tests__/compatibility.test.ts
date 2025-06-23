@@ -1,5 +1,5 @@
 const TEST_VALUE = TEST_VALUE;
-const TEST_ARRAY_SIZE = TEST_ARRAY_SIZE;
+const TEST_ARRAY_SIZE = 4;
 
 /**
  * Compatibility Layer Tests
@@ -19,7 +19,6 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
- 
 const expect = bunExpect as any;
 
 describe("Mock Function Compatibility", () => {
@@ -133,7 +132,7 @@ describe("Mock Function Compatibility", () => {
     let error: Error | null = null;
     try {
       await mockFn2();
-    } catch {
+    } catch (e) {
       error = e as Error;
     }
 
@@ -184,7 +183,7 @@ describe("Asymmetric Matchers Compatibility", () => {
   });
 
   test("matchers.arrayContaining() matches array subsets", () => {
-    const arr = [1, 2, 3, 4];
+    const arr = [1, 2, 3, TEST_ARRAY_SIZE];
     expect(matchers.arrayContaining([1]).asymmetricMatch(arr)).toBe(true);
     expect(matchers.arrayContaining([1, 2]).asymmetricMatch(arr)).toBe(true);
 

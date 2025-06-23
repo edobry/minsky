@@ -203,7 +203,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
         },
       },
       "tasks.get": {
-        parameters: {
+        _parameters: {
           _id: {
             asArgument: true,
           },
@@ -211,7 +211,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       },
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
-        parameters: {
+        _parameters: {
           _taskId: {
             asArgument: true,
             description: "ID of the task to retrieve specification _content for",
@@ -256,7 +256,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       "session.list": {
         aliases: ["ls"],
         useFirstRequiredParamAsArgument: false,
-        parameters: {
+        _parameters: {
           verbose: {
             alias: "v",
             description: "Show detailed session information",

@@ -606,7 +606,7 @@ export async function startSessionFromParams(
 
     // First record the session in the DB
     const sessionRecord: SessionRecord = {
-      session: sessionName,
+      session: _sessionName,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
@@ -1009,7 +1009,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
 
     log.debug(`Creating PR for _session: ${sessionName}`, {
       _session: _sessionName,
-      title: params._title,
+      _title: params._title,
       hasBody: !!bodyContent,
       bodySource: params.bodyPath ? "file" : "parameter",
       baseBranch: params.baseBranch,
@@ -1033,7 +1033,7 @@ export async function sessionPrFromParams(_params: SessionPrParams): Promise<{
     // STEP SIZE_6: Now proceed with PR creation
     const _result = await preparePrFromParams({
       _session: _sessionName,
-      title: params._title,
+      _title: params._title,
       body: bodyContent,
       baseBranch: params.baseBranch,
       debug: params.debug,
