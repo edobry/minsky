@@ -53,7 +53,7 @@ describe("Shared Rules Commands", () => {
 
     // Create mock object for methods
     mockRuleService = {
-      listRules: (options?: unknown) =>
+      listRules: (_options?: unknown) =>
         Promise.resolve([
           {
             id: "test-rule-1",
@@ -76,7 +76,7 @@ describe("Shared Rules Commands", () => {
             tags: ["docs"],
           },
         ]),
-      getRule: (_id: unknown) =>
+      getRule: (id: string, options?: any) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
@@ -87,7 +87,7 @@ describe("Shared Rules Commands", () => {
           globs: ["*.ts"],
           tags: ["test"],
         }),
-      createRule: (_id: unknown) =>
+      createRule: (id: string, content: string, meta: any, options?: any) =>
         Promise.resolve({
           id,
           name: meta.name,
@@ -98,7 +98,7 @@ describe("Shared Rules Commands", () => {
           globs: meta.globs,
           tags: meta.tags,
         }),
-      updateRule: (_id: unknown) =>
+      updateRule: (id: string, updates: any, options?: any) =>
         Promise.resolve({
           id,
           name: updates.meta?.name || `Rule ${id}`,
