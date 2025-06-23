@@ -45,6 +45,7 @@
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
     "fs-extra": "^11.3.0",
+    "glob": "^11.0.3",
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",
     "winston": "^3.17.0",
