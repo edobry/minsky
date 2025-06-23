@@ -87,7 +87,7 @@ describe("interface-agnostic task functions", () => {
     test("should filter out DONE tasks when all is false", async () => {
       mockTaskService.listTasks.mockImplementation(() =>
         Promise.resolve([
-          { ...mockTask, status: TASK_STATUS.TODO },
+          { ...mockTask, _status: TASK_STATUS.TODO },
           { ...mockTask, id: "#124", _status: TASK_STATUS.DONE },
         ])
       );

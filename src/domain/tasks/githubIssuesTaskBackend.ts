@@ -475,14 +475,14 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
       const response = await this.octokit.rest.issues.create({
         owner: this.owner,
         repo: this.repo,
-        title: issueData._title,
+        _title: issueData._title,
         body: issueData.body,
         labels: issueData.labels,
       });
       
       log.debug("Created GitHub issue", {
         issueNumber: response.data.number,
-        title: issueData._title,
+        _title: issueData._title,
       });
     } catch {
       log.error("Failed to sync task to GitHub", {

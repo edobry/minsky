@@ -18,6 +18,8 @@ import {
   expectToContainEqual,
 } from "../assertions";
 
+const EXPECTED_ARRAY_LENGTH = 4;
+
 describe("Custom Assertion Helpers", () => {
   describe("expectToMatch", () => {
     test("should match a string against a regex pattern", () => {
@@ -28,7 +30,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToMatch("hello world", /universe/);
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -43,8 +45,8 @@ describe("Custom Assertion Helpers", () => {
       // Should fail
       let failed = false;
       try {
-        expectToHaveLength([1, 2, 3], 4);
-      } catch {
+        expectToHaveLength([1, 2, 3], EXPECTED_ARRAY_LENGTH);
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -58,7 +60,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToHaveLength("hello", SIZE_6);
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -74,7 +76,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToBeInstanceOf("not a date", Date);
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -100,7 +102,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToHaveProperty(obj, "missing");
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -109,7 +111,7 @@ describe("Custom Assertion Helpers", () => {
       failed = false;
       try {
         expectToHaveProperty(obj, "name", "wrong");
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -125,7 +127,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToBeCloseTo(CONSTANT_0, CONSTANT_0, TEST_ARRAY_SIZE);
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();
@@ -146,7 +148,7 @@ describe("Custom Assertion Helpers", () => {
       let failed = false;
       try {
         expectToContainEqual(arr, { id: 3, name: "test3" });
-      } catch {
+      } catch (error) {
         failed = true;
       }
       expect(failed).toBeTruthy();

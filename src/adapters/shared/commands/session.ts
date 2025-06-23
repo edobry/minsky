@@ -407,7 +407,7 @@ export function registerSessionCommands(): void {
           task: params.task,
           _branch: params._branch,
           repo: params.repo,
-          session: params._session,
+          _session: params._session,
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
@@ -577,7 +577,7 @@ export function registerSessionCommands(): void {
 
       try {
         const _result = await sessionPrFromParams({
-          title: params._title,
+          _title: params._title,
           body: params.body,
           bodyPath: params.bodyPath,
           _session: params._session,

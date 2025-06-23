@@ -1895,7 +1895,7 @@ export async function preparePrFromParams(_params: {
       _session: params._session,
       repoPath: params.repo,
       baseBranch: params.baseBranch,
-      title: params._title,
+      _title: params._title,
       body: params.body,
       branchName: params.branchName,
       debug: params.debug,
@@ -1928,7 +1928,7 @@ export async function mergePrFromParams(_params: {
       prBranch: params.prBranch,
       _repoPath: params.repo,
       baseBranch: params.baseBranch,
-      session: params._session,
+      _session: params._session,
     });
     return result;
   } catch {
