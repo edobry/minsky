@@ -90,7 +90,7 @@
 
 - [-] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
 
-- [+] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
+- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 
@@ -270,6 +270,7 @@
 
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
+- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
