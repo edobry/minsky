@@ -8,6 +8,7 @@
 import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
+import { paramNameToFlag } from "../schema-bridge";
 
 /**
  * Configuration options for parameter mapping
@@ -124,8 +125,8 @@ function formatOptionFlag(name: string, alias?: string, schemaType?: string): st
     flag += `-${alias}, `;
   }
 
-  // Add main flag
-  flag += `--${name}`;
+  // Add main flag with kebab-case conversion
+  flag += `--${paramNameToFlag(name)}`;
 
   // Add value placeholder for non-boolean types
   if (schemaType !== "boolean") {

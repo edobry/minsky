@@ -1,4 +1,4 @@
-# Task #115: Implement Dependency Injection Test Patterns
+# Implement Dependency Injection Test Patterns
 
 ## Context
 

@@ -3,6 +3,12 @@
  * These types represent the pure data structures used in task operations
  */
 
+import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+
+// Re-export task status types from centralized location
+export type { TaskStatus } from "../../domain/tasks/taskConstants.js";
+export { TaskStatusType } from "../../domain/tasks/taskConstants.js";
+
 /**
  * TaskData represents the pure data representation of a task
  * It contains only the essential data without methods or side effects
@@ -11,7 +17,7 @@ export interface TaskData {
   id: string;
   title: string;
   description?: string;
-  status: string;
+  status: TaskStatus;
   specPath?: string;
   worklog?: Array<{ timestamp: string; message: string }>;
   mergeInfo?: {
@@ -36,7 +42,7 @@ export interface TaskState {
  * TaskFilter defines criteria for filtering tasks
  */
 export interface TaskFilter {
-  status?: string;
+  status?: TaskStatus;
   id?: string;
   title?: string | RegExp;
   hasSpecPath?: boolean;
@@ -50,16 +56,6 @@ export interface TaskSpecData {
   description: string;
   id?: string;
   metadata?: Record<string, unknown>;
-}
-
-/**
- * TaskStatusType defines the valid status values for tasks
- */
-export enum TaskStatusType {
-  TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS",
-  IN_REVIEW = "IN-REVIEW",
-  DONE = "DONE",
 }
 
 /**

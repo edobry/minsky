@@ -52,4 +52,11 @@ This rule serves as the entry point for all code organization guidance in the Mi
    - Minimize dependencies between modules
    - Use explicit imports rather than dynamic loading when possible
 
+5. **Zero Tolerance for Unused Code**
+   - **IMMEDIATELY REMOVE** any unused files, functions, classes, or code blocks when identified
+   - Do not keep unused code "for future use" or "just in case"
+   - This applies to: unused files, functions/methods, classes/interfaces, imports/dependencies, commented-out code, dead code paths
+   - When in doubt about usage, perform comprehensive codebase search before removal
+   - If code is truly unused, delete it immediately without discussion
+
 For detailed guidance on specific code organization scenarios, refer to the related rules linked above.

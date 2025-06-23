@@ -1,4 +1,4 @@
-# Task #040: Add `--task` Option to `session delete` Command
+# Add `--task` Option to `session delete` Command
 
 ## Context
 

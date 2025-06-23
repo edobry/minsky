@@ -1,8 +1,6 @@
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { approveSessionFromParams } from "../session";
-import { GitService } from "../git";
-import { TaskService } from "../tasks";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors";
+import { ResourceNotFoundError, ValidationError } from "../../errors";
 import { createMock } from "../../utils/test-utils/mocking";
 import * as WorkspaceUtils from "../workspace";
 
@@ -10,9 +8,9 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
+      getSession: createMock((_name) =>
         Promise.resolve({
-          session: name,
+          session: _name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "#123",
@@ -31,13 +29,13 @@ describe("Session Approve", () => {
         }
         return Promise.resolve(null);
       }),
-      getSessionWorkdir: createMock((sessionName) =>
+      getSessionWorkdir: createMock((_sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       ),
     };
 
     const mockGitService = {
-      execInRepository: createMock((workdir, command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -49,10 +47,10 @@ describe("Session Approve", () => {
     };
 
     const mockTaskService = {
-      setTaskStatus: createMock((id, status) => Promise.resolve()),
-      getBackendForTask: createMock((id) =>
+      setTaskStatus: createMock((_id, _status) => Promise.resolve()),
+      getBackendForTask: createMock((_id) =>
         Promise.resolve({
-          setTaskMetadata: createMock((id, metadata) => Promise.resolve()),
+          setTaskMetadata: createMock((_id, _metadata) => Promise.resolve()),
         })
       ),
     };
@@ -79,7 +77,7 @@ describe("Session Approve", () => {
 
     // Verify
     expect(mockSessionDB.getSession).toHaveBeenCalledWith("test-session");
-    expect(mockSessionDB.getSessionWorkdir).toHaveBeenCalledWith("test-session");
+    // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(mockGitService.execInRepository.mock.calls.length).toBeGreaterThan(0);
     expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("#123", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
@@ -112,14 +110,17 @@ describe("Session Approve", () => {
   test("detects current session when repo path is provided", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((name) =>
-        Promise.resolve({
-          session: name,
-          repoName: "test-repo",
-          repoUrl: "/test/repo/path",
-          createdAt: new Date().toISOString(),
-        })
-      ),
+      getSession: createMock((name) => {
+        if (name === "current-session") {
+          return Promise.resolve({
+            session: name,
+            repoName: "test-repo",
+            repoUrl: "/test/repo/path",
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return Promise.resolve(null);
+      }),
       getSessionByTaskId: createMock(() => Promise.resolve(null)),
       getSessionWorkdir: createMock((sessionName) =>
         Promise.resolve("/test/workdir/test-repo/sessions/current-session")
@@ -208,7 +209,7 @@ describe("Session Approve", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain('Session "non-existent-session" not found');
+      expect((error as Error).message).toContain("Session \"non-existent-session\" not found");
     }
   });
 
@@ -306,5 +307,92 @@ describe("Session Approve", () => {
     // Verify
     expect(result.commitHash).toBe("abcdef123456");
     expect(result.session).toBe("test-session");
+  });
+
+  test("merges from local PR branch and handles missing remote branch gracefully", async () => {
+    // Create mocks for dependencies
+    const mockSessionDB = {
+      getSession: createMock((name) =>
+        Promise.resolve({
+          session: name,
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "#123",
+          createdAt: new Date().toISOString(),
+        })
+      ),
+      getSessionByTaskId: createMock(() => Promise.resolve(null)),
+      getSessionWorkdir: createMock(() =>
+        Promise.resolve("/test/workdir/test-repo/sessions/test-session")
+      ),
+    };
+
+    const gitCommands: string[] = [];
+    const mockGitService = {
+      execInRepository: createMock((workdir, command) => {
+        gitCommands.push(command);
+
+        if (command.includes("rev-parse HEAD")) {
+          return Promise.resolve("abcdef123456");
+        }
+        if (command.includes("config user.name")) {
+          return Promise.resolve("Test User");
+        }
+        // Simulate remote branch check failure (branch doesn't exist on remote)
+        if (command.includes("show-ref --verify --quiet refs/remotes/origin/pr/test-session")) {
+          throw new Error("Command failed: git show-ref");
+        }
+        return Promise.resolve("");
+      }),
+    };
+
+    const mockTaskService = {
+      setTaskStatus: createMock(() => Promise.resolve()),
+      getBackendForTask: createMock(() =>
+        Promise.resolve({
+          setTaskMetadata: createMock(() => Promise.resolve()),
+        })
+      ),
+    };
+
+    // Create test dependencies
+    const testDeps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: {},
+    };
+
+    // Test the approval
+    const result = await approveSessionFromParams(
+      {
+        session: "test-session",
+      },
+      testDeps
+    );
+
+    // Verify the result
+    expect(result.commitHash).toBe("abcdef123456");
+    expect(result.session).toBe("test-session");
+    expect(result.prBranch).toBe("pr/test-session");
+
+    // Verify git commands were called correctly
+    expect(gitCommands).toContain("git checkout main");
+    expect(gitCommands).toContain("git fetch origin");
+    // CRITICAL: Should merge from LOCAL PR branch, not remote
+    expect(gitCommands).toContain("git merge --ff-only pr/test-session");
+    // Should NOT contain merge from remote branch
+    expect(gitCommands).not.toContain("git merge --ff-only origin/pr/test-session");
+
+    // Should try to push main branch
+    expect(gitCommands).toContain("git push origin main");
+
+    // Should try to check for remote branch existence
+    expect(gitCommands).toContain(
+      "git show-ref --verify --quiet refs/remotes/origin/pr/test-session"
+    );
+
+    // Should NOT try to delete remote branch since it doesn't exist
+    expect(gitCommands).not.toContain("git push origin --delete pr/test-session");
   });
 });

@@ -5,6 +5,8 @@
  * Asymmetric matchers allow for flexible assertions that match a broader range of values.
  */
 
+import { log } from "../../logger";
+
 /**
  * Interface for asymmetric matchers
  */
@@ -409,7 +411,7 @@ export function isAsymmetricMatcher(obj: any): obj is AsymmetricMatcher {
 // Export a function to extend the global expect with asymmetric matchers
 export function setupAsymmetricMatchers(): void {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const bun = require("bun:test");
 
     // Add matchers to expect
@@ -436,10 +438,10 @@ export function setupAsymmetricMatchers(): void {
       };
     } else {
       // If no equals method was found, just log a warning
-      console.warn("Could not find expect.equals method to override for matcher support.");
+      log.warn("Could not find expect.equals method to override for matcher support.");
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    console.warn("Failed to set up asymmetric matchers:", error);
+    log.warn("Failed to set up asymmetric matchers:", error);
   }
 }

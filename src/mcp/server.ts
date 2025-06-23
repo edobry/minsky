@@ -1,7 +1,7 @@
 import { FastMCP } from "fastmcp";
-import { log } from "../utils/logger";
-import type { ProjectContext } from "../types/project";
-import { createProjectContextFromCwd } from "../types/project";
+import { log } from "../utils/logger.js";
+import type { ProjectContext } from "../types/project.js";
+import { createProjectContextFromCwd } from "../types/project.js";
 
 /**
  * Configuration options for the Minsky MCP server
@@ -47,6 +47,18 @@ export interface MinskyMCPServerOptions {
      * @default 8080
      */
     port?: number;
+
+    /**
+     * Host to bind to
+     * @default "localhost"
+     */
+    host?: string;
+
+    /**
+     * Path for SSE endpoint
+     * @default "/sse"
+     */
+    path?: string;
   };
 
   /**
@@ -55,7 +67,7 @@ export interface MinskyMCPServerOptions {
   httpStream?: {
     /**
      * Endpoint for HTTP Stream
-     * @default "/stream"
+     * @default "/mcp"
      */
     endpoint?: string;
 
@@ -106,9 +118,11 @@ export class MinskyMCPServer {
       sse: {
         endpoint: options.sse?.endpoint || "/sse",
         port: options.sse?.port || 8080,
+        host: options.sse?.host || "localhost",
+        path: options.sse?.path || "/sse",
       },
       httpStream: {
-        endpoint: options.httpStream?.endpoint || "/stream",
+        endpoint: options.httpStream?.endpoint || "/mcp",
         port: options.httpStream?.port || 8080,
       },
     };
@@ -178,7 +192,7 @@ export class MinskyMCPServer {
         await this.server.start({
           transportType: "httpStream",
           httpStream: {
-            endpoint: "/stream", // Endpoint must start with a / character
+            endpoint: "/mcp", // Updated endpoint to /mcp
             port: this.options.httpStream.port || 8080,
           },
         });
@@ -199,9 +213,9 @@ export class MinskyMCPServer {
       try {
         // Get the tool names
         const methods = [];
-        // @ts-expect-error - Accessing a private property for debugging
+        // @ts-ignore - Accessing a private property for debugging
         if (this.server._tools) {
-          // @ts-expect-error - Accessing private _tools property for debugging
+          // @ts-ignore
           methods.push(...Object.keys(this.server._tools));
         }
         log.debug("MCP Server registered methods", {

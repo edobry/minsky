@@ -1,4 +1,4 @@
-# Task #085: Migrate CLI adapter tests to test domain methods instead
+# Migrate CLI adapter tests to test domain methods instead
 
 ## Context
 

@@ -17,6 +17,7 @@ import { readdir, readFile, writeFile, mkdir } from "fs/promises";
 import { join, resolve, relative } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
+import { log } from "../utils/logger.js";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -538,7 +539,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     "",
     "### Recommended Approach",
     "",
-    '1. **Start with "easy" tests** - First migrate tests with low mocking complexity',
+    "1. **Start with \"easy\" tests** - First migrate tests with low mocking complexity",
     "2. **Create utility adapters** - Develop adapters for common Jest patterns",
     "3. **Standardize mocking utilities** - Enhance current mocking utilities",
     "4. **Tackle integration tests last** - These often have the most complex mocking needs",
@@ -573,14 +574,14 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
  */
 async function main() {
   try {
-    console.log("Test Analyzer Script");
-    console.log("-------------------");
-    console.log(`Analyzing tests in: ${config.targetDir}`);
+    log.cli("Test Analyzer Script");
+    log.cli("-------------------");
+    log.cli(`Analyzing tests in: ${config.targetDir}`);
 
     // Find all test files
     const targetDir = resolve(baseDir, config.targetDir);
     const testFiles = await findTestFiles(targetDir);
-    console.log(`Found ${testFiles.length} test files`);
+    log.cli(`Found ${testFiles.length} test files`);
 
     // Analyze each test file
     const analyses: TestFileAnalysis[] = [];
@@ -591,7 +592,7 @@ async function main() {
       const analysis = await analyzeTestFile(file);
       analyses.push(analysis);
     }
-    console.log("\nAnalysis complete");
+    log.cli("\nAnalysis complete");
 
     // Generate the report
     const report = await generateReport(analyses);
@@ -605,23 +606,23 @@ async function main() {
     // Write JSON report
     const jsonOutputPath = resolve(outputDir, config.outputFile);
     await writeFile(jsonOutputPath, JSON.stringify(report, null, 2));
-    console.log(`Report written to: ${jsonOutputPath}`);
+    log.cli(`Report written to: ${jsonOutputPath}`);
 
     // Write Markdown summary
     const mdOutputPath = resolve(outputDir, config.outputFile.replace(/\.json$/, ".md"));
     await generateMarkdownSummary(report, mdOutputPath);
-    console.log(`Summary written to: ${mdOutputPath}`);
+    log.cli(`Summary written to: ${mdOutputPath}`);
 
     // Output quick stats
-    console.log("\nQuick Stats:");
-    console.log(`- Total test files: ${report.testFilesCount}`);
-    console.log(
+    log.cli("\nQuick Stats:");
+    log.cli(`- Total test files: ${report.testFilesCount}`);
+    log.cli(
       "- Files by difficulty: " +
         `Easy: ${report.categoryCounts.migrationDifficulty.easy}, ` +
         `Medium: ${report.categoryCounts.migrationDifficulty.medium}, ` +
         `Hard: ${report.categoryCounts.migrationDifficulty.hard}`
     );
-    console.log(
+    log.cli(
       "- Framework dependencies: " +
         `Bun: ${report.categoryCounts.frameworkDependency.bun}, ` +
         `Jest: ${report.categoryCounts.frameworkDependency.jest}, ` +
@@ -629,7 +630,7 @@ async function main() {
         `None: ${report.categoryCounts.frameworkDependency.none}`
     );
   } catch (error) {
-    console.error("Error running test analyzer:", error);
+    log.cliError("Error running test analyzer:", error);
     process.exit(1);
   }
 }

@@ -5,11 +5,13 @@
  * This file serves as the central point for registering all shared commands.
  */
 
-import { registerGitCommands } from "./git.js";
-import { registerTasksCommands } from "./tasks.js";
-import { registerSessionCommands } from "./session.js";
-import { registerRulesCommands } from "./rules.js";
-import { registerInitCommands } from "./init.js";
+import { registerGitCommands } from "./git";
+import { registerTasksCommands } from "./tasks";
+import { registerSessionCommands } from "./session";
+import { registerRulesCommands } from "./rules";
+import { registerInitCommands } from "./init";
+import { registerConfigCommands } from "./config";
+import { registerSessionDbCommands } from "./sessiondb";
 
 /**
  * Register all shared commands in the shared command registry
@@ -30,9 +32,13 @@ export function registerAllSharedCommands(): void {
   // Register init commands
   registerInitCommands();
 
+  // Register config commands
+  registerConfigCommands();
+
+  // Register sessiondb commands
+  registerSessionDbCommands();
+
   // Additional command categories can be registered here as they're implemented
-  // For example:
-  // registerInitCommands();
 }
 
 // Export individual command registration functions to allow
@@ -43,4 +49,6 @@ export {
   registerSessionCommands,
   registerRulesCommands,
   registerInitCommands,
+  registerConfigCommands,
+  registerSessionDbCommands,
 };

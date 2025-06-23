@@ -16,6 +16,10 @@ import path from "path";
 // Import adapter-based tool registrations
 import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
@@ -35,10 +39,9 @@ export function createMCPCommand(): Command {
   startCommand.description("Start the MCP server");
   startCommand
     .option("--stdio", "Use stdio transport (default)")
-    .option("--sse", "Use SSE transport")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for SSE or HTTP Stream server", "8080")
-    .option("-h, --host <host>", "Host for SSE or HTTP Stream server", "localhost")
+    .option("-p, --port <port>", "Port for HTTP Stream server", "8080")
+    .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
@@ -49,13 +52,11 @@ export function createMCPCommand(): Command {
       try {
         // Determine transport type based on options
         let transportType: "stdio" | "sse" | "httpStream" = "stdio";
-        if (options.sse) {
-          transportType = "sse";
-        } else if (options.httpStream) {
+        if (options.httpStream) {
           transportType = "httpStream";
         }
 
-        // Set port (used for both SSE and HTTP Stream)
+        // Set port (used for HTTP Stream)
         const port = parseInt(options.port, 10);
 
         // Validate and prepare repository path if provided
@@ -102,12 +103,13 @@ export function createMCPCommand(): Command {
           transportType,
           projectContext,
           sse: {
-            endpoint: "/sse",
-            port,
+            port: 8080, // Default SSE port (not currently used via CLI)
+            host: options.host,
+            path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
           },
           httpStream: {
-            endpoint: "/stream",
-            port,
+            port: transportType === "httpStream" ? port : 8080,
+            endpoint: "/mcp",
           },
         });
 
@@ -122,7 +124,11 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
-        registerSessionWorkspaceTools(commandMapper);
+import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+        // registerSessionFileTools(commandMapper);
+        // registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
@@ -185,7 +191,7 @@ export function createMCPCommand(): Command {
       } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
-          transportType: options.sse ? "sse" : options.httpStream ? "httpStream" : "stdio",
+          transportType: options.httpStream ? "httpStream" : "stdio",
           port: options.port,
           host: options.host,
           withInspector: options.withInspector || false,

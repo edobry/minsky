@@ -1,4 +1,4 @@
-# Task #114: Migrate High-Priority Tests to Native Bun Patterns
+# Migrate High-Priority Tests to Native Bun Patterns
 
 ## Context
 

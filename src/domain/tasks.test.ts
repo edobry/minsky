@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from "bun:te
 import { MarkdownTaskBackend, TaskService, TASK_STATUS } from "./tasks";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from "fs";
 import { join } from "path";
-import { resolveRepoPath } from "./repo-utils";
-import type { RepoResolutionOptions } from "./repo-utils";
 import path from "path";
-
 const SAMPLE_TASKS_MD = `
 # Tasks
 
@@ -391,7 +388,7 @@ describe("createTask", () => {
     await expect(taskBackend.createTask(specPath)).rejects.toThrow("Invalid spec file");
   });
 
-  it('should support spec file with "# Task: Title" format', async () => {
+  it("should support spec file with \"# Task: Title\" format", async () => {
     const specPath = path.join(workspacePath, "process/tasks/no-id-spec.md");
     const newSpecPath = path.join(workspacePath, "process/tasks/003-new-feature.md");
 
@@ -432,7 +429,7 @@ describe("createTask", () => {
     }
   });
 
-  it('should support spec file with "# Task #XXX: Title" format', async () => {
+  it("should support spec file with \"# Task #XXX: Title\" format", async () => {
     const specPath = path.join(workspacePath, "process/tasks/with-id-spec.md");
     const newSpecPath = path.join(workspacePath, "process/tasks/042-existing-id-feature.md");
 

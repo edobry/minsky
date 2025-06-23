@@ -21,6 +21,7 @@ export enum CommandCategory {
   SESSION = "SESSION",
   RULES = "RULES",
   INIT = "INIT",
+  CONFIG = "CONFIG",
 }
 
 /**

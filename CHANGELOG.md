@@ -9,7 +9,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
+  - Implemented Phase 1: Critical File Operations
+    - Created `session_edit_file` tool with support for Cursor's `// ... existing code ...` pattern
+    - Created `session_search_replace` tool for single occurrence text replacement
+    - Developed FastMCP server infrastructure for tool registration
+    - Added CommandMapper type extensions for tool registration methods
+  - Enhanced session workspace isolation for AI coding operations
+  - All file operations enforce session workspace boundaries through SessionPathResolver
+  - Tools match Cursor's exact interface for compatibility with AI agents
+
+_See: SpecStory history [2025-06-23_session-aware-tools-implementation](mdc:.specstory/history/2025-06-23_session-aware-tools-implementation.md) for Phase 1 implementation._
+
+- **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
+  - Implemented comprehensive session workspace tools for AI agents to operate safely within session boundaries
+  - Created 6 session workspace tools with MCP integration:
+    - `session_read_file` - Read files within session workspace
+    - `session_write_file` - Write/create files with atomic operations
+    - `session_list_directory` - List directory contents with filtering
+    - `session_file_exists` - Check file/directory existence with metadata
+    - `session_delete_file` - Delete files with safety checks
+    - `session_create_directory` - Create directories with recursive support
+  - Developed SessionPathResolver class with comprehensive security validation:
+    - Prevents path traversal attacks (../ blocking)
+    - Enforces session workspace boundaries
+    - Handles edge cases (symlinks, special characters, complex paths)
+    - Automatic path resolution within session context
+  - Integrated session workspace tools with MCP server infrastructure
+  - Created comprehensive test suite with 25 passing tests covering:
+    - Path resolution and validation logic
+    - Security boundary enforcement
+    - Tool registration and integration
+    - Edge cases and error handling
+  - Added complete documentation with API examples and usage guidelines
+  - Solved core problem of AI agents accidentally modifying main workspace by providing secure, session-scoped file operations
+  - Enabled AI agents to work safely within session workspaces without manual path management
+
+_See: SpecStory history [2025-06-17_23-16-check-mcp-server-status-and-tool-isolation](mdc:.specstory/history/2025-06-17_23-16-check-mcp-server-status-and-tool-isolation.md) for comprehensive analysis and implementation._
+
+- **Task #138: Add GitHub Issues Support as Task Backend**
+  - Implemented full GitHub Issues integration as a task backend option
+  - Created GitHubIssuesTaskBackend with complete API integration using Octokit
+  - Added environment variable support for GitHub authentication (GITHUB_TOKEN)
+  - Implemented comprehensive task-to-issue mapping functionality:
+    - Create tasks as GitHub issues with proper formatting
+    - Update task status by modifying issue state and labels
+    - List and filter tasks from GitHub issues
+    - Support for issue assignments, labels, and milestones
+  - Added comprehensive test suite with mocked GitHub API responses
+  - Integrated with existing task service using factory pattern
+  - Maintained backward compatibility with existing markdown backend
+  - Created task #145 to address dynamic imports used in implementation
+  - Created task #146 to fix session PR command import bug discovered during implementation
+
+_See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/history/2025-01-17_github-issues-task-backend.md) for implementation details._
+
+### Changed
+
+- **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
+  - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
+  - Migrated from legacy .eslintrc.json to modern flat config format (eslint.config.js)
+  - Added @eslint/js v9.29.0 package for flat config support
+  - Updated npm scripts to remove deprecated --ext .ts flag (not needed in v9)
+  - Maintained all existing linting rules and functionality including:
+    - Import restrictions for domain modules
+    - Console usage restrictions with custom logger requirements
+    - TypeScript-specific rules and configurations
+    - Magic number detection and template literal preferences
+  - Verified full compatibility with 2,434 linting issues detected and 402 auto-fixes applied
+  - All tests passing (541/544) with only pre-existing unrelated failures
+  - Zero breaking changes for development workflow with improved performance
+
+_See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
+
 ### Fixed
+
+- **Task #141: Repository Configuration System Implementation**
+  - Implemented complete 5-level configuration hierarchy system (CLI flags > env vars > global user config > repo config > defaults)
+  - Added repository configuration support with `.minsky/config.yaml` for team-wide consistency
+  - Created global user configuration in `~/.config/minsky/config.yaml` for credentials and personal settings
+  - Implemented backend auto-detection based on repository characteristics (GitHub remote, tasks.md file, fallback to json-file)
+  - Added comprehensive credential management with multiple sources (environment, file, interactive prompts)
+  - Created CLI commands for configuration management (`minsky config list`, `minsky config show`)
+  - Enhanced `minsky init` command with backend options (`--backend`, `--github-owner`, `--github-repo`)
+  - Integrated configuration system with task commands for zero-config experience
+  - Added YAML configuration file generation and validation
+  - Implemented complete test suite for configuration service and integration scenarios
+  - Enabled zero-config task operations: `minsky tasks list` now works without `--backend` flags after repository setup
+
+_See: SpecStory history [2025-01-24_repo-config-system-implementation](mdc:.specstory/history/2025-01-24_repo-config-system-implementation.md) for configuration system implementation._
+
+- **Session Dir Command: Enable Optional Positional Arguments**
+  - Fixed error "too many arguments for 'dir'. Expected 0 arguments but got 1" when using session dir command
+  - Added CLI customization to accept optional session name as positional argument
+  - Preserves existing --task option as alternative usage pattern
+  - Users can now run either:
+    - `minsky session dir my-session-name` (positional session name)
+    - `minsky session dir --task task#123` (task ID as option)
+  - Enhanced help text shows [session] as optional positional argument with clear usage guidance
+
+_See: SpecStory history [2025-01-24_session-dir-positional-args](mdc:.specstory/history/2025-01-24_session-dir-positional-args.md) for implementation details._
+
+- **Task #144: Fix Session PR and Git Prepare-PR Commands to Implement Proper Prepared Merge Commit Workflow**
+  - Fixed critical bug where `session pr` and `git prepare-pr` commands created regular PR branches instead of prepared merge commits
+  - Changed GitService.preparePr() to create PR branch FROM base branch (origin/main) instead of feature branch
+  - Added `--no-ff` merge of feature branch INTO PR branch to create proper prepared merge commit
+  - Implemented proper error handling for merge conflicts with exit code 4 and cleanup
+  - Added comprehensive test coverage demonstrating broken vs fixed behavior
+  - Verified end-to-end workflow shows correct prepared merge commit structure
+  - Enabled fast-forward merge capability for `session approve` command as documented
+  - Full compliance with Task #025 prepared merge commit specification
+  - Resolves fundamental issue that broke the documented PR workflow
+
+_See: SpecStory history [2025-06-18_fix-prepared-merge-commit-workflow](mdc:.specstory/history/2025-06-18_fix-prepared-merge-commit-workflow.md) for prepared merge commit implementation._
+
+- **Task #140: Fix dependency installation error in session startup**
+  - Fixed null reference error when calling .toString() on execSync result during dependency installation
+  - Added proper null handling using optional chaining and fallback empty string for quiet mode
+  - Resolved session startup failure that occurred when stdio: "ignore" was used with execSync
+  - All session startup operations now complete successfully without dependency installation errors
+
+_See: SpecStory history [2025-01-26_fix-dependency-installation-error](mdc:.specstory/history/2025-01-26_fix-dependency-installation-error.md) for session startup fix._
 
 - **Task #116: Improve CI/CD Test Stability with Progressive Migration**
   - Verified CI stability resolved by upstream testing infrastructure improvements from tasks #110-115
@@ -21,41 +143,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 _See: SpecStory history [2025-01-20_improve-ci-test-stability](mdc:.specstory/history/2025-01-20_improve-ci-test-stability.md) for CI stability verification._
 
 ### Added
-
-- **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
-  - Comprehensive task analysis and architectural evaluation for session-scoped MCP server
-  - Architectural Decision Records (ADRs) for implementation approach selection
-  - Implementation specifications for MCP file operation proxy architecture
-  - Detailed comparison of Docker containerization approaches for future implementation
-  - Implemented comprehensive session-scoped file operation tools for MCP server
-  - Added 4 session file tools with complete functionality and security validation:
-    - `session.read_file` - Read files with path validation within session workspace
-    - `session.write_file` - Write files with directory creation support and workspace isolation
-    - `session.list_directory` - List directory contents with detailed file metadata
-    - `session.file_exists` - Check file/directory existence with comprehensive status information
-  - Created `SessionPathResolver` class with robust security features:
-    - Path validation to prevent directory traversal attacks
-    - Session workspace boundary enforcement
-    - Automatic session context detection from working directory
-    - Support for dependency injection for testing
-  - Implemented complete MCP integration with `registerSessionFileTools()` function
-  - Added comprehensive test suite with 8 test cases covering:
-    - Basic functionality testing for all file operations
-    - Security validation for directory traversal prevention
-    - Error handling for missing sessions and invalid paths
-    - Integration testing with temporary workspace isolation
-  - Created detailed documentation in `docs/session-file-tools.md` with:
-    - Complete API reference for all tools
-    - Usage examples and response formats
-    - Security feature explanations
-    - Integration guidelines for AI agents
-  - Ensures strict workspace isolation preventing AI agents from accidentally modifying main workspace
-  - All operations properly scoped to session workspaces with comprehensive error reporting
-  - **Priority 1 COMPLETED**: Successfully recreated complete session file tools implementation with comprehensive security features and MCP integration after previous implementation was deleted
-  - **Priority 2 COMPLETED**: Created comprehensive documentation and extensive test suite (25 passing tests) covering all functionality, security validation, and edge cases
-  - **Terminology Updated**: Renamed from "session file tools" to "session workspace tools" throughout codebase for better accuracy
-
-_See: SpecStory history [2025-06-17_check-mcp-server-status-and-tool-isolation](mdc:.specstory/history/2025-06-17_23-16-check-mcp-server-status-and-tool-isolation.md) for implementation details._
 
 - Task #114: Migrate High-Priority Tests to Native Bun Patterns
   - Created robust custom assertion helpers to bridge Jest and Bun differences
@@ -481,15 +568,6 @@ _See: SpecStory history [2023-07-18_20-15-test-utility-documentation](mdc:.specs
 
 ### Changed
 
-- Task #049: Performed comprehensive analysis of session-scoped MCP server requirements
-  - Analyzed current architecture and future direction (non-filesystem workspaces)
-  - Evaluated multiple implementation approaches (proxy, session-specific, instances, virtual FS)
-  - Selected MCP File Operation Proxy approach for architectural alignment
-  - Integrated with existing analysis from alternative session-specific tools approach
-  - Updated specification with abstraction layer design and architecture decision records
-
-_See: SpecStory history [2025-06-18_session-scoped-mcp-analysis](mdc:.specstory/history/2025-06-18_session-scoped-mcp-analysis.md) for MCP server workspace isolation analysis._
-
 - Refactored CLI command implementations to use shared option utilities
 - Improved error handling with centralized utilities
 
@@ -848,27 +926,7 @@ _See: SpecStory history [2025-01-XX_fix-typescript-di-helpers](mdc:.specstory/hi
 
 _See: SpecStory history [2025-01-16_fix-session-get-output](mdc:.specstory/history/2025-01-16_fix-session-get-output.md) for implementation details._
 
-- Task #049: Performed comprehensive analysis of session-scoped MCP server requirements
-  - Analyzed current architecture and future direction (non-filesystem workspaces)
-  - Evaluated multiple implementation approaches (proxy, session-specific, instances, virtual FS)
-  - Selected MCP File Operation Proxy approach for architectural alignment
-  - Integrated with existing analysis from alternative session-specific tools approach
-  - Updated specification with abstraction layer design and architecture decision records
+- Extracted test-migration module to separate repository for preservation
+- Removed redundant bun-test.d.ts (now using bun-types package)
 
-_See: SpecStory history [2025-06-18_session-scoped-mcp-analysis](mdc:.specstory/history/2025-06-18_session-scoped-mcp-analysis.md) for MCP server workspace isolation analysis._
-
-### Changed
-- Updated task specification to reflect comprehensive analysis and selected approach
-- Merged alternative implementation approaches (session-specific tools vs file operation proxy)
-- Refined requirements to align with domain-driven design and interface-agnostic patterns
-- Updated task status to reflect critical findings: implementation completed but files deleted
-
-### Fixed
-- Resolved Git merge conflicts between different analytical approaches
-- Integrated both session-specific tools and file operation proxy perspectives
-
-### Implementation Status
-- ✅ **PREVIOUSLY COMPLETED**: Full implementation of session file operation tools with MCP integration
-- ⚠️ **CRITICAL ISSUE**: Implementation files were subsequently deleted and require recreation
-- 🔄 **CURRENT STATUS**: Need to recreate `src/adapters/mcp/session-files.ts`, tests, and integration
-- 📋 **NEXT STEPS**: Restore implementation, validate functionality, create documentation
+_See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/history/2025-06-18_18-00-continue-linter-fixes.md) for linter cleanup progress._

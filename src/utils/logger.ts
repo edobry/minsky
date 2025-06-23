@@ -246,23 +246,23 @@ process.on("unhandledRejection", async (reason, promise) => {
 
 // Basic test to ensure it works - can be removed or moved to a test file
 if (process.env.RUN_LOGGER_TEST === "true") {
-  console.log("--- Agent Logger (stdout) ---");
+  log.cli("--- Agent Logger (stdout) ---");
   log.debug("Agent debug message", { data: "some debug data" });
   log.agent("Agent info message", { user: "test" });
   log.warn("Agent warning message", { code: 100 });
   log.error("Agent error message (string)", { details: "string error" });
   log.error("Agent error via Error object", new Error("Test error"));
 
-  console.log("\n--- Program Logger (stderr) ---");
+  log.cli("\n--- Program Logger (stderr) ---");
   log.cliDebug("This is a CLI debug message.");
   log.cli("This is a CLI message.");
   log.cliWarn("This is a CLI warning.");
   log.cliError("This is a CLI error.");
   log.systemDebug("This is a system debug message that works in all modes.");
 
-  console.log("\n--- Environment Information ---");
-  console.log(`Current Log Mode: ${log.mode}`);
-  console.log(`Is Structured Mode: ${log.isStructuredMode()}`);
-  console.log(`Is Human Mode: ${log.isHumanMode()}`);
-  console.log(`Is Terminal (TTY): ${Boolean(process.stdout.isTTY)}`);
+  log.cli("\n--- Environment Information ---");
+  log.cli(`Current Log Mode: ${log.mode}`);
+  log.cli(`Is Structured Mode: ${log.isStructuredMode()}`);
+  log.cli(`Is Human Mode: ${log.isHumanMode()}`);
+  log.cli(`Is Terminal (TTY): ${Boolean(process.stdout.isTTY)}`);
 }

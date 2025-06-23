@@ -51,7 +51,7 @@ describe("Shared Rules Commands", () => {
 
     // Create mock object for methods
     mockRuleService = {
-      listRules: (options?: any) =>
+      listRules: (_options?: any) =>
         Promise.resolve([
           {
             id: "test-rule-1",
@@ -74,13 +74,13 @@ describe("Shared Rules Commands", () => {
             tags: ["docs"],
           },
         ]),
-      getRule: (id: string, options?: any) =>
+      getRule: (id: string, _options?: any) =>
         Promise.resolve({
           id,
           name: `Rule ${id}`,
           description: `Description for rule ${id}`,
           content: `# Content for rule ${id}`,
-          format: options?.format || "cursor",
+          format: _options?.format || "cursor",
           path: `/test/workspace/.cursor/rules/${id}.mdc`,
           globs: ["*.ts"],
           tags: ["test"],

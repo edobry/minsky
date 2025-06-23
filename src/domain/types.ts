@@ -2,6 +2,10 @@
  * Domain types shared across multiple modules
  */
 
+// Re-export task status types from centralized location
+export type { TaskStatus } from "./tasks/taskConstants.js";
+export { TaskStatusType } from "./tasks/taskConstants.js";
+
 /**
  * Categories of commands supported by the system
  */
@@ -12,16 +16,6 @@ export enum CommandCategory {
   RULES = "RULES",
   INIT = "INIT",
   MCP = "MCP",
-}
-
-/**
- * Status values for tasks
- */
-export enum TaskStatus {
-  TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS",
-  IN_REVIEW = "IN-REVIEW",
-  DONE = "DONE",
 }
 
 /**

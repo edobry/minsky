@@ -1,32 +1,19 @@
+/**
+ * Task operations for the Minsky CLI
+ * This file provides all task-related functionality including managing tasks
+ */
+
 import { promises as fs } from "fs";
 import { join } from "path";
-import { parse as parsePath } from "path";
-import { SessionDB } from "./session";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { resolveRepoPath } from "./repo-utils";
-import { resolveWorkspacePath } from "./workspace";
 import { log } from "../utils/logger";
 import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
-import type {
-  TaskListParams,
-  TaskGetParams,
-  TaskStatusGetParams,
-  TaskStatusSetParams,
-  TaskCreateParams,
-} from "../schemas/tasks.js";
-import {
-  taskListParamsSchema,
-  taskGetParamsSchema,
-  taskStatusGetParamsSchema,
-  taskStatusSetParamsSchema,
-  taskCreateParamsSchema,
-} from "../schemas/tasks.js";
-import { ValidationError, ResourceNotFoundError } from "../errors/index.js";
-import { z } from "zod";
+import { ResourceNotFoundError } from "../errors/index.js";
 import matter from "gray-matter";
+// Import constants and utilities for use within this file
+import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
+import type { TaskStatus } from "./tasks/taskConstants.js";
 
 // Import and re-export functions from taskCommands.ts
 import {
@@ -51,7 +38,9 @@ export {
   type TaskSpecContentParams,
 };
 
-const execAsync = promisify(exec);
+// Re-export task status constants from centralized location
+export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants.js";
+export type { TaskStatus } from "./tasks/taskConstants.js";
 
 /**
  * Interface for task service operations
@@ -129,30 +118,6 @@ export interface CreateTaskOptions {
   force?: boolean;
 }
 
-// Task status constants and checkbox mapping
-export const TASK_STATUS = {
-  TODO: "TODO",
-  DONE: "DONE",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-} as const;
-
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
-
-export const TASK_STATUS_CHECKBOX: Record<string, string> = {
-  [TASK_STATUS.TODO]: " ",
-  [TASK_STATUS.DONE]: "x",
-  [TASK_STATUS.IN_PROGRESS]: "-",
-  [TASK_STATUS.IN_REVIEW]: "+",
-};
-
-export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
-  " ": TASK_STATUS.TODO,
-  x: TASK_STATUS.DONE,
-  "-": TASK_STATUS.IN_PROGRESS,
-  "+": TASK_STATUS.IN_REVIEW,
-};
-
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
   private filePath: string;
@@ -228,8 +193,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       if (inCodeBlock) return line;
       if (line.includes(`[#${idNum}]`)) {
-        // Replace only the first checkbox in the line
-        return line.replace(/^(\s*- \[)( |x|\-|\+)(\])/, `$1${newStatusChar}$3`);
+        // Use centralized utility to replace checkbox status
+        return TASK_PARSING_UTILS.replaceCheckboxStatus(line, status as TaskStatus);
       }
       return line;
     });
@@ -275,15 +240,13 @@ export class MarkdownTaskBackend implements TaskBackend {
           continue;
         }
         if (inCodeBlock) continue;
-        // Match top-level tasks: - [ ] Title [#123](...)
-        const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
-        if (!match) continue;
-        const checkbox = match[1];
-        const title = match[2]?.trim() ?? "";
-        const id = `#${match[3] ?? ""}`;
+        // Parse task line using centralized utility
+        const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
+        if (!parsed) continue;
+
+        const { checkbox, title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status =
-          CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || TASK_STATUS.TODO;
+        const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
         // Aggregate indented lines as description
         let description = "";
         for (let j = i + 1; j < lines.length; j++) {
@@ -340,24 +303,38 @@ export class MarkdownTaskBackend implements TaskBackend {
       throw new Error("Invalid spec file: Missing title heading");
     }
 
-    // Support both "# Task: Title" and "# Task #XXX: Title" formats
-    // Improved regex patterns for more robust matching
+    // Support multiple title formats for backward compatibility:
+    // 1. Old format with task number: "# Task #XXX: Title"
+    // 2. Old format without number: "# Task: Title"
+    // 3. New clean format: "# Title"
     const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
     const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+    const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
     let title: string;
     let hasTaskId = false;
     let existingId: string | null = null;
 
     if (titleWithIdMatch && titleWithIdMatch[2]) {
+      // Old format: "# Task #XXX: Title"
       title = titleWithIdMatch[2];
       existingId = `#${titleWithIdMatch[1]}`;
       hasTaskId = true;
     } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
+      // Old format: "# Task: Title"
       title = titleWithoutIdMatch[1];
+    } else if (cleanTitleMatch && cleanTitleMatch[1]) {
+      // New clean format: "# Title"
+      title = cleanTitleMatch[1];
+      // Skip if this looks like an old task format to avoid false positives
+      if (title.startsWith("Task ")) {
+        throw new Error(
+          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
+        );
+      }
     } else {
       throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Task: Title" or "# Task #XXX: Title"'
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
@@ -402,12 +379,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     const newSpecPath = join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
     const fullNewPath = join(this.workspacePath, newSpecPath);
 
-    // Update the title in the spec file to include the task number if needed
+    // Update the title in the spec file to use clean format
     let updatedContent = specContent;
-    if (!hasTaskId) {
-      const updatedTitleLine = `# Task ${taskId}: ${title}`;
-      updatedContent = updatedContent.replace(titleLine, updatedTitleLine);
-    }
+    const cleanTitleLine = `# ${title}`;
+    updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
 
     // Rename and update the spec file
     try {

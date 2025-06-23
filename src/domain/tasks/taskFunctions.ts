@@ -2,31 +2,11 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
+import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
-import type {
-  TaskData,
-  TaskState,
-  TaskFilter,
-  TaskSpecData,
-  TaskStatusType,
-} from "../../types/tasks/taskData.js";
-import { log } from "../../utils/index.js";
-
-// Constants used by task functions
-export const CHECKBOX_TO_STATUS: Record<string, string> = {
-  " ": "TODO",
-  "+": "IN-PROGRESS",
-  "-": "IN-REVIEW",
-  x: "DONE",
-  X: "DONE",
-};
-
-export const STATUS_TO_CHECKBOX: Record<string, string> = {
-  TODO: " ",
-  "IN-PROGRESS": "+",
-  "IN-REVIEW": "-",
-  DONE: "x",
-};
+// Import constants and utilities from centralized location
+import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants.js";
+import type { TaskStatus } from "./taskConstants.js";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -49,16 +29,14 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     }
     if (inCodeBlock) continue;
 
-    // Match top-level tasks: - [ ] Title [#123](...)
-    const match = /^- \[( |x|\-|\+)\] (.+?) \[#(\d+)\]\([^)]+\)/.exec(line);
-    if (!match) continue;
+    // Parse task line using centralized utility
+    const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
+    if (!parsed) continue;
 
-    const checkbox = match[1];
-    const title = match[2]?.trim() ?? "";
-    const id = `#${match[3] ?? ""}`;
+    const { checkbox, title, id } = parsed;
     if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
 
-    const status = CHECKBOX_TO_STATUS[checkbox as keyof typeof CHECKBOX_TO_STATUS] || "TODO";
+    const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
 
     // Aggregate indented lines as description
     let description = "";
@@ -96,7 +74,7 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
 
   return tasks
     .map((task) => {
-      const checkbox = STATUS_TO_CHECKBOX[task.status] || " ";
+      const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
       const taskLine = `- [${checkbox}] ${task.title} [${task.id}](${specPath})`;
 
@@ -187,14 +165,14 @@ export function getNextTaskId(tasks: TaskData[]): string {
  * @param status New status
  * @returns New array with the updated task
  */
-export function setTaskStatus(tasks: TaskData[], id: string, status: string): TaskData[] {
+export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
   const normalizedId = normalizeTaskId(id);
   if (!normalizedId) return tasks;
 
-  // Validate status
-  if (!Object.values(CHECKBOX_TO_STATUS).includes(status)) {
+  // Validate status using centralized utility
+  if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
@@ -320,23 +298,30 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     return { title: "", description: "" };
   }
 
-  // Support both "# Task: Title" and "# Task #XXX: Title" formats
+  // Support multiple title formats for backward compatibility:
+  // 1. Old format with task number: "# Task #XXX: Title"
+  // 2. Old format without number: "# Task: Title"
+  // 3. New clean format: "# Title"
   const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
   const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+  const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
   let title = "";
   let id: string | undefined;
 
   if (titleWithIdMatch && titleWithIdMatch[2]) {
+    // Old format: "# Task #XXX: Title"
     title = titleWithIdMatch[2];
     id = `#${titleWithIdMatch[1]}`;
   } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
+    // Old format: "# Task: Title"
     title = titleWithoutIdMatch[1];
-  } else {
-    // Try a more general pattern to extract title
-    const generalTitleMatch = titleLine.match(/^# (.+)$/);
-    if (generalTitleMatch && generalTitleMatch[1]) {
-      title = generalTitleMatch[1];
+  } else if (cleanTitleMatch && cleanTitleMatch[1]) {
+    // New clean format: "# Title"
+    title = cleanTitleMatch[1];
+    // Skip if this looks like an old task format to avoid false positives
+    if (!title.startsWith("Task ")) {
+      // This is likely the new clean format
     }
   }
 
@@ -367,7 +352,8 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
 export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   if (!spec) return "";
 
-  const titleLine = spec.id ? `# Task ${spec.id}: ${spec.title}` : `# Task: ${spec.title}`;
+  // Generate clean title format without task numbers
+  const titleLine = `# ${spec.title}`;
 
   const contextSection = `
 ## Context
@@ -395,8 +381,8 @@ ${spec.description}
  * @param status Status to validate
  * @returns True if valid, false otherwise
  */
-export function isValidTaskStatus(status: string): boolean {
-  return Object.values(CHECKBOX_TO_STATUS).includes(status);
+export function isValidTaskStatus(status: string): status is TaskStatus {
+  return isValidTaskStatusUtil(status);
 }
 
 /**

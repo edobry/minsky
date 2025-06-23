@@ -1,10 +1,8 @@
 import { SessionDB, type SessionProviderInterface } from "./session";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { basename } from "path";
-import { execAsync as execAsyncUtil } from "../utils/exec.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
-import { normalizeRepositoryURI, normalizeRepoName } from "./repository-uri.js";
+import { normalizeRepoName } from "./repository-uri.js";
 const execAsync = promisify(exec);
 
 export interface RepoResolutionOptions {
