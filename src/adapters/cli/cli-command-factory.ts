@@ -316,11 +316,8 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       "config.list": {
         outputFormatter: (result: any) => {
           if (result.success && result.sources && result.resolved) {
-            const sourcesOutput = formatConfigurationSources(result.sources);
             const resolvedOutput = formatResolvedConfiguration(result.resolved);
-            log.cli(
-              `${sourcesOutput}\n${"=".repeat(60)}\nRESOLVED CONFIGURATION\n${"=".repeat(60)}\n${resolvedOutput}`
-            );
+            log.cli(resolvedOutput);
           } else if (result.error) {
             log.cli(`Failed to load configuration: ${result.error}`);
           } else {
@@ -371,108 +368,6 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
     },
   });
-}
-
-// Helper functions for formatting config output
-function formatConfigurationSources(sources: any): string {
-  return `⚙️  CONFIGURATION SOURCES
-${"─".repeat(50)}
-
-Minsky loads configuration from multiple sources in priority order:
-
-🏆 1. Command Line Flags (highest priority)
-${formatSourceStatus(sources.cliFlags, "No flags specified")}
-
-🌍 2. Environment Variables
-${formatEnvironmentVariables(sources.environment)}
-
-👤 3. Global User Config (~/.config/minsky/config.yaml)
-${formatGlobalUserSection(sources.globalUser)}
-
-📁 4. Repository Config (.minsky/config.yaml)
-${formatRepositorySection(sources.repository)}
-
-⚙️  5. Built-in Defaults (lowest priority)
-${formatDefaultsSection(sources.defaults)}`;
-}
-
-function formatSourceStatus(source: any, emptyMessage: string): string {
-  if (!source || Object.keys(source).length === 0) {
-    return `   ${emptyMessage}`;
-  }
-  return formatConfigSection(source);
-}
-
-function formatEnvironmentVariables(environment: any): string {
-  if (!environment || Object.keys(environment).length === 0) {
-    return "   No environment variables set";
-  }
-
-  let output = "";
-  if (environment.credentials?.github) {
-    output += "   ✅ GitHub credentials configured via environment\n";
-  }
-  if (environment.backend) {
-    output += `   📁 Task backend override: ${environment.backend}\n`;
-  }
-  if (environment.sessiondb) {
-    output += "   💾 Session database settings configured\n";
-  }
-
-  return output.trimEnd() || "   No relevant environment variables set";
-}
-
-function formatGlobalUserSection(globalUser: any): string {
-  if (!globalUser) {
-    return "   File not found - using defaults";
-  }
-
-  let output = `   ✅ File found (version ${globalUser.version || "unknown"})`;
-  if (globalUser.credentials?.github) {
-    output += "\n   🔐 GitHub credentials configured";
-  }
-  if (globalUser.sessiondb) {
-    output += "\n   💾 Session database preferences set";
-  }
-
-  return output;
-}
-
-function formatRepositorySection(repository: any): string {
-  if (!repository) {
-    return "   File not found - using global/default settings";
-  }
-
-  let output = `   ✅ File found (version ${repository.version || "unknown"})`;
-  if (repository.backends?.default) {
-    const backendName = getBackendDisplayName(repository.backends.default);
-    output += `\n   📁 Default task backend: ${backendName}`;
-  }
-  if (repository.backends?.["github-issues"]) {
-    const github = repository.backends["github-issues"];
-    output += `\n   🐙 GitHub Issues: ${github.owner}/${github.repo}`;
-  }
-  if (repository.repository?.detection_rules) {
-    output += `\n   🔍 Custom detection rules (${repository.repository.detection_rules.length} rules)`;
-  }
-  if (repository.sessiondb) {
-    output += "\n   💾 Session database configuration";
-  }
-
-  return output;
-}
-
-function formatDefaultsSection(defaults: any): string {
-  let output = "   These are Minsky's built-in defaults:\n";
-  output += `   📁 Task backend: ${getBackendDisplayName(defaults.backend)}\n`;
-  if (defaults.detectionRules && defaults.detectionRules.length > 0) {
-    output += `   🔍 Auto-detection rules: ${defaults.detectionRules.length} rules\n`;
-  }
-  if (defaults.sessiondb) {
-    output += `   💾 Session storage: ${getSessionBackendDisplayName(defaults.sessiondb.backend)}\n`;
-  }
-
-  return output.trimEnd();
 }
 
 function formatResolvedConfiguration(resolved: any): string {
