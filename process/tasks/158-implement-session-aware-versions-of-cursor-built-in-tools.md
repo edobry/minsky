@@ -128,11 +128,27 @@ AI coding agents using Minsky need access to the same comprehensive toolset avai
 3. Terminal commands must execute within session workspace context
 4. Tools must be discoverable and usable by various AI coding agents (not just Cursor)
 
+## Implementation Approach Decision ✅
+
+**DECISION FINALIZED**: After consultation with MCP expert, proceeding with **direct implementation approach** using open source libraries and existing tools wherever possible.
+
+### Selected Strategy: Direct Implementation with Open Source Libraries
+
+1. **Primary Approach**: Implement session-aware versions of critical tools directly
+2. **Leverage Existing Libraries**: Use proven open source libraries (ripgrep, fzf, etc.) identified through research
+3. **Incremental Delivery**: Focus on most critical tools first for immediate workflow improvement
+4. **Session Workspace Enforcement**: All tools use absolute session workspace paths for proper isolation
+
+### Rejected Approaches:
+
+- **Tool Proxy/Recommendation Pattern**: Determined to be architecturally unreliable after expert consultation
+- **Cursor Tool Delegation**: MCP protocol limitations make this approach infeasible
+
 ## Updated Requirements
 
-### 1. Research-Driven Implementation
+### 1. Research-Driven Implementation ✅ COMPLETED
 
-**MANDATORY FIRST STEP**: Complete comprehensive research outlined above before any implementation work.
+Research phase completed with comprehensive analysis of tool origins and implementation approaches.
 
 ### 2. Evidence-Based Tool Selection
 
@@ -207,36 +223,59 @@ Based on research, evaluate whether these tools need session-aware versions:
 
 ## Implementation Plan (Updated)
 
-### Phase 0: Research and Analysis (Week 1-2)
+### Phase 0: Research and Analysis ✅ COMPLETED
 
-1. [ ] Conduct comprehensive web research on Cursor tool origins
-2. [ ] Analyze MCP protocol and available tool libraries
-3. [ ] Create tool origins analysis document
-4. [ ] Perform gap analysis comparing current vs needed tools
-5. [ ] Consult with user on unclear/ambiguous findings
-6. [ ] Finalize prioritized implementation roadmap
+1. [x] Conduct comprehensive web research on Cursor tool origins
+2. [x] Analyze MCP protocol and available tool libraries
+3. [x] Create tool origins analysis document
+4. [x] Perform gap analysis comparing current vs needed tools
+5. [x] Consult with user on unclear/ambiguous findings
+6. [x] Finalize prioritized implementation roadmap
 
-### Phase 1: Critical File Operations (Week 3)
+### Phase 1: Critical File Operations (IMMEDIATE START)
 
-1. [ ] Implement `session_edit_file` based on research findings
-2. [ ] Implement `session_search_replace` using identified approach
+**Priority**: Highest - Essential for AI coding workflows
+
+1. [ ] Implement `session_edit_file`
+   - Use diff/patch approach with `// ... existing code ...` pattern recognition
+   - Build on existing file operation patterns
+   - Enforce session workspace boundaries
+2. [ ] Implement `session_search_replace`
+   - Use string replacement with context validation
+   - Handle large files efficiently (>2500 lines)
+   - Session-scoped path resolution
 3. [ ] Create comprehensive tests for file editing tools
 4. [ ] Document usage patterns and examples
 
-### Phase 2: Essential Search Operations (Week 4)
+### Phase 2: Essential Search Operations (NEXT)
 
-1. [ ] Implement `session_grep_search` using identified technology
-2. [ ] Implement `session_file_search` with same fuzzy matching approach
-3. [ ] Research and implement `session_codebase_search` infrastructure
-4. [ ] Optimize search performance to match Cursor's characteristics
-5. [ ] Create search operation tests
+**Priority**: High - Critical for code discovery and navigation
 
-### Phase 3: Command Execution (Week 5)
+1. [ ] Implement `session_grep_search` using **ripgrep (rg)**
+   - Install/integrate ripgrep as dependency
+   - Support regex, case sensitivity, include/exclude patterns
+   - Limit results to 50 matches (matching Cursor)
+2. [ ] Implement `session_file_search` using **fuzzy matching algorithm**
+   - Implement fzf-style fuzzy matching or use existing library
+   - Efficient file path search within session
+   - Limit results to 10 matches (matching Cursor)
+3. [ ] Implement `session_codebase_search` - **simplified semantic search**
+   - Start with keyword/phrase matching (defer complex embeddings)
+   - Support directory filtering with glob patterns
+   - Focus on practical search functionality first
+4. [ ] Create search operation tests
 
-1. [ ] Implement `session_run_command` based on research findings
-2. [ ] Add session context and workspace enforcement
-3. [ ] Implement shell context persistence as per Cursor
-4. [ ] Create command execution tests
+### Phase 3: Command Execution (LATER)
+
+**Priority**: Medium - Important but can be phased after core tools
+
+1. [ ] Implement `session_run_command` using **node-pty** or similar
+   - Install/integrate terminal emulation library
+   - Execute commands with pwd set to session workspace
+   - Maintain shell context between calls (if required)
+   - Support background processes and timeouts
+2. [ ] Add environment isolation between sessions
+3. [ ] Create command execution tests with security boundary validation
 
 ### Phase 4: Integration and Validation (Week 6)
 
@@ -314,8 +353,32 @@ The following documents must be created during the research phase:
 - 95%+ test coverage for implemented tools
 - Successful AI agent workflows without tool-specific modifications
 
+## Current Status: ✅ READY TO START IMPLEMENTATION
+
+### Research Phase: COMPLETED
+
+- ✅ Comprehensive tool origins analysis completed
+- ✅ Gap analysis and prioritization completed
+- ✅ MCP expert consultation completed
+- ✅ Implementation approach finalized: **Direct implementation with open source libraries**
+
+### Next Immediate Steps:
+
+1. **Start Phase 1**: Implement `session_edit_file` and `session_search_replace`
+2. **Use proven libraries**: Leverage ripgrep, fuzzy matching algorithms, diff/patch approaches
+3. **Incremental delivery**: Focus on most critical tools first for immediate workflow improvement
+4. **Session enforcement**: All tools use absolute session workspace paths
+
+### Implementation Order Confirmed:
+
+1. **FIRST**: File operations (`session_edit_file`, `session_search_replace`)
+2. **NEXT**: Search operations (`session_grep_search`, `session_file_search`, `session_codebase_search`)
+3. **LATER**: Command execution (`session_run_command`)
+
 ## References
 
 - [Cursor Built-in Tools Analysis](../../docs/cursor-built-in-tools-analysis.md) (comprehensive tool specifications)
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
 - [Session Workspace Implementation](../049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
+- [Tool Origins Analysis](../../docs/cursor-tool-origins-analysis.md) ✅ Created
+- [Gap Analysis](../../docs/cursor-tool-gap-analysis.md) ✅ Created
