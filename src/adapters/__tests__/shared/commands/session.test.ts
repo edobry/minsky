@@ -4,11 +4,6 @@
  * @refactored Uses project utilities instead of raw Bun APIs
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { registerSessionCommands } from "../../../../adapters/shared/commands/session.js";
-import {
-  sharedCommandRegistry,
-  CommandCategory,
-} from "../../../../adapters/shared/command-registry.js";
 import * as sessionDomain from "../../../../domain/session.js";
 import {
   expectToHaveBeenCalled,
@@ -16,26 +11,11 @@ import {
   expectToHaveLength,
 } from "../../../../utils/test-utils/assertions.js";
 import { setupTestMocks } from "../../../../utils/test-utils/mocking.js";
+import { sharedCommandRegistry, CommandCategory } from "../../../shared/command-registry.js";
+import { registerSessionCommands } from "../../../shared/commands/session.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();
-
-// Custom matcher helper functions
-const arrayContaining = (arr: any[]) => ({
-  asymmetricMatch: (actual: any[]) =>
-    Array.isArray(actual) &&
-    arr.every((item) =>
-      actual.some((actualItem) => JSON.stringify(actualItem).includes(JSON.stringify(item)))
-    ),
-});
-
-const objectContaining = (obj: Record<string, any>) => ({
-  asymmetricMatch: (actual: Record<string, any>) =>
-    typeof actual === "object" &&
-    Object.entries(obj).every(
-      ([key, value]) => key in actual && JSON.stringify(actual[key]).includes(JSON.stringify(value))
-    ),
-});
 
 describe("Shared Session Commands", () => {
   // Set up spies for domain functions
@@ -213,7 +193,7 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
-      session: "test-session",
+      name: "test-session",
       repo: "/test/repo",
       json: true,
     };
@@ -224,6 +204,7 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(getSessionSpy);
     expect(getMockCallArg(getSessionSpy, 0, 0)).toEqual({
       name: "test-session",
+      task: undefined,
       repo: "/test/repo",
       json: true,
     });
@@ -244,10 +225,10 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
+      name: "custom-session",
       task: "123",
       branch: "feature-branch",
       repo: "/test/repo",
-      session: "custom-session",
       quiet: true,
       noStatusUpdate: true,
       json: true,
@@ -258,13 +239,16 @@ describe("Shared Session Commands", () => {
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(startSessionSpy);
     expect(getMockCallArg(startSessionSpy, 0, 0)).toEqual({
+      name: "custom-session",
       task: "123",
       branch: "feature-branch",
       repo: "/test/repo",
-      name: "custom-session",
+      session: undefined,
       quiet: true,
       noStatusUpdate: true,
       json: true,
+      skipInstall: undefined,
+      packageManager: undefined,
     });
 
     // Verify result
@@ -283,7 +267,7 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
-      session: "test-session",
+      name: "test-session",
       task: "123",
       repo: "/test/repo",
       json: true,
@@ -317,7 +301,7 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
-      session: "test-session",
+      name: "test-session",
       repo: "/test/repo",
       force: true,
       json: true,
@@ -329,8 +313,9 @@ describe("Shared Session Commands", () => {
     expectToHaveBeenCalled(deleteSessionSpy);
     expect(getMockCallArg(deleteSessionSpy, 0, 0)).toEqual({
       name: "test-session",
-      repo: "/test/repo",
+      task: undefined,
       force: true,
+      repo: "/test/repo",
       json: true,
     });
 
@@ -351,12 +336,13 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
-      session: "test-session",
+      name: "test-session",
       task: "123",
       repo: "/test/repo",
       branch: "update-branch",
       noStash: true,
       noPush: true,
+      force: false,
       json: true,
     };
     const context = { interface: "test" };
@@ -371,6 +357,7 @@ describe("Shared Session Commands", () => {
       branch: "update-branch",
       noStash: true,
       noPush: true,
+      force: false,
       json: true,
     });
 
@@ -391,7 +378,7 @@ describe("Shared Session Commands", () => {
 
     // Execute command
     const params = {
-      session: "test-session",
+      name: "test-session",
       task: "123",
       repo: "/test/repo",
       json: true,
@@ -408,16 +395,18 @@ describe("Shared Session Commands", () => {
       json: true,
     });
 
-    // Verify result contains expected fields
+    // Verify result
     expect(result).toEqual({
       success: true,
-      session: "test-session",
-      commitHash: expect.any(String),
-      mergeDate: expect.any(String),
-      mergedBy: expect.any(String),
-      baseBranch: expect.any(String),
-      prBranch: expect.any(String),
-      taskId: expect.any(String),
+      result: {
+        session: "test-session",
+        commitHash: "abc123",
+        mergeDate: expect.any(String),
+        mergedBy: "test-user",
+        baseBranch: "main",
+        prBranch: "pr/test-branch",
+        taskId: "123",
+      },
     });
   });
 
@@ -433,11 +422,12 @@ describe("Shared Session Commands", () => {
     const params = {
       title: "Test PR",
       body: "Test PR body",
-      session: "test-session",
+      name: "test-session",
       task: "123",
       repo: "/test/repo",
       noStatusUpdate: true,
       debug: true,
+      json: true,
     };
     const context = { interface: "test" };
     const result = await prCommand!.execute(params, context);
@@ -447,6 +437,7 @@ describe("Shared Session Commands", () => {
     expect(getMockCallArg(sessionPrSpy, 0, 0)).toEqual({
       title: "Test PR",
       body: "Test PR body",
+      bodyPath: undefined,
       session: "test-session",
       task: "123",
       repo: "/test/repo",

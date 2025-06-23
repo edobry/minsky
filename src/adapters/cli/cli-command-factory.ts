@@ -14,6 +14,7 @@ import {
   type CliCommandOptions,
   type CategoryCommandOptions,
 } from "../shared/bridges/cli-bridge.js";
+import { log } from "../../utils/logger.js";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly
@@ -99,7 +100,7 @@ class CliCommandFactory {
    */
   createCategoryCommand(category: CommandCategory): Command | null {
     this.ensureInitialized();
-    return cliBridge.generateCategoryCommand(category);
+    return cliBridge.generateCategoryCommand(category, { viaFactory: true });
   }
 
   /**
@@ -109,7 +110,7 @@ class CliCommandFactory {
    */
   registerAllCommands(program: Command): void {
     this.ensureInitialized();
-    cliBridge.generateAllCategoryCommands(program);
+    cliBridge.generateAllCategoryCommands(program, { viaFactory: true });
   }
 
   /**
@@ -265,22 +266,291 @@ export function setupCommonCommandCustomizations(program?: Command): void {
       },
       "session.start": {
         parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
           task: {
             alias: "t",
+            description: "Task ID to associate with the session",
           },
         },
       },
       "session.get": {
-        useFirstRequiredParamAsArgument: true,
         parameters: {
-          sessionId: {
+          name: {
             asArgument: true,
-            description: "Session ID or name",
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.dir": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.delete": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.update": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.approve": {
+        parameters: {
+          name: {
+            asArgument: true,
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
+          },
+        },
+      },
+      "session.pr": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          title: {
+            description: "Title for the PR (required)",
+          },
+          body: {
+            description: "Body text for the PR",
+          },
+          bodyPath: {
+            description: "Path to file containing PR body text",
+          },
+          name: {
+            description: "Session name (optional, alternative to --task)",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID associated with the session",
           },
         },
       },
     },
   });
+
+  // Config/SessionDB commands customization
+  cliFactory.customizeCategory(CommandCategory.CONFIG, {
+    commandOptions: {
+      "config.list": {
+        outputFormatter: (result: any) => {
+          if (result.success && result.sources && result.resolved) {
+            const resolvedOutput = formatResolvedConfiguration(result.resolved);
+            log.cli(resolvedOutput);
+          } else if (result.error) {
+            log.cli(`Failed to load configuration: ${result.error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
+      "config.show": {
+        outputFormatter: (result: any) => {
+          if (result.success && result.configuration) {
+            const output = formatResolvedConfiguration(result.configuration);
+            log.cli(output);
+          } else if (result.error) {
+            log.cli(`Failed to load configuration: ${result.error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
+      "sessiondb.migrate": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          to: {
+            asArgument: true,
+            description: "Target backend (json, sqlite, postgres)",
+          },
+          from: {
+            description: "Source backend (auto-detect if not specified)",
+          },
+          sqlitePath: {
+            description: "SQLite database file path",
+          },
+          connectionString: {
+            description: "PostgreSQL connection string",
+          },
+          backup: {
+            description: "Create backup in specified directory",
+          },
+          dryRun: {
+            alias: "n",
+            description: "Simulate migration without making changes",
+          },
+          verify: {
+            alias: "V",
+            description: "Verify migration after completion",
+          },
+        },
+      },
+    },
+  });
+}
+
+function formatResolvedConfiguration(resolved: any): string {
+  let output = "📋 CURRENT CONFIGURATION\n";
+
+  // Task Storage
+  output += `📁 Task Storage: ${getBackendDisplayName(resolved.backend)}`;
+  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+    const github = resolved.backendConfig["github-issues"];
+    output += ` (${github.owner}/${github.repo})`;
+  }
+
+  // Authentication
+  if (Object.keys(resolved.credentials).length > 0) {
+    output += "\n🔐 Authentication: ";
+    const authServices = [];
+    for (const [service, creds] of Object.entries(resolved.credentials)) {
+      if (creds && typeof creds === "object") {
+        const credsObj = creds as any;
+        const serviceName = service === "github" ? "GitHub" : service;
+        const source = credsObj.source === "environment" ? "env" : credsObj.source;
+        authServices.push(`${serviceName} (${source})`);
+      }
+    }
+    output += authServices.join(", ");
+  }
+
+  // Session Storage
+  if (resolved.sessiondb) {
+    const sessionBackend = resolved.sessiondb.backend || "json";
+    output += `\n💾 Session Storage: ${getSessionBackendDisplayName(sessionBackend)}`;
+
+    if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
+      output += ` (${resolved.sessiondb.dbPath})`;
+    } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
+      output += " (configured)";
+    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
+      output += ` (${resolved.sessiondb.baseDir})`;
+    }
+  }
+
+  return output;
+}
+
+function getBackendDisplayName(backend: string): string {
+  switch (backend) {
+    case "markdown":
+      return "Markdown files (process/tasks.md)";
+    case "json-file":
+      return "JSON files";
+    case "github-issues":
+      return "GitHub Issues";
+    default:
+      return backend;
+  }
+}
+
+function getSessionBackendDisplayName(backend: string): string {
+  switch (backend) {
+    case "json":
+      return "JSON files";
+    case "sqlite":
+      return "SQLite database";
+    case "postgres":
+      return "PostgreSQL database";
+    default:
+      return backend;
+  }
+}
+
+function formatDetectionCondition(condition: string): string {
+  switch (condition) {
+    case "tasks_md_exists":
+      return "If process/tasks.md exists";
+    case "json_file_exists":
+      return "If JSON task files exist";
+    case "always":
+      return "As default fallback";
+    default:
+      return condition;
+  }
+}
+
+function formatConfigSection(config: any): string {
+  if (!config || Object.keys(config).length === 0) {
+    return "  (empty)";
+  }
+
+  let output = "";
+  for (const [key, value] of Object.entries(config)) {
+    if (Array.isArray(value)) {
+      output += `  ${key}: (${value.length} items)\n`;
+      value.forEach((item, index) => {
+        if (typeof item === "object" && item !== null) {
+          output += `    ${index}: ${JSON.stringify(item)}\n`;
+        } else {
+          output += `    ${index}: ${item}\n`;
+        }
+      });
+    } else if (typeof value === "object" && value !== null) {
+      output += `  ${key}:\n`;
+      for (const [subKey, subValue] of Object.entries(value)) {
+        if (typeof subValue === "object" && subValue !== null) {
+          // Special handling for credentials
+          if (key === "credentials") {
+            const sanitized = sanitizeCredentials(subValue);
+            output += `    ${subKey}: ${JSON.stringify(sanitized)}\n`;
+          } else {
+            output += `    ${subKey}: ${JSON.stringify(subValue)}\n`;
+          }
+        } else {
+          output += `    ${subKey}: ${subValue}\n`;
+        }
+      }
+    } else {
+      output += `  ${key}: ${value}\n`;
+    }
+  }
+
+  return output.trimEnd();
+}
+
+function sanitizeCredentials(creds: any): any {
+  if (!creds || typeof creds !== "object") {
+    return creds;
+  }
+
+  const sanitized = { ...creds };
+  if (sanitized.token) {
+    sanitized.token = `${"*".repeat(20)} (hidden)`;
+  }
+
+  return sanitized;
 }
 
 /**

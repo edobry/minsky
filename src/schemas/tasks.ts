@@ -3,6 +3,7 @@
  */
 import { z } from "zod";
 import { commonCommandOptionsSchema, taskIdSchema, flagSchema } from "./common";
+import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants.js";
 
 /**
  * Valid task statuses
@@ -12,6 +13,7 @@ export const TASK_STATUS = {
   DONE: "DONE",
   IN_PROGRESS: "IN-PROGRESS",
   IN_REVIEW: "IN-REVIEW",
+  BLOCKED: "BLOCKED",
 } as const;
 
 /**
@@ -20,7 +22,7 @@ export const TASK_STATUS = {
  * @example "IN-PROGRESS"
  */
 export const taskStatusSchema = z
-  .enum([TASK_STATUS.TODO, TASK_STATUS.DONE, TASK_STATUS.IN_PROGRESS, TASK_STATUS.IN_REVIEW])
+  .enum(TASK_STATUS_VALUES as [string, ...string[]])
   .describe("Task status");
 
 /**
@@ -30,7 +32,10 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
   filter: z.string().optional().describe("Filter tasks by status or other criteria"),
   limit: z.number().optional().describe("Limit the number of tasks returned"),
   all: flagSchema("Include completed tasks"),
-  backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+  backend: z
+    .string()
+    .optional()
+    .describe("Specify task backend (markdown, json-file, github-issues)"),
 });
 
 /**
@@ -48,7 +53,10 @@ export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
       z.array(taskIdSchema).describe("Array of task IDs to retrieve"),
     ])
     .describe("Task ID or array of task IDs to retrieve"),
-  backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+  backend: z
+    .string()
+    .optional()
+    .describe("Specify task backend (markdown, json-file, github-issues)"),
 });
 
 /**
@@ -62,7 +70,10 @@ export type TaskGetParams = z.infer<typeof taskGetParamsSchema>;
 export const taskStatusGetParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task"),
-    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -78,7 +89,10 @@ export const taskStatusSetParamsSchema = z
   .object({
     taskId: taskIdSchema.describe("ID of the task"),
     status: taskStatusSchema.describe("New status for the task"),
-    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -94,7 +108,10 @@ export const taskCreateParamsSchema = z
   .object({
     specPath: z.string().min(1).describe("Path to the task specification document"),
     force: flagSchema("Force creation even if task already exists"),
-    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -113,7 +130,10 @@ export const taskSpecContentParamsSchema = z
       .string()
       .optional()
       .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
-    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
   .merge(commonCommandOptionsSchema);
 

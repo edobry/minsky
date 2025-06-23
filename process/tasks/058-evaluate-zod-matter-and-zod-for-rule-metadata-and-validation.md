@@ -1,4 +1,4 @@
-# Task #058: Evaluate zod-matter and Zod for Rule Metadata and Validation
+# Evaluate zod-matter and Zod for Rule Metadata and Validation
 
 ## Context
 

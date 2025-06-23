@@ -8,12 +8,11 @@
  *
  * This test suite will be reimplemented with better isolation and test utility support.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { GitService } from "../../../domain/git.js";
 import { join } from "path";
-import { mkdtemp, writeFile, mkdir, rmdir } from "fs/promises";
+import { mkdtemp, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
-import { existsSync } from "fs";
 import { execSync } from "child_process";
 
 // Test utilities for file handling and git operations
@@ -33,7 +32,8 @@ async function initGitRepo(repoPath: string) {
 
 // Execute git command safely and return stdout
 function execGit(command: string, cwd: string): string {
-  return execSync(`git ${command}`, { cwd, encoding: "utf8" });
+  const result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
+  return result.toString();
 }
 
 // Temporarily disabled - these tests pass individually but hang in full suite due to test isolation issues

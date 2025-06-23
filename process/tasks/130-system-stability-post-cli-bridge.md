@@ -1,4 +1,4 @@
-# Task #130: System Stability Post-CLI Bridge
+# System Stability Post-CLI Bridge
 
 ## Overview
 

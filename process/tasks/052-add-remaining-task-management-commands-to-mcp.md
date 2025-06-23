@@ -1,4 +1,4 @@
-# Task #052: Add Remaining Task Management Commands to MCP
+# Add Remaining Task Management Commands to MCP
 
 ## Context
 

@@ -9,9 +9,8 @@
 /// <reference lib="dom.iterable" />
 /// <reference lib="es2015" />
 /// <reference lib="webworker" />
-import { beforeEach, describe, expect, test, mock } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import * as process from "process";
-
 // Mock implementation of LogMode and getLogMode for testing
 enum LogMode {
   STRUCTURED = "STRUCTURED",

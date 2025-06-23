@@ -1,4 +1,4 @@
-# Task #108: Refactor TaskService to Functional Patterns (Subtask of #102)
+# Refactor TaskService to Functional Patterns (Subtask of #102)
 
 ## Context
 

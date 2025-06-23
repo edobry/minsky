@@ -87,10 +87,14 @@ export type SessionStartParams = z.infer<typeof sessionStartParamsSchema>;
  */
 export const sessionDeleteParamsSchema = z
   .object({
-    name: sessionNameSchema.describe("Name of the session to delete"),
+    name: sessionNameSchema.optional().describe("Name of the session to delete"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
     force: flagSchema("Skip confirmation prompt"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
+    message: "Either session name or task ID must be provided",
+  });
 
 /**
  * Type for session delete parameters
@@ -120,14 +124,18 @@ export type SessionDirParams = z.infer<typeof sessionDirParamsSchema>;
  */
 export const sessionUpdateParamsSchema = z
   .object({
-    name: sessionNameSchema.describe("Name of the session to update"),
+    name: sessionNameSchema.optional().describe("Name of the session to update"),
+    task: taskIdSchema.optional().describe("Task ID associated with the session"),
     branch: z.string().optional().describe("Branch to merge from (defaults to main)"),
     remote: z.string().optional().describe("Remote name to pull from (defaults to origin)"),
     noStash: flagSchema("Skip stashing local changes"),
     noPush: flagSchema("Skip pushing changes to remote after update"),
     force: flagSchema("Force update even if the session workspace is dirty"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.name !== undefined || data.task !== undefined, {
+    message: "Either session name or task ID must be provided",
+  });
 
 /**
  * Type for session update parameters
@@ -139,17 +147,14 @@ export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
  */
 export const sessionApproveParamsSchema = z
   .object({
+    name: sessionNameSchema.optional().describe("Name of the session to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    session: sessionNameSchema.optional().describe("Name of the session to approve"),
     repo: repoPathSchema.optional().describe("Repository path"),
   })
   .merge(commonCommandOptionsSchema)
-  .refine(
-    (data) => data.session !== undefined || data.task !== undefined || data.repo !== undefined,
-    {
-      message: "Either session name, task ID, or repo path must be provided",
-    }
-  );
+  .refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
+    message: "Either session name, task ID, or repo path must be provided",
+  });
 
 /**
  * Type for session approve parameters
@@ -161,15 +166,20 @@ export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
  */
 export const sessionPrParamsSchema = z
   .object({
-    session: sessionNameSchema.optional().describe("Name of the session"),
+    name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().optional().describe("PR title (if not provided, will be generated)"),
-    body: z.string().optional().describe("PR body (if not provided, will be generated)"),
+    title: z.string().min(1).describe("PR title (required)"),
+    body: z.string().optional().describe("PR body text"),
+    bodyPath: z.string().optional().describe("Path to file containing PR body text"),
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.body || data.bodyPath, {
+    message: "Either 'body' or 'bodyPath' must be provided",
+    path: ["body"],
+  });
 
 /**
  * Type for session PR parameters
@@ -181,7 +191,7 @@ export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
  */
 export const sessionReviewParamsSchema = z
   .object({
-    session: sessionNameSchema.optional().describe("Name of the session to review"),
+    name: sessionNameSchema.optional().describe("Name of the session to review"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path to use"),
     output: z.string().optional().describe("File path to save the review output"),

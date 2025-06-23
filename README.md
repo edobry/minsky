@@ -1,6 +1,6 @@
 # minsky
 
-[![CI](https://github.com/yourusername/minsky/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/minsky/actions/workflows/ci.yml)
+[![CI](https://github.com/edobry/minsky/actions/workflows/ci.yml/badge.svg)](https://github.com/edobry/minsky/actions/workflows/ci.yml)
 [![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](https://github.com/prettier/prettier)
 
 > **⚠️ Note:** This is an experimental project under active development. Not suitable for production use.
@@ -41,39 +41,169 @@ These concepts form a clear relationship:
 
 For detailed documentation on Minsky concepts and their relationships, see [src/domain/concepts.md](./src/domain/concepts.md).
 
+> 📚 **Complete Documentation**: For comprehensive guides, examples, and detailed documentation, see [docs/README.md](./docs/README.md)
+
 ## Installation
+
+### Prerequisites
+
+- [Bun](https://bun.sh) runtime (recommended) or Node.js 18+
+- Git (for repository management)
+- TypeScript 5.0+ (peer dependency)
+- **Optional**: SQLite or PostgreSQL for advanced SessionDB backends
+
+### Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/minsky.git
+git clone https://github.com/edobry/minsky.git
 cd minsky
 
 # Install dependencies
 bun install
 
-# Link globally
+# Run directly (for testing)
+bun run src/cli.ts --help
+
+# Link globally for system-wide usage
 bun link
 ```
 
-## Usage
+### Development Setup
 
-### Git Commands
+For development and contributing:
 
 ```bash
-# Clone a repo (auto-generates session ID)
-minsky git clone https://github.com/user/repo.git
+# Clone and setup
+git clone https://github.com/edobry/minsky.git
+cd minsky
+bun install
 
-# Clone with a named session
-minsky git clone https://github.com/user/repo.git --session feature-x
+# Run tests
+bun test
 
-# Create a branch in session
-minsky git branch new-feature --session feature-x
+# Run linting
+bun run lint
 
-# Generate PR document
-minsky git pr --session feature-x
+# Format code
+bun run format
+
+# Watch tests during development
+bun run test:watch
 ```
 
-> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+### Using with Node.js
+
+If you prefer Node.js over Bun:
+
+```bash
+# Install dependencies with npm/yarn
+npm install
+
+# Run with Node.js
+node src/cli.ts --help
+
+# Or compile TypeScript first
+npx tsc
+node dist/cli.js --help
+```
+
+### Verification
+
+After installation, verify everything works:
+
+```bash
+# Check installation
+minsky --version
+
+# Initialize a test project
+mkdir test-minsky && cd test-minsky
+minsky init
+
+# Start a test session
+minsky session start test-session
+```
+
+## Configuration
+
+### SessionDB Storage Backends
+
+Minsky supports multiple storage backends for session data:
+
+#### JSON File (Default)
+
+Simple file-based storage, ideal for individual development:
+
+```toml
+# ~/.config/minsky/config.toml
+[sessiondb]
+backend = "json"
+dbPath = "~/.local/state/minsky/session-db.json"
+baseDir = "~/.local/state/minsky/git"
+```
+
+#### SQLite Database
+
+Local database with ACID transactions, better for performance:
+
+```toml
+# ~/.config/minsky/config.toml
+[sessiondb]
+backend = "sqlite"
+dbPath = "~/.local/state/minsky/sessions.db"
+baseDir = "~/.local/state/minsky/git"
+```
+
+#### PostgreSQL Database
+
+Server-based database for team environments:
+
+```toml
+# .minsky/config.toml (repository-level)
+[sessiondb]
+backend = "postgres"
+connectionString = "postgresql://user:password@localhost:5432/minsky"
+baseDir = "/shared/minsky/git"
+```
+
+#### Environment Variables
+
+You can also configure backends using environment variables:
+
+```bash
+# Set backend type
+export MINSKY_SESSION_BACKEND=sqlite
+
+# Set SQLite database path
+export MINSKY_SQLITE_PATH=~/.local/state/minsky/sessions.db
+
+# Set PostgreSQL connection string
+export MINSKY_POSTGRES_URL="postgresql://user:password@localhost:5432/minsky"
+
+# Set base directory for session workspaces
+export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
+```
+
+### Migration Between Backends
+
+Use the built-in migration tools to switch between backends:
+
+```bash
+# Migrate from JSON to SQLite
+minsky sessiondb migrate to sqlite --backup ./backups
+
+# Migrate to PostgreSQL
+minsky sessiondb migrate to postgres \
+  --connection-string "postgresql://user:password@localhost:5432/minsky" \
+  --backup ./backups
+
+# Check current backend status
+minsky sessiondb migrate status
+```
+
+For detailed migration guides, see [docs/sessiondb-migration-guide.md](./docs/sessiondb-migration-guide.md).
+
+## Usage
 
 ### Session Commands
 
@@ -154,7 +284,67 @@ minsky session update --no-push
 minsky session update --remote upstream
 ```
 
-### Tasks Management
+### Git Commands
+
+```bash
+# Clone a repo (auto-generates session ID)
+minsky git clone https://github.com/user/repo.git
+
+# Clone with a named session
+minsky git clone https://github.com/user/repo.git --session feature-x
+
+# Create a branch in session
+minsky git branch new-feature --session feature-x
+
+# Generate PR summary
+minsky git summary --session feature-x
+```
+
+> **Note:** Most commands that operate on a repository support `--session <session>` (to use a named session's repo) or `--repo <repoPath>` (to specify a repo path directly).
+
+### PR Workflow Commands
+
+Minsky provides an enhanced pull request workflow with prepared merge commits:
+
+#### `minsky session pr [session-name] [options]`
+
+Creates a PR branch for a session with a pre-created merge commit that is ready for fast-forward merge.
+
+Options:
+
+- `--task <taskId>`: Task ID to match (if not providing session name)
+- `--title <title>`: PR title (if not provided, will be generated)
+- `--body <body>`: PR body (if not provided, will be generated)
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
+- `--debug`: Enable debug output
+- `--no-status-update`: Skip updating task status
+
+#### `minsky git prepare-pr [options]`
+
+Creates a PR branch with a pre-created merge commit that is ready for fast-forward merge.
+
+Options:
+
+- `--repo <path>`: Path to the repository
+- `--base-branch <branch>`: Base branch for PR (defaults to main)
+- `--title <title>`: PR title (if not provided, will be generated)
+- `--body <body>`: PR body (if not provided, will be generated)
+- `--debug`: Enable debug output
+- `--session <session>`: Session to create PR for
+
+#### `minsky session approve [options]`
+
+Approves and merges a session's PR branch, updating the task status to DONE.
+
+Options:
+
+- `--session <session>`: Name of the session to approve
+- `--task <taskId>`: Task ID associated with the session
+- `--repo <path>`: Repository path
+
+For detailed documentation on the PR workflow, see [docs/pr-workflow.md](./docs/pr-workflow.md).
+
+### Task Management
 
 Minsky supports robust, extensible task management with multiple backends.
 
@@ -162,6 +352,7 @@ Minsky supports robust, extensible task management with multiple backends.
 
 1. **Markdown Backend (default)**: Traditional checklist in `process/tasks.md`
 2. **JSON File Backend**: Centralized JSON database for enhanced synchronization
+3. **GitHub Issues Backend**: Manage tasks as GitHub Issues with full API integration
 
 #### Basic Usage
 
@@ -189,11 +380,16 @@ minsky tasks status set --repo /path/to/repo #001
 
 ```bash
 # Use specific backend explicitly
-minsky tasks list --backend markdown    # Traditional tasks.md
-minsky tasks list --backend json-file   # Centralized JSON database
+minsky tasks list --backend markdown       # Traditional tasks.md
+minsky tasks list --backend json-file      # Centralized JSON database
+minsky tasks list --backend github-issues  # GitHub Issues integration
 
 # JSON backend provides enhanced synchronization across sessions
 minsky tasks status set #001 DONE --backend json-file
+
+# GitHub backend integrates with GitHub Issues API
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+minsky tasks list --backend github-issues
 ```
 
 #### JSON Task Backend
@@ -210,11 +406,23 @@ The JSON Task Backend offers several advantages over the traditional markdown ap
 
 **Architecture**: For technical details about the JSON backend implementation, see [docs/JSON-TASK-BACKEND.md](./docs/JSON-TASK-BACKEND.md).
 
+#### GitHub Issues Task Backend
+
+The GitHub Issues backend integrates Minsky tasks with GitHub's issue tracking system:
+
+- **API Integration**: Full GitHub REST API integration with authentication
+- **Status Mapping**: Maps Minsky statuses to GitHub issue states and labels
+- **Bidirectional Sync**: Create, update, and track tasks as GitHub issues
+- **Label Management**: Automatic creation and management of status labels
+- **Repository Integration**: Works with both public and private repositories
+
+**Configuration**: The GitHub backend requires authentication via the `GITHUB_TOKEN` environment variable and repository information through command options or configuration.
+
 **Options:**
 
 - `--repo <repoPath>`: Path to a git repository (overrides session)
 - `--session <session>`: Session name to use for repo resolution
-- `--backend <backend>`: Task backend to use (markdown, json-file)
+- `--backend <backend>`: Task backend to use (markdown, json-file, github-issues)
 - `--status <status>`: Filter tasks by status (for `list`)
 - `--task <taskId>`: Task ID to associate with session (for `session start`)
 - `--json`: Output tasks as JSON
@@ -223,16 +431,12 @@ The JSON Task Backend offers several advantages over the traditional markdown ap
 
 - Parses Markdown checklists in `process/tasks.md`, skipping code blocks and malformed lines
 - Aggregates indented lines as task descriptions
-- Extensible: supports multiple backends (markdown, json-file, future: github)
+- Extensible: supports multiple backends (markdown, json-file, github-issues)
 - Supports task statuses: TODO, DONE, IN-PROGRESS (-), IN-REVIEW (+)
 - Interactive status selection when no status is provided to `tasks status set`
-- Cross-session synchronization with JSON backend
+- Cross-session synchronization with JSON and GitHub backends
 
-## Task Workspace Detection
-
-Minsky now automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
-
-## Environment-Aware Logging
+### Environment-Aware Logging
 
 Minsky features an environment-aware logging system that adjusts its output based on the execution context:
 
@@ -251,13 +455,17 @@ You can also set `ENABLE_AGENT_LOGS=true` to enable JSON logs in HUMAN mode if n
 
 For more detailed documentation on logging, see [docs/logging.md](./docs/logging.md).
 
-### How It Works
+### Task Workspace Detection
+
+Minsky automatically ensures that task operations are performed in the main workspace, even when executed from a session repository. This ensures that task status changes, creation, and querying all maintain consistency by operating on the main repository's task files.
+
+#### How It Works
 
 1. When a task command is executed from a session repository, Minsky automatically detects this and resolves the main workspace path.
 2. All task operations are performed on files in the main workspace rather than session-specific copies.
 3. No manual directory change is required - the redirection is transparent.
 
-### Command Line Options
+#### Command Line Options
 
 All task commands now support a `--workspace <path>` option to explicitly specify the main workspace path:
 
@@ -291,6 +499,167 @@ MCP allows AI agents to:
 
 For detailed documentation on using MCP with Minsky, see [README-MCP.md](./README-MCP.md).
 
+### Rules Management
+
+Minsky includes a comprehensive rules management system for storing and organizing project-specific rules, guidelines, and documentation.
+
+#### `minsky rules list [options]`
+
+List all available rules.
+
+Options:
+
+- `--format <format>`: Preferred rule format (cursor, generic)
+- `--tag <tag>`: Filter rules by tag
+- `--json`: Output in JSON format
+- `--debug`: Enable debug output
+
+#### `minsky rules get <id> [options]`
+
+Get a specific rule by ID.
+
+Options:
+
+- `--format <format>`: Preferred rule format (cursor, generic)
+- `--json`: Output in JSON format
+- `--debug`: Enable debug output
+
+#### `minsky rules create <id> [options]`
+
+Create a new rule.
+
+Options:
+
+- `--content <content>`: Rule content (markdown/text)
+- `--description <description>`: Rule description
+- `--name <name>`: Human-readable rule name
+- `--globs <patterns>`: Comma-separated glob patterns for file matching
+- `--tags <tags>`: Comma-separated tags
+- `--format <format>`: Rule format (cursor, generic)
+- `--overwrite`: Overwrite existing rule
+- `--json`: Output in JSON format
+
+#### `minsky rules update <id> [options]`
+
+Update an existing rule.
+
+Options: Same as create, but all content options are optional.
+
+#### `minsky rules search [options]`
+
+Search rules by content or metadata.
+
+Options:
+
+- `--query <query>`: Search query term
+- `--format <format>`: Preferred rule format
+- `--tag <tag>`: Filter by tag
+- `--json`: Output in JSON format
+
+#### `minsky rules delete <id> [options]`
+
+Delete a rule.
+
+Options:
+
+- `--json`: Output in JSON format
+- `--force`: Skip confirmation prompt
+
+Examples:
+
+```bash
+# List all rules
+minsky rules list
+
+# Create a new coding standard rule
+minsky rules create coding-style \
+  --content "Use TypeScript strict mode and prefer const over let" \
+  --tags "typescript,style" \
+  --description "TypeScript coding standards"
+
+# Get a specific rule
+minsky rules get coding-style
+
+# Search for rules about testing
+minsky rules search --query "testing"
+```
+
+### Configuration Management
+
+Minsky provides configuration management to customize behavior across different projects and environments.
+
+#### `minsky config list [options]`
+
+Show all configuration from all sources (defaults, project config, environment variables).
+
+Options:
+
+- `--repo <path>`: Repository path
+- `--workspace <path>`: Workspace path
+- `--json`: Output in JSON format
+
+#### `minsky config show [options]`
+
+Show the final resolved configuration after merging all sources.
+
+Options:
+
+- `--repo <path>`: Repository path
+- `--workspace <path>`: Workspace path
+- `--json`: Output in JSON format
+
+Examples:
+
+```bash
+# Show all configuration sources
+minsky config list
+
+# Show final resolved configuration
+minsky config show
+
+# Show config for specific workspace
+minsky config show --workspace /path/to/project
+```
+
+### Project Initialization
+
+#### `minsky init [options]`
+
+Initialize a project for Minsky usage, setting up necessary files and configuration.
+
+Options:
+
+- `--repo <path>`: Repository path to initialize
+- `--session <session>`: Session identifier
+- `--backend <type>`: Task backend type (markdown, json-file, github-issues)
+- `--github-owner <owner>`: GitHub repository owner (for github-issues backend)
+- `--github-repo <repo>`: GitHub repository name (for github-issues backend)
+- `--rule-format <format>`: Rule format (cursor, generic)
+- `--mcp <enabled>`: Enable/disable MCP configuration (default: true)
+- `--mcp-transport <transport>`: MCP transport type (stdio, sse, httpStream)
+- `--mcp-port <port>`: Port for MCP network transports
+- `--mcp-host <host>`: Host for MCP network transports
+- `--mcp-only`: Only configure MCP, skip other initialization steps
+- `--overwrite`: Overwrite existing files
+- `--workspace <path>`: Workspace path
+
+Examples:
+
+```bash
+# Initialize current directory
+minsky init
+
+# Initialize with GitHub Issues backend
+minsky init --backend github-issues \
+  --github-owner myorg --github-repo myproject
+
+# Initialize with MCP configuration only
+minsky init --mcp-only --mcp-transport sse --mcp-port 3000
+
+# Initialize specific directory
+minsky init --workspace /path/to/project --overwrite
+```
+
 ## Repository Backend Support
 
 Minsky supports multiple repository backends, allowing you to work with different sources of Git repositories:
@@ -310,7 +679,7 @@ When starting a session, you can specify the backend type and related options:
 minsky session start my-session --repo /path/to/local/repo
 
 # Start a session with a remote Git repository
-minsky session start my-session --backend remote --repo-url https://example.com/repo.git
+minsky session start my-session --backend remote --repo-url https://gitlab.com/group/project.git
 
 # Start a session with GitHub repository
 minsky session start my-session --backend github --github-owner octocat --github-repo hello-world
@@ -365,7 +734,7 @@ minsky session start feature-123 --repo https://github.com/org/project.git
 cd $(minsky session dir feature-123)
 
 # Work on code, then generate PR
-minsky git pr --session feature-123 > PR.md
+minsky session pr > PR.md
 
 # List and update tasks
 minsky tasks list --session feature-123
@@ -438,34 +807,145 @@ MIT
 
 ## Architecture
 
-Minsky follows an interface-agnostic architecture that separates domain logic from interface-specific concerns. This allows the same core functionality to be used by different interfaces (CLI, MCP, API, etc.) without duplication.
+Minsky follows a clean, interface-agnostic architecture that separates domain logic from interface-specific concerns. This enables the same core functionality to be used by different interfaces (CLI, MCP, API, etc.) without duplication while maintaining consistency and testability.
+
+### Architectural Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Interface Layer                         │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│   CLI Commands  │   MCP Server    │   Future Interfaces     │
+│   (Terminal)    │   (AI Agents)   │   (Web API, etc.)       │
+└─────────────────┴─────────────────┴─────────────────────────┘
+         │                 │                     │
+         └─────────────────┼─────────────────────┘
+                           │
+┌─────────────────────────────────────────────────────────────┐
+│                     Adapter Layer                           │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│  CLI Adapters   │  MCP Adapters   │  Shared Commands        │
+│                 │                 │  (Command Registry)     │
+└─────────────────┴─────────────────┴─────────────────────────┘
+         │                 │                     │
+         └─────────────────┼─────────────────────┘
+                           │
+┌─────────────────────────────────────────────────────────────┐
+│                      Domain Layer                           │
+├─────────────┬───────────┬─────────────┬───────────────────────┤
+│   Session   │   Tasks   │    Git      │   Repository &       │
+│ Management  │Management │ Operations  │   Workspace          │
+└─────────────┴───────────┴─────────────┴───────────────────────┘
+                           │
+┌─────────────────────────────────────────────────────────────┐
+│                Infrastructure Layer                         │
+├─────────────┬───────────┬─────────────┬───────────────────────┤
+│   Storage   │   Rules   │ Validation  │      Errors          │
+│ Backends    │  System   │  (Zod)      │   & Logging          │
+└─────────────┴───────────┴─────────────┴───────────────────────┘
+```
 
 ### Key Components
 
-- **Domain Layer (`src/domain/`)**: Contains all business logic independent of any interface. These functions are the source of truth for all operations.
+#### **Domain Layer (`src/domain/`)**
 
-- **Adapter Layer (`src/adapters/`)**: Implements interface-specific adapters that convert interface inputs into domain function parameters and format domain function outputs for the interface.
+Contains all business logic independent of any interface. These functions are the source of truth for all operations:
 
-  - `src/adapters/cli/`: CLI-specific adapters using Commander.js
-  - `src/adapters/mcp/`: Model Context Protocol adapters (for AI integration)
+- **Session Management** (`session/`): Handles session creation, lifecycle, and workspace management
+- **Task Management** (`tasks/`): Implements task CRUD operations with multiple backend support
+- **Git Operations** (`git.ts`): Provides Git workflow functionality including PR preparation
+- **Repository Management** (`repository/`): Handles different repository backends (local, remote, GitHub)
+- **Workspace Management** (`workspace.ts`): Manages workspace resolution and path handling
+- **Rules System** (`rules.ts`): Implements rule storage and retrieval
+- **Configuration** (`configuration/`): Handles configuration loading and merging
 
-- **Schema Layer (`src/schemas/`)**: Defines input and output schemas for domain functions using Zod.
+#### **Adapter Layer (`src/adapters/`)**
 
-- **Command Layer (`src/commands/`)**: Legacy command implementations (being migrated to the adapter architecture).
+Implements interface-specific adapters that convert interface inputs into domain function parameters:
 
-- **Errors (`src/errors/`)**: Shared error types across all layers.
+- **CLI Adapters** (`cli/`): Commander.js-based CLI interface with argument parsing and output formatting
+- **MCP Adapters** (`mcp/`): Model Context Protocol server for AI agent integration
+- **Shared Commands** (`shared/`): Interface-agnostic command definitions that can be used by multiple adapters
 
-### Function Flow
+#### **Command Registry System**
 
-1. Interface-specific code captures user input (CLI arguments, API request, etc.)
-2. Adapter converts input to domain parameters
-3. Domain function performs the operation
-4. Adapter formats domain output for the interface
-5. Interface presents result to the user
+The shared command registry (`src/adapters/shared/command-registry.ts`) enables:
 
-This architecture enables:
+- **Single Source of Truth**: Commands defined once, used by multiple interfaces
+- **Type Safety**: Full TypeScript support with Zod schema validation
+- **Consistent Behavior**: Same logic regardless of interface (CLI vs MCP)
+- **Easy Testing**: Commands can be tested independently of interface concerns
 
-- Reduced code duplication
-- Consistent behavior across interfaces
-- Better testability of domain logic
-- Easier addition of new interfaces
+#### **Infrastructure Layer**
+
+- **Schema Layer** (`src/schemas/`): Defines input and output schemas using Zod for validation
+- **Storage Backends** (`src/domain/storage/`): Pluggable storage systems (file-based, JSON, etc.)
+- **Error Handling** (`src/errors/`): Shared error types and handling across all layers
+- **Utilities** (`src/utils/`): Logging, path resolution, and other cross-cutting concerns
+
+### Data Flow
+
+1. **Input Capture**: Interface-specific code captures user input (CLI arguments, MCP requests, etc.)
+2. **Parameter Conversion**: Adapter converts interface input to standardized domain parameters
+3. **Validation**: Zod schemas validate parameters before domain function execution
+4. **Domain Execution**: Domain function performs the core business logic
+5. **Result Formatting**: Adapter formats domain output for the specific interface
+6. **Output Presentation**: Interface presents result to the user in the appropriate format
+
+### Key Design Patterns
+
+#### **Interface-Agnostic Commands**
+
+Commands are defined once in the shared registry and automatically work across all interfaces:
+
+```typescript
+// Command defined once
+sharedCommandRegistry.registerCommand({
+  id: "session.list",
+  category: CommandCategory.SESSION,
+  name: "list",
+  description: "List all sessions",
+  parameters: sessionListParams,
+  execute: async (params) => {
+    // Domain logic here
+    return sessionService.listSessions(params);
+  },
+});
+
+// Automatically available in CLI
+minsky session list
+
+// Automatically available in MCP
+{
+  "method": "tools/call",
+  "params": {
+    "name": "session_list",
+    "arguments": {}
+  }
+}
+```
+
+#### **Multiple Backend Support**
+
+Both task management and repository access support multiple backends:
+
+- **Task Backends**: Markdown files, JSON databases, GitHub Issues
+- **Repository Backends**: Local Git, remote Git, GitHub API
+- **Storage Backends**: File system, in-memory (for testing)
+
+#### **Workspace Isolation**
+
+Sessions provide complete workspace isolation:
+
+- Each session gets its own Git branch and workspace directory
+- Changes in one session don't affect others
+- Sessions can be created from the same repository in parallel
+
+### Benefits of This Architecture
+
+- **Code Reuse**: Domain logic is shared across all interfaces
+- **Consistency**: Same behavior regardless of how functionality is accessed
+- **Testability**: Domain functions can be tested independently
+- **Extensibility**: New interfaces can be added without changing domain logic
+- **Type Safety**: Full TypeScript support with runtime validation
+- **Maintainability**: Clear separation of concerns makes the codebase easier to understand and modify

@@ -1,16 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  RuleService,
-  type Rule,
-  type RuleOptions,
-  type SearchRuleOptions,
-} from "../../../domain/rules.js";
-import {
-  createMock,
-  mockModule,
-  setupTestMocks,
-  createMockObject,
-} from "../../../utils/test-utils/mocking.js";
+import { type Rule, type RuleOptions, type SearchRuleOptions } from "../../../domain/rules.js";
+import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.js";
 
 // Set up automatic mock cleanup
 setupTestMocks();

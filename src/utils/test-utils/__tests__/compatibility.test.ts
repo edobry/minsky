@@ -6,8 +6,8 @@
  * Tests for the Jest/Vitest compatibility layer for Bun.
  */
 import { describe, test, expect as bunExpect } from "bun:test";
-import { compat } from "../index.js";
-import { setupTestMocks } from "../mocking.js";
+import { compat } from "../index";
+import { setupTestMocks } from "../mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -16,7 +16,7 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const expect = bunExpect as any;
 
 describe("Mock Function Compatibility", () => {
@@ -30,7 +30,7 @@ describe("Mock Function Compatibility", () => {
     // Verify tracking works
     expect(mockFn.mock.calls.length).toBe(1);
     // Use type assertion to silence TypeScript
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+     
     const args = mockFn.mock.calls[0]!;
     expect(args[0]).toBe("test");
     expect(args[1]).toBe(123);

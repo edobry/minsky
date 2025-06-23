@@ -47,7 +47,7 @@ const sessionListCommandParams: CommandParameterMap = {
  * Parameters for the session get command
  */
 const sessionGetCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name",
     required: false,
@@ -74,14 +74,19 @@ const sessionGetCommandParams: CommandParameterMap = {
  * Parameters for the session start command
  */
 const sessionStartCommandParams: CommandParameterMap = {
-  task: {
+  name: {
     schema: z.string().min(1),
+    description: "Name for the new session",
+    required: false,
+  },
+  task: {
+    schema: z.string(),
     description: "Task ID to associate with the session",
-    required: true,
+    required: false,
   },
   branch: {
     schema: z.string(),
-    description: "Branch name to create (defaults to task ID)",
+    description: "Branch name to create (defaults to session name)",
     required: false,
   },
   repo: {
@@ -91,7 +96,7 @@ const sessionStartCommandParams: CommandParameterMap = {
   },
   session: {
     schema: z.string(),
-    description: "Custom session name (defaults to task ID)",
+    description: "Deprecated: use name parameter instead",
     required: false,
   },
   json: {
@@ -129,7 +134,7 @@ const sessionStartCommandParams: CommandParameterMap = {
  * Parameters for the session dir command
  */
 const sessionDirCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name",
     required: false,
@@ -156,10 +161,15 @@ const sessionDirCommandParams: CommandParameterMap = {
  * Parameters for the session delete command
  */
 const sessionDeleteCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string().min(1),
     description: "Session name to delete",
-    required: true,
+    required: false,
+  },
+  task: {
+    schema: z.string(),
+    description: "Task ID associated with the session",
+    required: false,
   },
   repo: {
     schema: z.string(),
@@ -184,7 +194,7 @@ const sessionDeleteCommandParams: CommandParameterMap = {
  * Parameters for the session update command
  */
 const sessionUpdateCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string(),
     description: "Session name to update",
     required: false,
@@ -234,7 +244,7 @@ const sessionUpdateCommandParams: CommandParameterMap = {
  * Parameters for the session approve command
  */
 const sessionApproveCommandParams: CommandParameterMap = {
-  session: {
+  name: {
     schema: z.string(),
     description: "Session name to approve",
     required: false,
@@ -262,16 +272,21 @@ const sessionApproveCommandParams: CommandParameterMap = {
  */
 const sessionPrCommandParams: CommandParameterMap = {
   title: {
-    schema: z.string(),
+    schema: z.string().min(1),
     description: "Title for the PR",
-    required: false,
+    required: true,
   },
   body: {
     schema: z.string(),
     description: "Body text for the PR",
     required: false,
   },
-  session: {
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body text",
+    required: false,
+  },
+  name: {
     schema: z.string(),
     description: "Session name",
     required: false,
@@ -351,14 +366,14 @@ export function registerSessionCommands(): void {
 
       try {
         const session = await getSessionFromParams({
-          name: params.session,
+          name: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
         });
 
         if (!session) {
-          const identifier = params.session || `task #${params.task}`;
+          const identifier = params.name || `task #${params.task}`;
           throw new Error(`Session '${identifier}' not found`);
         }
 
@@ -369,7 +384,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -387,12 +402,18 @@ export function registerSessionCommands(): void {
     execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
       log.debug("Executing session.start command", { params, context });
 
+      // Validate that either name or task is provided
+      if (!params.name && !params.task) {
+        throw new Error("Either session name or task ID must be provided");
+      }
+
       try {
         const session = await startSessionFromParams({
+          name: params.name,
           task: params.task,
           branch: params.branch,
           repo: params.repo,
-          name: params.session, // Match expected parameter name
+          session: params.session,
           json: params.json,
           quiet: params.quiet,
           noStatusUpdate: params.noStatusUpdate,
@@ -407,6 +428,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -426,7 +448,7 @@ export function registerSessionCommands(): void {
 
       try {
         const directory = await getSessionDirFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -439,7 +461,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -459,7 +481,8 @@ export function registerSessionCommands(): void {
 
       try {
         const deleted = await deleteSessionFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.name,
+          task: params.task,
           force: params.force,
           repo: params.repo,
           json: params.json,
@@ -467,12 +490,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: deleted,
-          session: params.session,
+          session: params.name || params.task,
         };
       } catch (error) {
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -491,7 +514,7 @@ export function registerSessionCommands(): void {
 
       try {
         await updateSessionFromParams({
-          name: params.session, // Match expected parameter name
+          name: params.name,
           task: params.task,
           repo: params.repo,
           branch: params.branch,
@@ -503,13 +526,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          session: params.session || params.task,
+          session: params.name || params.task,
         };
       } catch (error) {
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
-          task: params.task,
+          session: params.name || params.task,
         });
         throw error;
       }
@@ -528,7 +550,7 @@ export function registerSessionCommands(): void {
 
       try {
         const result = await approveSessionFromParams({
-          session: params.session,
+          session: params.name,
           task: params.task,
           repo: params.repo,
           json: params.json,
@@ -536,12 +558,12 @@ export function registerSessionCommands(): void {
 
         return {
           success: true,
-          ...result,
+          result,
         };
       } catch (error) {
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;
@@ -563,7 +585,8 @@ export function registerSessionCommands(): void {
         const result = await sessionPrFromParams({
           title: params.title,
           body: params.body,
-          session: params.session,
+          bodyPath: params.bodyPath,
+          session: params.name,
           task: params.task,
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
@@ -577,7 +600,7 @@ export function registerSessionCommands(): void {
       } catch (error) {
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
-          session: params.session,
+          session: params.name,
           task: params.task,
         });
         throw error;

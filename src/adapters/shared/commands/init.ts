@@ -8,7 +8,7 @@ import {
 import { initializeProjectFromParams } from "../../../domain/init.js";
 import { log } from "../../../utils/logger.js";
 import { ValidationError } from "../../../errors/index.js";
-import { initParamsSchema } from "../../../schemas/init.js";
+// Removed unused initParamsSchema import
 
 const initParams: CommandParameterMap = {
   repo: {
@@ -22,8 +22,18 @@ const initParams: CommandParameterMap = {
     required: false,
   },
   backend: {
+    schema: z.enum(["markdown", "json-file", "github-issues"]).optional(),
+    description: "Task backend type (markdown, json-file, github-issues)",
+    required: false,
+  },
+  githubOwner: {
     schema: z.string().optional(),
-    description: "Task backend type (tasks.md or tasks.csv)",
+    description: "GitHub repository owner (required for github-issues backend)",
+    required: false,
+  },
+  githubRepo: {
+    schema: z.string().optional(),
+    description: "GitHub repository name (required for github-issues backend)",
     required: false,
   },
   ruleFormat: {
@@ -75,7 +85,7 @@ export function registerInitCommands() {
     name: "init",
     description: "Initialize a project for Minsky",
     parameters: initParams,
-    execute: async (params, ctx: CommandExecutionContext) => {
+    execute: async (params, _ctx: CommandExecutionContext) => {
       try {
         // Map CLI params to domain params
         const repoPath = params.repo || params.workspacePath || process.cwd();

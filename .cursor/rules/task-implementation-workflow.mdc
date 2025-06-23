@@ -1,7 +1,7 @@
 ---
-name: Task Implementation Workflow
 description: REQUIRED workflow for implementing tasks from start to completion
-globs:
+globs: 
+alwaysApply: false
 ---
 # Task Implementation Workflow
 
@@ -132,6 +132,39 @@ This rule provides a detailed, step-by-step process for implementing tasks in th
    - Add a formal "Implementation Completeness" section to the task document
    - Explicitly state: "All requirements have been fully implemented and verified"
    - Only proceed to Final Verification after this sign-off
+
+### 4b. End-to-End Functionality Verification Protocol
+
+**CRITICAL:** Before declaring any feature or implementation "complete" or "nearly complete", the following verification steps are MANDATORY:
+
+1. **End-to-End Functionality Verification**:
+   - **For CLI commands**: Verify the command is registered AND accessible to end users
+   - **For new features**: Test the complete user workflow from start to finish
+   - **For integrations**: Verify all integration points are properly connected
+   - **For APIs**: Test that endpoints are exposed and reachable
+
+2. **Completion Definition Requirements**:
+   Never declare completion percentages or "nearly complete" status without:
+   - [ ] Verifying the feature is accessible to end users
+   - [ ] Testing the primary use case works end-to-end
+   - [ ] Confirming all critical integration points are connected
+   - [ ] Running relevant tests that validate the implementation
+
+3. **CLI Command Specific Requirements**:
+   When implementing CLI commands:
+   - [ ] Command is defined with proper parameters
+   - [ ] Command is registered in the appropriate command registry
+   - [ ] Command is accessible via the CLI interface
+   - [ ] Command help text is available and accurate
+   - [ ] Command execution produces expected output
+
+4. **Implementation Priority Classification**:
+   - **CRITICAL**: Features that make the implementation usable/accessible (e.g. CLI registration, API exposure)
+   - **MAJOR**: Core functionality implementation
+   - **MINOR**: Polish, optimization, additional error handling
+   - **COSMETIC**: Documentation, comments, formatting
+
+   **Never treat CRITICAL items as MINOR or defer them when assessing completion.**
 
 ### 5. Final Verification
 

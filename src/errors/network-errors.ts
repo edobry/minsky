@@ -84,18 +84,18 @@ export function createNetworkError(
   const errorCode = (originalError as any).code || "";
 
   switch (errorCode) {
-    case "EADDRINUSE":
-      return new PortInUseError(port, host, originalError);
-    case "EACCES":
-      return new NetworkPermissionError(port, host, originalError);
-    default:
-      return new NetworkError(
-        `Network error: ${originalError.message}`,
-        errorCode,
-        port,
-        host,
-        originalError
-      );
+  case "EADDRINUSE":
+    return new PortInUseError(port, host, originalError);
+  case "EACCES":
+    return new NetworkPermissionError(port, host, originalError);
+  default:
+    return new NetworkError(
+      `Network error: ${originalError.message}`,
+      errorCode,
+      port,
+      host,
+      originalError
+    );
   }
 }
 

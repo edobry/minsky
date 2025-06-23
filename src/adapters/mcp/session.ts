@@ -16,7 +16,7 @@ import {
 } from "../../utils/option-descriptions.js";
 
 // Import domain functions from domain/index.js as required by linter
-// eslint-disable-next-line no-restricted-imports
+
 import {
   listSessionsFromParams,
   getSessionFromParams,
@@ -89,6 +89,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
         ...args,
         quiet: true,
         noStatusUpdate: false, // Default value for required parameter
+        skipInstall: false, // Default value for required parameter
       };
 
       const session = await startSessionFromParams(params);
@@ -194,7 +195,8 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     "update",
     "Update a session with the latest changes from the main branch",
     z.object({
-      name: z.string().describe("Name of the session to update"),
+      name: z.string().optional().describe("Name of the session to update"),
+      task: z.string().optional().describe(TASK_ID_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       remote: z.string().optional().describe(GIT_REMOTE_DESCRIPTION),
       noStash: z.boolean().optional().describe("Skip stashing local changes"),
@@ -202,6 +204,11 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
     }),
     async (args): Promise<Record<string, unknown>> => {
+      // Must provide either name or task
+      if (!args.name && !args.task) {
+        throw new Error("Either session name or task ID must be provided");
+      }
+
       const params = {
         ...args,
         noStash: args.noStash || false,

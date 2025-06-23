@@ -1,4 +1,4 @@
-# Task #028: Automate Task Status Updates at Key Workflow Points
+# Automate Task Status Updates at Key Workflow Points
 
 ## Context
 

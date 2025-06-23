@@ -67,6 +67,16 @@ export interface GitServiceInterface {
    * Get the status of a repository
    */
   getStatus(repoPath?: string): Promise<GitStatus>;
+
+  /**
+   * Get the current branch name
+   */
+  getCurrentBranch(repoPath: string): Promise<string>;
+
+  /**
+   * Check if repository has uncommitted changes
+   */
+  hasUncommittedChanges(repoPath: string): Promise<boolean>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
@@ -79,6 +89,18 @@ export interface PrTestDependencies {
 
 // PrDependencies now extends the proper interface
 export interface PrDependencies extends PrTestDependencies {}
+
+export interface BasicGitDependencies {
+  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
+}
+
+export interface ExtendedGitDependencies extends BasicGitDependencies {
+  getSession: (name: string) => Promise<any>;
+  getSessionWorkdir: (repoName: string, session: string) => string;
+  mkdir: (path: string, options?: any) => Promise<void>;
+  readdir: (path: string) => Promise<string[]>;
+  access: (path: string) => Promise<void>;
+}
 
 export interface CloneOptions {
   repoUrl: string;
@@ -482,18 +504,32 @@ export class GitService implements GitServiceInterface {
       return options.repoPath;
     }
 
-    if (!options.session) {
-      throw new Error("Either 'session' or 'repoPath' must be provided to create a PR.");
+    // Try to resolve session from taskId if provided
+    let sessionName = options.session;
+    if (!sessionName && options.taskId) {
+      if (!deps.getSessionByTaskId) {
+        throw new Error("getSessionByTaskId dependency not available");
+      }
+      const sessionRecord = await deps.getSessionByTaskId(options.taskId);
+      if (!sessionRecord) {
+        throw new Error(`No session found for task ID "${options.taskId}"`);
+      }
+      sessionName = sessionRecord.session;
+      log.debug("Resolved session from task ID", { taskId: options.taskId, session: sessionName });
     }
 
-    const session = await deps.getSession(options.session);
+    if (!sessionName) {
+      throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to create a PR.");
+    }
+
+    const session = await deps.getSession(sessionName);
     if (!session) {
-      throw new Error(`Session '${options.session}' not found.`);
+      throw new Error(`Session '${sessionName}' not found.`);
     }
     const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    const workdir = deps.getSessionWorkdir(repoName, sessionName);
 
-    log.debug("Using workdir for PR", { workdir, session: options.session });
+    log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
   }
 
@@ -1032,30 +1068,63 @@ export class GitService implements GitServiceInterface {
   }
 
   async mergeBranch(workdir: string, branch: string): Promise<MergeResult> {
+    log.debug("mergeBranch called", { workdir, branch });
+
     try {
       // Get current commit hash
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      log.debug("Before merge commit hash", { beforeHash: beforeHash.trim() });
 
       // Try to merge the branch
       try {
+        log.debug("Attempting merge", { command: `git -C ${workdir} merge ${branch}` });
         await execAsync(`git -C ${workdir} merge ${branch}`);
+        log.debug("Merge completed successfully");
       } catch (err) {
+        log.debug("Merge command failed, checking for conflicts", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+
         // Check if there are merge conflicts
         const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
-        if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
+        log.debug("Git status after failed merge", { status });
+
+        const hasConflicts =
+          status.includes("UU") || status.includes("AA") || status.includes("DD");
+        log.debug("Conflict detection result", {
+          hasConflicts,
+          statusIncludes: {
+            UU: status.includes("UU"),
+            AA: status.includes("AA"),
+            DD: status.includes("DD"),
+          },
+        });
+
+        if (hasConflicts) {
           // Abort the merge and report conflicts
+          log.debug("Aborting merge due to conflicts");
           await execAsync(`git -C ${workdir} merge --abort`);
+          log.debug("Merge aborted, returning conflict result");
           return { workdir, merged: false, conflicts: true };
         }
+        log.debug("No conflicts detected, re-throwing original error");
         throw err;
       }
 
       // Get new commit hash
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+      log.debug("After merge commit hash", { afterHash: afterHash.trim() });
 
       // Return whether any changes were merged
-      return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
+      const merged = beforeHash.trim() !== afterHash.trim();
+      log.debug("Merge result", { merged, conflicts: false });
+      return { workdir, merged, conflicts: false };
     } catch (err) {
+      log.error("mergeBranch failed with error", {
+        error: err instanceof Error ? err.message : String(err),
+        workdir,
+        branch,
+      });
       throw new Error(
         `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -1205,7 +1274,11 @@ export class GitService implements GitServiceInterface {
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
       workdir = this.getSessionWorkdir(repoName, options.session);
-      sourceBranch = options.session; // Session branch is named after the session
+      // Get current branch from repo instead of assuming session name is branch name
+      const { stdout: branchOut } = await execAsync(
+        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+      );
+      sourceBranch = branchOut.trim();
     } else if (options.repoPath) {
       workdir = options.repoPath;
       // Get current branch from repo
@@ -1244,38 +1317,73 @@ export class GitService implements GitServiceInterface {
     // Make sure we have the latest from the base branch
     await execAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
 
-    // Create and checkout the PR branch from the current branch
+    // Create PR branch FROM base branch (not feature branch) - per Task #025
     try {
-      // Check if PR branch already exists locally
+      // Check if PR branch already exists locally and delete it for clean slate
       try {
         await execAsync(`git -C ${workdir} rev-parse --verify ${prBranch}`);
-        // If it exists, just check it out
-        await execAsync(`git -C ${workdir} checkout ${prBranch}`);
+        // Branch exists, delete it to recreate cleanly
+        await execAsync(`git -C ${workdir} branch -D ${prBranch}`);
+        log.debug(`Deleted existing PR branch ${prBranch} for clean recreation`);
       } catch {
-        // If it doesn't exist, create it from the current branch
-        await execAsync(`git -C ${workdir} checkout -b ${prBranch}`);
+        // Branch doesn't exist, which is fine
       }
+
+      // Create PR branch FROM base branch (Task #025 specification)
+      await execAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
+      log.debug(`Created PR branch ${prBranch} from origin/${baseBranch}`);
     } catch (err) {
       throw new MinskyError(
-        `Failed to create/checkout PR branch: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 
-    // Stage all changes
-    await this.stageAll(workdir);
+    // Create commit message file for merge commit (Task #025)
+    const commitMsgFile = `${workdir}/.pr_title`;
+    try {
+      let commitMessage = options.title || `Merge ${sourceBranch} into ${prBranch}`;
+      if (options.body) {
+        commitMessage += `\n\n${options.body}`;
+      }
 
-    // Check if there are changes to commit
-    const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
-    if (statusOutput.trim()) {
-      // Commit any staged changes if there are any
-      const commitMsg = options.title || `Prepare PR branch ${prBranch}`;
-      await this.commit(commitMsg, workdir);
+      // Write commit message to file for git merge -F
+      // Use fs.writeFile instead of echo to avoid shell parsing issues
+      const fs = await import("fs/promises");
+      await fs.writeFile(commitMsgFile, commitMessage, "utf8");
+      log.debug("Created commit message file for prepared merge commit");
+
+      // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
+      await execAsync(`git -C ${workdir} merge --no-ff ${sourceBranch} -F ${commitMsgFile}`);
+      log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
+
+      // Clean up the commit message file
+      await execAsync(`rm -f ${commitMsgFile}`);
+    } catch (err) {
+      // Clean up on error
+      try {
+        await execAsync(`git -C ${workdir} merge --abort`);
+        await execAsync(`rm -f ${commitMsgFile}`);
+        log.debug("Aborted merge and cleaned up after conflict");
+      } catch (cleanupErr) {
+        log.warn("Failed to clean up after merge error", { cleanupErr });
+      }
+
+      if (err instanceof Error && err.message.includes("CONFLICT")) {
+        throw new MinskyError(
+          "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
+          { exitCode: 4 }
+        );
+      }
+      throw new MinskyError(
+        `Failed to create prepared merge commit: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     // Push changes to the PR branch
     await this.push({
       repoPath: workdir,
       remote: "origin",
+      force: true,
     });
 
     return {
@@ -1704,6 +1812,22 @@ export class GitService implements GitServiceInterface {
       }
       throw new Error(err.stderr || err.message || String(err));
     }
+  }
+
+  /**
+   * Get the current branch name
+   */
+  async getCurrentBranch(repoPath: string): Promise<string> {
+    const { stdout } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
+    return stdout.trim();
+  }
+
+  /**
+   * Check if repository has uncommitted changes
+   */
+  async hasUncommittedChanges(repoPath: string): Promise<boolean> {
+    const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
+    return stdout.trim().length > 0;
   }
 }
 

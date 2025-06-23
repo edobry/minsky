@@ -1,4 +1,4 @@
-# Task #054: Restore Full Test Suite for `init` Command
+# Restore Full Test Suite for `init` Command
 
 ## Context
 

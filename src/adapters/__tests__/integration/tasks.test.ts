@@ -1,18 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  getTaskFromParams,
-  listTasksFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  type Task,
-  TASK_STATUS,
-} from "../../../domain/tasks.js";
-import {
-  createMock,
-  mockModule,
-  setupTestMocks,
-  createMockObject,
-} from "../../../utils/test-utils/mocking.js";
+import { type Task, TASK_STATUS } from "../../../domain/tasks.js";
+import { createMock, mockModule, setupTestMocks } from "../../../utils/test-utils/mocking.js";
 import {
   type TaskGetParams,
   type TaskListParams,

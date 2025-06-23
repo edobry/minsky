@@ -155,7 +155,7 @@ minsky session start --task 123
 
 ```typescript
 // Invalid: Unsupported protocol
-minsky session start --repo ftp://example.com/repo.git --task 123
+minsky session start --repo ftp://invalid-server.com/repo.git --task 123
 
 // Invalid: Malformed GitHub shorthand
 minsky session start --repo org/project/extra --task 123
