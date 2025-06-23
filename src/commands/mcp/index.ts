@@ -76,7 +76,7 @@ export function createMCPCommand(): Command {
 
           try {
             projectContext = createProjectContext(repositoryPath);
-            log.debug("Using repository path from _command line", {
+            log.debug("Using repository path from command line", {
               repositoryPath,
             });
           } catch (error) {
@@ -137,7 +137,7 @@ export function createMCPCommand(): Command {
 
         log.cli(`Minsky MCP Server started with ${transportType} transport`);
         if (projectContext) {
-          log.cli(`Repository _path: ${projectContext.repositoryPath}`);
+          log.cli(`Repository path: ${projectContext.repositoryPath}`);
         }
         if (transportType !== "stdio") {
           log.cli(`Listening on ${options.host}:${port}`);
