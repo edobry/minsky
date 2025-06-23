@@ -91,14 +91,14 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   const pathResolver = createPathResolver();
 
   // Session read file tool
-  commandMapper.addTool(
-    "session_read_file",
-    "Read a file within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_read_file",
+    description: "Read a file within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
         await pathResolver.validatePathExists(resolvedPath);
@@ -137,14 +137,14 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           session: args.session,
         };
       }
-    }
-  );
+    },
+  });
 
   // Session write file tool
-  commandMapper.addTool(
-    "session_write_file",
-    "Write content to a file within a session workspace",
-    z.object({
+  commandMapper.addCommand({
+    name: "session_write_file",
+    description: "Write content to a file within a session workspace",
+    parameters: z.object({
       session: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       content: z.string().describe("Content to write to the file"),
@@ -154,7 +154,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args): Promise<Record<string, unknown>> => {
+    execute: async (args): Promise<Record<string, unknown>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
 
