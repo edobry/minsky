@@ -112,27 +112,27 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${storageConfig.backend}`);
 
   switch (storageConfig.backend) {
-    case "json":
-      return new JsonFileStorage(
-        storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!
-      );
+  case "json":
+    return new JsonFileStorage(
+      storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath!
+    );
 
-    case "sqlite":
-      const sqliteConfig: SqliteStorageConfig = {
-        dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
-        enableWAL: storageConfig.sqlite?.enableWAL ?? true,
-        timeout: storageConfig.sqlite?.timeout ?? 5000,
-      };
-      return createSqliteStorage(sqliteConfig);
+  case "sqlite":
+    const sqliteConfig: SqliteStorageConfig = {
+      dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
+      enableWAL: storageConfig.sqlite?.enableWAL ?? true,
+      timeout: storageConfig.sqlite?.timeout ?? 5000,
+    };
+    return createSqliteStorage(sqliteConfig);
 
-    case "postgres":
-      if (!storageConfig.postgres?.connectionUrl) {
-        throw new Error("PostgreSQL connection URL is required for postgres backend");
-      }
-      return createPostgresStorage(storageConfig.postgres);
+  case "postgres":
+    if (!storageConfig.postgres?.connectionUrl) {
+      throw new Error("PostgreSQL connection URL is required for postgres backend");
+    }
+    return createPostgresStorage(storageConfig.postgres);
 
-    default:
-      throw new Error(`Unsupported storage backend: ${storageConfig.backend}`);
+  default:
+    throw new Error(`Unsupported storage backend: ${storageConfig.backend}`);
   }
 }
 
@@ -197,14 +197,14 @@ export class StorageBackendFactory {
    */
   private getBackendKey(config: StorageConfig): string {
     switch (config.backend) {
-      case "json":
-        return `json:${config.json?.filePath}`;
-      case "sqlite":
-        return `sqlite:${config.sqlite?.dbPath}`;
-      case "postgres":
-        return `postgres:${config.postgres?.connectionUrl}`;
-      default:
-        return config.backend;
+    case "json":
+      return `json:${config.json?.filePath}`;
+    case "sqlite":
+      return `sqlite:${config.sqlite?.dbPath}`;
+    case "postgres":
+      return `postgres:${config.postgres?.connectionUrl}`;
+    default:
+      return config.backend;
     }
   }
 }

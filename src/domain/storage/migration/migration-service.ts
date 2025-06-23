@@ -353,31 +353,31 @@ export class MigrationService {
     const recommendations: string[] = [];
 
     switch (currentConfig.backend) {
-      case "json":
-        recommendations.push(
-          "Consider migrating to SQLite for better performance and ACID transactions"
-        );
-        recommendations.push("SQLite is ideal for single-user development environments");
-        if (!currentConfig.baseDir) {
-          recommendations.push("Set a baseDir for consistent workspace organization");
-        }
-        break;
+    case "json":
+      recommendations.push(
+        "Consider migrating to SQLite for better performance and ACID transactions"
+      );
+      recommendations.push("SQLite is ideal for single-user development environments");
+      if (!currentConfig.baseDir) {
+        recommendations.push("Set a baseDir for consistent workspace organization");
+      }
+      break;
 
-      case "sqlite":
-        recommendations.push("Current SQLite setup is good for local development");
-        recommendations.push("Consider PostgreSQL for team environments with concurrent access");
-        if (!currentConfig.dbPath) {
-          recommendations.push("Consider setting a custom dbPath for better organization");
-        }
-        break;
+    case "sqlite":
+      recommendations.push("Current SQLite setup is good for local development");
+      recommendations.push("Consider PostgreSQL for team environments with concurrent access");
+      if (!currentConfig.dbPath) {
+        recommendations.push("Consider setting a custom dbPath for better organization");
+      }
+      break;
 
-      case "postgres":
-        recommendations.push("PostgreSQL setup is ideal for team/server environments");
-        recommendations.push("Ensure connection pooling is configured for production use");
-        if (!currentConfig.connectionString) {
-          recommendations.push("Connection string must be configured for PostgreSQL");
-        }
-        break;
+    case "postgres":
+      recommendations.push("PostgreSQL setup is ideal for team/server environments");
+      recommendations.push("Ensure connection pooling is configured for production use");
+      if (!currentConfig.connectionString) {
+        recommendations.push("Connection string must be configured for PostgreSQL");
+      }
+      break;
     }
 
     return recommendations;
