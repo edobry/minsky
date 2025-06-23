@@ -7,7 +7,7 @@
 
 import { DatabaseStorage } from "../database-storage";
 import { SessionRecord, SessionDbState } from "../../session/session-db";
-import { StorageBackendFactory } from "../storage-backend-factory";
+import { createStorageBackend, type StorageConfig } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
 import { log } from "../../../utils/logger";
 import { writeFileSync, readFileSync, existsSync } from "fs";
@@ -58,8 +58,40 @@ export class MigrationService {
       });
 
       // Create storage backends
-      const sourceStorage = StorageBackendFactory.createFromConfig(options.sourceConfig);
-      const targetStorage = StorageBackendFactory.createFromConfig(options.targetConfig);
+      const sourceStorageConfig: StorageConfig = {
+        backend: options.sourceConfig.backend,
+        json:
+          options.sourceConfig.backend === "json"
+            ? { filePath: options.sourceConfig.dbPath }
+            : undefined,
+        sqlite:
+          options.sourceConfig.backend === "sqlite"
+            ? { dbPath: options.sourceConfig.dbPath }
+            : undefined,
+        postgres:
+          options.sourceConfig.backend === "postgres" && options.sourceConfig.connectionString
+            ? { connectionUrl: options.sourceConfig.connectionString }
+            : undefined,
+      };
+
+      const targetStorageConfig: StorageConfig = {
+        backend: options.targetConfig.backend,
+        json:
+          options.targetConfig.backend === "json"
+            ? { filePath: options.targetConfig.dbPath }
+            : undefined,
+        sqlite:
+          options.targetConfig.backend === "sqlite"
+            ? { dbPath: options.targetConfig.dbPath }
+            : undefined,
+        postgres:
+          options.targetConfig.backend === "postgres" && options.targetConfig.connectionString
+            ? { connectionUrl: options.targetConfig.connectionString }
+            : undefined,
+      };
+
+      const sourceStorage = createStorageBackend(sourceStorageConfig);
+      const targetStorage = createStorageBackend(targetStorageConfig);
 
       // Initialize storages
       await sourceStorage.initialize();
@@ -285,7 +317,7 @@ export class MigrationService {
       });
 
       // Create target storage and restore data
-      const targetStorage = StorageBackendFactory.createFromConfig(targetConfig);
+      const targetStorage = createStorageBackend(targetConfig);
       await targetStorage.initialize();
 
       // Clear existing data and restore from backup
