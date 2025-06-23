@@ -176,6 +176,8 @@
 
 - [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
+- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+
 - [x] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
 - [x] Implement Consistent CLI Error Handling Across All Commands [#093](process/tasks/093-implement-consistent-cli-error-handling-across-all-commands.md)
