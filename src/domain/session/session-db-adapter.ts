@@ -1,13 +1,13 @@
 /**
  * SessionDbAdapter
- * 
+ *
  * This adapter implements the SessionProviderInterface using the new
  * configuration-based storage backend system. It provides seamless
  * integration with JSON, SQLite, and PostgreSQL storage backends.
  */
 
 import type { SessionProviderInterface, SessionRecord } from "../session";
-import { StorageBackendFactory } from "../storage/storage-backend-factory";
+import { createStorageBackend } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
@@ -23,7 +23,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      this.storage = await StorageBackendFactory.create(this.workingDir);
+      this.storage = createStorageBackend();
       await this.storage.initialize();
     }
     return this.storage;
@@ -34,7 +34,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.getEntities();
     } catch (error) {
-      log.error(`Error listing sessions: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(
+        `Error listing sessions: ${error instanceof Error ? error.message : String(error)}`
+      );
       return [];
     }
   }
@@ -58,7 +60,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const session = sessions.length > 0 ? sessions[0] : null;
       return session || null;
     } catch (error) {
-      log.error(`Error getting session by task ID: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(
+        `Error getting session by task ID: ${error instanceof Error ? error.message : String(error)}`
+      );
       return null;
     }
   }
@@ -84,7 +88,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
         throw new Error(`Session '${session}' not found`);
       }
     } catch (error) {
-      log.error(`Error updating session: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(
+        `Error updating session: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw error;
     }
   }
@@ -94,7 +100,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.deleteEntity(session);
     } catch (error) {
-      log.error(`Error deleting session: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(
+        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
+      );
       return false;
     }
   }
@@ -141,15 +149,17 @@ export class SessionDbAdapter implements SessionProviderInterface {
     try {
       const storage = await this.getStorage();
       const result = await storage.readState();
-      
+
       if (result.success && result.data) {
         return result.data;
       }
-      
+
       // Return initialized state if read fails
       return initializeSessionDbState();
     } catch (error) {
-      log.warn(`Error reading storage state, using defaults: ${error instanceof Error ? error.message : String(error)}`);
+      log.warn(
+        `Error reading storage state, using defaults: ${error instanceof Error ? error.message : String(error)}`
+      );
       return initializeSessionDbState();
     }
   }
@@ -164,4 +174,4 @@ export class SessionDbAdapter implements SessionProviderInterface {
       location: storage.getStorageLocation(),
     };
   }
-} 
+}
