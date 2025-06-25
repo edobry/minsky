@@ -558,32 +558,80 @@ describe("Session CLI Commands", () => {
   });
 
   describe("session pr command", () => {
-    test("BUG DOCUMENTATION: session pr workflow should return to session branch", () => {
-      // This test documents the expected behavior of the session pr workflow
-      //
-      // BUG DESCRIPTION:
-      // The session pr command was leaving users on the PR branch instead of
-      // returning to the session branch for continued development.
-      //
-      // MANUAL VERIFICATION:
-      // 1. Before fix: `minsky session pr` followed by `git branch --show-current` showed "pr/task#168"
-      // 2. After fix: `minsky session pr` followed by `git branch --show-current` shows "task#168"
-      //
-      // This test captures the requirement without complex mocking.
+    test("REAL TEST: preparePr should execute switch back command", async () => {
+      // This test calls the ACTUAL preparePr method and verifies the fix
+      // It should FAIL before the fix and PASS after the fix
 
-      const expectedWorkflow = {
-        beforeCommand: "task#168", // User starts on session branch
-        duringCommand: "pr/task#168", // Command temporarily switches to PR branch
-        afterCommand: "task#168", // Command should return user to session branch
+      const executedCommands: string[] = [];
+      const sessionName = "test-session";
+      const sourceBranch = "task#168";
+
+      // Create a mock execAsync that captures all commands
+      const mockExecAsync = async (command: string) => {
+        executedCommands.push(command);
+
+        // Mock git responses
+        if (command.includes("rev-parse --abbrev-ref HEAD")) {
+          return { stdout: sourceBranch, stderr: "" };
+        }
+        if (command.includes("rev-parse --verify")) {
+          return { stdout: "abc123", stderr: "" };
+        }
+        if (command.includes("remote get-url")) {
+          return { stdout: "https://github.com/test/repo.git", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
       };
 
-      // Document the correct workflow expectation
-      expect(expectedWorkflow.beforeCommand).toBe("task#168");
-      expect(expectedWorkflow.afterCommand).toBe("task#168");
-      expect(expectedWorkflow.afterCommand).toBe(expectedWorkflow.beforeCommand);
+      // Import and create GitService instance
+      const { GitService } = await import("../../../domain/git.js");
+      const gitService = new GitService();
 
-      // The fix was implemented in src/domain/git.ts preparePr method:
-      // Added `git switch ${sourceBranch}` after pushing PR branch
+      // Mock the dependencies
+      const sessionRecord: SessionRecord = {
+        session: sessionName,
+        repoName: "test-repo",
+        repoUrl: "https://github.com/test/repo.git",
+        createdAt: new Date().toISOString(),
+        taskId: sessionName,
+      };
+
+      // Mock sessionDb
+      (gitService as any).sessionDb = {
+        getSession: async () => sessionRecord,
+      };
+
+      // Mock getSessionWorkdir
+      (gitService as any).getSessionWorkdir = () => "/test/workdir";
+
+      // Mock push method
+      (gitService as any).push = async () => ({ workdir: "/test/workdir", pushed: true });
+
+      // CRITICAL: Mock execInRepository to capture actual commands from preparePr
+      (gitService as any).execInRepository = async (workdir: string, command: string) => {
+        const fullCommand = `git -C ${workdir} ${command}`;
+        return (await mockExecAsync(fullCommand)).stdout;
+      };
+
+      // Act: Call the actual preparePr method
+      await gitService.preparePr({
+        session: sessionName,
+        title: "Test PR",
+        body: "Test body",
+        baseBranch: "main",
+      });
+
+      // Assert: Check if the switch back command was executed
+      const switchCommands = executedCommands.filter((cmd) => cmd.includes("switch"));
+
+      // Before fix: This assertion would FAIL because only 1 switch command (to PR branch)
+      // After fix: This assertion PASSES because 2 switch commands (to PR branch, then back to source)
+      expect(switchCommands.length).toBeGreaterThanOrEqual(2);
+
+      // Verify the last switch command goes back to the source branch
+      const lastSwitchCommand = switchCommands[switchCommands.length - 1];
+      expect(lastSwitchCommand).toContain(`switch ${sourceBranch}`);
+      expect(lastSwitchCommand).not.toContain("pr/");
     });
 
     test("CORRECT BEHAVIOR: session pr should return to session branch after creating PR", async () => {
