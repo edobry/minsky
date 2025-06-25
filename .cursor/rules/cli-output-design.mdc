@@ -5,9 +5,12 @@ alwaysApply: false
 ---
 # CLI Output Design Principles
 
-## Core Philosophy
+**Learned from config command redesign experience**
 
-CLI commands should show **WHAT** is active, not **HOW** it was determined. Focus on current state, not implementation details or decision logic.
+## Core Philosophy: State, Not Process
+- **Show WHAT is active**, not HOW it was determined
+- **Current state only**, not implementation details or decision logic
+- **Facts, not explanations** - users want to see their configuration, not learn about the system
 
 ## Design Principles
 
@@ -21,12 +24,12 @@ CLI commands should show **WHAT** is active, not **HOW** it was determined. Focu
 - Explain what settings mean in practical terms
 - Example: "Task Storage: Using Markdown files" instead of "Backend: markdown"
 
-### 3. Follow Established CLI Patterns
+### 3. Follow Established CLI Tool Patterns
 Study and emulate successful CLI tools:
-- `git config --list`: Shows key-value pairs, current state only
-- `docker info`: Shows system info without explaining detection logic
-- `kubectl config view`: Shows active configuration without verbose sources
-- `npm config list`: Shows current settings, not how they were determined
+- `git config --list` → shows key=value pairs, no explanations
+- `docker info` → current system state, not how Docker works
+- `kubectl config view` → effective configuration, not resolution logic
+- `npm config list` → current values, not where they came from
 
 ### 4. Concise and Scannable
 - Prioritize brevity over completeness
@@ -81,12 +84,28 @@ Backend Auto-Detection Rules:
 - Use the same concise, user-friendly language
 
 ## Anti-Patterns to Avoid
+❌ **Verbose explanations**: "Minsky will choose task backend based on..."
+❌ **Implementation details**: Auto-detection rules, decision trees, precedence explanations
+❌ **Documentation in output**: Configuration source explanations, how the system works
+❌ **Technical jargon**: "Backend: markdown" instead of "Task Storage: Markdown files"
 
-1. **Verbose System Explanations**: Don't explain how the system works
-2. **Technical Jargon**: Avoid backend names, internal terminology
-3. **Decision Trees**: Don't show the logic that determined current state
-4. **Multiple Sources**: Don't show all possible configuration sources
-5. **Educational Content**: Don't turn command output into tutorials
+## Good Patterns to Follow
+✅ **Concise state**: `📁 Task Storage: Markdown files (process/tasks.md)`
+✅ **User-focused labels**: "Task Storage" not "Backend", "Authentication" not "Credentials"
+✅ **Essential context only**: Show file paths/sources when relevant to user action
+✅ **Consistent format**: Similar to other CLI tools users already know
+
+## Design Process
+1. **Start with user needs**: What do they need to know to take action?
+2. **Study comparable tools**: How do git, docker, kubectl handle similar output?
+3. **Remove explanations**: If it explains HOW something works, remove it
+4. **Test holistically**: Does this feel like other professional CLI tools?
+
+## When to Show Details
+- **Error output**: Show diagnostic information to help user fix problems
+- **Debug flags**: `--verbose` or `--debug` can show implementation details
+- **Help text**: Explanations belong in `--help`, not regular output
+- **Documentation**: Complex explanations belong in docs, not command output
 
 ## Testing Output Design
 
