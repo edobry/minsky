@@ -5,10 +5,7 @@
  * allowing shared commands to be executed via MCP requests.
  */
 import { type ZodIssue } from "zod";
-import {
-  sharedCommandRegistry,
-  type CommandExecutionContext,
-} from "../command-registry.js";
+import { sharedCommandRegistry, type CommandExecutionContext } from "../command-registry.js";
 import { ensureError } from "../../../errors/index.js";
 // Assuming MCP requests come in a specific format, e.g., FastMCP
 // For this example, let's define a placeholder for MCP request and response types.
@@ -54,7 +51,7 @@ export interface McpExecutionContext extends CommandExecutionContext {
  * @param request The MCP command request.
  * @returns A promise that resolves to an MCP command response.
  */
-export async function executeMcpCommand(__request: McpCommandRequest): Promise<McpCommandResponse> {
+export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
   const commandDef = sharedCommandRegistry.getCommand(request.commandId);
 
   if (!commandDef) {
@@ -111,7 +108,7 @@ export async function executeMcpCommand(__request: McpCommandRequest): Promise<M
         if (parseResult.error && parseResult.error.errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((_validationIssue: unknown) => {
+          parseResult.error.errors.forEach((validationIssue: unknown) => {
             errors.push(validationIssue.message);
           });
         } else {
@@ -133,13 +130,13 @@ export async function executeMcpCommand(__request: McpCommandRequest): Promise<M
     }
 
     // Execute the command with validated parameters
-    const _result = await commandDef.execute(parsedParams as any, _context); // Cast as any due to generic complexity
+    const result = await commandDef.execute(parsedParams as any, _context); // Cast as any due to generic complexity
 
     // Format response for MCP
     // In a real scenario, a shared response formatter might be used based on context.format
     return {
       success: true,
-      _result: result,
+      result: result,
     };
   } catch (error: unknown) {
     const ensuredError = ensureError(error);
