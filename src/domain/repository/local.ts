@@ -150,7 +150,7 @@ export class LocalGitBackend implements RepositoryBackend {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((_line: unknown) => ({
+      .map((line: unknown) => ({
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));
