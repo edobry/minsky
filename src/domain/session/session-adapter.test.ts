@@ -50,7 +50,7 @@ describe("SessionAdapter", () => {
             };
           }
         },
-        writeSessionDbFile: (_state: unknown) => {
+        writeSessionDbFile: (state: unknown, options: unknown = {}) => {
           const filePath = options.dbPath || dbPath;
           mockFS.writeFileSync(
             filePath,
