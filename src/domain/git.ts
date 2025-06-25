@@ -1342,10 +1342,27 @@ Need help? Run: minsky git pr --help
     let sourceBranch: string;
     const baseBranch = options.baseBranch || "main";
 
+    // Add debugging for session lookup
+    if (options.session) {
+      log.debug(`Attempting to look up session in database: ${options.session}, dbPath: ${this.sessionDb.dbPath}`);
+    }
+
     // Determine working directory and current branch
     if (options.session) {
       const record = await this.sessionDb.getSession(options.session);
+      
+      // Add more detailed debugging
+      log.debug(`Session database lookup result: ${options.session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: record.repoName, repoUrl: record.repoUrl, taskId: record.taskId }) : "null"}`);
+      
       if (!record) {
+        // Before throwing error, let's try to understand what sessions are in the database
+        try {
+          const allSessions = await this.sessionDb.listSessions();
+          log.debug(`All sessions in database: count=${allSessions.length}, sessionNames=${allSessions.map(s => s.session).slice(0, 10).join(", ")}, searchedFor=${options.session}`);
+        } catch (listError) {
+          log.error(`Failed to list sessions for debugging: ${listError}`);
+        }
+        
         throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
