@@ -11,8 +11,8 @@ import {
 const TEST_VALUE = 123;
 
 // Simple mock for execAsync that includes full path for proper matching
-const mockGitRootExecAsync = (_stdout: unknown) => {
-  return async (_command: unknown) => {
+const mockGitRootExecAsync = (stdout: unknown) => {
+  return async (command: unknown) => {
     if (command.includes("git rev-parse --show-toplevel")) {
       return { stdout, stderr: "" };
     }

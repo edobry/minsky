@@ -445,7 +445,7 @@ describe("getCurrentSessionContext", () => {
   let mockSessionDBError: Error | null = null;
 
   const mockInternalGetCurrentSession = createMockFn(async () => mockCurrentSessionReturnValue);
-  const mockGetSession = createMockFn(async (_sessionName: unknown) => {
+  const mockGetSession = createMockFn(async (sessionName: unknown) => {
     if (mockSessionDBError) throw mockSessionDBError;
     if (mockSessionRecord && mockSessionRecord.session === sessionName) {
       return mockSessionRecord;
