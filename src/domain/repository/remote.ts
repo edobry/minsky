@@ -204,8 +204,8 @@ export class RemoteGitBackend implements RepositoryBackend {
         changes: [],
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get Git repository _status: ${error.message}`);
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to get Git repository status: ${normalizedError.message}`);
     }
   }
 
@@ -256,11 +256,11 @@ export class RemoteGitBackend implements RepositoryBackend {
         message: "Git repository URL validated successfully",
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to validate Git repository: ${error.message}`,
-        error,
+        message: `Failed to validate Git repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -307,8 +307,8 @@ export class RemoteGitBackend implements RepositoryBackend {
           // Push to remote
           await execAsync(`git -C ${workdir} push origin ${branch}`);
         } catch (error) {
-          const _error = pushError instanceof Error ? pushError : new Error(String(pushError));
-          if (error.message.includes("Authentication failed")) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error));
+          if (normalizedError.message.includes("Authentication failed")) {
             return {
               success: false,
               message: "Git authentication failed. Check your credentials or SSH key.",
