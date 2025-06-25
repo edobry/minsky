@@ -271,6 +271,7 @@
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
+
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
@@ -315,9 +316,9 @@
 
 - [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
-- [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-ai-evals-framework-research.md)
+- [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-research-and-design-comprehensive-ai-evals-framework-for-rules-context-construction-and-agent-operations.md)
 
-- [ ] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-description-options-to-tasks-create.md)
+- [ ] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
@@ -328,3 +329,9 @@
 - [ ] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
 - [ ] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
+- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+
+- [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
+
+- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](/Users/edobry/Projects/minsky/process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
