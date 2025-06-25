@@ -320,7 +320,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param id Entity identifier
    * @returns Promise resolving to true if deleted, false if not found
    */
-  async deleteEntity(_id: string): Promise<boolean> {
+  async deleteEntity(id: string): Promise<boolean> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {

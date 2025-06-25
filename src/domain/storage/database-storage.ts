@@ -89,7 +89,7 @@ export interface DatabaseStorage<T, S> {
    * @param id Entity identifier
    * @returns Promise resolving to true if deleted, false if not found
    */
-  deleteEntity(_id: string): Promise<boolean>;
+  deleteEntity(id: string): Promise<boolean>;
 
   /**
    * Check if an entity exists
