@@ -252,10 +252,10 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        _error instanceof Error ? _error : undefined
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -277,9 +277,9 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
-        `Failed to pull _branch ${branchToPull}`,
+        `Failed to pull branch ${branchToPull}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -307,9 +307,9 @@ export class RemoteGitBackend implements RepositoryBackend {
         workdir: this.localPath,
         _branch: name,
       };
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
-        `Failed to create _branch ${name}`,
+        `Failed to create branch ${name}`,
         error instanceof Error ? error : undefined
       );
     }
