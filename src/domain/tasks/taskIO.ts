@@ -138,9 +138,9 @@ export async function fileExists(filePath: string): Promise<boolean> {
  * @param dirPath Path to the directory
  * @returns Promise resolving to success status or error
  */
-export async function createDirectory(__dirPath: string): Promise<TaskFileOperationResult> {
+export async function createDirectory(dirPath: string): Promise<TaskFileOperationResult> {
   try {
-    await fs.mkdir(_dirPath, { recursive: true });
+    await fs.mkdir(dirPath, { recursive: true });
     return {
       success: true,
       filePath: dirPath,

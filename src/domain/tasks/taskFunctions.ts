@@ -349,7 +349,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
  * @param spec Task specification data
  * @returns Formatted markdown content
  */
-export function formatTaskSpecToMarkdown(__spec: TaskSpecData): string {
+export function formatTaskSpecToMarkdown(spec: TaskSpecData): string {
   if (!spec) return "";
 
   // Generate clean title format without task numbers
