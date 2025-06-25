@@ -370,7 +370,7 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -379,12 +379,12 @@ export class GitHubBackend implements RepositoryBackend {
         };
       }
 
-      const _sessionName = repoSession.session;
-      const _workdir = this.getSessionWorkdir(_sessionName);
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pushing changes
       const pushResult = await this.gitService.push({
-        _session: sessionName,
+        session: sessionName,
         repoPath: workdir,
         remote: "origin",
       });
@@ -413,7 +413,7 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         return {
@@ -422,11 +422,11 @@ export class GitHubBackend implements RepositoryBackend {
         };
       }
 
-      const _sessionName = repoSession.session;
-      const _workdir = this.getSessionWorkdir(_sessionName);
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await this.gitService.pullLatest(_workdir);
+      const pullResult = await this.gitService.pullLatest(workdir);
 
       return {
         success: true,
@@ -449,7 +449,7 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name to checkout
    * @returns Promise resolving to void
    */
-  async checkout(__branch: string): Promise<void> {
+  async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
