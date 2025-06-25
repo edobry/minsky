@@ -3,6 +3,13 @@ description:
 globs:
 alwaysApply: false
 ---
+---
+name: CLI Output Design Principles
+description: Use when designing or implementing CLI command output and user-facing messages
+globs: ["src/cli.ts", "src/commands/**/*.ts", "src/adapters/cli/**/*.ts"]
+alwaysApply: false
+---
+
 # CLI Output Design Principles
 
 **Learned from config command redesign experience**
