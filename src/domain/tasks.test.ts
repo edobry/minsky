@@ -463,8 +463,8 @@ describe("createTask", () => {
 
     expect(task).toBeDefined();
     expect(task.id).toBe("#042"); // Should keep the specified ID
-    expect(task._title).toBe("Existing ID Feature");
-    expect(task._status).toBe(TASK_STATUS.TODO);
+    expect(task.title).toBe("Existing ID Feature");
+    expect(task.status).toBe(TASK_STATUS.TODO);
 
     // Check that the title was not modified in the file
     const updatedContent = mockFileSystem.get(newSpecPath);

@@ -4,6 +4,10 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { SessionDB } from "./session";
 import { log } from "../utils/logger";
+import { createHash } from "crypto";
+import { readFileSync, existsSync } from "fs";
+import { sep } from "path";
+import { homedir } from "os";
 
 const execAsync = promisify(exec);
 
@@ -32,17 +36,17 @@ export interface TestDependencies {
  * @returns true if in a session workspace, false otherwise
  */
 export async function isSessionWorkspace(
-  __workspacePath: string,
+  workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync
 ): Promise<boolean> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: _workspacePath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if the git root contains a session marker
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    const minskyPath = join(_xdgStateHome, "minsky", "git");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
 
     if (gitRoot.startsWith(minskyPath)) {
       // Extract the relative path from the minsky git directory
@@ -78,7 +82,7 @@ export const isSessionRepository = isSessionWorkspace;
  * @returns Information about the session if found, null otherwise
  */
 export async function getSessionFromWorkspace(
-  __workspacePath: string,
+  workspacePath: string,
   execAsyncFn: typeof execAsync = execAsync,
   sessionDbOverride?: { getSession: SessionDB["getSession"] }
 ): Promise<{
@@ -87,12 +91,12 @@ export async function getSessionFromWorkspace(
 } | null> {
   try {
     // Get the git root of the provided path
-    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: _workspacePath });
+    const { stdout } = await execAsyncFn("git rev-parse --show-toplevel", { cwd: workspacePath });
     const gitRoot = stdout.trim();
 
     // Check if this is in the minsky sessions directory structure
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    const minskyPath = join(_xdgStateHome, "minsky", "git");
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
 
     if (!gitRoot.startsWith(minskyPath)) {
       return null;
@@ -110,7 +114,7 @@ export async function getSessionFromWorkspace(
     }
 
     // Get the session name from the path parts
-    let _sessionName;
+    let sessionName: string | undefined;
     if (pathParts.length >= 3 && pathParts[1] === "sessions") {
       // New path format: <repo_name>/sessions/<session_name>
       sessionName = pathParts[2];
@@ -134,7 +138,7 @@ export async function getSessionFromWorkspace(
     }
 
     const db = sessionDbOverride || new SessionDB();
-    const sessionRecord = await db.getSession(_sessionName);
+    const sessionRecord = await db.getSession(sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
       return null;
@@ -330,4 +334,69 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
       return resolveWorkspacePath(_options);
     },
   };
+}
+
+export async function getWorkspaceGitRoot(workspacePath: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
+    return stdout.trim();
+  } catch {
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
+    const hashedPath = createHash("sha256").update(workspacePath).digest("hex");
+    return join(minskyPath, hashedPath);
+  }
+}
+
+export async function getWorkspaceSession(workspacePath: string): Promise<WorkspaceSession | null> {
+  try {
+    const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd: workspacePath });
+    const gitRoot = stdout.trim();
+
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
+
+    const hashedPath = createHash("sha256").update(workspacePath).digest("hex");
+    const sessionDbPath = join(minskyPath, hashedPath, "session.json");
+
+    if (!existsSync(sessionDbPath)) {
+      return null;
+    }
+
+    const sessionData = JSON.parse(readFileSync(sessionDbPath, "utf8"));
+    const pathParts = workspacePath.split(sep);
+
+    let sessionName: string | undefined;
+
+    // Try to extract session name from path
+    if (pathParts.includes("workspace-session")) {
+      const index = pathParts.indexOf("workspace-session");
+      sessionName = pathParts[index + 1];
+    } else if (pathParts.includes("workspace")) {
+      const index = pathParts.indexOf("workspace");
+      sessionName = pathParts[index + 1];
+    } else {
+      // Look for any directory that might be a session
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        if (pathParts[i].includes("session") || pathParts[i].includes("workspace")) {
+          sessionName = pathParts[i + 1];
+          break;
+        }
+      }
+    }
+
+    if (typeof sessionName !== "string") {
+      return null;
+    }
+
+    return {
+      gitRoot,
+      workspacePath,
+      session: sessionName,
+      sessionDbPath,
+      sessionData,
+    };
+  } catch (error) {
+    return null;
+  }
 }

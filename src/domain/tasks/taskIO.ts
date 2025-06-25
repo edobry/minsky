@@ -103,7 +103,7 @@ export async function writeTaskSpecFile(
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
 
-    await fs.writeFile(_filePath, _content, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(filePath, content, "utf8");
     return {
       success: true,
       filePath,
@@ -229,7 +229,7 @@ export function getTaskSpecFilePath(
   _title: string,
   _workspacePath: string
 ): string {
-  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const taskIdNum = __taskId.startsWith("#") ? __taskId.slice(1) : __taskId;
+  const normalizedTitle = _title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

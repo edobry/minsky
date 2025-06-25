@@ -304,7 +304,7 @@ export class TaskService {
    */
   async getBackendForTask(id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
-    const normalizedId = normalizeTaskId(__id);
+    const normalizedId = normalizeTaskId(id);
     if (!normalizedId) {
       return null;
     }
@@ -313,15 +313,15 @@ export class TaskService {
     for (const backend of this.backends) {
       // Get raw data
       const result = await backend.getTasksData();
-      if (!result.success || !result._content) {
+      if (!result.success || !result.content) {
         continue;
       }
 
       // Parse tasks
-      const _tasks = backend.parseTasks(result._content);
+      const tasks = backend.parseTasks(result.content);
 
       // Check if task exists in this backend
-      const taskExists = _tasks.some((task) => task.id === normalizedId);
+      const taskExists = tasks.some((task) => task.id === normalizedId);
       if (taskExists) {
         return backend;
       }
@@ -350,13 +350,13 @@ export class TaskService {
     }
 
     // Read the spec file
-    const specResult = await this.currentBackend.getTaskSpecData(task._specPath);
-    if (!specResult.success || !specResult._content) {
+    const specResult = await this.currentBackend.getTaskSpecData(task.specPath);
+    if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
 
     // Parse the spec
-    const _spec = this.currentBackend.parseTaskSpec(specResult._content);
+    const spec = this.currentBackend.parseTaskSpec(specResult.content);
 
     // Update the metadata
     spec.metadata = {
@@ -365,9 +365,9 @@ export class TaskService {
     };
 
     // Format and save the updated spec
-    const updatedSpecContent = this.currentBackend.formatTaskSpec(_spec);
+    const updatedSpecContent = this.currentBackend.formatTaskSpec(spec);
     const saveSpecResult = await this.currentBackend.saveTaskSpecData(
-      task._specPath,
+      task.specPath,
       updatedSpecContent
     );
     if (!saveSpecResult.success) {
@@ -395,14 +395,14 @@ export class TaskService {
     }
 
     // Read the spec file
-    const specResult = await this.currentBackend.getTaskSpecData(task._specPath);
-    if (!specResult.success || !specResult._content) {
+    const specResult = await this.currentBackend.getTaskSpecData(task.specPath);
+    if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specResult.error?.message}`);
     }
 
     return {
       content: specResult.content,
-      _specPath: task.specPath,
+      specPath: task.specPath,
       task,
     };
   }
