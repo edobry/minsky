@@ -142,7 +142,7 @@ export async function createGitHubLabels(
 /**
  * Get color for status label
  */
-function getColorForStatus(__status: string): string {
+function getColorForStatus(status: string): string {
   const colors: Record<string, string> = {
     TODO: "0e8a16", // Green
     "IN-PROGRESS": "fbca04", // Yellow

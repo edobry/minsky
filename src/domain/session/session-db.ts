@@ -66,7 +66,7 @@ export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): Ses
 /**
  * Add a new session to the state
  */
-export function addSessionFn(_state: SessionDbState, _record: SessionRecord): SessionDbState {
+export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
   return {
     ...state,
     sessions: [...state.sessions, record],
@@ -99,14 +99,14 @@ export function updateSessionFn(
 /**
  * Delete a session by name
  */
-export function deleteSessionFn(_state: SessionDbState, _sessionName: string): SessionDbState {
+export function deleteSessionFn(state: SessionDbState, sessionName: string): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
     return state;
   }
 
   const updatedSessions = [...state.sessions];
-  updatedSessions.splice(_index, 1);
+  updatedSessions.splice(index, 1);
 
   return {
     ...state,
@@ -117,7 +117,7 @@ export function deleteSessionFn(_state: SessionDbState, _sessionName: string): S
 /**
  * Get the repository path for a session
  */
-export function getRepoPathFn(_state: SessionDbState, _record: SessionRecord): string {
+export function getRepoPathFn(state: SessionDbState, record: SessionRecord): string {
   if (!record) {
     throw new Error("Session record is required");
   }
@@ -127,7 +127,7 @@ export function getRepoPathFn(_state: SessionDbState, _record: SessionRecord): s
   }
 
   const repoName = normalizeRepoName(record.repoName || record.repoUrl);
-  return join(state.baseDir, repoName, "sessions", record._session);
+  return join(state.baseDir, repoName, "sessions", record.session);
 }
 
 /**

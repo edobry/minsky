@@ -79,7 +79,8 @@ const DEFAULT_URI_OPTIONS: UriOptions = {
  * @returns A normalized repository URI object
  * @throws ValidationError if the URI is invalid or doesn't meet requirements
  */
-export function normalizeRepositoryUri(_uri: string,
+export function normalizeRepositoryUri(
+  uri: string,
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): RepositoryUri {
   if (!uri) {
@@ -189,7 +190,8 @@ export function normalizeRepositoryUri(_uri: string,
  * @returns True if the URI is valid, throws an error otherwise
  * @throws ValidationError if the URI is invalid
  */
-export function validateRepositoryUri(_uri: string,
+export function validateRepositoryUri(
+  _uri: string,
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
@@ -205,7 +207,7 @@ export function validateRepositoryUri(_uri: string,
  * @returns The URI in the target format
  * @throws ValidationError if the URI cannot be converted to the target format
  */
-export function convertRepositoryUri(__uri: string, targetFormat: UriFormat): string {
+export function convertRepositoryUri(uri: string, targetFormat: UriFormat): string {
   // First normalize the URI to get the repository name
   const normalized = normalizeRepositoryUri(uri);
 
@@ -247,7 +249,7 @@ export function convertRepositoryUri(__uri: string, targetFormat: UriFormat): st
  * @returns Repository information (owner, repo)
  * @throws ValidationError if the URL cannot be parsed
  */
-export function extractRepositoryInfo(__url: string): { owner: string; repo: string } {
+export function extractRepositoryInfo(url: string): { owner: string; repo: string } {
   const normalized = normalizeRepositoryUri(url);
   const [owner, repo] = normalized.name.split("/");
 

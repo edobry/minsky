@@ -198,7 +198,8 @@ export interface Result {
  * @param config Repository backend configuration
  * @returns Repository backend instance
  */
-export async function createRepositoryBackend(__config: RepositoryBackendConfig
+export async function createRepositoryBackend(
+  config: RepositoryBackendConfig
 ): Promise<RepositoryBackend> {
   // Validate common configuration
   if (!config.type) {

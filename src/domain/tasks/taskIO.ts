@@ -187,7 +187,7 @@ export async function deleteFile(filePath: string): Promise<TaskFileOperationRes
  * @param pattern Optional glob pattern to filter files
  * @returns Promise resolving to array of file paths or error
  */
-export async function listFiles(__dirPath: string): Promise<string[] | null> {
+export async function listFiles(dirPath: string): Promise<string[] | null> {
   try {
     const files = await fs.readdir(dirPath);
     return files;
