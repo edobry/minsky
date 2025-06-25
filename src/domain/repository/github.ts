@@ -131,30 +131,12 @@ export class GitHubBackend implements RepositoryBackend {
 
 Unable to authenticate with GitHub repository: ${this.owner}/${this.repo}
 
-Here's how to fix this:
-
-🔑 For SSH (recommended):
-   • Check if your SSH key works with GitHub:
-     ssh -T git@github.com
-
-   • Generate a new SSH key if needed:
-     ssh-keygen -t ed25519 -C "your-github-email@example.com"
-     ssh-add ~/.ssh/id_ed25519
-
-   • Add the public key to your GitHub account:
-     → GitHub → Settings → SSH and GPG keys → New SSH key
-
-🔒 For HTTPS with Personal Access Token:
-   • Go to GitHub → Settings → Developer settings → Personal access tokens
-   • Generate a new token with 'repo' scope
-   • Use the token as your password when prompted
-
-💡 Quick troubleshooting:
+💡 Quick fixes:
    • Verify you have access to ${this.owner}/${this.repo}
-   • Check if the repository is private and you have permissions
-   • Try accessing: https://github.com/${this.owner}/${this.repo}
+   • Check your GitHub credentials (SSH key or personal access token)
+   • Ensure the repository exists and is accessible
 
-Need help? Check: https://docs.github.com/en/authentication
+Repository: https://github.com/${this.owner}/${this.repo}
 `);
       } else if (normalizedError.message.includes("not found")) {
         throw new Error(

@@ -118,28 +118,12 @@ export class RemoteGitBackend implements RepositoryBackend {
         throw new Error(`
 🔐 Git Authentication Failed
 
-Unable to authenticate with the Git repository. Here's how to fix this:
+Unable to authenticate with the Git repository.
 
-🔑 For SSH (recommended):
-   • Check if your SSH key is added to your Git provider:
-     ssh -T git@github.com  (for GitHub)
-     ssh -T git@gitlab.com  (for GitLab)
-
-   • Generate a new SSH key if needed:
-     ssh-keygen -t ed25519 -C "your-email@example.com"
-     ssh-add ~/.ssh/id_ed25519
-
-   • Add the public key to your Git provider account
-
-🔒 For HTTPS:
-   • Use a personal access token instead of password
-   • Update your credentials in Git:
-     git config --global credential.helper store
-
-💡 Quick troubleshooting:
-   • Verify the repository URL is correct
-   • Check if you have access to this repository
-   • Try cloning manually first: git clone ${this.repoUrl}
+💡 Quick fixes:
+   • Verify you have access to this repository: ${this.repoUrl}
+   • Check your Git credentials are configured
+   • Ensure SSH keys or tokens are set up for your Git provider
 
 Repository: ${this.repoUrl}
 `);
