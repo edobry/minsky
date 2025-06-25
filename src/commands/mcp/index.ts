@@ -187,7 +187,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch (error) {
+      } catch (_error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.httpStream ? "httpStream" : "stdio",

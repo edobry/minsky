@@ -10,7 +10,7 @@ import { promises as fs } from "fs";
 /**
  * Helper to read content from a file if the path exists
  */
-export async function readContentFromFileIfExists(__contentPath: string): Promise<string> {
+export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
     // Check if the path exists first
     if (existsSync(contentPath)) {

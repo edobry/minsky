@@ -33,7 +33,7 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(__error: unknown): never {
+export function handleCliError(error: unknown): never {
   const normalizedError = ensureError(error);
 
   // In human mode, use programLogger for all user-facing errors

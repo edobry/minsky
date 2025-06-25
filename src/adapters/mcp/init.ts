@@ -10,7 +10,7 @@ import { initializeProjectFromParams } from "../../domain/index.js";
 /**
  * Registers initialization tools with the MCP command mapper
  */
-export function registerInitTools(_commandMapper: CommandMapper): void {
+export function registerInitTools(commandMapper: CommandMapper): void {
   // Register the init command
   commandMapper.addCommand({
     name: "init",

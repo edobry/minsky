@@ -7,7 +7,7 @@ import type { TaskStatus } from "../../domain/tasks/taskConstants.js";
 
 // Re-export task status types from centralized location
 export type { TaskStatus } from "../../domain/tasks/taskConstants.js";
-export { TaskStatusType } from "../../domain/tasks/taskConstants.js";
+export { TaskStatus as TaskStatusType } from "../../domain/tasks/taskConstants.js";
 
 /**
  * TaskData represents the pure data representation of a task
@@ -98,13 +98,13 @@ export interface TaskWriteOperationResult extends TaskFileOperationResult {
  * @param task Legacy Task object
  * @returns TaskData object
  */
-export function toTaskData(__task: unknown): TaskData {
+export function toTaskData(task: unknown): TaskData {
   return {
     id: task.id,
-    _title: task.title,
+    title: task.title,
     description: task.description,
-    _status: task.status,
-    _specPath: task.specPath,
+    status: task.status,
+    specPath: task.specPath,
     worklog: task.worklog,
     mergeInfo: task.mergeInfo,
   };
@@ -115,13 +115,13 @@ export function toTaskData(__task: unknown): TaskData {
  * @param taskData TaskData object
  * @returns Legacy Task object
  */
-export function fromTaskData(__taskData: TaskData): unknown {
+export function fromTaskData(taskData: TaskData): unknown {
   return {
     id: taskData.id,
-    _title: taskData.title,
+    title: taskData.title,
     description: taskData.description,
-    _status: taskData.status,
-    _specPath: taskData.specPath,
+    status: taskData.status,
+    specPath: taskData.specPath,
     worklog: taskData.worklog,
     mergeInfo: taskData.mergeInfo,
   };
