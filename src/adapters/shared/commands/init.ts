@@ -120,6 +120,7 @@ export function registerInitCommands() {
         });
         return { success: true, message: "Project initialized successfully." };
       } catch (error: unknown) {
+        console.log('[DEBUG] Caught error in src/adapters/shared/commands/init.ts:122:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
           ? error

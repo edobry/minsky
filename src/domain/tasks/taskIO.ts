@@ -28,6 +28,7 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
       content,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:30:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read tasks file: ${filePath}`, { error: err });
     return {
@@ -55,6 +56,7 @@ export async function writeTasksFile(
       filePath,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:58:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
@@ -79,6 +81,7 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
       content,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:83:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {
@@ -109,6 +112,7 @@ export async function writeTaskSpecFile(
       filePath,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:114:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
@@ -129,6 +133,7 @@ export async function fileExists(filePath: string): Promise<boolean> {
     await fs.access(filePath);
     return true;
   } catch (_error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:135:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     return false;
   }
 }
@@ -146,6 +151,7 @@ export async function createDirectory(__dirPath: string): Promise<TaskFileOperat
       filePath: dirPath,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:153:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
@@ -161,7 +167,7 @@ export async function createDirectory(__dirPath: string): Promise<TaskFileOperat
  * @param filePath Path to the file
  * @returns Promise resolving to success status or error
  */
-export async function deleteFile(__filePath: string): Promise<TaskFileOperationResult> {
+export async function deleteFile(_filePath: string): Promise<TaskFileOperationResult> {
   try {
     if (await fileExists(filePath)) {
       await fs.unlink(filePath);
@@ -171,6 +177,7 @@ export async function deleteFile(__filePath: string): Promise<TaskFileOperationR
       filePath,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:179:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
@@ -192,6 +199,7 @@ export async function listFiles(__dirPath: string): Promise<string[] | null> {
     const files = await fs.readdir(dirPath);
     return files;
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/taskIO.ts:201:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     log.error(`Failed to list files in directory: ${dirPath}`, {
       error: error instanceof Error ? error : String(error),
     });

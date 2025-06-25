@@ -82,6 +82,7 @@ export class TaskMigrationUtils {
       try {
         await access(tasksFilePath);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:84:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         return {
           success: false,
           error: new Error(`tasks.md not found at ${tasksFilePath}`),
@@ -167,6 +168,7 @@ export class TaskMigrationUtils {
         backupFile,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:170:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Migration failed", { error: typedError.message });
 
@@ -226,6 +228,7 @@ export class TaskMigrationUtils {
           await writeFile(_backupFile, existingContent, "utf8");
           log.debug(`Created backup at ${backupFile}`);
         } catch (_error) {
+          console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:230:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
           // tasks.md doesn't exist, no backup needed
         }
       }
@@ -248,6 +251,7 @@ export class TaskMigrationUtils {
         backupFile,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:253:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Reverse migration failed", { error: typedError.message });
 
@@ -286,6 +290,7 @@ export class TaskMigrationUtils {
         const _content = (await readFile(_tasksFilePath, "utf8")) as string;
         markdownTasks = this.parseMarkdownTasks(_content);
       } catch (_error) {
+        console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:292:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         // tasks.md doesn't exist or can't be read
       }
 
@@ -309,6 +314,7 @@ export class TaskMigrationUtils {
           jsonTasks = stateResult.data.tasks;
         }
       } catch (_error) {
+        console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:316:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         // JSON database doesn't exist or can't be read
       }
 
@@ -322,6 +328,7 @@ export class TaskMigrationUtils {
         differences,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/migration-utils.ts:330:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,

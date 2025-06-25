@@ -18,6 +18,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
       // Parse the JSON output
       return JSON.parse(output);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/mcp/tools/session.ts:20:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
@@ -41,6 +42,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/session.ts:44:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
@@ -89,6 +91,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/session.ts:93:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
           `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
@@ -135,6 +138,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/session.ts:140:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
@@ -154,7 +158,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
         .describe("Session to push changes for (uses current session if not provided)"),
     }),
     async (
-      _args: z.infer<
+      args: z.infer<
         z.ZodObject<{
           _session: z.ZodOptional<z.ZodString>;
         }>
@@ -176,6 +180,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           message: output.trim(),
         };
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/session.ts:182:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`

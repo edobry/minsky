@@ -301,6 +301,7 @@ const tasksSpecRegistration = {
       });
       return result;
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/adapters/shared/commands/tasks.ts:303:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Error getting task specification", { error });
       throw error;
     }
@@ -598,6 +599,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/adapters/shared/commands/tasks.ts:601:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
       }
     }
@@ -681,6 +683,7 @@ const tasksMigrateRegistration = {
 
       return cliResult;
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/adapters/shared/commands/tasks.ts:685:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       throw new ValidationError(
         `Migration failed: ${error instanceof Error ? error.message : String(error)}`
       );

@@ -44,6 +44,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/tasks.ts:46:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("MCP: Error listing tasks via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -72,6 +73,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/tasks.ts:75:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -103,6 +105,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           status: output.split(": ")[1], // Extract the status value
         };
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/tasks.ts:107:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -138,6 +141,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           status: args.status,
         };
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/tasks.ts:143:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
@@ -166,6 +170,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         // Parse the JSON output
         return JSON.parse(output);
       } catch (error) {
+        console.log('[DEBUG] Caught error in src/mcp/tools/tasks.ts:172:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("MCP: Error creating task via execSync", {
           originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,

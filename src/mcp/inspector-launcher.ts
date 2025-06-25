@@ -71,6 +71,7 @@ export function isInspectorAvailable(): boolean {
     const binPath = join(process.cwd(), "node_modules", ".bin", "mcp-inspector");
     return existsSync(binPath);
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/mcp/inspector-launcher.ts:73:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     return false;
   }
 }
@@ -159,6 +160,7 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
       url: `http://localhost:${port}`,
     };
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/mcp/inspector-launcher.ts:162:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
       error: error instanceof Error ? error.message : String(error),

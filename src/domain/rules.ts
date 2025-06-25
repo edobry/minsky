@@ -357,10 +357,10 @@ export class RuleService {
   /**
    * Create a new rule
    */
-  async createRule(_id: string,
+  async createRule(id: string,
     content: string,
     meta: RuleMeta,
-    _options: CreateRuleOptions = {}
+    options: CreateRuleOptions = {}
   ): Promise<Rule> {
     const format = options.format || "cursor";
     const dirPath = this.getRuleDirPath(format);

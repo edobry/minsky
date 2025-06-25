@@ -92,6 +92,7 @@ function extractGitHubRepoFromRemote(
 
     return null;
   } catch (error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:94:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
       error: error instanceof Error ? error.message : String(error),
@@ -142,6 +143,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     try {
       await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:145:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.warn("Failed to ensure GitHub labels exist", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -178,6 +180,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
         content: issueData,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:182:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to fetch GitHub issues", {
         owner: this.owner,
         repo: this.repo,
@@ -253,6 +256,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
         content: specContent,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:258:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to get task spec data from GitHub", {
         specPath,
         error: error instanceof Error ? error.message : String(error),
@@ -272,6 +276,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       const issues = JSON.parse(content);
       return issues.map((issue: any) => this.convertIssueToTaskData(issue));
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:278:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to parse GitHub issues data", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -359,6 +364,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
       return { success: true };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:366:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to save tasks data to GitHub", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -378,6 +384,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
 
       return { success: true };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:386:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to save task spec data", {
         specPath,
         error: error instanceof Error ? error.message : String(error),
@@ -491,6 +498,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
         title: issueData.title,
       });
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/githubIssuesTaskBackend.ts:500:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to sync task to GitHub", {
         taskId: taskData.id,
         error: error instanceof Error ? error.message : String(error),

@@ -85,19 +85,19 @@ export async function listTasksFromParams(
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
-      _session: validParams._session,
+      session: validParams.session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const _workspacePath = await deps.resolveWorkspacePath({
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
       sessionRepo: repoPath,
     });
 
     // Create task service
     const taskService = await deps.createTaskService({
-      _workspacePath,
+      workspacePath,
       backend: validParams.backend,
     });
 
@@ -120,6 +120,10 @@ export async function listTasksFromParams(
 
     return tasks;
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:122:",
+      typeof error !== "undefined" ? "error defined" : "error undefined"
+    );
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for listing tasks", error.format(), error);
     }
@@ -150,7 +154,7 @@ export async function getTaskFromParams(
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
-        `Invalid task ID: '${params._taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
       );
     }
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
@@ -160,35 +164,40 @@ export async function getTaskFromParams(
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
-      _session: validParams._session,
+      session: validParams.session,
       repo: validParams.repo,
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const _workspacePath = await deps.resolveWorkspacePath({
+    const workspacePath = await deps.resolveWorkspacePath({
       workspace: validParams.workspace,
       sessionRepo: repoPath,
     });
 
     // Create task service
     const taskService = await deps.createTaskService({
-      _workspacePath,
+      workspacePath,
       backend: validParams.backend,
     });
 
     // Get the task
-    const task = await taskService.getTask(validParams._taskId);
+    const task = await taskService.getTask(validParams.taskId);
 
     if (!task) {
       throw new ResourceNotFoundError(
-        `Task ${validParams._taskId} not found`,
+        `Task ${validParams.taskId} not found`,
         "task",
-        validParams._taskId
+        validParams.taskId
       );
     }
 
     return task;
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:192:",
+      typeof error !== "undefined" ? "error defined" : "error undefined",
+      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+    );
     if (error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for getting task", error.format(), error);
     }
@@ -258,6 +267,11 @@ export async function getTaskStatusFromParams(
 
     return status;
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:262:",
+      typeof error !== "undefined" ? "error defined" : "error undefined",
+      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+    );
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task status",
@@ -330,6 +344,11 @@ export async function setTaskStatusFromParams(
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:335:",
+      typeof error !== "undefined" ? "error defined" : "error undefined",
+      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+    );
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for setting task status",
@@ -388,6 +407,11 @@ export async function createTaskFromParams(
 
     return task;
   } catch (_error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:394:",
+      typeof error !== "undefined" ? "error defined" : "error undefined",
+      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+    );
     if (_error instanceof z.ZodError) {
       throw new ValidationError("Invalid parameters for creating task", _error.format(), _error);
     }
@@ -460,6 +484,11 @@ export async function getTaskSpecContentFromParams(
     try {
       content = await fs.readFile(specPath, "utf8");
     } catch (_error) {
+      console.log(
+        "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:467:",
+        typeof error !== "undefined" ? "error defined" : "error undefined",
+        typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+      );
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
         "file",
@@ -475,6 +504,11 @@ export async function getTaskSpecContentFromParams(
       section: validParams.section,
     };
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:483:",
+      typeof error !== "undefined" ? "error defined" : "error undefined",
+      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+    );
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",

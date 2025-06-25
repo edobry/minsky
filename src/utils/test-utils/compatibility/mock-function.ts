@@ -67,7 +67,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Mock function that can be called with arguments.
    */
-  (..._args: TArgs): TReturn;
+  (...args: TArgs): TReturn;
 
   /**
    * Mock metadata and tracking information.

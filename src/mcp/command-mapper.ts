@@ -133,6 +133,7 @@ export class CommandMapper {
           // Otherwise, return it as a JSON string for structured data
           return JSON.stringify(result, null, 2);
         } catch (error) {
+          console.log('[DEBUG] Caught error in src/mcp/command-mapper.ts:135:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
           const errorMessage = error instanceof Error ? error.message : String(error);
           log.error("Error executing MCP command", {
             command: normalizedName,
@@ -197,6 +198,7 @@ export class CommandMapper {
               // Otherwise, return it as a JSON string for structured data
               return JSON.stringify(result, null, 2);
             } catch (error) {
+              console.log('[DEBUG] Caught error in src/mcp/command-mapper.ts:200:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
               const errorMessage = error instanceof Error ? error.message : String(error);
               log.error("Error executing MCP command via underscore alias", {
                 command: underscoreName,
