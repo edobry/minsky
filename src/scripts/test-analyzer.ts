@@ -601,19 +601,19 @@ async function main() {
     const report = await generateReport(analyses);
 
     // Create output directory if needed
-    const outputDir = resolve(_baseDir, "test-analysis");
+    const outputDir = resolve(config.baseDir, "test-analysis");
     if (!existsSync(outputDir)) {
-      await mkdir(_outputDir, { recursive: true });
+      await mkdir(outputDir, { recursive: true });
     }
 
     // Write JSON report
-    const jsonOutputPath = resolve(_outputDir, config.outputFile);
-    await writeFile(_jsonOutputPath, JSON.stringify(_report, null, 2));
+    const jsonOutputPath = resolve(outputDir, config.outputFile);
+    await writeFile(jsonOutputPath, JSON.stringify(report, null, 2));
     log.cli(`Report written to: ${jsonOutputPath}`);
 
     // Write Markdown summary
-    const mdOutputPath = resolve(_outputDir, config.outputFile.replace(/\.json$/, ".md"));
-    await generateMarkdownSummary(_report, mdOutputPath);
+    const mdOutputPath = resolve(outputDir, config.outputFile.replace(/\.json$/, ".md"));
+    await generateMarkdownSummary(report, mdOutputPath);
     log.cli(`Summary written to: ${mdOutputPath}`);
 
     // Output quick stats

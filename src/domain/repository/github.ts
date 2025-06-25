@@ -126,7 +126,36 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Provide more informative error messages for common GitHub issues
       if (normalizedError.message.includes("Authentication failed")) {
-        throw new Error("GitHub authentication failed. Check your Git credentials.");
+        throw new Error(`
+🔐 GitHub Authentication Failed
+
+Unable to authenticate with GitHub repository: ${this.owner}/${this.repo}
+
+Here's how to fix this:
+
+🔑 For SSH (recommended):
+   • Check if your SSH key works with GitHub:
+     ssh -T git@github.com
+
+   • Generate a new SSH key if needed:
+     ssh-keygen -t ed25519 -C "your-github-email@example.com"
+     ssh-add ~/.ssh/id_ed25519
+
+   • Add the public key to your GitHub account:
+     → GitHub → Settings → SSH and GPG keys → New SSH key
+
+🔒 For HTTPS with Personal Access Token:
+   • Go to GitHub → Settings → Developer settings → Personal access tokens
+   • Generate a new token with 'repo' scope
+   • Use the token as your password when prompted
+
+💡 Quick troubleshooting:
+   • Verify you have access to ${this.owner}/${this.repo}
+   • Check if the repository is private and you have permissions
+   • Try accessing: https://github.com/${this.owner}/${this.repo}
+
+Need help? Check: https://docs.github.com/en/authentication
+`);
       } else if (normalizedError.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`

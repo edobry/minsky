@@ -548,12 +548,56 @@ export class GitService implements GitServiceInterface {
     }
 
     if (!sessionName) {
-      throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to create a PR.");
+      throw new MinskyError(`
+🚫 Cannot create PR - missing required information
+
+You need to specify one of these options to identify the target repository:
+
+📝 Specify a session name:
+   minsky git pr --session "my-session"
+
+🎯 Use a task ID (to auto-detect session):
+   minsky git pr --task-id "123"
+
+📁 Target a specific repository:
+   minsky git pr --repo-path "/path/to/repo"
+
+💡 If you're working in a session workspace, try running from the main workspace:
+   cd /path/to/main/workspace
+   minsky git pr --session "session-name"
+
+📋 To see available sessions:
+   minsky sessions list
+`);
     }
 
     const session = await deps.getSession(sessionName);
     if (!session) {
-      throw new Error(`Session '${sessionName}' not found.`);
+      throw new MinskyError(`
+🔍 Session "${sessionName}" Not Found
+
+The session you're trying to create a PR for doesn't exist.
+
+💡 What you can do:
+
+📋 List all available sessions:
+   minsky sessions list
+
+🔍 Check if session exists:
+   minsky sessions get --name "${sessionName}"
+
+🆕 Create a new session:
+   minsky session start "${sessionName}"
+
+🎯 Use a different session:
+   minsky sessions list  # Find existing session
+   minsky git pr --session "existing-session"
+
+📁 Or target a specific repository directly:
+   minsky git pr --repo-path "/path/to/your/repo"
+
+Need help? Run: minsky git pr --help
+`);
     }
     const repoName = session.repoName || normalizeRepoName(session.repoUrl);
     const workdir = deps.getSessionWorkdir(repoName, sessionName);

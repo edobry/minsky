@@ -7,7 +7,11 @@ export function exit(code: number): never {
   // For now, we use process.exit as it's consistently used across the codebase
   // In the future, we could adapt this to use Bun-specific APIs if needed
 
-  process.exit(code);
+  // Use type assertion to access process.exit in Bun environment
+  (process as any).exit(code);
+
+  // This line should never be reached, but satisfies TypeScript's never return type
+  throw new Error("Process exit failed");
 }
 
 // Store the original process.cwd() function to allow resetting
