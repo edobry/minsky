@@ -280,7 +280,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  async updateEntity(_id: string, _updates: Partial<T>): Promise<T | null> {
+  async updateEntity(id: string, _updates: Partial<T>): Promise<T | null> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {

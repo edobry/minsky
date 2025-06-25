@@ -76,6 +76,11 @@ export class TaskService {
           this.backends.push(githubBackend);
         }
       } catch (error) {
+        console.log(
+          "[DEBUG] Caught error in src/domain/tasks/taskService.ts:78:",
+          typeof error !== "undefined" ? "error defined" : "error undefined",
+          typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+        );
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -150,7 +155,7 @@ export class TaskService {
    * @param id Task ID to get status for
    * @returns Promise resolving to status or null if not found
    */
-  async getTaskStatus(_id: string): Promise<string | null> {
+  async getTaskStatus(id: string): Promise<string | null> {
     const task = await this.getTask(__id);
     return task ? task.status : null;
   }
@@ -430,6 +435,11 @@ export class TaskService {
         ...config,
       });
     } catch (_error) {
+      console.log(
+        "[DEBUG] Caught error in src/domain/tasks/taskService.ts:433:",
+        typeof error !== "undefined" ? "error defined" : "error undefined",
+        typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+      );
       // Return null if GitHub modules are not available
       return null;
     }
@@ -481,10 +491,14 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
+    console.log(
+      "[DEBUG] Caught error in src/domain/tasks/taskService.ts:485:",
+      typeof error !== "undefined" ? "error defined" : "error undefined"
+    );
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,
-      error: _error instanceof Error ? _error.message : String(_error),
+      error: error instanceof Error ? error.message : String(error),
     });
 
     return createTaskService({

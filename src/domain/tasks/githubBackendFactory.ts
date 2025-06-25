@@ -36,6 +36,7 @@ export async function tryCreateGitHubBackend(
       statusLabels: config.statusLabels,
     });
   } catch (_error) {
+    console.log('[DEBUG] Caught error in src/domain/tasks/githubBackendFactory.ts:38:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     // Return null if GitHub modules are not available
     return null;
   }

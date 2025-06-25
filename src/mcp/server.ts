@@ -100,6 +100,7 @@ export class MinskyMCPServer {
         repositoryPath: this.projectContext.repositoryPath,
       });
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/mcp/server.ts:102:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.warn(
         "Failed to create project context from current directory, tools requiring repository context may not work",
         {
@@ -223,11 +224,13 @@ export class MinskyMCPServer {
           methods,
         });
       } catch (e) {
+        console.log('[DEBUG] Caught error in src/mcp/server.ts:226:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.debug("Could not log MCP server methods", {
           error: e instanceof Error ? e.message : String(e),
         });
       }
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/mcp/server.ts:232:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       // Log error with full details (for structured logging/debugging)
       log.error("Failed to start Minsky MCP Server", {
         error: error instanceof Error ? error.message : String(error),

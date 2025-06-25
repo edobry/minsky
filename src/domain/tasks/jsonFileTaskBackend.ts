@@ -83,6 +83,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:85:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -103,6 +104,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: fullPath,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:106:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -122,6 +124,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         return data.tasks;
       }
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:126:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       // If JSON parsing fails, fall back to markdown parsing
       return this.parseMarkdownTasks(content);
     }
@@ -210,6 +213,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: this.storage.getStorageLocation(),
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:215:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -236,6 +240,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         filePath: fullPath,
       };
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:242:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -262,6 +267,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await access(path);
       return true;
     } catch (_error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:269:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       return false;
     }
   }
@@ -277,6 +283,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.getEntities();
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:285:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to get all tasks from database", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -294,6 +301,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.getEntity(id);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:303:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to get task by ID from database", {
         id,
         error: error instanceof Error ? error.message : String(error),
@@ -312,6 +320,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.createEntity(task);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:322:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to create task in database", {
         task,
         error: error instanceof Error ? error.message : String(error),
@@ -331,6 +340,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.updateEntity(id, updates);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:342:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to update task in database", {
         id,
         updates,
@@ -350,6 +360,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       await this.storage.initialize();
       return await this.storage.deleteEntity(id);
     } catch (error) {
+      console.log('[DEBUG] Caught error in src/domain/tasks/jsonFileTaskBackend.ts:362:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Failed to delete task from database", {
         id,
         error: error instanceof Error ? error.message : String(error),
@@ -374,7 +385,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @returns Array of task data
    * @private
    */
-  private parseMarkdownTasks(__content: string): TaskData[] {
+  private parseMarkdownTasks(_content: string): TaskData[] {
     const _tasks: TaskData[] = [];
     const lines = content.split("\n");
 

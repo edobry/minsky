@@ -82,7 +82,7 @@ export interface DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  updateEntity(_id: string, _updates: Partial<T>): Promise<T | null>;
+  updateEntity(id: string, _updates: Partial<T>): Promise<T | null>;
 
   /**
    * Delete an entity by ID

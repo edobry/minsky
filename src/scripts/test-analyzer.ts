@@ -184,7 +184,7 @@ function extractImports(content: string): string[] {
 /**
  * Extract mock dependencies from a file
  */
-function extractMockDependencies(_content: string): string[] {
+function extractMockDependencies(content: string): string[] {
   const mockRegex = /(?:jest\.mock|mock\.module|mockModule)\(['"](.*?)['"]/g;
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;

@@ -362,7 +362,7 @@ export function registerRulesCommands(): void {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (_params: unknown) => {
+    execute: async (params: unknown) => {
       log.debug("Executing rules.update _command", { params, _context });
 
       try {
