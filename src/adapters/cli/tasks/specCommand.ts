@@ -3,8 +3,8 @@
  */
 import { Command } from "commander";
 import { log } from "../../../utils/logger.js";
-import type { TaskSpecContentParams } from "../../../schemas/tasks.js";
 import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks.js";
+import type { TaskSpecContentParams } from "../../../domain/tasks/taskCommands.js";
 import { ValidationError } from "../../../errors/index.js";
 import {
   addRepoOptions,
@@ -49,7 +49,7 @@ export function createSpecCommand(): Command {
         const normalizedTaskId = normalizeTaskId(_taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 
@@ -67,9 +67,9 @@ export function createSpecCommand(): Command {
         const result = await getTaskSpecContentFromParams(params);
 
         // Format and display the result
-        outputResult(__result, {
+        outputResult(result, {
           json: options.json,
-          formatter: (_data: unknown) => {
+          formatter: (data: any) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
 
@@ -89,16 +89,16 @@ export function createSpecCommand(): Command {
                   ? startIndex + match[0].length + nextSectionMatch.index
                   : data.content.length;
 
-                const sectionContent = data.content.slice(_startIndex, endIndex).trim();
+                const sectionContent = data.content.slice(startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);
-                log.cli("\nFull specification _content:");
+                log.cli("\nFull specification content:");
                 log.cli(data.content);
               }
             } else {
               // Display the full content
-              log.cli("\nSpecification _content:");
+              log.cli("\nSpecification content:");
               log.cli(data.content);
             }
           },
