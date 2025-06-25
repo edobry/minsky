@@ -172,14 +172,14 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus)
   if (!normalizedId) return tasks;
 
   // Validate status using centralized utility
-  if (!isValidTaskStatusUtil(_status)) {
+  if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
   return tasks.map((task) =>
     task.id === normalizedId ||
     parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
-      ? { ...task, _status }
+      ? { ...task, status }
       : task
   );
 }
@@ -268,7 +268,7 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
 
     // Filter by title (regex match)
     if (filter.title && filter.title instanceof RegExp) {
-      return filter.title.test(task._title);
+      return filter.title.test(task.title);
     }
 
     // Filter by spec path existence
@@ -306,7 +306,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
   const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
-  let _title = "";
+  let title = "";
   let id: string | undefined;
 
   if (titleWithIdMatch && titleWithIdMatch[2]) {
@@ -338,7 +338,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   }
 
   return {
-    _title,
+    title,
     description: description.trim(),
     id,
   };

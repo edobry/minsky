@@ -130,13 +130,13 @@ export function normalizeRepositoryUri(
     format = UriFormat.FILE;
     isLocal = true;
     // Extract local path
-    const _path = normalizedUri.replace(/^file:\/\//, "");
+    const localPath = normalizedUri.replace(/^file:\/\//, "");
     // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(path)}`;
+    normalizedName = `local/${basename(localPath)}`;
 
     // Validate that the path exists if requested
-    if (validateLocalExists && !existsSync(path)) {
-      throw new ValidationError(`Local repository does not exist: ${path}`);
+    if (validateLocalExists && !existsSync(localPath)) {
+      throw new ValidationError(`Local repository does not exist: ${localPath}`);
     }
   }
   // 4. Handle plain filesystem paths
@@ -191,11 +191,11 @@ export function normalizeRepositoryUri(
  * @throws ValidationError if the URI is invalid
  */
 export function validateRepositoryUri(
-  _uri: string,
+  uri: string,
   options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
-  normalizeRepositoryUri(_uri, _options);
+  normalizeRepositoryUri(uri, options);
   return true;
 }
 

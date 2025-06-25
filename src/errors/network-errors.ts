@@ -15,13 +15,13 @@ import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
  */
 export class NetworkError extends MinskyError {
   constructor(
-    _message: string,
+    message: string,
     public readonly code?: string,
     public readonly port?: number,
     public readonly host?: string,
     cause?: unknown
   ) {
-    super(_message, _cause);
+    super(message, cause);
   }
 }
 
@@ -29,8 +29,8 @@ export class NetworkError extends MinskyError {
  * Error class specifically for port-in-use (EADDRINUSE) errors
  */
 export class PortInUseError extends NetworkError {
-  constructor(_port: number, host: string = "localhost", cause?: unknown) {
-    super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, _cause);
+  constructor(port: number, host: string = "localhost", cause?: unknown) {
+    super(`Port ${port} is already in use.`, "EADDRINUSE", port, host, cause);
   }
 
   /**
@@ -52,8 +52,8 @@ export class PortInUseError extends NetworkError {
  * Error class for permission-related network errors (EACCES)
  */
 export class NetworkPermissionError extends NetworkError {
-  constructor(_port: number, host: string = "localhost", cause?: unknown) {
-    super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, _cause);
+  constructor(port: number, host: string = "localhost", cause?: unknown) {
+    super(`Permission denied when trying to use port ${port}.`, "EACCES", port, host, cause);
   }
 
   /**
@@ -76,7 +76,7 @@ export class NetworkPermissionError extends NetworkError {
  * @returns A specialized network error
  */
 export function createNetworkError(
-  _error: unknown,
+  error: unknown,
   port: number,
   host: string = "localhost"
 ): NetworkError {
@@ -88,17 +88,11 @@ export function createNetworkError(
 
   switch (errorCode) {
   case "EADDRINUSE":
-    return new PortInUseError(_port, host, originalError);
+    return new PortInUseError(port, host, originalError);
   case "EACCES":
-    return new NetworkPermissionError(_port, host, originalError);
+    return new NetworkPermissionError(port, host, originalError);
   default:
-    return new NetworkError(
-      `Network error: ${originalError.message}`,
-      errorCode,
-      port,
-      host,
-      originalError
-    );
+    return new NetworkError(originalError.message, errorCode, port, host, originalError);
   }
 }
 

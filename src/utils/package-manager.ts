@@ -16,20 +16,20 @@ export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
  * @param repoPath Path to the repository
  * @returns Detected package manager or undefined if not detected
  */
-export function detectPackageManager(__repoPath: string): PackageManager {
-  if (existsSync(join(_repoPath, "bun.lock"))) {
+export function detectPackageManager(repoPath: string): PackageManager {
+  if (existsSync(join(repoPath, "bun.lock"))) {
     return "bun";
   }
-  if (existsSync(join(_repoPath, "yarn.lock"))) {
+  if (existsSync(join(repoPath, "yarn.lock"))) {
     return "yarn";
   }
-  if (existsSync(join(_repoPath, "pnpm-lock.yaml"))) {
+  if (existsSync(join(repoPath, "pnpm-lock.yaml"))) {
     return "pnpm";
   }
-  if (existsSync(join(_repoPath, "package-lock.json"))) {
+  if (existsSync(join(repoPath, "package-lock.json"))) {
     return "npm";
   }
-  if (existsSync(join(_repoPath, "package.json"))) {
+  if (existsSync(join(repoPath, "package.json"))) {
     return "npm"; // Default to npm if only package.json exists
   }
   return undefined; // Not a Node.js/Bun project
@@ -62,7 +62,7 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
  * @returns Result object with success status and output/error messages
  */
 export async function installDependencies(
-  __repoPath: string,
+  repoPath: string,
   options: {
     packageManager?: PackageManager;
     quiet?: boolean;
@@ -94,7 +94,7 @@ export async function installDependencies(
     }
 
     // Execute the install command
-    const _result = execSync(_installCmd, {
+    const result = execSync(installCmd, {
       cwd: repoPath,
       stdio: options.quiet ? "ignore" : "inherit",
     });
