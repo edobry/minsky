@@ -145,7 +145,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
   describe("PR Workflow with Dependencies", () => {
     test("should generate PR markdown with proper dependency injection", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature\ndef456 fix: bug fix", stderr: "" };
           }
@@ -196,7 +196,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should resolve taskId to session in PR workflow", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature", stderr: "" };
           }
@@ -288,7 +288,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should prioritize session over taskId when both are provided", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature", stderr: "" };
           }
@@ -345,7 +345,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle git command failures gracefully in PR workflow", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           // Allow some commands to succeed for basic workflow
           if (command.includes("rev-parse --show-toplevel")) {
             return { stdout: "/test/repo", stderr: "" };
@@ -383,7 +383,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle commit operations with proper hash extraction", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("commit")) {
             return {
               stdout: "[main abc123] Test commit message\n 1 file changed, 1 insertion(+)",
@@ -439,7 +439,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle commit with amend flag", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           expect(_command).toContain("--amend");
           return { stdout: "[main def456] Amended commit\n 1 file changed", stderr: "" };
         }) as any,
@@ -456,7 +456,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle stash operations with state management", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("status --porcelain")) {
             return { stdout: "M  modified-file.ts\n?? untracked-file.ts", stderr: "" }; // Has changes
           }
@@ -476,7 +476,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle no changes to stash scenario", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("status --porcelain")) {
             return { stdout: "", stderr: "" }; // No changes
           }
@@ -492,7 +492,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle popStash with existing stash", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("stash list")) {
             return { stdout: "stash@{0}: WIP on main: abc123 Previous work", stderr: "" };
           }
@@ -511,7 +511,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle popStash with no stash available", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("stash list")) {
             return { stdout: "", stderr: "" }; // No stash
           }
@@ -527,7 +527,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle merge conflicts with proper detection", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("rev-parse HEAD")) {
             return { stdout: "original-hash", stderr: "" };
           }
@@ -558,7 +558,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle successful merge without conflicts", async () => {
       let callCount = 0;
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("rev-parse HEAD")) {
             callCount++;
             // First call returns original hash, second call returns new hash
@@ -585,7 +585,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle staging operations with proper command execution", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           expect(command.includes("git -C /test/repo add")).toBe(true);
           return { stdout: "", stderr: "" };
         }) as any,
@@ -604,7 +604,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should verify staging commands are correct", async () => {
       let capturedCommand = "";
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           capturedCommand = command;
           return { stdout: "", stderr: "" };
         }) as any,
@@ -622,7 +622,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle pullLatest with updates detected", async () => {
       let callCount = 0;
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("rev-parse --abbrev-ref HEAD")) {
             return { stdout: "main", stderr: "" };
           }
@@ -647,7 +647,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle pullLatest with no updates", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("rev-parse --abbrev-ref HEAD")) {
             return { stdout: "main", stderr: "" };
           }
@@ -669,7 +669,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle pullLatest with custom remote", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("rev-parse --abbrev-ref HEAD")) {
             return { stdout: "feature", stderr: "" };
           }
@@ -695,7 +695,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle clone operations with filesystem validation", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("git clone")) {
             return { stdout: "Cloning into '/test/workdir'...\nDone.", stderr: "" };
           }
@@ -743,7 +743,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle clone with existing non-empty directory", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("git clone")) {
             return { stdout: "Cloning...", stderr: "" };
           }
@@ -769,7 +769,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle clone failure during git command execution", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("git clone")) {
             throw new Error(
               "fatal: repository 'https://github.com/user/nonexistent.git' not found"
@@ -797,7 +797,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
     test("should handle clone success verification failure", async () => {
       const mockDeps = {
-        execAsync: createMock(async (_command: unknown) => {
+        execAsync: createMock(async (command: unknown) => {
           if (command.includes("git clone")) {
             return { stdout: "Cloning...", stderr: "" };
           }
