@@ -12,7 +12,7 @@ import type { TaskStatus } from "../domain/tasks/taskConstants.js";
  * @param status The status filter being applied
  * @returns A message string
  */
-export function getStatusFilterMessage(__status: TaskStatus): string {
+export function getStatusFilterMessage(status: TaskStatus): string {
   return `Showing tasks with status: ${status}`;
 }
 
@@ -34,7 +34,7 @@ export function generateFilterMessages(options: { status?: TaskStatus; all?: boo
 
   // Add status filter message if status is provided
   if (options.status) {
-    messages.push(getStatusFilterMessage(options._status));
+    messages.push(getStatusFilterMessage(options.status));
   }
   // Add active tasks message if not showing all tasks and no specific status filter
   else if (!options.all) {

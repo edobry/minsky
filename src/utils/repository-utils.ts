@@ -1,4 +1,4 @@
-import {MINUTE_IN_SECONDS } from "../utils/constants";
+import { MINUTE_IN_SECONDS } from "../utils/constants";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -116,7 +116,8 @@ export class RepositoryMetadataCache {
  * @param params Additional parameters to include in the key
  * @returns The cache key
  */
-export function generateRepoKey(__repoPath: string,
+export function generateRepoKey(
+  repoPath: string,
   operation: string,
   params?: Record<string, unknown>
 ): string {
@@ -139,7 +140,8 @@ export class RepositoryError extends Error {
    * @param message Error message
    * @param cause Underlying cause of the error
    */
-  constructor(_message: string,
+  constructor(
+    _message: string,
     public readonly cause?: Error
   ) {
     super(message);

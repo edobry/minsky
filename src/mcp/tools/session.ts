@@ -7,7 +7,7 @@ import { log } from "../../utils/logger";
  * Register session-related tools with the MCP server
  * @param commandMapper The command mapper instance
  */
-export function registerSessionTools(__commandMapper: CommandMapper): void {
+export function registerSessionTools(commandMapper: CommandMapper): void {
   // Session list tool
   commandMapper.addSessionCommand("list", "List all sessions", z.object({}), async () => {
     try {

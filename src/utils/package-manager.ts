@@ -40,7 +40,7 @@ export function detectPackageManager(__repoPath: string): PackageManager {
  * @param packageManager Package manager type
  * @returns Install command string or undefined if not supported
  */
-export function getInstallCommand(__packageManager: PackageManager): string | undefined {
+export function getInstallCommand(packageManager: PackageManager): string | undefined {
   switch (packageManager) {
   case "bun":
     return "bun install";
@@ -61,7 +61,8 @@ export function getInstallCommand(__packageManager: PackageManager): string | un
  * @param options Configuration options
  * @returns Result object with success status and output/error messages
  */
-export async function installDependencies(__repoPath: string,
+export async function installDependencies(
+  __repoPath: string,
   options: {
     packageManager?: PackageManager;
     quiet?: boolean;

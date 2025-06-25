@@ -16,13 +16,13 @@ const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 // Mock filesystem operations for testing
 export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
-  virtualFS.set(_path, { isDirectory: true });
+  virtualFS.set(path, { isDirectory: true });
 
   // If recursive, create parent directories
   if (_options?.recursive) {
     let parent = dirname(path);
     while (parent && parent !== "." && parent !== "/") {
-      virtualFS.set(_parent, { isDirectory: true });
+      virtualFS.set(parent, { isDirectory: true });
       parent = dirname(parent);
     }
   }
@@ -34,7 +34,8 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(path: string,
+export function mockRmSync(
+  path: string,
   _options?: { recursive?: boolean; force?: boolean }
 ): void {
   log.debug(`[MOCK] Removing ${path}`);
@@ -52,12 +53,12 @@ export function mockRmSync(path: string,
 
 export function mockWriteFileSync(path: string, data: string, _options?: WriteFileOptions): void {
   log.debug(`[MOCK] Writing to file ${path}`);
-  virtualFS.set(_path, { isDirectory: false, _content: data });
+  virtualFS.set(path, { isDirectory: false, content: data });
 
   // Ensure the directory exists
   const dir = dirname(path);
   if (!virtualFS.has(dir)) {
-    mockMkdirSync(_dir, { recursive: true });
+    mockMkdirSync(dir, { recursive: true });
   }
 }
 
@@ -95,8 +96,8 @@ export interface MinskyTestEnv {
 /**
  * Creates a unique test directory name
  */
-export function createUniqueTestDir(__prefix: string): string {
-  return `/tmp/${prefix}-${process.pid}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
+export function createUniqueTestDir(prefix: string): string {
+  return `/tmp/${prefix}-${process.pid || 0}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**
@@ -105,15 +106,15 @@ export function createUniqueTestDir(__prefix: string): string {
  * @param _baseDir The base test directory (ignored)
  * @returns Object containing paths to the various test directories
  */
-export function setupMinskyTestEnv(__baseDir: string): MinskyTestEnv {
+export function setupMinskyTestEnv(baseDir: string): MinskyTestEnv {
   // This is stubbed for test purposes - we'll return fixed paths
   // that don't rely on filesystem operations
   const basePath = "/virtual/test-dir";
-  const minskyDir = join(_basePath, "minsky");
-  const gitDir = join(_minskyDir, "git");
-  const sessionDbPath = join(_minskyDir, "session-db.json");
-  const processDir = join(_basePath, "process");
-  const tasksDir = join(_processDir, "tasks");
+  const minskyDir = join(basePath, "minsky");
+  const gitDir = join(minskyDir, "git");
+  const sessionDbPath = join(minskyDir, "session-db.json");
+  const processDir = join(basePath, "process");
+  const tasksDir = join(processDir, "tasks");
 
   log.debug(`[MOCK] Setting up test environment in: ${basePath}`);
 
@@ -137,7 +138,8 @@ export function cleanupTestDir(path: string): void {
 /**
  * Creates environment variables for testing
  */
-export function createTestEnv(_stateHome: string,
+export function createTestEnv(
+  stateHome: string,
   additionalEnv: Record<string, string> = {}
 ): Record<string, string> {
   return {
@@ -173,7 +175,7 @@ export const mockFS = {
  * @param result Result from spawnSync
  * @throws Error If command execution failed
  */
-export function ensureValidCommandResult(__result: SpawnSyncReturns<string>): void {
+export function ensureValidCommandResult(result: SpawnSyncReturns<string>): void {
   if (!result || result.status === null) {
     log.error("Command execution failed or was killed");
     throw new Error("Command execution failed");
