@@ -19,7 +19,7 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
  * This command retrieves and displays task specification content
  */
 export function createSpecCommand(): Command {
-  const _command = new Command("spec")
+  const command = new Command("spec")
     .description("Get task specification _content")
     .argument("<task-id>", "ID of the task to retrieve specification _content for")
     .option(
@@ -28,9 +28,9 @@ export function createSpecCommand(): Command {
     );
 
   // Add shared options
-  addRepoOptions(_command);
-  addOutputOptions(_command);
-  addBackendOptions(_command);
+  addRepoOptions(command);
+  addOutputOptions(command);
+  addBackendOptions(command);
 
   command.action(
     async (
@@ -54,7 +54,7 @@ export function createSpecCommand(): Command {
         }
 
         // Convert CLI options to domain parameters using normalization helper
-        const normalizedParams = normalizeTaskParams(_options);
+        const normalizedParams = normalizeTaskParams(options);
 
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
@@ -82,7 +82,9 @@ export function createSpecCommand(): Command {
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = data.content.slice(startIndex + match[0].length).match(/^## /m);
+                const nextSectionMatch = data.content
+                  .slice(startIndex + match[0].length)
+                  .match(/^## /m);
                 const endIndex = nextSectionMatch
                   ? startIndex + match[0].length + nextSectionMatch.index
                   : data.content.length;
