@@ -26,7 +26,7 @@ import type { RuleFormat, UpdateRuleOptions, SearchRuleOptions } from "../../dom
 /**
  * Helper to read content from a file if the path exists
  */
-async function readContentFromFileIfExists(__contentPath: string): Promise<string> {
+async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
     // Check if the path exists first
     if (existsSync(contentPath)) {
@@ -34,10 +34,10 @@ async function readContentFromFileIfExists(__contentPath: string): Promise<strin
       const stats = await fs.stat(contentPath);
       if (stats.isFile()) {
         // If it's a file, read its contents
-        return await fs.readFile(_contentPath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        return await fs.readFile(contentPath, "utf-8");
       } else {
         // If it exists but is not a file (e.g., directory), throw an error
-        throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
+        throw new Error(`Failed to read content from file ${contentPath}: Not a file`);
       }
     }
     // If path doesn't exist, return the original string as content
@@ -49,7 +49,7 @@ async function readContentFromFileIfExists(__contentPath: string): Promise<strin
     }
 
     // For other errors, throw a clear error message
-    throw new Error(`Failed to read _content from file ${contentPath}: ${error}`);
+    throw new Error(`Failed to read content from file ${contentPath}: ${error}`);
   }
 }
 
@@ -76,14 +76,14 @@ function parseGlobs(globsStr?: string): string[] | undefined {
 }
 
 // Type guard for string
-function isString(__value: unknown): value is string {
+function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
 /**
  * Registers rules tools with the MCP command mapper
  */
-export function registerRulesTools(__commandMapper: CommandMapper): void {
+export function registerRulesTools(commandMapper: CommandMapper): void {
   // List rules command
   commandMapper.addCommand({
     name: "rules.list",

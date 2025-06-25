@@ -84,7 +84,7 @@ export function createMock<T extends (..._args: unknown[]) => any>(implementatio
 
 /**
  * Mock a module with a factory function.
- * 
+ *
  * @example
  * mockModule("./utils", () => ({ helper: vi.fn() }));
  * expect(someFunction()).toBe("mocked result");
@@ -279,9 +279,10 @@ export function createMockObject<T extends string>(
  * expect(execSync("ls -la")).toBe("file1.txt\nfile2.txt"); // Matches on "ls" substring
  * expect(execSync("git status --short")).toBe("On _branch main\nnothing to commit"); // Matches on "git status" substring
  */
-export function createMockExecSync(_commandResponses: Record<string, string>
+export function createMockExecSync(
+  commandResponses: Record<string, string>
 ): ReturnType<typeof createMock> {
-  return createMock((_command: unknown) => {
+  return createMock((command: unknown) => {
     // Find the first matching command pattern
     for (const [pattern, response] of Object.entries(commandResponses)) {
       if (command.includes(pattern)) {
