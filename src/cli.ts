@@ -53,8 +53,8 @@ async function main(): Promise<void> {
 // Only run the CLI if this file is executed directly (not imported as a module)
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((err) => {
-    console.log("[DEBUG] Error caught in main:", err);
-    console.log("[DEBUG] Error stack:", err.stack);
+    log.systemDebug(`Error caught in main: ${err}`);
+    log.systemDebug(`Error stack: ${err.stack}`);
     log.error(`Unhandled error in CLI: ${err.message}`);
     if (err.stack) log.debug(err.stack);
     process.exit(1);
