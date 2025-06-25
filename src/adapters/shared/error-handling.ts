@@ -106,9 +106,9 @@ export class SharedErrorHandler {
 
       // Add cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
-        const _cause = normalizedError.cause;
+        const cause = normalizedError.cause;
         result.cause =
-          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(_cause);
+          cause instanceof Error ? { message: cause.message, stack: cause.stack } : String(cause);
       }
     }
 
@@ -224,11 +224,11 @@ export class CliErrorHandler implements ErrorHandler {
       // Log cause chain if available
       if (normalizedError instanceof MinskyError && normalizedError.cause) {
         log.cliError("\nCaused by:");
-        const _cause = normalizedError.cause;
+        const cause = normalizedError.cause;
         if (cause instanceof Error) {
           log.cliError(cause.stack || cause.message);
         } else {
-          log.cliError(String(_cause));
+          log.cliError(String(cause));
         }
       }
     }
@@ -284,12 +284,12 @@ export const mcpErrorHandler = new McpErrorHandler();
  */
 export function getErrorHandler(_interfaceName: string): ErrorHandler {
   switch (interfaceName.toLowerCase()) {
-    case "cli":
-      return cliErrorHandler;
-    case "mcp":
-      return mcpErrorHandler;
-    default:
-      // Default to CLI error handler
-      return cliErrorHandler;
+  case "cli":
+    return cliErrorHandler;
+  case "mcp":
+    return mcpErrorHandler;
+  default:
+    // Default to CLI error handler
+    return cliErrorHandler;
   }
 }
