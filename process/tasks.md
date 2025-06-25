@@ -329,3 +329,5 @@
 - [ ] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
 - [x] Test Task Creation [#168](process/tasks/168-test-task-creation.md)
+
+- [+] Test Task Creation Fix [#169](process/tasks/169-test-task-creation-fix.md)

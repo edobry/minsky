@@ -153,7 +153,7 @@ export const TASK_PARSING_UTILS = {
    * @param status The task status
    * @returns Checkbox character
    */
-  getCheckboxFromStatus(__status: TaskStatus): string {
+  getCheckboxFromStatus(status: TaskStatus): string {
     return TASK_STATUS_CHECKBOX[status];
   },
 
