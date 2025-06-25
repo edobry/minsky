@@ -359,7 +359,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
  * @param implementation Optional initial implementation
  * @returns A strongly typed mock function
  */
-export function createTypedMock<T extends (..._args: unknown[]) => any>(
+export function createTypedMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> & T {
   return createCompatMock(implementation) as CompatMockFunction<ReturnType<T>, Parameters<T>> & T;
@@ -381,7 +381,7 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const _mockFn = createCompatMock((..._args: unknown[]) => {
+  const _mockFn = createCompatMock((...args: unknown[]) => {
     if (typeof original === "function") {
       return (original as Function).apply(_object, _args);
     }
