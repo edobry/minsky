@@ -392,7 +392,7 @@ export const asymmetricMatchers = {
  *
  * @param expectObj The expect object to enhance
  */
-export function registerAsymmetricMatchers(__expectObj: unknown): void {
+export function registerAsymmetricMatchers(expectObj: unknown): void {
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
     if (!(key in expectObj)) {
@@ -404,7 +404,7 @@ export function registerAsymmetricMatchers(__expectObj: unknown): void {
 /**
  * Check if an object is an asymmetric matcher
  */
-export function isAsymmetricMatcher(__obj: unknown): obj is AsymmetricMatcher {
+export function isAsymmetricMatcher(obj: unknown): obj is AsymmetricMatcher {
   return obj !== null && typeof obj === "object" && typeof obj.asymmetricMatch === "function";
 }
 

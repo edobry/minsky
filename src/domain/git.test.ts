@@ -59,7 +59,7 @@ describe("GitService", () => {
     });
 
     // Mock execInRepository to avoid actual git commands
-    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (_workdir, _command) => {
+    spyOn(GitService.prototype, "execInRepository").mockImplementation(async (_workdir, command) => {
       if (command === "rev-parse --abbrev-ref HEAD") {
         return "main";
       }

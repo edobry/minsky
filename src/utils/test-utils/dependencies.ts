@@ -306,7 +306,7 @@ export function createMockRepositoryBackend(
 export function withMockedDeps<T extends Record<string, unknown>, R>(
   originalDeps: T,
   mockOverrides: Partial<T>,
-  testFn: (_deps: unknown) => R
+  testFn: (deps: unknown) => R
 ): R {
   // Create a shallow copy of the original deps
   const tempDeps = { ...originalDeps };
@@ -342,7 +342,7 @@ export function withMockedDeps<T extends Record<string, unknown>, R>(
  * @param partialDeps Partial nested dependencies to apply
  * @returns A complete set of deeply nested dependencies with mocks
  */
-export function createDeepTestDeps(__partialDeps: Partial<DomainDependencies>): DomainDependencies {
+export function createDeepTestDeps(partialDeps: Partial<DomainDependencies>): DomainDependencies {
   // Start with a base set of dependencies
   const baseDeps = createTestDeps();
 

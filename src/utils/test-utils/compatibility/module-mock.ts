@@ -163,7 +163,7 @@ export function restoreAllModules(): void {
  * @param modulePath The path to the mocked module
  * @returns The mock implementation of the module or undefined if not mocked
  */
-export function getMockModule(__modulePath: string): unknown {
+export function getMockModule(modulePath: string): unknown {
   return mockedModules.get(modulePath);
 }
 

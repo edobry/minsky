@@ -142,7 +142,7 @@ interface AnalysisReport {
 /**
  * Find all test files in a directory recursively
  */
-async function findTestFiles(__dir: string): Promise<string[]> {
+async function findTestFiles(dir: string): Promise<string[]> {
   const files: string[] = [];
 
   async function scan(__currentDir: string) {
@@ -415,7 +415,7 @@ async function generateReport(__testFiles: TestFileAnalysis[]): Promise<Analysis
 /**
  * Generate a markdown summary from the analysis report
  */
-async function generateMarkdownSummary(__report: AnalysisReport, outputPath: string): Promise<void> {
+async function generateMarkdownSummary(report: AnalysisReport, outputPath: string): Promise<void> {
   const md = [
     "# Test Analysis Report",
     "",
