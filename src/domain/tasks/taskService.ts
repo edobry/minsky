@@ -381,7 +381,7 @@ export class TaskService {
    * @returns Promise resolving to object with spec content and path
    */
   async getTaskSpecContent(
-    _id: string
+    id: string
   ): Promise<{ content: string; specPath: string; task: TaskData }> {
     // First verify the task exists
     const task = await this.getTask(id);

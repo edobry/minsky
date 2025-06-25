@@ -359,7 +359,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param id Entity identifier
    * @returns Promise resolving to true if exists, false otherwise
    */
-  async entityExists(_id: string): Promise<boolean> {
+  async entityExists(id: string): Promise<boolean> {
     const entity = await this.getEntity(id);
     return entity !== null;
   }
@@ -437,5 +437,5 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 export function createJsonFileStorage<T, S>(
   options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
-  return new JsonFileStorage<T, S>(_options);
+  return new JsonFileStorage<T, S>(options);
 }

@@ -63,7 +63,7 @@ export function getGitHubBackendConfig(
   __workspacePath: string,
   _options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
-  const { logErrors = false } = options || {};
+  const { logErrors = false } = _options || {};
 
   // Check for GitHub token in environment
   const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
