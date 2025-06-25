@@ -64,7 +64,34 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       const session = await getSessionFromParams(params);
 
       if (!session) {
-        throw new Error("Session not found.");
+        throw new Error(`
+🔍 Session Not Found
+
+Unable to find a session with the provided criteria.
+
+What you tried:
+${args.name ? `• Session name: "${args.name}"` : ""}
+${args.task ? `• Task ID: "${args.task}"` : ""}
+
+💡 How to fix this:
+
+📋 List all available sessions:
+   minsky sessions list
+
+🔍 Check specific session:
+   minsky sessions get --name "session-name"
+
+🆕 Create a new session:
+   minsky session start new-session-name
+
+🎯 Find session by task:
+   minsky sessions list | grep "#123"  (replace 123 with your task ID)
+
+🔗 Link task to session:
+   minsky session start --task "123"
+
+Need help? Run: minsky sessions --help
+`);
       }
 
       // Convert session to Record<string, unknown> safely
@@ -117,7 +144,31 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
-        throw new Error("Either session name or task ID must be provided");
+        throw new Error(`
+🚫 Missing Required Information
+
+To delete a session, you need to specify which session to target.
+
+Please provide one of:
+
+📝 Session name:
+   minsky session delete --name "my-session"
+
+🎯 Task ID:
+   minsky session delete --task "123"
+
+💡 Need to find your session?
+
+📋 List all sessions:
+   minsky sessions list
+
+🔍 Show session details:
+   minsky sessions get --name "session-name"
+
+Example commands:
+   minsky session delete --name "feature-branch"
+   minsky session delete --task "42"
+`);
       }
 
       // Special handling for task-based deletion
@@ -206,7 +257,34 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     async (args): Promise<Record<string, unknown>> => {
       // Must provide either name or task
       if (!args.name && !args.task) {
-        throw new Error("Either session name or task ID must be provided");
+        throw new Error(`
+🚫 Missing Required Information
+
+To update a session, you need to specify which session to update.
+
+Please provide one of:
+
+📝 Session name:
+   minsky session update --name "my-session"
+
+🎯 Task ID:
+   minsky session update --task "123"
+
+💡 Additional options:
+
+🔧 Update with specific branch:
+   minsky session update --name "my-session" --branch "main"
+
+🚀 Skip stashing local changes:
+   minsky session update --name "my-session" --no-stash
+
+📋 List available sessions:
+   minsky sessions list
+
+Example commands:
+   minsky session update --name "feature-branch"
+   minsky session update --task "42" --branch "develop"
+`);
       }
 
       const params = {

@@ -115,7 +115,34 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Provide more informative error messages for common Git issues
       if (normalizedError.message.includes("Authentication failed")) {
-        throw new Error("Git authentication failed. Check your credentials or SSH key.");
+        throw new Error(`
+🔐 Git Authentication Failed
+
+Unable to authenticate with the Git repository. Here's how to fix this:
+
+🔑 For SSH (recommended):
+   • Check if your SSH key is added to your Git provider:
+     ssh -T git@github.com  (for GitHub)
+     ssh -T git@gitlab.com  (for GitLab)
+
+   • Generate a new SSH key if needed:
+     ssh-keygen -t ed25519 -C "your-email@example.com"
+     ssh-add ~/.ssh/id_ed25519
+
+   • Add the public key to your Git provider account
+
+🔒 For HTTPS:
+   • Use a personal access token instead of password
+   • Update your credentials in Git:
+     git config --global credential.helper store
+
+💡 Quick troubleshooting:
+   • Verify the repository URL is correct
+   • Check if you have access to this repository
+   • Try cloning manually first: git clone ${this.repoUrl}
+
+Repository: ${this.repoUrl}
+`);
       } else if (
         normalizedError.message.includes("not found") ||
         normalizedError.message.includes("does not exist")
