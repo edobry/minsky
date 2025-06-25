@@ -172,13 +172,13 @@ export class JsonFileTaskBackend implements TaskBackend {
 
     return {
       id,
-      _title,
+      title,
       description: description.trim(),
       metadata: {},
     };
   }
 
-  formatTaskSpec(__spec: TaskSpecData): string {
+  formatTaskSpec(spec: TaskSpecData): string {
     // Create markdown content
     return `# ${spec.title}\n\n## Context\n\n${spec.description}\n`;
   }
@@ -188,7 +188,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
     try {
       // Parse the content to get tasks
-      const tasks = this.parseTasks(__content);
+      const tasks = this.parseTasks(content);
 
       // Create state object
       const state: TaskState = {
@@ -221,7 +221,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   async saveTaskSpecData(__specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
-      const fullPath = specPath.startsWith("/") ? specPath : join(this._workspacePath, _specPath);
+      const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);

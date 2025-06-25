@@ -43,7 +43,7 @@ import type {
 // These will eventually be moved to the tasks.js schema file
 export const taskSpecContentParamsSchema = z
   .object({
-    _taskId: z.string().min(1).describe("ID of the task to retrieve specification _content for"),
+    taskId: z.string().min(1).describe("ID of the task to retrieve specification content for"),
     section: z
       .string()
       .optional()

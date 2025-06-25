@@ -21,7 +21,7 @@ if (existsSync(envPath)) {
  * Extract GitHub repository info from git remote
  */
 function extractGitHubRepoFromRemote(
-  __workspacePath: string
+  workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
@@ -49,7 +49,7 @@ function extractGitHubRepoFromRemote(
     return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
-      _workspacePath,
+      workspacePath,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -60,10 +60,10 @@ function extractGitHubRepoFromRemote(
  * Get GitHub backend configuration from environment and git remote
  */
 export function getGitHubBackendConfig(
-  __workspacePath: string,
-  _options?: { logErrors?: boolean }
+  workspacePath: string,
+  options?: { logErrors?: boolean }
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
-  const { logErrors = false } = _options || {};
+  const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
   const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
@@ -76,7 +76,7 @@ export function getGitHubBackendConfig(
   }
 
   // Try to auto-detect repository from git remote
-  const repoInfo = extractGitHubRepoFromRemote(_workspacePath);
+  const repoInfo = extractGitHubRepoFromRemote(workspacePath);
 
   if (!repoInfo) {
     if (logErrors) {
@@ -87,7 +87,7 @@ export function getGitHubBackendConfig(
 
   return {
     name: "github-issues",
-    _workspacePath,
+    workspacePath,
     githubToken,
     owner: repoInfo.owner,
     repo: repoInfo.repo,
