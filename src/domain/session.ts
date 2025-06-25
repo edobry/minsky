@@ -839,17 +839,37 @@ export async function updateSessionFromParams(
 
   log.debug("updateSessionFromParams called", { params });
 
-  // Input validation
-  if (!name) {
-    throw new ValidationError("Session name is required");
-  }
-
   // Set up dependencies with defaults
   const deps = {
     gitService: depsInput?.gitService || createGitService(),
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
+
+  // Auto-detect session name if not provided
+  let sessionName: string;
+  if (!name) {
+    log.debug("Session name not provided, attempting auto-detection from current directory");
+    const currentDir = process.cwd();
+    try {
+      const detectedSession = await deps.getCurrentSession(currentDir);
+      if (detectedSession) {
+        sessionName = detectedSession;
+        log.debug("Auto-detected session name", { sessionName, currentDir });
+      } else {
+        throw new ValidationError(
+          "Session name is required. Either provide a session name or run this command from within a session workspace."
+        );
+      }
+    } catch (error) {
+      log.debug("Failed to auto-detect session", { error, currentDir });
+      throw new ValidationError(
+        "Session name is required. Either provide a session name or run this command from within a session workspace."
+      );
+    }
+  } else {
+    sessionName = name;
+  }
 
   log.debug("Dependencies set up", {
     hasGitService: !!deps.gitService,
@@ -858,10 +878,10 @@ export async function updateSessionFromParams(
 
   try {
     // Get session record
-    log.debug("Getting session record", { name });
-    const sessionRecord = await deps.sessionDB.getSession(name);
+    log.debug("Getting session record", { name: sessionName });
+    const sessionRecord = await deps.sessionDB.getSession(sessionName);
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+      throw new ResourceNotFoundError(`Session '${sessionName}' not found`, "session", sessionName);
     }
 
     log.debug("Session record found", { sessionRecord });
