@@ -41,7 +41,7 @@ import { log } from "../../utils/logger.js";
 // Mock import for demonstration purposes
 // In a real implementation, this would be imported from the MCP adapter bridge
 const mcpBridge = {
-  registerSharedCommands: (_categories: unknown) => {
+  registerSharedCommands: (categories: unknown) => {
     log.debug(`Registering MCP commands for categories: ${categories.join(", ")}`);
     // Implementation would:
     // 1. Get commands from shared registry for the specified categories

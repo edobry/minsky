@@ -7,7 +7,8 @@ const TEST_VALUE = 123;
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { TaskService } from "../taskService.js";
 import type { TaskBackend } from "../taskBackend.js";
-import type {TaskReadOperationResult,
+import type {
+  TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../../types/tasks/taskData.js";
 
@@ -25,7 +26,7 @@ function createMockBackend(): TaskBackend {
       } as TaskReadOperationResult)
     ),
 
-    getTaskSpecData: mock((_specPath: unknown) =>
+    getTaskSpecData: mock((specPath: unknown) =>
       Promise.resolve({
         success: true,
         content: "# Task #TEST_VALUE: Test Task\n\n## Context\n\nDescription.",
@@ -34,7 +35,7 @@ function createMockBackend(): TaskBackend {
     ),
 
     // Mock pure operations
-    parseTasks: mock((_content: unknown) => {
+    parseTasks: mock((content: unknown) => {
       // Simple parsing for testing
       if (content.includes("#001")) {
         return [
@@ -45,7 +46,7 @@ function createMockBackend(): TaskBackend {
       return [];
     }),
 
-    formatTasks: mock((_tasks: unknown) => {
+    formatTasks: mock((tasks: unknown) => {
       // Simple formatting for testing
       return tasks
         .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)

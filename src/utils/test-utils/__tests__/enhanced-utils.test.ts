@@ -56,7 +56,7 @@ describe("Enhanced Test Utilities", () => {
     });
 
     test("should allow changing implementation", () => {
-      const mockFn = mockFunction<(_n: unknown) => number>();
+      const mockFn = mockFunction<(n: unknown) => number>();
 
       // Set implementation
       mockFn.mockImplementation((n) => n * 2);
