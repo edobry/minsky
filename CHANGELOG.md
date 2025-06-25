@@ -68,6 +68,17 @@ _See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/h
 
 ### Changed
 
+- **Improved user experience for session PR command uncommitted changes error**
+
+  - Replaced generic error message with detailed, user-friendly guidance
+  - Now shows specific files that have uncommitted changes categorized by type:
+    - Modified files with count and file names
+    - New (untracked) files with count and file names
+    - Deleted files with count and file names
+  - Added clear action steps with commands for committing or stashing changes
+  - Included helpful context and next steps with emojis for better readability
+  - Provides specific command to retry PR creation after resolving changes
+
 - **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
   - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
   - Migrated from legacy .eslintrc.json to modern flat config format (eslint.config.js)
