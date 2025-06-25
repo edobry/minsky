@@ -76,10 +76,7 @@ export class TaskService {
           this.backends.push(githubBackend);
         }
       } catch (error) {
-        console.log(
-          typeof error !== "undefined" ? "error defined" : "error undefined",
-          typeof _error !== "undefined" ? "_error defined" : "_error undefined"
-        );
+        console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -278,8 +275,8 @@ export class TaskService {
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
     let _tasks: TaskData[] = [];
-    if (tasksResult.success && tasksResult._content) {
-      _tasks = this.currentBackend.parseTasks(tasksResult._content);
+    if (tasksResult.success && tasksResult.content) {
+      _tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
 
     // Add or replace the task
