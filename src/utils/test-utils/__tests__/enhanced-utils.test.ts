@@ -239,7 +239,7 @@ describe("Enhanced Test Utilities", () => {
         originalDeps,
         {
           taskService: {
-            getTask: async (_id: unknown) => {
+            getTask: async (id: unknown) => {
               // Return different tasks based on ID
               if (id === "#TEST_VALUE") {
                 return createTaskData({ id: "#TEST_VALUE", _title: "Important Task" });
@@ -248,7 +248,7 @@ describe("Enhanced Test Utilities", () => {
             },
           },
           sessionDB: {
-            getSession: async (_name: unknown) => {
+            getSession: async (name: unknown) => {
               if (name === "task#TEST_VALUE") {
                 return createSessionData({ taskId: "TEST_VALUE", _session: name });
               }

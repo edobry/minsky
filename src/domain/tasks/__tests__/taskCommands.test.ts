@@ -56,7 +56,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (_taskId: unknown) => {
+        getTaskStatus: async (taskId: unknown) => {
           // This should parse [~] as BLOCKED, but the bug causes it to return null
           // For now, let's see what the actual implementation returns
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
@@ -100,7 +100,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (_taskId: unknown) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           
@@ -139,7 +139,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (_taskId: unknown) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           
@@ -178,7 +178,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (_taskId: unknown) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           

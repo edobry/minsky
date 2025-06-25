@@ -104,7 +104,7 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = {
-        getSession: async (_sessionName: unknown) => ({
+        getSession: async (sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
@@ -177,7 +177,7 @@ describe("Workspace Domain Methods", () => {
       process.env.HOME = "/Users/test";
 
       const sessionDbMock = {
-        getSession: async (_sessionName: unknown) => ({
+        getSession: async (sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
@@ -213,7 +213,7 @@ describe("Workspace Domain Methods", () => {
 
       // Create mock sessionDB
       const sessionDbMock = {
-        getSession: async (_sessionName: unknown) => ({
+        getSession: async (sessionName: unknown) => ({
           session: sessionName,
           repoName: "repo-name",
           repoUrl: "https://github.com/org/repo.git",
