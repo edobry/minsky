@@ -47,17 +47,26 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
-  await createCli();
-  await cli.parseAsync(Bun.argv);
+  try {
+    await createCli();
+    // Use type assertion to access process.argv in Bun environment
+    await cli.parseAsync((process as any).argv);
+  } catch (error) {
+    log.systemDebug(`Error caught in main: ${error}`);
+    log.systemDebug(`Error stack: ${error instanceof Error ? error.stack : "No stack"}`);
+    log.error(`Unhandled error in CLI: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof Error && error.stack) log.debug(error.stack);
+    exit(1);
+  }
 }
 
-// Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${Bun.argv[1]}`) {
+// Check if this file is being run directly
+// For Bun, we need to check if this is the main module
+const isMainModule = import.meta.main === true;
+
+if (isMainModule) {
   main().catch((err) => {
-    log.systemDebug(`Error caught in main: ${err}`);
-    log.systemDebug(`Error stack: ${err.stack}`);
-    log.error(`Unhandled error in CLI: ${err.message}`);
-    if (err.stack) log.debug(err.stack);
+    console.error("Fatal error in CLI main:", err);
     exit(1);
   });
 }
