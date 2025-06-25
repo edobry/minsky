@@ -41,11 +41,11 @@ describe("Repo Utils", () => {
           Promise.resolve(
             name === "test-session"
               ? {
-                _session: "test-session",
-                repoName: "test-repo",
-                repoUrl: "/test/repo/url",
-                createdAt: new Date().toISOString(),
-              }
+                  session: "test-session",
+                  repoName: "test-repo",
+                  repoUrl: "/test/repo/url",
+                  createdAt: new Date().toISOString(),
+                }
               : null
           )
         ),
@@ -61,7 +61,7 @@ describe("Repo Utils", () => {
       getCurrentDirectory: createMock(() => "/current/directory"),
     };
 
-    const _result = await resolveRepoPath({ _session: "test-session" }, mockDeps);
+    const _result = await resolveRepoPath({ session: "test-session" }, mockDeps);
     expect(_result).toBe("/test/repo/url");
     expect(mockDeps.sessionProvider.getSession).toHaveBeenCalledWith("test-session");
   });

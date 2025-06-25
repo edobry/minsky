@@ -118,7 +118,7 @@ describe("Shared CLI Options", () => {
     });
 
     it("should normalize task options and handle normalizing the task ID", () => {
-      const _options: TaskOptions = {
+      const options: TaskOptions = {
         task: "#TEST_VALUE",
       };
 

@@ -109,7 +109,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
         .describe("Session to commit changes for (uses current session if not provided)"),
     }),
     async (
-      _args: z.infer<
+      args: z.infer<
         z.ZodObject<{
           message: z.ZodOptional<z.ZodString>;
           _session: z.ZodOptional<z.ZodString>;

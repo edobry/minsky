@@ -219,7 +219,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
   }
 
-  async saveTaskSpecData(__specPath: string, _content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(__specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
       const fullPath = specPath.startsWith("/") ? specPath : join(this._workspacePath, _specPath);
 

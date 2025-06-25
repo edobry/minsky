@@ -358,7 +358,7 @@ export class BackendMigrationUtils {
    */
   async performDryRun(_sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    _options: MigrationOptions
+    options: MigrationOptions
   ): Promise<MigrationResult> {
     return this.migrateTasksBetweenBackends(_sourceBackend, targetBackend, {
       ..._options,

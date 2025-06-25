@@ -28,7 +28,7 @@ export function mockMkdirSync(path: string, _options?: { recursive?: boolean }):
   }
 }
 
-export function mockExistsSync(__path: string): boolean {
+export function mockExistsSync(_path: string): boolean {
   const exists = virtualFS.has(path);
   log.debug(`[MOCK] Checking if ${path} exists: ${exists}`);
   return exists;

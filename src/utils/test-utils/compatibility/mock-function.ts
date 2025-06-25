@@ -56,7 +56,7 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
   /**
    * The original implementation of the mocked function (if created with spyOn).
    */
-  originalImplementation: ((..._args: TArgs) => TReturn) | null;
+  originalImplementation: ((...args: TArgs) => TReturn) | null;
 };
 
 /**

@@ -113,7 +113,7 @@ const tasksStatusGetCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (_params: unknown) => {
+  handler: async (params: unknown) => {
     log.debug("MCP tasks.status.get called with params:", params);
     return {
       success: true,

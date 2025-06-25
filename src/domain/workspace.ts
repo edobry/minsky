@@ -275,7 +275,7 @@ export interface WorkspaceUtilsInterface {
   /**
    * Check if the current directory is a session workspace
    */
-  isSessionWorkspace(__path: string): Promise<boolean>;
+  isSessionWorkspace(_path: string): Promise<boolean>;
 
   /**
    * Get the current session name if in a session workspace
