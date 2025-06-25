@@ -236,7 +236,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Instead of trying to modify Bun"s mock function directly (which may be read-only),
   // create a new function that delegates to it
-  const _mockFn = function (..._args: Parameters<T>): ReturnType<T> {
+  const _mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
     return implementationFn(..._args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
