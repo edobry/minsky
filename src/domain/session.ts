@@ -879,7 +879,47 @@ export async function updateSessionFromParams(
   try {
     // Get session record
     log.debug("Getting session record", { name: sessionName });
-    const sessionRecord = await deps.sessionDB.getSession(sessionName);
+    let sessionRecord = await deps.sessionDB.getSession(sessionName);
+    
+    // Self-repair: If session not found in database but we're in a session workspace, register it
+    if (!sessionRecord && sessionName) {
+      log.debug("Session not found in database, attempting self-repair", { sessionName });
+      const currentDir = process.cwd();
+      
+      // Check if we're in a session workspace
+      if (currentDir.includes("/sessions/") && currentDir.includes(sessionName)) {
+        log.debug("Detected orphaned session workspace, attempting to register", { sessionName, currentDir });
+        
+        try {
+          // Get repository URL from git remote
+          const remoteOutput = await deps.gitService.execInRepository(currentDir, "git remote get-url origin");
+          const repoUrl = remoteOutput.trim();
+          
+          // Extract repo name from URL or path
+          const repoName = repoUrl.includes("/") ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown" : "local-minsky";
+          
+          // Create session record
+          const newSessionRecord: SessionRecord = {
+            session: sessionName,
+            repoName,
+            repoUrl,
+            createdAt: new Date().toISOString(),
+            taskId: sessionName.startsWith("task#") ? sessionName : undefined,
+          };
+          
+          await deps.sessionDB.addSession(newSessionRecord);
+          sessionRecord = newSessionRecord;
+          
+          log.cli(`🔧 Self-repair: Registered orphaned session '${sessionName}' in database`);
+        } catch (repairError) {
+          log.warn("Failed to self-repair orphaned session", { 
+            sessionName, 
+            error: repairError instanceof Error ? repairError.message : String(repairError) 
+          });
+        }
+      }
+    }
+    
     if (!sessionRecord) {
       throw new ResourceNotFoundError(`Session '${sessionName}' not found`, "session", sessionName);
     }
