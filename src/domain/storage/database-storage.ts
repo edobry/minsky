@@ -96,7 +96,7 @@ export interface DatabaseStorage<T, S> {
    * @param id Entity identifier
    * @returns Promise resolving to true if exists, false otherwise
    */
-  entityExists(__id: string): Promise<boolean>;
+  entityExists(_id: string): Promise<boolean>;
 
   /**
    * Get the storage location or connection info

@@ -50,7 +50,7 @@ export function mockRmSync(path: string,
   virtualFS.delete(path);
 }
 
-export function mockWriteFileSync(__path: string, data: string, _options?: WriteFileOptions): void {
+export function mockWriteFileSync(_path: string, data: string, _options?: WriteFileOptions): void {
   log.debug(`[MOCK] Writing to file ${path}`);
   virtualFS.set(_path, { isDirectory: false, _content: data });
 

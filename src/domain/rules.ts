@@ -465,7 +465,7 @@ export class RuleService {
   /**
    * Search for rules by content or metadata
    */
-  async searchRules(_options: SearchRuleOptions = {}): Promise<Rule[]> {
+  async searchRules(options: SearchRuleOptions = {}): Promise<Rule[]> {
     // Get all rules first (with format filtering if specified)
     const rules = await this.listRules({
       format: options.format,
