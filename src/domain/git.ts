@@ -1491,6 +1491,17 @@ Session requested: "${options.session}"
       force: true,
     });
 
+    // Switch back to the original source branch after creating PR branch
+    try {
+      await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
+      log.debug(`Switched back to original branch ${sourceBranch} after creating PR branch`);
+    } catch (err) {
+      log.warn(
+        `Failed to switch back to original branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      // Don't throw error here - PR creation was successful, this is just cleanup
+    }
+
     return {
       prBranch,
       baseBranch,
