@@ -10,13 +10,20 @@ const TEST_VALUE = 123;
  */
 
 import { join, dirname } from "path";
-import type { TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
+import type { TaskSpecData, TaskBackendConfig, TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access } from "fs/promises";
+
+// Define TaskState interface
+interface TaskState {
+  tasks: TaskData[];
+  lastUpdated: string;
+  metadata: Record<string, unknown>;
+}
 
 /**
  * Configuration for JsonFileTaskBackend
@@ -35,7 +42,7 @@ export interface JsonFileTaskBackendOptions extends TaskBackendConfig {
 export class JsonFileTaskBackend implements TaskBackend {
   name = "json-file";
   private readonly workspacePath: string;
-  private readonly storage: DatabaseStorage<TaskState>;
+  private readonly storage: DatabaseStorage<TaskData, TaskState>;
   private readonly tasksDirectory: string;
 
   constructor(options: JsonFileTaskBackendOptions) {
@@ -47,7 +54,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     const dbFilePath = options.dbFilePath || defaultDbPath;
 
     // Create storage instance
-    this.storage = createJsonFileStorage<TaskState>({
+    this.storage = createJsonFileStorage<TaskData, TaskState>({
       filePath: dbFilePath,
       entitiesField: "tasks",
       idField: "id",

@@ -104,8 +104,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
 
-      const _data = readFileSync(this.filePath, "utf8");
-      const dataStr = typeof _data === "string" ? _data : _data.toString();
+      const data = readFileSync(this.filePath, "utf8");
+      const dataStr = typeof data === "string" ? data : String(data);
 
       // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.trim()) {
@@ -127,7 +127,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
         return { success: true, data: state };
       } catch (error) {
-        log.error("JSON parse error, reinitializing state:", { error: parseError });
+        log.error("JSON parse error, reinitializing state:", { error });
         const state = this.initializeState();
         return { success: true, data: state };
       }
@@ -146,7 +146,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param state The state to write
    * @returns Promise resolving to the result of the write operation
    */
-  async writeState(_state: S): Promise<DatabaseWriteResult> {
+  async writeState(state: S): Promise<DatabaseWriteResult> {
     try {
       // Ensure directory exists
       this.ensureDirectory();
@@ -159,8 +159,8 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       // Serialize state to JSON with error handling for circular references
       let json: string;
       try {
-        json = this.prettyPrint ? JSON.stringify(_state, null, 2) : JSON.stringify(state);
-      } catch (_error) {
+        json = this.prettyPrint ? JSON.stringify(state, null, 2) : JSON.stringify(state);
+      } catch (serializationError) {
         if (
           serializationError instanceof Error &&
           serializationError.message.includes("circular")
@@ -240,7 +240,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param entity The entity to create
    * @returns Promise resolving to the created entity
    */
-  async createEntity(_entity: T): Promise<T> {
+  async createEntity(entity: T): Promise<T> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
@@ -262,7 +262,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       entities.push(entity);
 
       // Update state with new entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -280,7 +280,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param updates Partial entity with updates
    * @returns Promise resolving to the updated entity or null if not found
    */
-  async updateEntity(id: string, _updates: Partial<T>): Promise<T | null> {
+  async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
     return FileOperationLock.withLock(this.filePath, async () => {
       const result = await this.readState();
       if (!result.success) {
@@ -303,7 +303,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       entities[index] = updatedEntity;
 
       // Update state with modified entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -339,10 +339,10 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       // Remove entity
-      entities.splice(_index, 1);
+      entities.splice(index, 1);
 
       // Update state with modified entities collection
-      this.setEntitiesInState(_state, entities);
+      this.setEntitiesInState(state, entities);
 
       // Write updated state
       const writeResult = await this.writeState(state);
@@ -404,7 +404,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
   private ensureDirectory(): void {
     const dir = dirname(this.filePath);
     if (!existsSync(dir)) {
-      mkdirSync(_dir, { recursive: true });
+      mkdirSync(dir, { recursive: true });
     }
   }
 
@@ -414,7 +414,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @returns Array of entities
    * @private
    */
-  private getEntitiesFromState(_state: S): T[] {
+  private getEntitiesFromState(state: S): T[] {
     return (state as any)[this.entitiesField] || [];
   }
 
@@ -424,7 +424,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param entities Array of entities
    * @private
    */
-  private setEntitiesInState(_state: S, entities: T[]): void {
+  private setEntitiesInState(state: S, entities: T[]): void {
     (state as any)[this.entitiesField] = entities;
   }
 }

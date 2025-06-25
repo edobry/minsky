@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import winston, { format, transports } from "winston";
+import * as winston from "winston";
+const { format, transports } = winston;
 import type {} from "logform";
 
 // Environment variable for log level
@@ -56,31 +57,32 @@ const agentLogFormat = format.combine(
 // Common format for program/CLI logs (plain text)
 const programLogFormat = format.combine(
   format.colorize(),
-  format.printf((info: unknown) => {
+  format.printf((info: any) => {
     // Cast info to a proper type
     const logInfo = info as { message?: unknown; stack?: string; [key: string]: unknown };
     // Ensure message is a string
-    const message = typeof info.message === "string" ? info.message : JSON.stringify(info.message);
+    const message =
+      typeof logInfo.message === "string" ? logInfo.message : JSON.stringify(logInfo.message);
     // For user-facing CLI output, just show the message without timestamp and log level
     let log = message;
-    if (info.stack) {
-      log += `\n${info.stack}`;
+    if (logInfo.stack) {
+      log += `\n${logInfo.stack}`;
     }
     // Add other metadata if it exists
-    const _metadata = Object.keys(info).reduce(
+    const metadata = Object.keys(logInfo).reduce(
       (acc, key) => {
         if (["level", "message", "timestamp", "stack"].includes(key)) {
           return acc;
         }
-        acc[key] = info[key];
+        acc[key] = logInfo[key];
         return acc;
       },
       {} as Record<string, unknown>
     );
 
-    if (Object.keys(_metadata).length > 0) {
+    if (Object.keys(metadata).length > 0) {
       try {
-        log += ` ${JSON.stringify(_metadata)}`;
+        log += ` ${JSON.stringify(metadata)}`;
       } catch (error) {
         // ignore serialization errors for metadata in text logs
       }
