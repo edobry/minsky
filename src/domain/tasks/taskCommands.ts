@@ -346,8 +346,7 @@ export async function setTaskStatusFromParams(
   } catch (error) {
     console.log(
       "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:335:",
-      typeof error !== "undefined" ? "error defined" : "error undefined",
-      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+      typeof error !== "undefined" ? "error defined" : "error undefined"
     );
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -486,7 +485,6 @@ export async function getTaskSpecContentFromParams(
     } catch (_error) {
       console.log(
         "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:467:",
-        typeof error !== "undefined" ? "error defined" : "error undefined",
         typeof _error !== "undefined" ? "_error defined" : "_error undefined"
       );
       throw new ResourceNotFoundError(
@@ -506,8 +504,7 @@ export async function getTaskSpecContentFromParams(
   } catch (error) {
     console.log(
       "[DEBUG] Caught error in src/domain/tasks/taskCommands.ts:483:",
-      typeof error !== "undefined" ? "error defined" : "error undefined",
-      typeof _error !== "undefined" ? "_error defined" : "_error undefined"
+      typeof error !== "undefined" ? "error defined" : "error undefined"
     );
     if (error instanceof z.ZodError) {
       throw new ValidationError(
