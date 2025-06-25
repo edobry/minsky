@@ -133,7 +133,6 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
       throw new Error("Migration operation failed");
     }
   } catch (error) {
-    console.log('[DEBUG] Caught error in src/adapters/cli/commands/migrate.ts:135:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.cliError(`Migration failed: ${errorMessage}`);
     throw new Error(errorMessage);
@@ -150,7 +149,6 @@ async function promptConfirmation(message: string): Promise<boolean> {
     const result = await confirm({ message });
     return Boolean(result);
   } catch (_error) {
-    console.log('[DEBUG] Caught error in src/adapters/cli/commands/migrate.ts:152:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     // Fallback - just log warning and proceed
     log.cliWarn("Interactive prompts not available. Proceeding with migration...");
     log.cli(`Confirmation requested: ${message}`);

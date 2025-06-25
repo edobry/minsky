@@ -444,7 +444,7 @@ export function createMockFileSystem(__initialFiles: Record<string, string> = {}
  * interface UserService {
  *   getUser(id: string): Promise<User | null>;
  *   updateUser(id: string, data: unknown): Promise<boolean>;
- *   deleteUser(__id: string): Promise<boolean>;
+ *   deleteUser(_id: string): Promise<boolean>;
  * }
  *
  * // Create a partial mock with only some methods implemented

@@ -150,7 +150,6 @@ export class BackendMigrationUtils {
       });
 
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/domain/tasks/migrationUtils.ts:152:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMessage);
       log.error("Migration failed", { error: errorMessage });
@@ -161,7 +160,6 @@ export class BackendMigrationUtils {
           await this.rollbackMigration(_backupData, targetBackend);
           log.debug("Rollback completed successfully");
         } catch (error) {
-          console.log('[DEBUG] Caught error in src/domain/tasks/migrationUtils.ts:163:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
             : "Unknown rollback error";
@@ -189,7 +187,6 @@ export class BackendMigrationUtils {
     try {
       await sourceBackend.getTasksData();
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/domain/tasks/migrationUtils.ts:191:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
@@ -206,7 +203,6 @@ export class BackendMigrationUtils {
       // Restore original data
       await targetBackend.saveTasksData(currentData);
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/domain/tasks/migrationUtils.ts:208:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       throw new Error(`Cannot write to target backend: ${error}`);
     }
   }
@@ -299,7 +295,6 @@ export class BackendMigrationUtils {
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/domain/tasks/migrationUtils.ts:301:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.warn("Failed to transform task", { _taskId: task.id, error });
         skipped.push(task);
       }

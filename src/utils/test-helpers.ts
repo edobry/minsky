@@ -34,7 +34,7 @@ export function mockExistsSync(path: string): boolean {
   return exists;
 }
 
-export function mockRmSync(__path: string,
+export function mockRmSync(_path: string,
   _options?: { recursive?: boolean; force?: boolean }
 ): void {
   log.debug(`[MOCK] Removing ${path}`);

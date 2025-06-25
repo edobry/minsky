@@ -104,7 +104,6 @@ export function createSpecCommand(): Command {
           },
         });
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/cli/tasks/specCommand.ts:106:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         handleCliError(error);
       }
     }

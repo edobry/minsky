@@ -77,7 +77,6 @@ export class TaskService {
         }
       } catch (error) {
         console.log(
-          "[DEBUG] Caught error in src/domain/tasks/taskService.ts:78:",
           typeof error !== "undefined" ? "error defined" : "error undefined",
           typeof _error !== "undefined" ? "_error defined" : "_error undefined"
         );
@@ -129,7 +128,7 @@ export class TaskService {
     const _tasks = await this.listTasks();
 
     // Find the requested task
-    const normalizedId = normalizeTaskId(__id);
+    const normalizedId = normalizeTaskId(id);
     if (!normalizedId) return null;
 
     // First try exact match
@@ -156,7 +155,7 @@ export class TaskService {
    * @returns Promise resolving to status or null if not found
    */
   async getTaskStatus(id: string): Promise<string | null> {
-    const task = await this.getTask(__id);
+    const task = await this.getTask(id);
     return task ? task.status : null;
   }
 
@@ -306,7 +305,7 @@ export class TaskService {
    * @param id Task ID
    * @returns Promise resolving to the appropriate backend or null if not found
    */
-  async getBackendForTask(__id: string): Promise<TaskBackend | null> {
+  async getBackendForTask(_id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(__id);
     if (!normalizedId) {
@@ -434,9 +433,8 @@ export class TaskService {
         workspacePath,
         ...config,
       });
-    } catch (_error) {
+    } catch (error) {
       console.log(
-        "[DEBUG] Caught error in src/domain/tasks/taskService.ts:433:",
         typeof error !== "undefined" ? "error defined" : "error undefined",
         typeof _error !== "undefined" ? "_error defined" : "_error undefined"
       );
@@ -491,10 +489,7 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
-    console.log(
-      "[DEBUG] Caught error in src/domain/tasks/taskService.ts:485:",
-      typeof error !== "undefined" ? "error defined" : "error undefined"
-    );
+    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,

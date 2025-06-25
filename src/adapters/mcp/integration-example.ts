@@ -178,7 +178,7 @@ const rulesListCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (_params: unknown) => {
+  handler: async (params: unknown) => {
     log.debug("MCP rules.list called with params:", params);
     return {
       success: true,

@@ -301,7 +301,7 @@ export interface WorkspaceUtilsInterface {
  */
 export function createWorkspaceUtils(): WorkspaceUtilsInterface {
   return {
-    isWorkspace: async (_path: string): Promise<boolean> => {
+    isWorkspace: async (path: string): Promise<boolean> => {
       try {
         // A workspace is valid if it contains a process directory
         const processDir = join(_path, "process");
@@ -315,11 +315,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
 
     getCurrentSession: async (_repoPath: string): Promise<string | null> => {
-      return getCurrentSession(repoPath);
+      return getCurrentSession(_repoPath);
     },
 
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | null> => {
-      const result = await getSessionFromWorkspace(_workspacePath);
+      const result = await getSessionFromWorkspace(workspacePath);
       return result ? result.session : null;
     },
 
