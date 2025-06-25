@@ -1021,7 +1021,25 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       // Get the status of uncommitted changes to show in the error
       let statusInfo = "";
       try {
-        statusInfo = await gitService.getStatus(currentDir);
+        const status = await gitService.getStatus(currentDir);
+        const changes = [];
+
+        if (status.modified.length > 0) {
+          changes.push(`📝 Modified files (${status.modified.length}):`);
+          status.modified.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        if (status.untracked.length > 0) {
+          changes.push(`📄 New files (${status.untracked.length}):`);
+          status.untracked.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        if (status.deleted.length > 0) {
+          changes.push(`🗑️  Deleted files (${status.deleted.length}):`);
+          status.deleted.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        statusInfo = changes.length > 0 ? changes.join("\n") : "No detailed changes available";
       } catch (statusError) {
         statusInfo = "Unable to get detailed status.";
       }
