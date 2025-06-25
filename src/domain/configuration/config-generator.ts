@@ -121,7 +121,7 @@ export class ConfigurationGenerator {
       stringifyYaml(config, {
         indent: 2,
         lineWidth: 100,
-        quotingType: '"',
+        quotingType: "\"",
       });
 
     writeFileSync(configPath, yamlContent, { encoding: "utf8" });

@@ -121,22 +121,22 @@ export class GitHubBackend implements RepositoryBackend {
         _workdir,
         _session,
       };
-    } catch (_error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
 
       // Provide more informative error messages for common GitHub issues
-      if (error.message.includes("Authentication failed")) {
+      if (normalizedError.message.includes("Authentication failed")) {
         throw new Error("GitHub authentication failed. Check your Git credentials.");
-      } else if (error.message.includes("not found")) {
+      } else if (normalizedError.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`
         );
-      } else if (error.message.includes("timed out")) {
+      } else if (normalizedError.message.includes("timed out")) {
         throw new Error(
           "GitHub connection timed out. Check your network connection and try again."
         );
       } else {
-        throw new Error(`Failed to clone GitHub repository: ${error.message}`);
+        throw new Error(`Failed to clone GitHub repository: ${normalizedError.message}`);
       }
     }
   }
@@ -159,9 +159,9 @@ export class GitHubBackend implements RepositoryBackend {
         _workdir,
         _branch,
       };
-    } catch (_error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create _branch in GitHub repository: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to create branch in GitHub repository: ${normalizedError.message}`);
     }
   }
 
@@ -252,9 +252,9 @@ export class GitHubBackend implements RepositoryBackend {
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
-    } catch (_error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get GitHub repository _status: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to get GitHub repository status: ${normalizedError.message}`);
     }
   }
 

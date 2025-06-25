@@ -34,7 +34,7 @@ export function createMigrateCommand(): Command {
     .requiredOption("--to <backend>", "Target backend (markdown, json-file, github-issues)")
     .option("--dry-run", "Preview migration without making changes", false)
     .option("--preserve-ids", "Preserve original task IDs", true)
-    .option("--map-status <mapping...>", 'Custom status mapping (format: "OLD=NEW")')
+    .option("--map-status <mapping...>", "Custom status mapping (format: \"OLD=NEW\")")
     .option("--id-conflict-strategy <strategy>", "Strategy for ID conflicts", "skip")
     .option("--rollback-on-failure", "Rollback changes on failure", true)
     .option("--create-backup", "Create backup before migration", true)
