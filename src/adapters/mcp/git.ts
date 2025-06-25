@@ -115,7 +115,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       debug: z.boolean().optional().describe(DEBUG_DESCRIPTION),
       noStatusUpdate: z.boolean().optional().describe(NO_STATUS_UPDATE_DESCRIPTION),
     }),
-    async (_args) => {
+    async (args) => {
       const params = {
         ...args,
         taskId: args.task, // Map task parameter to taskId for domain function
@@ -144,7 +144,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
       all: z.boolean().optional().describe("Stage all changes"),
       noStage: z.boolean().optional().describe("Skip staging changes"),
     }),
-    async (_args) => {
+    async (args) => {
       const params = {
         ...args,
       };

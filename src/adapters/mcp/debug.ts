@@ -99,12 +99,12 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
  * @param bytes Number of bytes
  * @returns Formatted string with appropriate unit (KB, MB, GB)
  */
-function formatBytes(bytes: number): string {
+function formatBytes(_bytes: number): string {
   if (bytes === 0) return "0 Bytes";
 
   const k = BYTES_PER_KB;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))} ${sizes[i]}`;
 }

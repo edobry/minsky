@@ -33,7 +33,7 @@ export interface AsymmetricMatcher {
 abstract class AsymmetricMatcherBase implements AsymmetricMatcher {
   private readonly matcherName: string;
 
-  constructor(_matcherName: string) {
+  constructor(matcherName: string) {
     this.matcherName = matcherName;
   }
 
@@ -56,7 +56,7 @@ class AnythingMatcher extends AsymmetricMatcherBase {
     super("Anything");
   }
 
-  asymmetricMatch(_other: unknown): boolean {
+  asymmetricMatch(other: unknown): boolean {
     return other !== null && other !== undefined;
   }
 }
@@ -67,7 +67,7 @@ class AnythingMatcher extends AsymmetricMatcherBase {
 class AnyMatcher extends AsymmetricMatcherBase {
   private readonly expectedType: unknown;
 
-  constructor(_expectedType: unknown) {
+  constructor(expectedType: unknown) {
     super("Any");
     this.expectedType = expectedType;
   }
@@ -411,7 +411,6 @@ export function isAsymmetricMatcher(__obj: unknown): obj is AsymmetricMatcher {
 // Export a function to extend the global expect with asymmetric matchers
 export function setupAsymmetricMatchers(): void {
   try {
-     
     const bun = require("bun:test");
 
     // Add matchers to expect

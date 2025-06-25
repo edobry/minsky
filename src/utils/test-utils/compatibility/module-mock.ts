@@ -50,12 +50,12 @@ const defaultOptions: MockModuleOptions = {
  * @param actualModule The actual module to base mocks on
  * @returns A mocked version of the module
  */
-function createAutoMock(__modulePath: string, actualModule: any): unknown {
+function createAutoMock(modulePath: string, actualModule: any): unknown {
   const mockExports: Record<string, unknown> = {};
 
   // Create a mock for each export
   for (const key in actualModule) {
-    if (Object.prototype.hasOwnProperty.call(_actualModule, key)) {
+    if (Object.prototype.hasOwnProperty.call(actualModule, key)) {
       const value = actualModule[key];
 
       if (typeof value === "function") {
@@ -81,7 +81,8 @@ function createAutoMock(__modulePath: string, actualModule: any): unknown {
  * @param factory A function that returns the mocked module
  * @param options Options for how to mock the module
  */
-export function mockModule(_modulePath: string,
+export function mockModule(
+  modulePath: string,
   factory?: () => any,
   options?: MockModuleOptions
 ): void {
@@ -93,12 +94,12 @@ export function mockModule(_modulePath: string,
       try {
         // Use a dynamic import to get the actual module
         // This won't work with ESM in some environments, but is needed for proper Jest-like behavior
-         
+
         const originalModule = require(modulePath);
-        originalModules.set(_modulePath, originalModule);
+        originalModules.set(modulePath, originalModule);
       } catch (_error) {
         // If we can't load the module, just store undefined
-        originalModules.set(_modulePath, undefined);
+        originalModules.set(modulePath, undefined);
       }
     }
 
@@ -108,7 +109,7 @@ export function mockModule(_modulePath: string,
       const mockImpl = factory();
       // Need to use a different approach since Bun's mock() doesn't support module mocking directly
       // For now, we'll just store the mock implementation and handle it in imports
-      mockedModules.set(_modulePath, mockImpl);
+      mockedModules.set(modulePath, mockImpl);
       return;
     }
 
@@ -116,16 +117,16 @@ export function mockModule(_modulePath: string,
     if (mockOptions.autoMock) {
       const originalModule = originalModules.get(modulePath);
       if (originalModule) {
-        const autoMocked = createAutoMock(_modulePath, originalModule);
+        const autoMocked = createAutoMock(modulePath, originalModule);
         // Store the auto-mocked module
-        mockedModules.set(_modulePath, autoMocked);
+        mockedModules.set(modulePath, autoMocked);
         return;
       }
     }
 
     // Default fallback: mock with an empty object
     const emptyMock = {};
-    mockedModules.set(_modulePath, emptyMock);
+    mockedModules.set(modulePath, emptyMock);
   } catch (error) {
     log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
@@ -137,7 +138,7 @@ export function mockModule(_modulePath: string,
  *
  * @param modulePath The path to the module to restore
  */
-export function restoreModule(__modulePath: string): void {
+export function restoreModule(modulePath: string): void {
   // Remove the mock and allow the original module to be loaded again
   mock.restore();
 
@@ -173,7 +174,8 @@ export function getMockModule(__modulePath: string): unknown {
  * @param exportName The name of the exported function to mock
  * @param mockImplementation The mock implementation of the function
  */
-export function mockModuleFunction(_modulePath: string,
+export function mockModuleFunction(
+  _modulePath: string,
   exportName: string,
   mockImplementation: (..._args: unknown[]) => any
 ): void {
@@ -192,7 +194,8 @@ export function mockModuleFunction(_modulePath: string,
  * Creates a Jest-like jest.mock implementation
  */
 export function createJestMock() {
-  return function jestMock(_modulePath: string,
+  return function jestMock(
+    _modulePath: string,
     factory?: () => any,
     options?: MockModuleOptions
   ): void {
