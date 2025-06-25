@@ -360,13 +360,13 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
   const mockFs = {
     // Sync methods
     existsSync: createMock((path: unknown) => files.has(path) || directories.has(path)),
-    readFileSync: createMock((_path: unknown) => {
+    readFileSync: createMock((path: unknown) => {
       if (!files.has(path)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
     }),
-    writeFileSync: createMock((_path: unknown) => {
+    writeFileSync: createMock((path: unknown) => {
       files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
@@ -380,7 +380,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     mkdirSync: createMock((path: unknown) => {
       directories.add(path);
     }),
-    rmSync: createMock((_path: unknown) => {
+    rmSync: createMock((path: unknown) => {
       // Remove the path and any files/directories under it
       files.delete(path);
       directories.delete(path);
@@ -398,13 +398,13 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
     }),
 
     // Async methods (fs/promises)
-    readFile: createMock(async (_path: unknown) => {
+    readFile: createMock(async (path: unknown) => {
       if (!files.has(path)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       return files.get(path);
     }),
-    writeFile: createMock(async (_path: unknown) => {
+    writeFile: createMock(async (path: unknown) => {
       files.set(_path, data);
       // Add parent directories
       const parts = path.split("/");
@@ -412,7 +412,7 @@ export function createMockFileSystem(initialFiles: Record<string, string> = {}) 
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (_path: unknown) => {
+    mkdir: createMock(async (path: unknown) => {
       directories.add(path);
       // If recursive option, add all parent directories
       if (_options?.recursive) {
