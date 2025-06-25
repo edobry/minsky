@@ -124,7 +124,7 @@ export async function writeTaskSpecFile(
  * @param filePath Path to the file
  * @returns Promise resolving to true if file exists, false otherwise
  */
-export async function fileExists(_filePath: string): Promise<boolean> {
+export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;

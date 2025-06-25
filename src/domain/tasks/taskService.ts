@@ -150,7 +150,7 @@ export class TaskService {
    * @param id Task ID to get status for
    * @returns Promise resolving to status or null if not found
    */
-  async getTaskStatus(__id: string): Promise<string | null> {
+  async getTaskStatus(_id: string): Promise<string | null> {
     const task = await this.getTask(__id);
     return task ? task.status : null;
   }

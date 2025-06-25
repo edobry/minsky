@@ -307,7 +307,7 @@ export function registerRulesCommands(): void {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (_params: unknown) => {
+    execute: async (params: unknown) => {
       log.debug("Executing rules.create _command", { params, _context });
 
       try {

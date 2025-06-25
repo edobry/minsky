@@ -406,7 +406,7 @@ export async function getTaskSpecContentFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (_options: unknown) => TaskService;
+    createTaskService: (options: unknown) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,

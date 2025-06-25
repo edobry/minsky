@@ -443,7 +443,7 @@ export function createMockFileSystem(__initialFiles: Record<string, string> = {}
  * // Define an interface
  * interface UserService {
  *   getUser(id: string): Promise<User | null>;
- *   updateUser(__id: string, data: unknown): Promise<boolean>;
+ *   updateUser(_id: string, data: unknown): Promise<boolean>;
  *   deleteUser(__id: string): Promise<boolean>;
  * }
  *

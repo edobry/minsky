@@ -396,11 +396,11 @@ export class GitHubBackend implements RepositoryBackend {
           : "No changes to push or push failed",
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to push to repository: ${error.message}`,
-        error,
+        message: `Failed to push to repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -435,11 +435,11 @@ export class GitHubBackend implements RepositoryBackend {
           : "Already up-to-date. No changes pulled.",
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to pull from repository: ${error.message}`,
-        error,
+        message: `Failed to pull from repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -466,8 +466,8 @@ export class GitHubBackend implements RepositoryBackend {
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to checkout _branch: ${error.message}`);
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to checkout branch: ${normalizedError.message}`);
     }
   }
 

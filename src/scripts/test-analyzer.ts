@@ -184,7 +184,7 @@ function extractImports(content: string): string[] {
 /**
  * Extract mock dependencies from a file
  */
-function extractMockDependencies(__content: string): string[] {
+function extractMockDependencies(_content: string): string[] {
   const mockRegex = /(?:jest\.mock|mock\.module|mockModule)\(['"](.*?)['"]/g;
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;
@@ -202,7 +202,7 @@ function extractMockDependencies(__content: string): string[] {
 /**
  * Analyze a single test file
  */
-async function analyzeTestFile(_path: string): Promise<TestFileAnalysis> {
+async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
   const relativePath = relative(_baseDir, path);
   const counts = {

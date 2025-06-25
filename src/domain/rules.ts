@@ -141,7 +141,7 @@ export class RuleService {
   /**
    * Get a specific rule by id
    */
-  async getRule(id: string, _options: RuleOptions = {}): Promise<Rule> {
+  async getRule(id: string, options: RuleOptions = {}): Promise<Rule> {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
@@ -357,7 +357,7 @@ export class RuleService {
   /**
    * Create a new rule
    */
-  async createRule(__id: string,
+  async createRule(_id: string,
     content: string,
     meta: RuleMeta,
     _options: CreateRuleOptions = {}

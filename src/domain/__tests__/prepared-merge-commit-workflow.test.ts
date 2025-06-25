@@ -305,7 +305,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock preparePr to simulate conflict handling
-      const preparePrWithConflictSpy = createMock(async (_options: unknown) => {
+      const preparePrWithConflictSpy = createMock(async (options: unknown) => {
         try {
           await conflictMockExecAsync(
             "git -C /test/repo merge --no-ff feature-branch -F .pr_title"
