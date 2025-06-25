@@ -149,7 +149,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
     const lines = content.split("\n");
-    let _title = "";
+    let title = "";
     let description = "";
     let id = "";
     let inDescription = false;
@@ -226,16 +226,16 @@ export class JsonFileTaskBackend implements TaskBackend {
     }
   }
 
-  async saveTaskSpecData(__specPath: string, content: string): Promise<TaskWriteOperationResult> {
+  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
     try {
       const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
       // Ensure directory exists
       const dir = dirname(fullPath);
-      await mkdir(_dir, { recursive: true });
+      await mkdir(dir, { recursive: true });
 
       // Write file
-      await writeFile(_fullPath, _content, "utf8");
+      await writeFile(fullPath, content, "utf8");
 
       return {
         success: true,
@@ -258,7 +258,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return this.workspacePath;
   }
 
-  getTaskSpecPath(__taskId: string, _title: string): string {
+  getTaskSpecPath(taskId: string, title: string): string {
     const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
@@ -382,7 +382,7 @@ export class JsonFileTaskBackend implements TaskBackend {
    * @private
    */
   private parseMarkdownTasks(content: string): TaskData[] {
-    const _tasks: TaskData[] = [];
+    const tasks: TaskData[] = [];
     const lines = content.split("\n");
 
     for (const line of lines) {
@@ -397,15 +397,15 @@ export class JsonFileTaskBackend implements TaskBackend {
 
         if (idMatch && idMatch[1] && linkMatch && linkMatch[1] && linkMatch[2]) {
           const id = `#${idMatch[1]}`;
-          const _title = linkMatch[1];
-          const _specPath = linkMatch[2];
+          const title = linkMatch[1];
+          const specPath = linkMatch[2];
 
           tasks.push({
             id,
-            _title,
-            _status: completed ? "DONE" : "TODO",
-            _specPath,
-          });
+            title,
+            status: completed ? "DONE" : "TODO",
+            specPath,
+          } as TaskData);
         }
       }
     }
