@@ -1,15 +1,24 @@
 /**
  * JsonFileStorage Backend
- * 
+ *
  * This module implements the DatabaseStorage interface for JSON file storage,
  * wrapping the existing session-db-io.ts functionality.
  */
 
 import { join, dirname } from "path";
 import { existsSync, mkdirSync } from "fs";
-import type { DatabaseStorage, DatabaseReadResult, DatabaseWriteResult, DatabaseQueryOptions } from "../database-storage";
+import type {
+  DatabaseStorage,
+  DatabaseReadResult,
+  DatabaseWriteResult,
+  DatabaseQueryOptions,
+} from "../database-storage";
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
-import { readSessionDbFile, writeSessionDbFile, type SessionDbFileOptions } from "../../session/session-db-io";
+import {
+  readSessionDbFile,
+  writeSessionDbFile,
+  type SessionDbFileOptions,
+} from "../../session/session-db-io";
 import { initializeSessionDbState } from "../../session/session-db";
 import { log } from "../../../utils/logger";
 
@@ -22,7 +31,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   constructor(dbPath?: string, baseDir?: string) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    
+
     if (dbPath) {
       this.dbPath = dbPath;
       this.baseDir = baseDir || join(dbPath, "..", "..", "git");
@@ -79,7 +88,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null;
     }
 
-    return result.data.sessions.find(session => session.session === id) || null;
+    return result.data.sessions.find((session) => session.session === id) || null;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -94,13 +103,18 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     if (options) {
       if (options.taskId) {
         const normalizedTaskId = options.taskId.replace(/^#/, "");
-        sessions = sessions.filter(s => s.taskId.replace(/^#/, "") === normalizedTaskId);
+        sessions = sessions.filter((s) => {
+          if (!s.taskId) {
+            return false;
+          }
+          return s.taskId.replace(/^#/, "") === normalizedTaskId;
+        });
       }
       if (options.repoName) {
-        sessions = sessions.filter(s => s.repoName === options.repoName);
+        sessions = sessions.filter((s) => s.repoName === options.repoName);
       }
       if (options.branch) {
-        sessions = sessions.filter(s => s.branch === options.branch);
+        sessions = sessions.filter((s) => s.branch === options.branch);
       }
     }
 
@@ -132,7 +146,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null;
     }
 
-    const sessionIndex = result.data.sessions.findIndex(s => s.session === id);
+    const sessionIndex = result.data.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
       return null;
     }
@@ -144,9 +158,9 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
         (safeUpdates as any)[key] = value;
       }
     });
-    
+
     const updatedSession: SessionRecord = { ...result.data.sessions[sessionIndex], ...safeUpdates };
-    
+
     const newSessions = [...result.data.sessions];
     newSessions[sessionIndex] = updatedSession;
 
@@ -169,7 +183,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return false;
     }
 
-    const sessionIndex = result.data.sessions.findIndex(s => s.session === id);
+    const sessionIndex = result.data.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
       return false;
     }
@@ -212,8 +226,10 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return true;
     } catch (error) {
-      log.error(`Error initializing JSON file storage: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(
+        `Error initializing JSON file storage: ${error instanceof Error ? error.message : String(error)}`
+      );
       return false;
     }
   }
-} 
+}

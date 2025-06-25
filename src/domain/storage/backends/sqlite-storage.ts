@@ -8,7 +8,7 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -197,7 +197,38 @@ implements DatabaseStorage<TEntity, TState>
     }
 
     try {
-      const sessions = await this.drizzleDb.select().from(sessionsTable);
+      let query = this.drizzleDb.select().from(sessionsTable);
+
+      // Apply filters if provided
+      if (options) {
+        const conditions: any[] = [];
+
+        if (options.taskId) {
+          // Normalize taskId by removing # prefix if present
+          const normalizedTaskId = options.taskId.replace(/^#/, "");
+          // BUGFIX: Use SQL to handle null values properly
+          // This finds sessions where taskId (without #) equals normalizedTaskId
+          // and excludes sessions with null taskId
+          conditions.push(
+            sql`TRIM(${sessionsTable.taskId}, '#') = ${normalizedTaskId} AND ${sessionsTable.taskId} IS NOT NULL`
+          );
+        }
+
+        if (options.repoName) {
+          conditions.push(eq(sessionsTable.repoName, options.repoName));
+        }
+
+        if (options.branch) {
+          conditions.push(eq(sessionsTable.branch, options.branch));
+        }
+
+        // Apply WHERE conditions if any exist
+        if (conditions.length > 0) {
+          query = query.where(and(...conditions)) as any;
+        }
+      }
+
+      const sessions = await query;
       return sessions as TEntity[];
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

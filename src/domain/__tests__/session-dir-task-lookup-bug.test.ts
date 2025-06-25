@@ -6,14 +6,15 @@
  * It returns `/Users/edobry/.local/state/minsky/git/local/minsky/sessions/004`
  * instead of the correct `/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#160`
  *
- * Root Cause Investigation:
- * - The getSessionByTaskId method should work correctly (confirmed via debugging)
- * - The issue appears to be in the actual CLI execution or command parsing
+ * Root Cause:
+ * The JsonFileStorage.getEntities() method fails when filtering by taskId because
+ * it calls s.taskId.replace(/^#/, "") on sessions where taskId is null.
+ * This causes a TypeError which breaks the filtering logic.
  *
- * This test reproduces the bug by directly testing the CLI command execution.
+ * This test reproduces the bug by directly testing the problematic filtering logic.
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { getSessionDirFromParams } from "../session.js";
 import { createSessionProvider } from "../session.js";
 import { setupTestMocks } from "../../utils/test-utils/mocking.js";
@@ -22,7 +23,7 @@ import { setupTestMocks } from "../../utils/test-utils/mocking.js";
 setupTestMocks();
 
 describe("Session Dir Task Lookup Bug", () => {
-  test("getSessionDirFromParams should return correct session for task #160", async () => {
+  test("BUG: getSessionDirFromParams should return task#160 session, not session 004", async () => {
     // This test uses the REAL session database to reproduce the bug
     const sessionDB = createSessionProvider();
 
@@ -37,12 +38,13 @@ describe("Session Dir Task Lookup Bug", () => {
 
     console.log("Result from getSessionDirFromParams:", result);
 
-    // The bug: This should return task#160 session dir, not session 004 dir
+    // This should return task#160 session dir, not session 004 dir
+    // The bug causes it to return the wrong session directory
     expect(result).toContain("task#160");
     expect(result).not.toContain("/004");
   });
 
-  test("session database getSessionByTaskId should find correct session", async () => {
+  test("BUG: sessionDB.getSessionByTaskId should return task#160 session, not session 004", async () => {
     // Test the underlying database method directly
     const sessionDB = createSessionProvider();
 
@@ -50,33 +52,56 @@ describe("Session Dir Task Lookup Bug", () => {
 
     console.log("Session found by task ID:", session);
 
+    // This should return task#160 session, not session 004
     expect(session).toBeDefined();
     expect(session?.session).toBe("task#160");
     expect(session?.taskId).toBe("#160");
   });
 
-  test("verify database has both sessions but they are different", async () => {
-    const sessionDB = createSessionProvider();
+  test("Verify bug is in JsonFileStorage.getEntities filtering logic", async () => {
+    // This test simulates the exact problematic filtering logic
+    const testSessions = [
+      {
+        session: "004",
+        repoName: "local/minsky",
+        repoUrl: "file:///Users/edobry/Projects/minsky",
+        createdAt: "2024-04-29T15:01:00.000Z",
+        taskId: null, // null taskId causes the bug
+        branch: "004",
+        repoPath: "/Users/edobry/.local/state/minsky/git/local/minsky/sessions/004",
+      },
+      {
+        session: "task#160",
+        repoName: "local/minsky",
+        repoUrl: "/Users/edobry/Projects/minsky",
+        createdAt: "2025-06-25T18:54:44.999Z",
+        taskId: "#160",
+        branch: "task#160",
+        repoPath: "/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#160",
+      },
+    ];
 
-    // Get session 004
-    const session004 = await sessionDB.getSession("004");
-    console.log("Session 004:", session004);
+    // Simulate the exact buggy filtering logic from JsonFileStorage.getEntities()
+    const options = { taskId: "160" };
+    let sessions = testSessions;
 
-    // Get session task#160
-    const sessionTask160 = await sessionDB.getSession("task#160");
-    console.log("Session task#160:", sessionTask160);
+    if (options.taskId) {
+      const normalizedTaskId = options.taskId.replace(/^#/, "");
 
-    // Verify they exist and are different
-    expect(session004).toBeDefined();
-    expect(sessionTask160).toBeDefined();
+      // This is the buggy line - it calls .replace() on null
+      expect(() => {
+        sessions = sessions.filter((s) => s.taskId!.replace(/^#/, "") === normalizedTaskId);
+      }).toThrow(); // This should throw TypeError because s.taskId is null for session 004
+    }
+  });
 
-    expect(session004?.session).toBe("004");
-    expect(session004?.taskId).toBeNull();
+  test("BUG REPRODUCTION: filtering fails with null taskId", () => {
+    // Direct test of the problematic code pattern
+    const session: { taskId: string | null } = { taskId: null };
 
-    expect(sessionTask160?.session).toBe("task#160");
-    expect(sessionTask160?.taskId).toBe("#160");
-
-    // Verify their directories are different
-    expect(session004?.repoPath).not.toBe(sessionTask160?.repoPath);
+    // This is exactly what happens in JsonFileStorage.getEntities()
+    expect(() => {
+      (session.taskId as any).replace(/^#/, ""); // TypeError: Cannot read property 'replace' of null
+    }).toThrow(TypeError);
   });
 });

@@ -56,7 +56,7 @@ class FileOperationLock {
 
     // Set our operation as the current lock
     const operationPromise = operation();
-    this.locks.set(_filePath, operationPromise);
+    this.locks.set(filePath, operationPromise);
 
     try {
       const result = await operationPromise;
@@ -105,7 +105,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       const _data = readFileSync(this.filePath, "utf8");
-      const dataStr = typeof data === "string" ? data : data.toString();
+      const dataStr = typeof _data === "string" ? _data : _data.toString();
 
       // Validate JSON before parsing to prevent stack overflow
       if (!dataStr.trim()) {
