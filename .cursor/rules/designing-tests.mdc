@@ -13,6 +13,43 @@ Write comprehensive, maintainable tests following these principles:
 - Follow the Arrange-Act-Assert pattern for test clarity
 - Keep test files alongside the code they test with matching names (e.g., `file.ts` and `file.test.ts`)
 
+### Test File Organization Anti-Patterns
+
+**CRITICAL: Avoid creating bug-specific or feature-specific test files that fragment test coverage.**
+
+❌ **NEVER create bug-specific test files:**
+```
+// ❌ BAD - Creates test fragmentation
+session-dir-task-lookup-bug.test.ts
+auth-token-refresh-bug.test.ts
+config-merge-issue.test.ts
+```
+
+❌ **NEVER create narrow feature-specific test files:**
+```
+// ❌ BAD - Fragments related functionality
+session-create-only.test.ts
+session-list-only.test.ts
+session-delete-only.test.ts
+```
+
+✅ **ALWAYS organize tests by functional CLI command groupings:**
+```
+// ✅ GOOD - Organized by CLI command functionality
+src/adapters/__tests__/cli/session.test.ts    // All session commands
+src/adapters/__tests__/cli/tasks.test.ts      // All task commands
+src/adapters/__tests__/cli/git.test.ts        // All git commands
+src/adapters/__tests__/cli/config.test.ts     // All config commands
+```
+
+**Rationale:** Bug-specific test files create:
+- Test fragmentation across multiple files
+- Difficulty finding all tests for a CLI command
+- Poor maintainability as bugs get fixed but files remain
+- Inconsistent test organization patterns
+
+**Solution:** Add bug reproduction tests to the appropriate functional test file (e.g., add session directory lookup bug tests to `session.test.ts`).
+
 ## Environment Isolation
 - Create temporary test directories for filesystem operations
 - Use `beforeEach`/`afterEach` hooks for consistent setup and cleanup
