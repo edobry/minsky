@@ -1490,9 +1490,40 @@ Session requested: "${options.session}"
       }
 
       if (err instanceof Error && err.message.includes("CONFLICT")) {
-        throw new MinskyError(
-          "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
-          { exitCode: 4 }
+        throw new MinskyError(`
+🔀 Merge Conflicts Detected
+
+Your session branch has conflicts with the latest changes from the main branch.
+This happens when both your session and the main branch have modified the same files.
+
+💡 How to resolve this:
+
+1️⃣ **Update your session to resolve conflicts:**
+   minsky session update
+
+   This will:
+   - Fetch the latest changes from main
+   - Attempt to merge them into your session
+   - Show you any conflicts that need manual resolution
+
+2️⃣ **If conflicts occur during update:**
+   - Edit the conflicted files to resolve the conflicts
+   - Stage the resolved files: git add .
+   - Commit the resolution: git commit -m "resolve conflicts"
+
+3️⃣ **Then retry creating the PR:**
+   minsky session pr --title "your title"
+
+🔍 **Alternative approach:**
+   If you prefer to handle conflicts manually:
+   - Run: git merge --abort (to cancel the current merge)
+   - Update your session: minsky session update
+   - Resolve any conflicts that arise
+   - Then retry the PR creation
+
+💡 **Tip:** Regular session updates help avoid large conflicts by keeping your session in sync with main.
+        `,
+        { exitCode: 4 }
         );
       }
       throw new MinskyError(
