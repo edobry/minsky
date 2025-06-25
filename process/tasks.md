@@ -324,3 +324,5 @@
 - [ ] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
+
+- [ ] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
