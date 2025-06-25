@@ -126,8 +126,7 @@ export class SessionDB implements SessionProviderInterface {
       // For custom dbPath, set baseDir based on a parallel directory structure
       this.baseDir = join(dbPath, "..", "..", "git");
     } else {
-      // Fix: Use the correct path where the actual session database is located
-      this.dbPath = join(xdgStateHome, "minsky", "minsky", "session-db.json");
+      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
       this.baseDir = join(xdgStateHome, "minsky", "git");
     }
   }
