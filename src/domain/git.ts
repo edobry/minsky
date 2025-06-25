@@ -299,9 +299,6 @@ export class GitService implements GitServiceInterface {
     });
 
     const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-    await mkdir(sessionsDir, { recursive: true });
-    log.debug("Sessions directory created", { sessionsDir });
-
     const workdir = this.getSessionWorkdir(normalizedRepoName, session);
     log.debug("Computed workdir path", { workdir });
 
@@ -312,17 +309,10 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Check if destination already exists and is not empty
-      try {
-        const fs = await import("fs/promises");
-        const dirContents = await fs.readdir(workdir);
-        if (dirContents.length > 0) {
-          log.warn("Destination directory is not empty", { workdir, contents: dirContents });
-        }
-      } catch (err) {
-        // Directory doesn't exist or can't be read - this is expected
-        log.debug("Destination directory doesn't exist or is empty", { workdir });
-      }
+      // Create sessions directory structure ONLY when ready to clone
+      // This ensures no orphaned directories if validation fails
+      await mkdir(sessionsDir, { recursive: true });
+      log.debug("Sessions directory created", { sessionsDir });
 
       // Clone the repository with verbose logging
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
@@ -338,6 +328,19 @@ export class GitService implements GitServiceInterface {
           error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
           command: cloneCmd,
         });
+
+        // Clean up orphaned session directory if git clone fails
+        try {
+          const fs = await import("fs/promises");
+          await fs.rm(workdir, { recursive: true, force: true });
+          log.debug("Cleaned up session directory after git clone failure", { workdir });
+        } catch (cleanupErr) {
+          log.warn("Failed to cleanup session directory after git clone failure", {
+            workdir,
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          });
+        }
+
         throw cloneErr;
       }
 
