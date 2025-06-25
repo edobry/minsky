@@ -302,7 +302,7 @@ export class TaskService {
    * @param id Task ID
    * @returns Promise resolving to the appropriate backend or null if not found
    */
-  async getBackendForTask(_id: string): Promise<TaskBackend | null> {
+  async getBackendForTask(id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
     const normalizedId = normalizeTaskId(__id);
     if (!normalizedId) {

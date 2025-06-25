@@ -408,7 +408,7 @@ export class RuleService {
   /**
    * Update an existing rule
    */
-  async updateRule(_id: string,
+  async updateRule(id: string,
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
@@ -465,7 +465,7 @@ export class RuleService {
   /**
    * Search for rules by content or metadata
    */
-  async searchRules(__options: SearchRuleOptions = {}): Promise<Rule[]> {
+  async searchRules(_options: SearchRuleOptions = {}): Promise<Rule[]> {
     // Get all rules first (with format filtering if specified)
     const rules = await this.listRules({
       format: options.format,

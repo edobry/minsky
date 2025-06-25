@@ -22,7 +22,7 @@ declare module "path" {
 declare module "fs" {
   export function existsSync(path: string): boolean;
   export function mkdirSync(path: string, _options?: any): void;
-  export function readFileSync(_path: string, _options?: any): string | Buffer;
+  export function readFileSync(path: string, _options?: any): string | Buffer;
   export function writeFileSync(_path: string, data: any, _options?: any): void;
   export type PathLike = string | Buffer;
   export type WriteFileOptions = object;

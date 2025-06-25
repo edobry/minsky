@@ -464,8 +464,8 @@ export async function getTaskSpecContentFromParams(
     let content: string;
     try {
       content = await fs.readFile(specPath, "utf8");
-    } catch (_error) {
-      console.log(typeof _error !== "undefined" ? "_error defined" : "_error undefined");
+    } catch (error) {
+      console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
         "file",

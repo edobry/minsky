@@ -181,7 +181,7 @@ function createMockState<TArgs extends any[], TReturn>(): MockState<TArgs, TRetu
  * @param implementation Optional initial implementation
  * @returns A Jest/Vitest compatible mock function
  */
-export function createCompatMock<T extends (..._args: unknown[]) => any>(
+export function createCompatMock<T extends (...args: unknown[]) => any>(
   implementation?: T
 ): CompatMockFunction<ReturnType<T>, Parameters<T>> {
   // Create the state object for tracking
