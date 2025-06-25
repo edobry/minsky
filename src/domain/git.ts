@@ -1343,7 +1343,35 @@ Need help? Run: minsky git pr --help
     if (options.session) {
       const record = await this.sessionDb.getSession(options.session);
       if (!record) {
-        throw new MinskyError(`Session '${options.session}' not found`);
+        throw new MinskyError(`
+🔍 Session "${options.session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${options.session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${options.session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands must be run from the main workspace, not from within the session directory.
+
+Current directory: ${process.cwd()}
+Session requested: "${options.session}"
+`);
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
       workdir = this.getSessionWorkdir(repoName, options.session);

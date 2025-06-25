@@ -12,11 +12,12 @@ This rule serves as the **primary entry point** for all testing guidance in the 
 | Scenario | Primary Rules | Supporting Rules |
 |----------|---------------|------------------|
 | Writing new tests | testing-boundaries, designing-tests | bun-test-patterns, framework-specific-tests |
+| Organizing test files | test-organization | testing-boundaries |
 | Implementing mocks | bun-test-patterns, testing-boundaries | framework-specific-tests |
 | Debugging failing tests | test-debugging | bun-test-patterns, test-expectations |
 | Updating test expectations | test-expectations | testing-boundaries |
 | Setting up test environments | test-infrastructure-patterns | framework-specific-tests |
-| Fixing bugs with tests | test-driven-bugfix | testing-boundaries, test-debugging |
+| Fixing bugs with tests | test-driven-bugfix | testing-boundaries, test-debugging, test-organization |
 | Verifying and running tests | tests | test-debugging |
 
 ## Rule Relationships
@@ -26,6 +27,7 @@ This rule serves as the **primary entry point** for all testing guidance in the 
 - [**bun-test-patterns**](mdc:.cursor/rules/bun-test-patterns.mdc): Essential patterns for using bun:test correctly
 
 ### Implementation Layer (Apply as Needed)
+- [**test-organization**](mdc:.cursor/rules/test-organization.mdc): How to organize test files and prevent fragmentation
 - [**framework-specific-tests**](mdc:.cursor/rules/framework-specific-tests.mdc): Standards for working with specific testing frameworks
 - [**test-infrastructure-patterns**](mdc:.cursor/rules/test-infrastructure-patterns.mdc): Setting up test environments and fixtures
 - [**designing-tests**](mdc:.cursor/rules/designing-tests.mdc): General principles for effective test design
