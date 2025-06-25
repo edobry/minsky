@@ -133,28 +133,6 @@ export const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;
 // Check if we're in human mode
 export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 
-/**
- * Check if debug mode is enabled based on environment variables
- */
-export const isDebugMode = (): boolean => {
-  return (
-    process.env.DEBUG === "true" ||
-    process.env.DEBUG === "1" ||
-    (typeof process.env.NODE_DEBUG === "string" && process.env.NODE_DEBUG.includes("minsky")) ||
-    logLevel === "debug"
-  );
-};
-
-/**
- * Console debug logging that only shows when debug mode is enabled
- * Use this for [DEBUG] prefixed messages that should be conditional
- */
-export const debugLog = (message: string): void => {
-  if (isDebugMode()) {
-    console.log(`[DEBUG] ${message}`);
-  }
-};
-
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
