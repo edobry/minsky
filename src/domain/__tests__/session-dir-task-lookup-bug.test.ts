@@ -85,7 +85,9 @@ describe("Session Dir Task Lookup Bug", () => {
 
   test("FIXED: getSessionByTaskId returns correct session when filtering works", async () => {
     // Arrange: Mock the CORRECT behavior (returns the matching session)
-    mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(mockSessions[1])); // Returns session "task#160"
+    const correctSession = mockSessions[1]; // session "task#160"
+    mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
+    mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession)); // Mock getSession too
 
     // Act
     const result = await getSessionDirFromParams(
@@ -105,7 +107,9 @@ describe("Session Dir Task Lookup Bug", () => {
 
   test("getSessionByTaskId should normalize task IDs correctly", async () => {
     // Arrange
-    mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(mockSessions[1]));
+    const correctSession = mockSessions[1];
+    mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
+    mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession)); // Mock getSession too
 
     // Act: Test with task ID without # prefix
     await getSessionDirFromParams({ task: "160" }, { sessionDB: mockSessionDB });
@@ -120,7 +124,7 @@ describe("Session Dir Task Lookup Bug", () => {
     const options = { taskId: "160" };
 
     // BUGGY behavior: returns all sessions without filtering
-    const buggyFilter = (sessions: any[], _options: any) => {
+    const buggyFilter = (sessions: any[], options: any) => {
       // This simulates the original broken getEntities() method
       return sessions; // Bug: ignores options parameter
     };
