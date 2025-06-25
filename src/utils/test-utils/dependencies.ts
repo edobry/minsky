@@ -70,7 +70,7 @@ export interface GitDependencies {
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of domain dependencies for testing
  */
-export function createTestDeps(__overrides: Partial<DomainDependencies> = {}): DomainDependencies {
+export function createTestDeps(overrides: Partial<DomainDependencies> = {}): DomainDependencies {
   // Create a more complete implementation using createPartialMock
   // This avoids type errors by letting TypeScript infer the required interface methods
   const sessionDB = createPartialMock<SessionProviderInterface>({
@@ -174,7 +174,8 @@ export function createTaskTestDeps(__overrides: Partial<TaskDependencies> = {}):
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of session-specific dependencies for testing
  */
-export function createSessionTestDeps(_overrides: Partial<SessionDependencies> = {}
+export function createSessionTestDeps(
+  _overrides: Partial<SessionDependencies> = {}
 ): SessionDependencies {
   const sessionDB = createPartialMock<SessionProviderInterface>({
     listSessions: () => Promise.resolve([]),
@@ -252,7 +253,8 @@ export function createGitTestDeps(__overrides: Partial<GitDependencies> = {}): G
  * @param overrides Partial implementation to override the defaults
  * @returns A complete mock repository backend
  */
-export function createMockRepositoryBackend(_overrides: Partial<RepositoryBackend> = {}
+export function createMockRepositoryBackend(
+  _overrides: Partial<RepositoryBackend> = {}
 ): RepositoryBackend {
   // Use createPartialMock to handle the interface requirements
   return createPartialMock<RepositoryBackend>({
@@ -389,7 +391,8 @@ function deepMergeDeps<T extends Record<string, unknown>>(target: T, source: Par
  * @param overrides Specific dependency overrides to apply
  * @returns A partial set of domain dependencies for testing
  */
-export function createPartialTestDeps(_overrides: Partial<DomainDependencies> = {}
+export function createPartialTestDeps(
+  _overrides: Partial<DomainDependencies> = {}
 ): Partial<DomainDependencies> {
   return overrides;
 }

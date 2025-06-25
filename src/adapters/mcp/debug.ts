@@ -99,7 +99,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
  * @param bytes Number of bytes
  * @returns Formatted string with appropriate unit (KB, MB, GB)
  */
-function formatBytes(_bytes: number): string {
+function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
 
   const k = BYTES_PER_KB;
