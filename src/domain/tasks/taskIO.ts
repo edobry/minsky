@@ -45,16 +45,16 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
  * @returns Promise resolving to success status or error
  */
 export async function writeTasksFile(
-  _filePath: string,
-  _content: string
+  filePath: string,
+  content: string
 ): Promise<TaskWriteOperationResult> {
   try {
-    await fs.writeFile(_filePath, _content, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(filePath, content, "utf-8");
     return {
       success: true,
       filePath,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
@@ -70,15 +70,15 @@ export async function writeTasksFile(
  * @param filePath Path to the task spec file
  * @returns Promise resolving to file content or error
  */
-export async function readTaskSpecFile(__filePath: string): Promise<TaskReadOperationResult> {
+export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperationResult> {
   try {
-    const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+    const content = await fs.readFile(filePath, "utf-8");
     return {
       success: true,
       filePath,
       content,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {

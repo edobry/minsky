@@ -47,9 +47,9 @@ export class GitHubBackend implements RepositoryBackend {
    * Create a new GitHubBackend instance
    * @param config Backend configuration
    */
-  constructor(__config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+  constructor(config: RepositoryBackendConfig) {
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(xdgStateHome, "minsky", "git");
 
     // Extract GitHub-specific options
     this.owner = config.github?.owner;
@@ -90,9 +90,9 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(__session: string): string {
+  private getSessionWorkdir(session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, this.repoName, "sessions", _session);
+    return join(this.baseDir, this.repoName, "sessions", session);
   }
 
   /**
@@ -100,26 +100,26 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
     const sessionsDir = join(this.baseDir, this.repoName, "sessions");
-    await mkdir(_sessionsDir, { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(session);
 
     try {
       // Use GitService's clone method to delegate credential handling to Git
-      const _result = await this.gitService.clone({
+      const result = await this.gitService.clone({
         repoUrl: this.repoUrl,
-        _session,
+        session,
       });
 
       return {
-        _workdir,
-        _session,
+        workdir,
+        session,
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error));
@@ -175,23 +175,23 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
       // Forward to the version that takes a session parameter
-      const _workdir = this.getSessionWorkdir(repoSession._session);
+      const workdir = this.getSessionWorkdir(repoSession.session);
 
       // Use GitService to get repository status
-      const gitStatus = await this.gitService.getStatus(_workdir);
+      const gitStatus = await this.gitService.getStatus(workdir);
 
       // Get additional information directly
       const { stdout: branchOutput } = await execAsync(
         `git -C ${workdir} rev-parse --abbrev-ref HEAD`
       );
-      const _branch = branchOutput.trim();
+      const branch = branchOutput.trim();
 
       // Get ahead/behind counts
       let ahead = 0;
@@ -263,8 +263,8 @@ export class GitHubBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatusForSession(__session: string): Promise<RepositoryStatus> {
-    const _workdir = this.getSessionWorkdir(_session);
+  async getStatusForSession(session: string): Promise<RepositoryStatus> {
+    const workdir = this.getSessionWorkdir(session);
     return this.getStatus(); // Reuse the existing implementation
   }
 
@@ -453,14 +453,14 @@ export class GitHubBackend implements RepositoryBackend {
     try {
       // Find a session for this repository
       const sessions = await this.sessionDb.listSessions();
-      const repoSession = sessions.find((_session) => session.repoName === this.repoName);
+      const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
         throw new Error("No session found for this repository");
       }
 
-      const _sessionName = repoSession.session;
-      const _workdir = this.getSessionWorkdir(_sessionName);
+      const sessionName = repoSession.session;
+      const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
