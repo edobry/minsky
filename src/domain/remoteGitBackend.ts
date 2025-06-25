@@ -152,7 +152,8 @@ export class RemoteGitBackend implements RepositoryBackend {
 
     const cacheKey = generateRepoKey(this.localPath, "status");
 
-    return this.cache.get(_cacheKey,
+    return this.cache.get(
+      _cacheKey,
       async () => {
         try {
           const statusOutput = await this.execGit(["status", "--porcelain"]);
@@ -253,8 +254,8 @@ export class RemoteGitBackend implements RepositoryBackend {
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
     } catch (_error) {
       throw new RepositoryError(
-        `Failed to push _branch ${branchToPush}`,
-        error instanceof Error ? error : undefined
+        `Failed to push branch ${branchToPush}`,
+        _error instanceof Error ? _error : undefined
       );
     }
   }
