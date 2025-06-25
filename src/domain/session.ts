@@ -1166,34 +1166,49 @@ Need help? Run 'git status' to see what files have changed.
     }
 
     // STEP 6: Now proceed with PR creation
-    const result = await preparePrFromParams({
-      session: sessionName,
-      title: params.title,
-      body: bodyContent,
-      baseBranch: params.baseBranch,
-      debug: params.debug,
-    });
+    if (params.repo) {
+      // If repo path is provided, use it directly without session lookup
+      const result = await preparePrFromParams({
+        repo: params.repo,
+        title: params.title,
+        body: bodyContent,
+        baseBranch: params.baseBranch,
+        debug: params.debug,
+      });
+      
+      return result;
+    } else {
+      // Use session-based lookup
+      const result = await preparePrFromParams({
+        session: sessionName,
+        title: params.title,
+        body: bodyContent,
+        baseBranch: params.baseBranch,
+        debug: params.debug,
+      });
 
-    // Update task status to IN-REVIEW if associated with a task
-    if (!params.noStatusUpdate) {
-      const sessionRecord = await sessionDb.getSession(sessionName);
-      if (sessionRecord?.taskId) {
-        try {
-          const taskService = new TaskService({
-            workspacePath: process.cwd(),
-            backend: "markdown",
-          });
-          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
-        } catch (error) {
-          log.warn(
-            `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
-          );
+      // Update task status to IN-REVIEW if associated with a task
+      if (!params.noStatusUpdate) {
+        const sessionRecord = await sessionDb.getSession(sessionName);
+        if (sessionRecord?.taskId) {
+          try {
+            const taskService = new TaskService({
+              workspacePath: process.cwd(),
+              backend: "markdown",
+            });
+            await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          } catch (statusError) {
+            log.warn("Failed to update task status to IN-REVIEW", {
+              taskId: sessionRecord.taskId,
+              error: statusError instanceof Error ? statusError.message : String(statusError),
+            });
+            // Don't fail the entire PR creation if status update fails
+          }
         }
       }
-    }
 
-    return result;
+      return result;
+    }
   } catch (error) {
     log.error("Error creating PR for session", {
       session: params.session,
