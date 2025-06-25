@@ -1018,8 +1018,37 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     // STEP 4: Check for uncommitted changes
     const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
     if (hasUncommittedChanges) {
+      // Get the status of uncommitted changes to show in the error
+      let statusInfo = "";
+      try {
+        statusInfo = await gitService.getStatus(currentDir);
+      } catch (statusError) {
+        statusInfo = "Unable to get detailed status.";
+      }
+
       throw new MinskyError(
-        "Cannot create PR with uncommitted changes. Please commit or stash your changes first."
+        `
+🚫 Cannot create PR with uncommitted changes
+
+You have uncommitted changes in your session workspace that need to be committed first.
+
+Current changes:
+${statusInfo}
+
+To fix this, run one of the following:
+
+📝 Commit your changes:
+   git add .
+   git commit -m "Your commit message"
+
+📦 Or stash your changes temporarily:
+   git stash
+
+💡 Then try creating the PR again:
+   minsky session pr --title "your title"
+
+Need help? Run 'git status' to see what files have changed.
+      `.trim()
       );
     }
 
