@@ -7,52 +7,9 @@ alwaysApply: false
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
 
-## CLI Command Output Design Principles
+## CLI Command Output Design
 
-**Learned from config command redesign experience**
-
-### Core Philosophy: State, Not Process
-- **Show WHAT is active**, not HOW it was determined
-- **Current state only**, not implementation details or decision logic
-- **Facts, not explanations** - users want to see their configuration, not learn about the system
-
-### Follow Established CLI Tool Patterns
-Study and emulate successful CLI tools:
-- `git config --list` → shows key=value pairs, no explanations
-- `docker info` → current system state, not how Docker works
-- `kubectl config view` → effective configuration, not resolution logic
-- `npm config list` → current values, not where they came from
-
-### Anti-Patterns to Avoid
-❌ **Verbose explanations**: "Minsky will choose task backend based on..."
-❌ **Implementation details**: Auto-detection rules, decision trees, precedence explanations
-❌ **Documentation in output**: Configuration source explanations, how the system works
-❌ **Technical jargon**: "Backend: markdown" instead of "Task Storage: Markdown files"
-
-### Good Patterns to Follow
-✅ **Concise state**: `📁 Task Storage: Markdown files (process/tasks.md)`
-✅ **User-focused labels**: "Task Storage" not "Backend", "Authentication" not "Credentials"
-✅ **Essential context only**: Show file paths/sources when relevant to user action
-✅ **Consistent format**: Similar to other CLI tools users already know
-
-### Design Process
-1. **Start with user needs**: What do they need to know to take action?
-2. **Study comparable tools**: How do git, docker, kubectl handle similar output?
-3. **Remove explanations**: If it explains HOW something works, remove it
-4. **Test holistically**: Does this feel like other professional CLI tools?
-
-### When to Show Details
-- **Error output**: Show diagnostic information to help user fix problems
-- **Debug flags**: `--verbose` or `--debug` can show implementation details
-- **Help text**: Explanations belong in `--help`, not regular output
-- **Documentation**: Complex explanations belong in docs, not command output
-
-### Implementation Guidelines
-- Use clear, user-facing terminology instead of internal technical terms
-- Group related information logically
-- Show paths and identifiers that users can act on
-- Keep output scannable - users should find what they need quickly
-- Consider both new and experienced users - concise but not cryptic
+For detailed CLI output design principles, see [cli-output-design](mdc:.cursor/rules/cli-output-design.mdc).
 
 ## Error Detection Signals
 
@@ -116,30 +73,9 @@ Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
 User: "Going forward, always use absolute paths when editing files in the session workspace."
 Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
 
-## Rule System Organization Lessons
+## Rule System Organization
 
-When working with complex rule systems (like testing rules), apply these organizational principles:
-
-1. **Create Rule Hierarchies**:
-   - Create a router rule as the entry point for the rule system
-   - Organize rules into layers (Foundation, Implementation, Specialized)
-   - Ensure descriptions clearly indicate rule relationships
-
-2. **Cross-Rule References**:
-   - Always include explicit references to related rules
-   - Use relationship indicators in descriptions ("Apply alongside X")
-   - Create a relationship matrix in the router rule showing when each rule applies
-
-3. **Rule Application Clarity**:
-   - Ensure every rule has a clear, unique purpose
-   - Prevent overlapping guidance between rules
-   - Use specific scenarios in descriptions to trigger correct rule application
-
-4. **Combine Related Rules When Appropriate**:
-   - If multiple rules cover similar topics and are consistently applied together, consider merging them
-   - If a rule system becomes too complex (10+ rules), look for consolidation opportunities
-
-These lessons should be applied proactively when creating or refactoring rule systems to improve AI understanding and rule application.
+For rule system organization principles, see [rule-creation-guidelines](mdc:.cursor/rules/rule-creation-guidelines.mdc).
 
 ## Common Self-Improvement Scenarios
 
@@ -275,36 +211,8 @@ This rule MUST be applied whenever:
 5. The user asks you to do something differently
 6. Your action results in an error
 
-## ⚠️ Critical Variable Naming Protocol Enforcement
+## ⚠️ Critical Variable Naming Protocol
 
-**EMERGENCY PROTOCOL FOR REPEATED VARIABLE NAMING VIOLATIONS**
-
-### When User Reports Adding Underscores to Working Variables:
-
-**IMMEDIATE STOP PROTOCOL:**
-1. **HALT ALL VARIABLE NAMING CHANGES** - Do not proceed with any variable renaming
-2. **MANDATORY VERIFICATION**: Before ANY variable name change, execute this checklist:
-   - [ ] Is this variable actually causing an error?
-   - [ ] Is this variable already defined and working?
-   - [ ] Am I adding underscores to avoid an error instead of fixing the root cause?
-   - [ ] Does the variable-naming-protocol rule explicitly prohibit this change?
-
-### Critical Enforcement Rules:
-- **NEVER add underscores to variables that are working correctly**
-- **NEVER rename variables to avoid "X is not defined" errors**
-- **ALWAYS find where X should be defined instead of renaming other variables**
-- **ALWAYS verify against variable-naming-protocol rule before any change**
-
-### Violation Consequence:
-- **First violation**: Warning and immediate correction
-- **Second violation**: CRITICAL PROTOCOL FAILURE - Update enforcement mechanisms
-- **Third violation**: Complete halt of variable naming operations until user guidance
-
-### Mandatory Pre-Change Protocol:
-Before changing ANY variable name, I MUST:
-1. Read the variable-naming-protocol rule completely
-2. Verify the variable is actually causing an error
-3. Confirm I'm not adding underscores to working variables
-4. Document why the change is necessary and compliant with the rule
+For variable naming enforcement protocols, see [variable-naming-protocol](mdc:.cursor/rules/variable-naming-protocol.mdc).
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**

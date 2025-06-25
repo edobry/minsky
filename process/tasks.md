@@ -326,3 +326,5 @@
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
 - [ ] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
+
+- [ ] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)

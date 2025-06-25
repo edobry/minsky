@@ -3,6 +3,13 @@ description:
 globs:
 alwaysApply: true
 ---
+---
+name: Variable Naming Protocol
+description: Use when encountering variable naming linter errors or "not defined" errors before changing variable names
+globs: ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx"]
+alwaysApply: true
+---
+
 # Variable Naming Protocol
 
 ## Core Principle
