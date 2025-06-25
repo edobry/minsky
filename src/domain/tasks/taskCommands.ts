@@ -207,7 +207,7 @@ export async function getTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (_options: unknown) => Promise<TaskService>;
+    createTaskService: (options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -348,11 +348,11 @@ export async function setTaskStatusFromParams(
  * @returns The created task
  */
 export async function createTaskFromParams(
-  _params: TaskCreateParams,
+  params: TaskCreateParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
-    createTaskService: (_options: unknown) => TaskService;
+    createTaskService: (options: unknown) => TaskService;
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
@@ -402,7 +402,7 @@ export async function createTaskFromParams(
  * @returns The task specification content
  */
 export async function getTaskSpecContentFromParams(
-  _params: TaskSpecContentParams,
+  params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveWorkspacePath: typeof resolveWorkspacePath;
@@ -474,7 +474,7 @@ export async function getTaskSpecContentFromParams(
       content,
       section: validParams.section,
     };
-  } catch (_error) {
+  } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",

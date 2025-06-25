@@ -112,7 +112,7 @@ export class ConfigurationLoader {
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as GlobalUserConfig;
-    } catch (_error) {
+    } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
        
       console.error(`Failed to load global user config from ${configPath}:`, _error);

@@ -138,7 +138,7 @@ function resetSharedState(): void {
     if (registryModule?.sharedCommandRegistry?.commands) {
       (registryModule.sharedCommandRegistry as any).commands = new Map();
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist or can't be loaded
     // This ensures tests can run even if the command registry isn't available
   }
@@ -156,7 +156,7 @@ function resetSharedState(): void {
         bridge.categoryCustomizations.clear();
       }
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -167,7 +167,7 @@ function resetSharedState(): void {
       // Reset any cached error state
       // Note: Most error handlers are stateless, but included for completeness
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -177,7 +177,7 @@ function resetSharedState(): void {
     if (compatModule?.resetAllMocks) {
       compatModule.resetAllMocks();
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -187,7 +187,7 @@ function resetSharedState(): void {
     if (jestCompatModule?.jest?.resetModules) {
       jestCompatModule.jest.resetModules();
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist
   }
 
@@ -201,7 +201,7 @@ function resetSharedState(): void {
         // Note: This is defensive - proper tests should restore their own mocks
       }
     }
-  } catch (_error) {
+  } catch (error) {
     // Ignore errors if the module doesn't exist
   }
 }
@@ -442,7 +442,7 @@ export function createMockFileSystem(__initialFiles: Record<string, string> = {}
  * @example
  * // Define an interface
  * interface UserService {
- *   getUser(__id: string): Promise<User | null>;
+ *   getUser(id: string): Promise<User | null>;
  *   updateUser(__id: string, data: unknown): Promise<boolean>;
  *   deleteUser(__id: string): Promise<boolean>;
  * }

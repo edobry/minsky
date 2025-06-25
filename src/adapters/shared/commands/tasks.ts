@@ -597,7 +597,7 @@ const tasksMigrateRegistration = {
     if (statusMapping) {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
-      } catch (_error) {
+      } catch (error) {
         throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
       }
     }

@@ -14,7 +14,7 @@ import { log } from "./logger.js";
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 
 // Mock filesystem operations for testing
-export function mockMkdirSync(__path: string, _options?: { recursive?: boolean }): void {
+export function mockMkdirSync(path: string, _options?: { recursive?: boolean }): void {
   log.debug(`[MOCK] Creating directory ${path}`);
   virtualFS.set(_path, { isDirectory: true });
 

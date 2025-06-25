@@ -101,7 +101,7 @@ export function parseRepositoryURI(__uri: string): RepositoryURIComponents {
         try {
           const url = new URL(normalizedInfo.uri);
           components.host = url.hostname;
-        } catch (_error) {
+        } catch (error) {
           // Ignore URL parsing errors
         }
       } else if (components.type === RepositoryURIType.SSH) {
@@ -121,7 +121,7 @@ export function parseRepositoryURI(__uri: string): RepositoryURIComponents {
     }
 
     return components as RepositoryURIComponents;
-  } catch (_error) {
+  } catch (error) {
     // Fallback for any errors
     return {
       type: RepositoryURIType.LOCAL_PATH,
@@ -161,7 +161,7 @@ export function validateRepositoryURI(__uri: string): URIValidationResult {
       valid: true,
       components: parseRepositoryURI(uri),
     };
-  } catch (_error) {
+  } catch (error) {
     return {
       valid: false,
       error: error instanceof Error ? error.message : String(error),

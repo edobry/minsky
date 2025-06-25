@@ -17,7 +17,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
 
       // Parse the JSON output
       return JSON.parse(output);
-    } catch (_error) {
+    } catch (error) {
       log.error("Error listing sessions", { error });
       throw new Error(
         `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
@@ -32,7 +32,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
     z.object({
       _session: z.string().describe("Session identifier"),
     }),
-    async (_args: unknown) => {
+    async (args: unknown) => {
       try {
         // Execute the command
         const _command = `minsky session get ${args.session} --json`;
@@ -40,7 +40,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
 
         // Parse the JSON output
         return JSON.parse(output);
-      } catch (_error) {
+      } catch (error) {
         log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
           `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
@@ -59,7 +59,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
       quiet: z.boolean().optional().describe("Whether to suppress output").default(true),
     }),
     async (
-      _args: z.infer<
+      args: z.infer<
         z.ZodObject<{
           name: z.ZodOptional<z.ZodString>;
           task: z.ZodOptional<z.ZodString>;
@@ -88,7 +88,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           message: output.trim(),
           session: args.name || `task#${args.task}` || "unnamed-session",
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
           `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
@@ -134,7 +134,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
           `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
@@ -175,7 +175,7 @@ export function registerSessionTools(__commandMapper: CommandMapper): void {
           success: true,
           message: output.trim(),
         };
-      } catch (_error) {
+      } catch (error) {
         log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
           `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`

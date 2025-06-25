@@ -255,7 +255,7 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(_error: unknown, _options: ErrorHandlingOptions = {}): never {
+  handleError(_error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response

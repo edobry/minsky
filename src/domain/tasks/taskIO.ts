@@ -96,8 +96,8 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
  * @returns Promise resolving to success status or error
  */
 export async function writeTaskSpecFile(
-  _filePath: string,
-  _content: string
+  filePath: string,
+  content: string
 ): Promise<TaskWriteOperationResult> {
   try {
     // Create parent directories if they don't exist
@@ -108,7 +108,7 @@ export async function writeTaskSpecFile(
       success: true,
       filePath,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
@@ -124,7 +124,7 @@ export async function writeTaskSpecFile(
  * @param filePath Path to the file
  * @returns Promise resolving to true if file exists, false otherwise
  */
-export async function fileExists(__filePath: string): Promise<boolean> {
+export async function fileExists(_filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
@@ -145,7 +145,7 @@ export async function createDirectory(__dirPath: string): Promise<TaskFileOperat
       success: true,
       filePath: dirPath,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
@@ -170,7 +170,7 @@ export async function deleteFile(__filePath: string): Promise<TaskFileOperationR
       success: true,
       filePath,
     };
-  } catch (_error) {
+  } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
@@ -191,7 +191,7 @@ export async function listFiles(__dirPath: string): Promise<string[] | null> {
   try {
     const files = await fs.readdir(dirPath);
     return files;
-  } catch (_error) {
+  } catch (error) {
     log.error(`Failed to list files in directory: ${dirPath}`, {
       error: error instanceof Error ? error : String(error),
     });

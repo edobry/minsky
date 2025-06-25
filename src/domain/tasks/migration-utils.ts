@@ -81,7 +81,7 @@ export class TaskMigrationUtils {
       // Check if tasks.md exists
       try {
         await access(tasksFilePath);
-      } catch (_error) {
+      } catch (error) {
         return {
           success: false,
           error: new Error(`tasks.md not found at ${tasksFilePath}`),
@@ -166,7 +166,7 @@ export class TaskMigrationUtils {
         newDbFile: this.targetDbPath,
         backupFile,
       };
-    } catch (_error) {
+    } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Migration failed", { error: typedError.message });
 
@@ -247,7 +247,7 @@ export class TaskMigrationUtils {
         newDbFile: tasksFilePath,
         backupFile,
       };
-    } catch (_error) {
+    } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error("Reverse migration failed", { error: typedError.message });
 
@@ -321,7 +321,7 @@ export class TaskMigrationUtils {
         jsonTasks,
         differences,
       };
-    } catch (_error) {
+    } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
@@ -345,7 +345,7 @@ export class TaskMigrationUtils {
    * @returns Array of task data
    * @private
    */
-  private parseMarkdownTasks(__content: string): TaskData[] {
+  private parseMarkdownTasks(content: string): TaskData[] {
     const _tasks: TaskData[] = [];
     const lines = content.split("\n");
 

@@ -140,7 +140,7 @@ describe("Rules Domain Methods", () => {
   describe("searchRules", () => {
     test("searches rules by query", async () => {
       // Arrange
-      const _options: SearchRuleOptions = { query: "test" };
+      const options: SearchRuleOptions = { query: "test" };
       mockSearchRules.mockResolvedValue(mockRules);
 
       // Act
@@ -153,7 +153,7 @@ describe("Rules Domain Methods", () => {
 
     test("returns empty array when no matches", async () => {
       // Arrange
-      const _options: SearchRuleOptions = { query: "no-match" };
+      const options: SearchRuleOptions = { query: "no-match" };
       mockSearchRules.mockResolvedValue([]);
 
       // Act

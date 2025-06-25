@@ -81,7 +81,7 @@ const programLogFormat = format.combine(
     if (Object.keys(_metadata).length > 0) {
       try {
         log += ` ${JSON.stringify(_metadata)}`;
-      } catch (_error) {
+      } catch (error) {
         // ignore serialization errors for metadata in text logs
       }
     }

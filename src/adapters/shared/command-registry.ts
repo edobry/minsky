@@ -162,7 +162,7 @@ export class SharedCommandRegistry implements CommandRegistry {
   registerCommand<
     T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
     R = unknown,
-  >(commandDef: CommandDefinition<T, R>, _options: { allowOverwrite?: boolean } = {}): void {
+  >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
     if (this.commands.has(commandDef.id) && !_options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }

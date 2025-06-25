@@ -62,7 +62,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param cwd Working directory
    * @returns The command output
    */
-  private async execGit(__args: string[], cwd?: string): Promise<string> {
+  private async execGit(args: string[], cwd?: string): Promise<string> {
     const cmd = `git ${args.join(" ")}`;
     try {
       const { stdout, stderr } = await execAsync(_cmd, { cwd: cwd || this.localPath });
@@ -74,7 +74,7 @@ export class LocalGitBackend implements RepositoryBackend {
         });
       }
       return stdout.trim();
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Git _command failed: ${cmd}`,
         error instanceof Error ? error : undefined
@@ -123,7 +123,7 @@ export class LocalGitBackend implements RepositoryBackend {
         _workdir,
         _session,
       };
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Failed to clone local repository from ${this.config.path}`,
         error instanceof Error ? error : undefined
@@ -152,7 +152,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
           try {
             trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
-          } catch (_error) {
+          } catch (error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
           }
@@ -163,7 +163,7 @@ export class LocalGitBackend implements RepositoryBackend {
             branch: branchOutput,
             tracking: trackingOutput !== "" ? trackingOutput : undefined,
           };
-        } catch (_error) {
+        } catch (error) {
           throw new RepositoryError(
             "Failed to get repository status",
             error instanceof Error ? error : undefined

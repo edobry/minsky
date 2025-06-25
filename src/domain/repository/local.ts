@@ -199,7 +199,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // For remote repositories, we can't easily validate them without cloning
       // For now, we'll just assume they're valid
-    } catch (_error) {
+    } catch (error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       return { success: false, message: `Invalid git repository: ${error.message}` };
     }

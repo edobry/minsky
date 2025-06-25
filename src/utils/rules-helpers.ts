@@ -27,7 +27,7 @@ export async function readContentFromFileIfExists(__contentPath: string): Promis
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (_error) {
+  } catch (error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;

@@ -29,7 +29,7 @@ function createMockFn<T extends (...args: unknown[]) => any>(
   _impl?: T;
   _resolvedValue?: unknown;
 } {
-  const fn: unknown = (..._args: unknown[]) => {
+  const fn: unknown = (...args: unknown[]) => {
     fn.calls.push(args);
     if (typeof fn._impl === "function") return fn.impl(..._args);
     if (fn._resolvedValue !== undefined) return Promise.resolve(fn._resolvedValue);
@@ -48,7 +48,7 @@ function createMockFn<T extends (...args: unknown[]) => any>(
 }
 
 // Mock the exec function
-const mockExecAsync = createMockFn((..._args: unknown[]) => {
+const mockExecAsync = createMockFn((...args: unknown[]) => {
   const p: unknown = Promise.resolve({
     stdout: mockExecOutput.stdout,
     stderr: mockExecOutput.stderr,

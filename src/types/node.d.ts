@@ -6,8 +6,8 @@
 // Declare Node.js path module
 declare module "path" {
   export function join(...paths: string[]): string;
-  export function dirname(_path: string): string;
-  export function basename(_path: string): string;
+  export function dirname(path: string): string;
+  export function basename(path: string): string;
   export function resolve(...paths: string[]): string;
   export function parse(_path: string): {
     root: string;

@@ -119,7 +119,7 @@ export class TaskService {
    * @param id Task ID to get
    * @returns Promise resolving to task or null if not found
    */
-  async getTask(__id: string): Promise<TaskData | null> {
+  async getTask(id: string): Promise<TaskData | null> {
     // Get all tasks
     const _tasks = await this.listTasks();
 
@@ -480,7 +480,7 @@ export async function createConfiguredTaskService(
       workspacePath,
       backend: resolvedBackend,
     });
-  } catch (_error) {
+  } catch (error) {
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,

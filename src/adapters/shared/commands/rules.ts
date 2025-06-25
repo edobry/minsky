@@ -231,7 +231,7 @@ export function registerRulesCommands(): void {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (_params: unknown) => {
+    execute: async (params: unknown) => {
       log.debug("Executing rules.list _command", { params, _context });
 
       try {
@@ -269,7 +269,7 @@ export function registerRulesCommands(): void {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (_params: unknown) => {
+    execute: async (params: unknown) => {
       log.debug("Executing rules.get _command", { params, _context });
 
       try {

@@ -34,7 +34,7 @@ describe("SessionAdapter", () => {
     // Mock session-db-io module to use our mock filesystem
     mockModule("./session-db-io", () => {
       return {
-        readSessionDbFile: (_options: unknown) => {
+        readSessionDbFile: (options: unknown) => {
           try {
             const content = mockFS.readFileSync(options.dbPath || dbPath);
             const data = JSON.parse(content);

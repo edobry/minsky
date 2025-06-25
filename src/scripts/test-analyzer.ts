@@ -99,7 +99,7 @@ const patterns = {
 };
 
 interface TestFileAnalysis {
-  _path: string;
+  path: string;
   relativePath: string;
   size: number;
   counts: {
@@ -166,7 +166,7 @@ async function findTestFiles(__dir: string): Promise<string[]> {
 /**
  * Extract imports from a file
  */
-function extractImports(__content: string): string[] {
+function extractImports(content: string): string[] {
   const importRegex = /import\s+(?:{[^}]*}|\*\s+as\s+\w+|\w+)\s+from\s+['"]([^'"]+)['"]/g;
   const imports: string[] = [];
   let match: RegExpExecArray | null;
@@ -202,7 +202,7 @@ function extractMockDependencies(__content: string): string[] {
 /**
  * Analyze a single test file
  */
-async function analyzeTestFile(__path: string): Promise<TestFileAnalysis> {
+async function analyzeTestFile(_path: string): Promise<TestFileAnalysis> {
   const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
   const relativePath = relative(_baseDir, path);
   const counts = {
@@ -632,7 +632,7 @@ async function main() {
         `Vitest: ${report.categoryCounts.frameworkDependency.vitest}, ` +
         `None: ${report.categoryCounts.frameworkDependency.none}`
     );
-  } catch (_error) {
+  } catch (error) {
     log.cliError("Error running test analyzer:", error);
     process.exit(1);
   }

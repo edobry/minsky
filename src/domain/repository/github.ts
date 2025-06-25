@@ -205,7 +205,7 @@ export class GitHubBackend implements RepositoryBackend {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
-      } catch (_error) {
+      } catch (error) {
         // If no upstream branch is set, this will fail - that's okay
       }
 
@@ -350,7 +350,7 @@ export class GitHubBackend implements RepositoryBackend {
         success: true,
         message: "GitHub repository validated successfully",
       };
-    } catch (_error) {
+    } catch (error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       return {
         valid: false,
@@ -395,7 +395,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
-    } catch (_error) {
+    } catch (error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -434,7 +434,7 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
-    } catch (_error) {
+    } catch (error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       return {
         success: false,
@@ -465,7 +465,7 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
-    } catch (_error) {
+    } catch (error) {
       const _error = err instanceof Error ? err : new Error(String(err));
       throw new Error(`Failed to checkout _branch: ${error.message}`);
     }
