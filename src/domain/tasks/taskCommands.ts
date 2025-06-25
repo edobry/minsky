@@ -12,7 +12,7 @@ import {
 } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
-import fs from "fs/promises";
+import { readFile } from "fs/promises";
 // Re-export task data types
 export type {} from "../../types/tasks/taskData.js";
 
@@ -463,7 +463,7 @@ export async function getTaskSpecContentFromParams(
     // Read the spec content
     let content: string;
     try {
-      content = await fs.readFile(specPath, "utf8");
+      content = (await readFile(specPath, "utf8")) as string;
     } catch (error) {
       console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       throw new ResourceNotFoundError(
