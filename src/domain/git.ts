@@ -29,6 +29,15 @@ export interface GitServiceInterface {
   branch(options: BranchOptions): Promise<BranchResult>;
 
   /**
+   * Create and checkout a new branch without requiring session in database
+   */
+  branchWithoutSession(options: {
+    repoName: string;
+    session: string;
+    branch: string;
+  }): Promise<BranchResult>;
+
+  /**
    * Execute a git command in a repository
    */
   execInRepository(workdir: string, command: string): Promise<string>;
@@ -396,6 +405,26 @@ export class GitService implements GitServiceInterface {
     log.debug("Branch: calculated workdir", { workdir });
 
     await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    return {
+      workdir,
+      branch: options.branch,
+    };
+  }
+
+  /**
+   * Create a branch without requiring session record to exist in database
+   * Used during session creation when session hasn't been added to DB yet
+   */
+  async branchWithoutSession(options: {
+    repoName: string;
+    session: string;
+    branch: string;
+  }): Promise<BranchResult> {
+    await this.ensureBaseDir();
+
+    const workdir = this.getSessionWorkdir(options.repoName, options.session);
+    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+
     return {
       workdir,
       branch: options.branch,

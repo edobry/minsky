@@ -633,8 +633,10 @@ export async function startSessionFromParams(
         session: sessionName,
       });
 
-      // Create a branch based on the session name
-      const branchResult = await deps.gitService.branch({
+      // Create a branch based on the session name - use branchWithoutSession
+      // since session record hasn't been added to DB yet
+      const branchResult = await deps.gitService.branchWithoutSession({
+        repoName: normalizeRepoName(repoUrl),
         session: sessionName,
         branch: branchName,
       });

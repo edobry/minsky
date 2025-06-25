@@ -142,7 +142,7 @@ export function createTestDeps(overrides: Partial<DomainDependencies> = {}): Dom
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of task-specific dependencies for testing
  */
-export function createTaskTestDeps(__overrides: Partial<TaskDependencies> = {}): TaskDependencies {
+export function createTaskTestDeps(overrides: Partial<TaskDependencies> = {}): TaskDependencies {
   const taskService = createPartialMock<TaskServiceInterface>({
     getTask: () => Promise.resolve(null),
     setTaskStatus: () => Promise.resolve(),
@@ -215,7 +215,7 @@ export function createSessionTestDeps(
  * @param overrides Optional partial implementation to override the default mocks
  * @returns A complete set of git-specific dependencies for testing
  */
-export function createGitTestDeps(__overrides: Partial<GitDependencies> = {}): GitDependencies {
+export function createGitTestDeps(overrides: Partial<GitDependencies> = {}): GitDependencies {
   const gitService = createPartialMock<GitServiceInterface>({
     clone: () => Promise.resolve({ _workdir: "/mock/workdir", _session: "test-session" }),
     branch: () => Promise.resolve({ _workdir: "/mock/workdir", _branch: "test-_branch" }),

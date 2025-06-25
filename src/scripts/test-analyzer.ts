@@ -302,7 +302,7 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
 /**
  * Generate an analysis report from all test files
  */
-async function generateReport(__testFiles: TestFileAnalysis[]): Promise<AnalysisReport> {
+async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisReport> {
   const totals = {
     mockPatterns: {} as Record<string, number>,
     frameworkFeatures: {} as Record<string, number>,
@@ -366,7 +366,7 @@ async function generateReport(__testFiles: TestFileAnalysis[]): Promise<Analysis
     if (
       file.counts.mockPatterns.mockModule !== undefined &&
       file.counts.mockPatterns.mockModule > 0 &&
-      !file.imports.some((_i: unknown) => i.includes("bun:test"))
+      !file.imports.some((i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[0]?.files?.push(file.relativePath);
     }

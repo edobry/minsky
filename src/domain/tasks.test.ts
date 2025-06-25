@@ -56,8 +56,8 @@ describe("MarkdownTaskBackend", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("lists all real _tasks, ignoring code blocks and malformed lines", async () => {
-    const _tasks = await backend.listTasks();
+  it("lists all real tasks, ignoring code blocks and malformed lines", async () => {
+    const tasks = await backend.listTasks();
     expect(tasks.length).toBe(3);
     expect(tasks.map((t) => t.id)).toEqual(["#001", "#002", "#003"]);
     expect(tasks.map((t) => t.title)).toContain("First Task");

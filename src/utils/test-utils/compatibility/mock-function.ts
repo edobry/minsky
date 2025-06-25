@@ -117,7 +117,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a new implementation for the mock function.
    */
-  mockImplementation(_fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementation(fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time implementation for the next call.
@@ -196,19 +196,19 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   const implementationFn = (...args: Parameters<T>): ReturnType<T> => {
     try {
       // Track the call
-      state.calls.push(_args as Parameters<T>);
+      state.calls.push(args as Parameters<T>);
       state.lastCall = args as Parameters<T>;
       state.invocationCallOrder.push(++globalInvocationCount);
 
       // Determine which implementation to use
-      let _result: ReturnType<T>;
+      let result: ReturnType<T>;
       if (state.implementationsOnce.length > 0) {
         // Use a one-time implementation
         const implOnce = state.implementationsOnce.shift()!;
-        result = implOnce(..._args);
+        result = implOnce(...args);
       } else if (state.implementation) {
         // Use the current implementation
-        result = state.implementation(..._args);
+        result = state.implementation(...args);
       } else {
         // Default implementation returns undefined
         result = undefined as unknown as ReturnType<T>;
@@ -236,9 +236,9 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
 
   // Instead of trying to modify Bun"s mock function directly (which may be read-only),
   // create a new function that delegates to it
-  const _mockFn = function (...args: Parameters<T>): ReturnType<T> {
+  const mockFn = function (...args: Parameters<T>): ReturnType<T> {
     // Call the original function directly instead of through bunMockFn
-    return implementationFn(..._args);
+    return implementationFn(...args);
   } as CompatMockFunction<ReturnType<T>, Parameters<T>>;
 
   // Add the mock property
@@ -381,9 +381,9 @@ export function spyOn<T extends object, M extends keyof T>(
   const original = object[method];
 
   // Create a mock function that wraps the original
-  const _mockFn = createCompatMock((...args: unknown[]) => {
+  const mockFn = createCompatMock((...args: unknown[]) => {
     if (typeof original === "function") {
-      return (original as Function).apply(_object, _args);
+      return (original as Function).apply(object, args);
     }
     return undefined;
   });
