@@ -31,11 +31,11 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       return initializeSessionDbState({ baseDir });
     }
 
-    const _data = readFileSync(_dbPath, "utf8") as string;
+    const data = readFileSync(dbPath, "utf8") as string;
     const sessions = JSON.parse(data);
 
     // Migrate existing sessions to include repoName
-    const migratedSessions = sessions.map((_session: unknown) => {
+    const migratedSessions = sessions.map((session: unknown) => {
       if (!session.repoName && session.repoUrl) {
         session.repoName = normalizeRepoName(session.repoUrl);
       }
@@ -47,7 +47,9 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       baseDir,
     };
   } catch (error) {
-    log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
+    log.error(
+      `Error reading session database: ${error instanceof Error ? error.message : String(error)}`
+    );
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -66,10 +68,10 @@ export function writeSessionDbFile(
     // Ensure directory exists
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
-      mkdirSync(_dbDir, { recursive: true });
+      mkdirSync(dbDir, { recursive: true });
     }
 
-    writeFileSync(_dbPath, JSON.stringify(state.sessions, null, 2));
+    writeFileSync(dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
   } catch (error) {
     log.error(
