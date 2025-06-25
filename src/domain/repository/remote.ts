@@ -110,18 +110,21 @@ export class RemoteGitBackend implements RepositoryBackend {
         _workdir,
         _session,
       };
-    } catch (_error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
 
       // Provide more informative error messages for common Git issues
-      if (error.message.includes("Authentication failed")) {
+      if (normalizedError.message.includes("Authentication failed")) {
         throw new Error("Git authentication failed. Check your credentials or SSH key.");
-      } else if (error.message.includes("not found") || error.message.includes("does not exist")) {
+      } else if (
+        normalizedError.message.includes("not found") ||
+        normalizedError.message.includes("does not exist")
+      ) {
         throw new Error(`Git repository not found: ${this.repoUrl}. Check the URL.`);
-      } else if (error.message.includes("timed out")) {
+      } else if (normalizedError.message.includes("timed out")) {
         throw new Error("Git connection timed out. Check your network connection and try again.");
       } else {
-        throw new Error(`Failed to clone Git repository: ${error.message}`);
+        throw new Error(`Failed to clone Git repository: ${normalizedError.message}`);
       }
     }
   }
@@ -144,9 +147,9 @@ export class RemoteGitBackend implements RepositoryBackend {
         _workdir,
         _branch,
       };
-    } catch (_error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create _branch in Git repository: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to create branch in Git repository: ${normalizedError.message}`);
     }
   }
 
