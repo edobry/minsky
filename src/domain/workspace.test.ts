@@ -392,7 +392,7 @@ describe("Workspace Utils", () => {
       mockExecOutput = { stdout: "" };
       mockExecAsync = async (_command: unknown) => Promise.resolve(mockExecOutput);
       mockSessionProvider = createMockSessionProvider({
-        getSession: async (_sessionName: unknown) =>
+        getSession: async (sessionName: unknown) =>
           Promise.resolve({
             _session: sessionName,
             repoUrl: "/path/to/main/workspace",

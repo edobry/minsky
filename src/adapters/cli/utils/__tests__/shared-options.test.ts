@@ -17,7 +17,7 @@ const TEST_VALUE = 123;
 
 // Mock normalizeTaskId from domain to avoid external dependencies
 mock.module("../../../../domain/tasks", () => ({
-  normalizeTaskId: mock((_taskId: unknown) => {
+  normalizeTaskId: mock((taskId: unknown) => {
     if (!taskId) return null;
     // Mock implementation that adds # prefix if not present (like the real function)
     if (taskId.startsWith("#")) {

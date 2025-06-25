@@ -28,7 +28,7 @@ describe("Mocking Utilities", () => {
   test("createSpyOn spies on object methods", () => {
     // Create an object with a method
     const obj = {
-      greet: (_name: unknown) => `Hello, ${name}!`,
+      greet: (name: unknown) => `Hello, ${name}!`,
     };
 
     // Spy on the method

@@ -1,4 +1,4 @@
-import { existsSync } from "fs";
+import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
@@ -600,7 +600,18 @@ export async function startSessionFromParams(
           sessionName
         );
 
-    // First record the session in the DB
+    // Check if session directory already exists and clean it up
+    if (existsSync(sessionDir)) {
+      try {
+        rmSync(sessionDir, { recursive: true, force: true });
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to clean up existing session directory: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
+    // Prepare session record but don't add to DB yet
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
@@ -611,20 +622,55 @@ export async function startSessionFromParams(
       repoPath: sessionDir, // Include the repository path explicitly
     };
 
-    await deps.sessionDB.addSession(sessionRecord);
+    let sessionAdded = false;
+    try {
+      // First clone the repo
+      const gitCloneResult = await deps.gitService.clone({
+        repoUrl,
+        session: sessionName,
+      });
 
-    // Now clone the repo
-    const gitCloneResult = await deps.gitService.clone({
-      repoUrl,
-      session: sessionName,
-    });
+      // Create a branch based on the session name
+      const branchName = branch || sessionName;
+      const branchResult = await deps.gitService.branch({
+        session: sessionName,
+        branch: branchName,
+      });
 
-    // Create a branch based on the session name
-    const branchName = branch || sessionName;
-    const branchResult = await deps.gitService.branch({
-      session: sessionName,
-      branch: branchName,
-    });
+      // Only add session to DB after git operations succeed
+      await deps.sessionDB.addSession(sessionRecord);
+      sessionAdded = true;
+    } catch (gitError) {
+      // Clean up session record if it was added but git operations failed
+      if (sessionAdded) {
+        try {
+          await deps.sessionDB.deleteSession(sessionName);
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session record after git error", {
+            sessionName,
+            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
+      }
+
+      // Clean up the directory if it was created
+      if (existsSync(sessionDir)) {
+        try {
+          rmSync(sessionDir, { recursive: true, force: true });
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session directory after git error", {
+            sessionDir,
+            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
+      }
+
+      throw gitError;
+    }
 
     // Install dependencies if not skipped
     if (!skipInstall) {

@@ -47,12 +47,12 @@ describe("TaskService JsonFile Integration (v2)", () => {
       readFile: mockFS.readFile,
       writeFile: mockFS.writeFile,
       mkdir: mockFS.mkdir,
-      access: async (_path: unknown) => {
+      access: async (path: unknown) => {
         if (!mockFS.files.has(path) && !mockFS.directories.has(path)) {
           throw new Error(`ENOENT: no such file or directory, access '${path}'`);
         }
       },
-      unlink: async (_path: unknown) => {
+      unlink: async (path: unknown) => {
         if (!mockFS.files.has(path)) {
           throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
         }
