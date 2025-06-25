@@ -918,9 +918,41 @@ export async function updateSessionFromParams(
       log.debug("Branch merge completed", { mergeResult });
 
       if (mergeResult.conflicts) {
-        throw new MinskyError(
-          `Merge conflicts detected when merging ${remoteBranchToMerge}. Please resolve conflicts manually.`
-        );
+        throw new MinskyError(`
+🔀 Session Update Conflicts Detected
+
+Your session has conflicts with the latest changes from ${remoteBranchToMerge}.
+This happens when both your session and the main branch have modified the same files.
+
+💡 How to resolve this:
+
+1️⃣ **Check current status:**
+   git status
+
+2️⃣ **Resolve the conflicts manually:**
+   - Edit each conflicted file to resolve the conflicts
+   - Look for conflict markers: <<<<<<< ======= >>>>>>>
+   - Choose which changes to keep or merge them appropriately
+
+3️⃣ **Stage the resolved files:**
+   git add .
+
+4️⃣ **Complete the merge:**
+   git commit -m "resolve merge conflicts with ${remoteBranchToMerge}"
+
+5️⃣ **Try your original command again:**
+   The session update will now succeed, and you can proceed with your task
+
+🔍 **Alternative approach:**
+   If you want to start fresh:
+   - Abort the current merge: git merge --abort
+   - Stash your changes: git stash
+   - Update session: minsky session update
+   - Apply your changes: git stash pop
+   - Resolve any new conflicts that arise
+
+💡 **Tip:** Regular session updates help avoid large conflicts by keeping your session in sync with main.
+        `);
       }
 
       // Push changes if needed
