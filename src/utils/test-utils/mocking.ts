@@ -343,7 +343,7 @@ export function createMockExecSync(
  * // Access internal files map for verification
  * expect(mockFS.files.has("/path/to/new-file.txt")).toBe(true);
  */
-export function createMockFileSystem(__initialFiles: Record<string, string> = {}) {
+export function createMockFileSystem(initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const directories = new Set<string>();
 
@@ -374,10 +374,10 @@ export function createMockFileSystem(__initialFiles: Record<string, string> = {}
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    unlink: createMock((_path: unknown) => {
+    unlink: createMock((path: unknown) => {
       files.delete(path);
     }),
-    mkdirSync: createMock((_path: unknown) => {
+    mkdirSync: createMock((path: unknown) => {
       directories.add(path);
     }),
     rmSync: createMock((_path: unknown) => {

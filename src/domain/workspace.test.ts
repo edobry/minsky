@@ -281,7 +281,7 @@ describe("Workspace Utils", () => {
 
       // Create a mock WorkspaceUtils implementation
       const mockUtils = createMockWorkspaceUtils({
-        resolveWorkspacePath: createMockFn(async (_options) => {
+        resolveWorkspacePath: createMockFn(async (options) => {
           if (options.workspace) return options.workspace;
           return "/default/path";
         }),

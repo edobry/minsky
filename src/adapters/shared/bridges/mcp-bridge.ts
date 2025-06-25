@@ -167,10 +167,10 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 // Example of how this might be registered or used with an MCP server (e.g., FastMCP)
 // This is highly dependent on the MCP framework being used.
 /*
-export function registerMcpCommands(__mcpServer: FastMcpServer) {
+export function registerMcpCommands(mcpServer: FastMcpServer) {
   const commands = sharedCommandRegistry.getAllCommands();
   commands.forEach(commandDef => {
-    mcpServer.addCommandHandler(commandDef.id, async (_payload: unknown) => {
+    mcpServer.addCommandHandler(commandDef.id, async (payload: unknown) => {
       const request: McpCommandRequest = {
         commandId: commandDef.id,
         _parameters: payload.params || {},

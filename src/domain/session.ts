@@ -623,6 +623,9 @@ export async function startSessionFromParams(
     };
 
     let sessionAdded = false;
+    // Define branchName outside try block so it's available in return statement
+    const branchName = branch || sessionName;
+
     try {
       // First clone the repo
       const gitCloneResult = await deps.gitService.clone({
@@ -631,7 +634,6 @@ export async function startSessionFromParams(
       });
 
       // Create a branch based on the session name
-      const branchName = branch || sessionName;
       const branchResult = await deps.gitService.branch({
         session: sessionName,
         branch: branchName,
@@ -868,7 +870,6 @@ export async function updateSessionFromParams(
 
     // Validate that the session workspace directory exists
     try {
-      const { access } = await import("fs/promises");
       await access(workdir);
       log.debug("Workspace directory exists", { workdir });
     } catch (error) {

@@ -10,7 +10,7 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create mocks for dependencies
     const mockSessionDB = {
-      getSession: createMock((_name) =>
+      getSession: createMock((name) =>
         Promise.resolve({
           _session: name,
           repoName: "test-repo",
