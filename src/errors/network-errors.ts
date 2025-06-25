@@ -108,7 +108,7 @@ export function createNetworkError(
  * @param error The error to check
  * @returns Whether the error is a network error
  */
-export function isNetworkError(_error: unknown): boolean {
+export function isNetworkError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
   // Check for typical network error codes
@@ -131,7 +131,7 @@ export function isNetworkError(_error: unknown): boolean {
  * @param debug Whether to include debug information
  * @returns A formatted error message
  */
-export function formatNetworkErrorMessage(_error: NetworkError, debug: boolean = false): string {
+export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = false): string {
   let message = `Error: ${error.message}\n`;
 
   // Add suggestions if available
