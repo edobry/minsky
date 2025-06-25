@@ -193,7 +193,7 @@ export function createCompatMock<T extends (...args: unknown[]) => any>(
   }
 
   // Create our implementation function
-  const implementationFn = (..._args: Parameters<T>): ReturnType<T> => {
+  const implementationFn = (...args: Parameters<T>): ReturnType<T> => {
     try {
       // Track the call
       state.calls.push(_args as Parameters<T>);

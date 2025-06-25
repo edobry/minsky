@@ -381,7 +381,7 @@ export class TaskService {
    * @returns Promise resolving to object with spec content and path
    */
   async getTaskSpecContent(
-    __id: string
+    _id: string
   ): Promise<{ content: string; specPath: string; task: TaskData }> {
     // First verify the task exists
     const task = await this.getTask(id);
@@ -431,10 +431,7 @@ export class TaskService {
         ...config,
       });
     } catch (error) {
-      console.log(
-        typeof error !== "undefined" ? "error defined" : "error undefined",
-        typeof _error !== "undefined" ? "_error defined" : "_error undefined"
-      );
+      console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       // Return null if GitHub modules are not available
       return null;
     }

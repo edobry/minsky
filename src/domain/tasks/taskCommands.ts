@@ -213,7 +213,7 @@ export async function getTaskStatusFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: async (_options) => await createConfiguredTaskService(_options),
+    createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<string> {
   try {
@@ -360,7 +360,7 @@ export async function createTaskFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (_options) => createTaskServiceImpl(_options as any),
+    createTaskService: (options) => createTaskServiceImpl(options as any),
   }
 ): Promise<any> {
   try {
@@ -415,7 +415,7 @@ export async function getTaskSpecContentFromParams(
   } = {
     resolveRepoPath,
     resolveWorkspacePath,
-    createTaskService: (_options) => createTaskServiceImpl(_options as any),
+    createTaskService: (options) => createTaskServiceImpl(options as any),
   }
 ): Promise<{ task: unknown; specPath: string; content: string; section?: string }> {
   try {
