@@ -147,17 +147,17 @@ export class GitHubBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(__session: string, _branch: string): Promise<BranchResult> {
+  async branch(session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(session);
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
       await execAsync(`git -C ${workdir} checkout -b ${branch}`);
 
       return {
-        _workdir,
-        _branch,
+        workdir,
+        branch,
       };
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error));
@@ -215,7 +215,7 @@ export class GitHubBackend implements RepositoryBackend {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((_line: unknown) => line.split("\t")[0] || "")
+        .map((line: string) => line.split("\t")[0] || "")
         .filter((name, index, self) => name && self.indexOf(name) === index);
 
       const dirty =
@@ -237,7 +237,7 @@ export class GitHubBackend implements RepositoryBackend {
         // Original properties
         clean: !dirty,
         changes,
-        _branch,
+        branch,
         tracking: remotes.length > 0 ? remotes[0] : undefined,
 
         // Extended properties
@@ -248,7 +248,7 @@ export class GitHubBackend implements RepositoryBackend {
         modifiedFiles,
 
         // Additional GitHub-specific information
-        _workdir,
+        workdir,
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
@@ -278,7 +278,7 @@ export class GitHubBackend implements RepositoryBackend {
    */
   async getPath(session?: string): Promise<string> {
     if (session) {
-      return this.getSessionWorkdir(_session);
+      return this.getSessionWorkdir(session);
     }
 
     // If no session is provided, find one for this repository
@@ -287,10 +287,10 @@ export class GitHubBackend implements RepositoryBackend {
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
-        return this.getSessionWorkdir(repoSession._session);
+        return this.getSessionWorkdir(repoSession.session);
       }
-    } catch (_error) {
-      // If we can't find a _session, just return the base directory
+    } catch (error) {
+      // If we can't find a session, just return the base directory
     }
 
     return this.baseDir;
@@ -328,7 +328,7 @@ export class GitHubBackend implements RepositoryBackend {
             issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
-        } else if (statusCode === HTTPUNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
+        } else if (statusCode === HTTP_UNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
           return {
             valid: false,
             success: false,
@@ -351,13 +351,13 @@ export class GitHubBackend implements RepositoryBackend {
         message: "GitHub repository validated successfully",
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         valid: false,
         success: false,
-        issues: [`Failed to validate GitHub repository: ${error.message}`],
-        message: `Failed to validate GitHub repository: ${error.message}`,
-        error,
+        issues: [`Failed to validate GitHub repository: ${normalizedError.message}`],
+        message: `Failed to validate GitHub repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
