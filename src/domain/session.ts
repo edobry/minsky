@@ -1192,9 +1192,42 @@ Need help? Run 'git status' to see what files have changed.
       });
       log.cli("Session updated successfully");
     } catch (error) {
-      throw new MinskyError(
-        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes("conflicts") || errorMessage.includes("merge")) {
+        throw new MinskyError(`\n🔀 Session PR Creation Blocked by Merge Conflicts
+
+Your session has conflicts with the latest changes from main that must be resolved before creating a PR.
+
+💡 How to resolve and continue:
+
+1️⃣ **Navigate to your session workspace:**
+   ${process.cwd().includes('sessions/') ? 'You are already in the session workspace' : 'minsky session dir ' + sessionName}
+
+2️⃣ **Check conflict status:**
+   git status
+
+3️⃣ **Resolve conflicts in each file:**
+   - Edit files with conflict markers: <<<<<<< ======= >>>>>>>
+   - Choose which changes to keep or merge them appropriately
+
+4️⃣ **Complete the merge:**
+   git add .
+   git commit -m "resolve merge conflicts with main"
+
+5️⃣ **Try creating the PR again:**
+   minsky session pr
+
+🔍 **Alternative:** Reset and try later:
+   git merge --abort
+   git reset --hard HEAD~1
+
+💡 **Tip:** Regular session updates help avoid large conflicts.`);
+      } else {
+        throw new MinskyError(
+          `Failed to update session before creating PR: ${errorMessage}\n\n💡 Try running 'minsky session update' first to resolve any issues.`
+        );
+      }
     }
 
     // STEP 6: Now proceed with PR creation

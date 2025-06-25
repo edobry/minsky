@@ -12,8 +12,11 @@ import { log } from "../utils/logger.js";
 /**
  * Repository backend types supported by the system.
  */
-export enum RepositoryBackendType {}
-// Enum values removed as they are unused
+export enum RepositoryBackendType {
+  LOCAL = "local",
+  REMOTE = "remote", 
+  GITHUB = "github"
+}
 
 /**
  * Repository resolution options.
@@ -252,15 +255,10 @@ export async function createRepositoryBackend(
 
     // Create an adapter using GitService that conforms to RepositoryBackend interface
     return {
-      clone: async (_session: string): Promise<CloneResult> => {
+      clone: async (session: string): Promise<CloneResult> => {
         return await gitService.clone({
           repoUrl: config.url || "",
-          _session,
-          github: {
-            token: (config as GitHubConfig).token,
-            owner: (config as GitHubConfig).owner,
-            repo: (config as GitHubConfig).repo,
-          },
+          session,
         });
       },
 
@@ -278,9 +276,9 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const workdir = gitService.getSessionWorkdir(repoName, session);
 
-        const gitStatus = await gitService.getStatus(_workdir);
+        const gitStatus = await gitService.getStatus(workdir);
 
         // Get additional status info directly via Git commands
         const { stdout: branchOutput } = await (
@@ -289,7 +287,7 @@ export async function createRepositoryBackend(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
-        const _branch = branchOutput.trim();
+        const branch = branchOutput.trim();
         return {
           clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
           changes: [
@@ -322,7 +320,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        return gitService.getSessionWorkdir(_repoName, _session);
+        return gitService.getSessionWorkdir(repoName, session);
       },
 
       validate: async (): Promise<ValidationResult> => {
@@ -354,12 +352,12 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _session = repoSession.session;
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const session = repoSession.session;
+        const workdir = gitService.getSessionWorkdir(repoName, session);
 
         await gitService.push({
-          _session,
-          _repoPath: workdir,
+          session: session,
+          repoPath: workdir,
         });
       },
 
@@ -374,13 +372,14 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
-        await gitService.pullLatest(_workdir);
+        const session = repoSession.session;
+        const workdir = gitService.getSessionWorkdir(repoName, session);
+        await gitService.pullLatest(workdir);
       },
 
       branch: async (_session: string, name: string): Promise<BranchResult> => {
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const workdir = gitService.getSessionWorkdir(repoName, _session);
 
         // Execute branch creation via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
@@ -388,8 +387,8 @@ export async function createRepositoryBackend(
         );
 
         return {
-          _workdir,
-          _branch: name,
+          workdir,
+          branch: name,
         };
       },
 
@@ -404,11 +403,12 @@ export async function createRepositoryBackend(
           throw new Error("No session found for this repository");
         }
 
-        const _workdir = gitService.getSessionWorkdir(_repoName, repoSession._session);
+        const session = repoSession.session;
+        const workdir = gitService.getSessionWorkdir(repoName, session);
 
         // Execute checkout via Git command
         await (await import("util")).promisify((await import("child_process")).exec)(
-          `git -C ${workdir} checkout ${branch}`
+          `git -C ${workdir} checkout ${_branch}`
         );
       },
 
@@ -458,7 +458,7 @@ export async function resolveRepository(
   // 2. Try to resolve from session
   else if (session) {
     const sessionDb = new SessionDB();
-    const sessionRecord = await sessionDb.getSession(_session);
+    const sessionRecord = await sessionDb.getSession(session);
     if (!sessionRecord) {
       throw new ValidationError(`Session not found: ${session}`);
     }
@@ -467,7 +467,7 @@ export async function resolveRepository(
       (sessionRecord.backendType as RepositoryBackendType) || RepositoryBackendType.LOCAL;
   }
   // 3. Try to resolve from task ID
-  else if (_taskId) {
+  else if (taskId) {
     const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
     const sessionDb = new SessionDB();
     const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
@@ -488,7 +488,7 @@ export async function resolveRepository(
   // DEFAULT_RETRY_COUNT. No resolution method available
   else {
     throw new ValidationError(
-      "Cannot resolve repository: no URI, _session, or task ID provided, and auto-detection is disabled"
+      "Cannot resolve repository: no URI, session, or task ID provided, and auto-detection is disabled"
     );
   }
 
@@ -559,7 +559,7 @@ export async function resolveRepoPath(options: {
     }
   } catch (error) {
     throw new MinskyError(
-      `Failed to resolve repository _path: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to resolve repository path: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }
