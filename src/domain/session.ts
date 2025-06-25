@@ -142,7 +142,7 @@ export class SessionDB implements SessionProviderInterface {
         return [];
       }
       const data = await readFile(this.dbPath, "utf8");
-      const sessions = JSON.parse(data);
+      const sessions = JSON.parse(data.toString());
 
       // Migrate existing sessions to include repoName
       return sessions.map((session: SessionRecord) => {
@@ -1202,7 +1202,7 @@ Your session has conflicts with the latest changes from main that must be resolv
 💡 How to resolve and continue:
 
 1️⃣ **Navigate to your session workspace:**
-   ${process.cwd().includes('sessions/') ? 'You are already in the session workspace' : 'minsky session dir ' + sessionName}
+   ${process.cwd().includes("sessions/") ? "You are already in the session workspace" : `minsky session dir ${sessionName}`}
 
 2️⃣ **Check conflict status:**
    git status
