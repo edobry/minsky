@@ -33,9 +33,9 @@ declare module "fs" {
 // Declare Node.js fs/promises module
 declare module "fs/promises" {
   export function readFile(path: string, _options?: any): Promise<string | Buffer>;
-  export function writeFile(_path: string, data: any, _options?: any): Promise<void>;
-  export function mkdir(_path: string, _options?: any): Promise<void>;
-  export function access(_path: string, mode?: number): Promise<void>;
+  export function writeFile(path: string, data: any, _options?: any): Promise<void>;
+  export function mkdir(path: string, _options?: any): Promise<void>;
+  export function access(path: string, mode?: number): Promise<void>;
   export function rename(oldPath: string, newPath: string): Promise<void>;
 }
 

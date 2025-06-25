@@ -61,7 +61,7 @@ export function mockWriteFileSync(path: string, data: string, _options?: WriteFi
   }
 }
 
-export function mockReadFileSync(__path: string, _options?: { encoding?: BufferEncoding }): string {
+export function mockReadFileSync(path: string, _options?: { encoding?: BufferEncoding }): string {
   log.debug(`[MOCK] Reading file ${path}`);
   const file = virtualFS.get(path);
   if (!file || file.isDirectory) {
@@ -129,7 +129,7 @@ export function setupMinskyTestEnv(__baseDir: string): MinskyTestEnv {
 /**
  * Cleans up a test directory - stubbed for testing
  */
-export function cleanupTestDir(__path: string): void {
+export function cleanupTestDir(path: string): void {
   log.debug(`[MOCK] Cleaning up directory: ${path}`);
   // No actual cleanup needed in tests
 }
