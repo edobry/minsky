@@ -18,7 +18,7 @@ setupTestMocks();
 describe("Session Approve Workflow", () => {
   // Create mocks for dependencies
   const mockGitService = {
-    execInRepository: createMock((_workdir, _command) => {
+    execInRepository: createMock((_workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abc123");
       }

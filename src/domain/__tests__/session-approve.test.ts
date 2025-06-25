@@ -37,7 +37,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((_workdir, _command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -130,7 +130,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((_workdir, _command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -270,7 +270,7 @@ describe("Session Approve", () => {
     };
 
     const mockGitService = {
-      execInRepository: createMock((_workdir, _command) => {
+      execInRepository: createMock((_workdir, command) => {
         if (command.includes("rev-parse HEAD")) {
           return Promise.resolve("abcdef123456");
         }
@@ -331,7 +331,7 @@ describe("Session Approve", () => {
 
     const gitCommands: string[] = [];
     const mockGitService = {
-      execInRepository: createMock((_workdir, _command) => {
+      execInRepository: createMock((_workdir, command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
