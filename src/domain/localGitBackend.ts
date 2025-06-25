@@ -231,10 +231,10 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Failed to push branch ${branchToPush}`,
-        _error instanceof Error ? _error : undefined
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -256,10 +256,10 @@ export class LocalGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Failed to pull branch ${branchToPull}`,
-        _error instanceof Error ? _error : undefined
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -286,10 +286,10 @@ export class LocalGitBackend implements RepositoryBackend {
         workdir: this.localPath,
         _branch: name,
       };
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
         `Failed to create branch ${name}`,
-        _error instanceof Error ? _error : undefined
+        error instanceof Error ? error : undefined
       );
     }
   }
