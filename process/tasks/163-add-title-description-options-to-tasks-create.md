@@ -10,21 +10,21 @@ MEDIUM
 
 ## Description
 
-Update the `minsky tasks create` command to require `--title` and `--description` options, making it consistent with the `minsky session pr` command interface. This will improve usability by allowing users to create tasks directly from the command line without needing to create a specification file first.
+Update the `minsky tasks create` command to require a `--title` option and support both `--description` text and file-based description input, making it consistent with the `minsky session pr` command interface. This will improve usability by allowing users to create tasks directly from the command line.
 
 ## Objectives
 
-1. **Add Required Options to tasks create Command**
+1. **Add Required Title Option**
 
-   - Add `--title` option that accepts the task title
-   - Add `--description` option that accepts the task description
-   - Make both options required when creating tasks
+   - Add `--title` option that accepts the task title (always required)
+   - Support both `--description` text and file-based description input
+   - Make `--title` mandatory for all task creation approaches
 
-2. **Maintain Backward Compatibility**
+2. **Support Dual Description Input Methods**
 
-   - Keep the existing `<specPath>` argument for file-based task creation
-   - Support both approaches: file-based and option-based task creation
-   - Ensure existing workflows continue to work
+   - Option-based: `--description` flag with description text
+   - File-based: `<descriptionPath>` argument where file contains the description
+   - Match the pattern used by `minsky session pr` command
 
 3. **Consistent CLI Interface**
    - Match the pattern used by `minsky session pr` command
@@ -36,26 +36,28 @@ Update the `minsky tasks create` command to require `--title` and `--description
 ### Command Interface
 
 ```bash
-# New option-based approach (required options)
+# Option-based approach (title required, description as text)
 minsky tasks create --title "Task Title" --description "Task description"
 
-# Existing file-based approach (should still work)
-minsky tasks create path/to/task-spec.md
+# File-based approach (title required, description from file)
+minsky tasks create --title "Task Title" path/to/description.md
 
 # Error cases
-minsky tasks create --title "Title" # Error: --description is required
+minsky tasks create --title "Title" # Error: --description or description file required
 minsky tasks create --description "Desc" # Error: --title is required
-minsky tasks create # Error: Either specify title/description or spec file path
+minsky tasks create path/to/file.md # Error: --title is required
+minsky tasks create # Error: --title is required
 ```
 
 ### Implementation Details
 
 1. **Command Argument Validation**
 
-   - If `<specPath>` is provided, use file-based creation (existing behavior)
-   - If `--title` and `--description` are provided, use option-based creation
-   - If neither or partial options are provided, show clear error message
-   - Validate that title and description are non-empty strings
+   - `--title` is always required for all task creation approaches
+   - If `--description` is provided, use text-based description
+   - If `<descriptionPath>` is provided, read description from file
+   - Show clear error message if title is missing or if neither description method is provided
+   - Validate that title and description content are non-empty strings
 
 2. **Task Specification Generation**
 
@@ -122,8 +124,8 @@ MEDIUM
 ## Success Criteria
 
 - `minsky tasks create --title "Title" --description "Description"` creates a valid task
-- Both `--title` and `--description` options are required
-- Existing file-based task creation continues to work unchanged
+- `minsky tasks create --title "Title" path/to/description.md` creates a valid task
+- `--title` option is always required
 - Generated task files follow the established format and conventions
 - Clear error messages are provided for invalid usage
 - All existing tests continue to pass
@@ -131,4 +133,4 @@ MEDIUM
 
 ## Notes
 
-This enhancement will significantly improve the developer experience by allowing quick task creation directly from the command line, similar to how `minsky session pr` works for PR creation. The dual approach (file-based and option-based) provides flexibility for different workflows while maintaining backward compatibility.
+This enhancement will significantly improve the developer experience by allowing quick task creation directly from the command line, exactly matching how `minsky session pr` works for PR creation. The dual approach (text-based and file-based descriptions) provides flexibility for different workflows while maintaining a consistent interface that always requires a title.
