@@ -29,7 +29,7 @@ export function getActiveTasksMessage(): string {
  * @param options Object containing filter options
  * @returns Array of message strings to display
  */
-export function generateFilterMessages(__options: { status?: TaskStatus; all?: boolean }): string[] {
+export function generateFilterMessages(options: { status?: TaskStatus; all?: boolean }): string[] {
   const messages: string[] = [];
 
   // Add status filter message if status is provided

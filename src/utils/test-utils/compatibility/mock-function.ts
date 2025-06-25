@@ -46,12 +46,12 @@ type MockState<TArgs extends any[] = any[], TReturn = any> = {
   /**
    * The current implementation of the mock function.
    */
-  implementation: ((..._args: TArgs) => TReturn) | null;
+  implementation: ((...args: TArgs) => TReturn) | null;
 
   /**
    * Queue of one-time implementations to use before falling back to the default implementation.
    */
-  implementationsOnce: ((..._args: TArgs) => TReturn)[];
+  implementationsOnce: ((...args: TArgs) => TReturn)[];
 
   /**
    * The original implementation of the mocked function (if created with spyOn).
@@ -221,7 +221,7 @@ export function createCompatMock<T extends (..._args: unknown[]) => any>(
       });
 
       return result;
-    } catch (_error) {
+    } catch (error) {
       // Track the error
       state.results.push({
         type: "throw",

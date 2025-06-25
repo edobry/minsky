@@ -60,7 +60,7 @@ export class BackendMigrationUtils {
    */
   async migrateTasksBetweenBackends(_sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    _options: MigrationOptions = {}
+    options: MigrationOptions = {}
   ): Promise<MigrationResult> {
     const {
       preserveIds = true,
@@ -149,7 +149,7 @@ export class BackendMigrationUtils {
         skippedCount: result.skippedCount,
       });
 
-    } catch (_error) {
+    } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       result.errors.push(errorMessage);
       log.error("Migration failed", { error: errorMessage });
@@ -159,7 +159,7 @@ export class BackendMigrationUtils {
         try {
           await this.rollbackMigration(_backupData, targetBackend);
           log.debug("Rollback completed successfully");
-        } catch (_error) {
+        } catch (error) {
           const rollbackMessage = rollbackError instanceof Error 
             ? rollbackError.message 
             : "Unknown rollback error";
@@ -186,7 +186,7 @@ export class BackendMigrationUtils {
     // Validate source backend has data
     try {
       await sourceBackend.getTasksData();
-    } catch (_error) {
+    } catch (error) {
       throw new Error(`Cannot access source backend: ${error}`);
     }
 
@@ -202,7 +202,7 @@ export class BackendMigrationUtils {
       
       // Restore original data
       await targetBackend.saveTasksData(currentData);
-    } catch (_error) {
+    } catch (error) {
       throw new Error(`Cannot write to target backend: ${error}`);
     }
   }
@@ -255,7 +255,7 @@ export class BackendMigrationUtils {
     targetTasks: TaskData[],
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
-    _options: {
+    options: {
       preserveIds: boolean;
       statusMapping: Record<string, string>;
       idConflictStrategy: "skip" | "rename" | "overwrite";
@@ -294,7 +294,7 @@ export class BackendMigrationUtils {
 
         migrated.push(finalTask);
         targetIds.add(finalTask.id);
-      } catch (_error) {
+      } catch (error) {
         log.warn("Failed to transform task", { _taskId: task.id, error });
         skipped.push(task);
       }

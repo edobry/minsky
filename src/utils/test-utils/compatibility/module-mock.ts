@@ -126,7 +126,7 @@ export function mockModule(_modulePath: string,
     // Default fallback: mock with an empty object
     const emptyMock = {};
     mockedModules.set(_modulePath, emptyMock);
-  } catch (_error) {
+  } catch (error) {
     log.error(`Error mocking module ${modulePath}:`, error);
     throw error;
   }

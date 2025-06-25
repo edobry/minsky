@@ -77,7 +77,7 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
  * Setup standard test environment with temp directory and console capture
  * Handles cleanup automatically via afterEach
  */
-export function setupTestEnvironment(__options: {
+export function setupTestEnvironment(options: {
     mockDate?: boolean;
     createTempDir?: boolean;
   } = {}

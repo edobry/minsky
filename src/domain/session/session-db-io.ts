@@ -46,7 +46,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       sessions: migratedSessions,
       baseDir,
     };
-  } catch (_error) {
+  } catch (error) {
     log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
     return initializeSessionDbState({ baseDir });
   }
@@ -71,7 +71,7 @@ export function writeSessionDbFile(
 
     writeFileSync(_dbPath, JSON.stringify(state.sessions, null, 2));
     return true;
-  } catch (_error) {
+  } catch (error) {
     log.error(
       `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -89,7 +89,7 @@ export function ensureDbDir(__dbPath: string): boolean {
       mkdirSync(_dbDir, { recursive: true });
     }
     return true;
-  } catch (_error) {
+  } catch (error) {
     log.error(
       `Error creating database directory: ${error instanceof Error ? error.message : String(error)}`
     );

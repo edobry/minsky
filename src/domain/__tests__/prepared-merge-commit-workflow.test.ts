@@ -57,7 +57,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the preparePr method to use our mock execAsync
-      const preparePrSpy = createMock(async (_options: unknown) => {
+      const preparePrSpy = createMock(async (options: unknown) => {
         // Simulate current broken behavior: PR branch created FROM feature branch
         await mockExecAsync("git -C /test/repo checkout -b pr/feature-branch");
         await mockExecAsync("git -C /test/repo push origin pr/feature-branch");
@@ -106,7 +106,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the CORRECT preparePr implementation
-      const correctPreparePrSpy = createMock(async (_options: unknown) => {
+      const correctPreparePrSpy = createMock(async (options: unknown) => {
         const _workdir = "/test/repo";
         const sourceBranch = "feature-branch";
         const baseBranch = options.baseBranch || "main";
@@ -196,7 +196,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       let preparePrCalled = false;
       let preparePrParams: unknown = null;
 
-      const mockPreparePrFromParams = createMock(async (_params: unknown) => {
+      const mockPreparePrFromParams = createMock(async (params: unknown) => {
         preparePrCalled = true;
         preparePrParams = params;
 

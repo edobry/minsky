@@ -251,7 +251,7 @@ export async function getCurrentSessionContext(
       sessionId: currentSessionName,
       taskId: sessionRecord.taskId,
     };
-  } catch (_error) {
+  } catch (error) {
     log.error("Error fetching session record", {
       _sessionName: currentSessionName,
       error: error instanceof Error ? error.message : String(error),
@@ -270,7 +270,7 @@ export interface WorkspaceUtilsInterface {
   /**
    * Check if the current directory is a Minsky workspace
    */
-  isWorkspace(__path: string): Promise<boolean>;
+  isWorkspace(path: string): Promise<boolean>;
 
   /**
    * Check if the current directory is a session workspace

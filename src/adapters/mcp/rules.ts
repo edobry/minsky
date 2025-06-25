@@ -42,7 +42,7 @@ async function readContentFromFileIfExists(__contentPath: string): Promise<strin
     }
     // If path doesn't exist, return the original string as content
     return contentPath;
-  } catch (_error) {
+  } catch (error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return contentPath;
@@ -250,7 +250,7 @@ export function registerRulesTools(__commandMapper: CommandMapper): void {
       }
 
       // Process content if provided
-      let _content: string | undefined;
+      let content: string | undefined;
       if (isString(args._content)) {
         content = await readContentFromFileIfExists(args._content);
       }

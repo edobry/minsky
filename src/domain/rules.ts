@@ -86,7 +86,7 @@ export class RuleService {
   /**
    * List all rules in the workspace
    */
-  async listRules(__options: RuleOptions = {}): Promise<Rule[]> {
+  async listRules(options: RuleOptions = {}): Promise<Rule[]> {
     const rules: Rule[] = [];
     const formats: RuleFormat[] = options.format ? [options.format] : ["cursor", "generic"];
 
@@ -115,7 +115,7 @@ export class RuleService {
             }
 
             if (rule) rules.push(rule);
-          } catch (_error) {
+          } catch (error) {
             log.error("Error processing rule file", {
               file,
               originalError: error instanceof Error ? error.message : String(error),
@@ -123,7 +123,7 @@ export class RuleService {
             });
           }
         }
-      } catch (_error) {
+      } catch (error) {
         // Directory might not exist, which is fine
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
@@ -141,7 +141,7 @@ export class RuleService {
   /**
    * Get a specific rule by id
    */
-  async getRule(__id: string, _options: RuleOptions = {}): Promise<Rule> {
+  async getRule(id: string, _options: RuleOptions = {}): Promise<Rule> {
     // Remove extension if it was included
     const bareId = id.replace(/\.mdc$/, "");
 
@@ -194,7 +194,7 @@ export class RuleService {
             format: requestedFormat,
             path: filePath,
           };
-        } catch (_error) {
+        } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing
           // This allows rules with invalid YAML frontmatter to still be loaded and used
           if (options.debug) {
@@ -222,7 +222,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (_error) {
+      } catch (error) {
         // Rule not found in the requested format
         if (options.debug) {
           log.debug("File not found in requested format", {
@@ -304,7 +304,7 @@ export class RuleService {
             format,
             path: filePath,
           };
-        } catch (_error) {
+        } catch (error) {
           // FIXED: Gracefully handle errors in frontmatter parsing for alternative formats
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
@@ -328,7 +328,7 @@ export class RuleService {
             path: filePath,
           };
         }
-      } catch (_error) {
+      } catch (error) {
         // File doesn't exist in this format, try the next one
         if (options.debug) {
           log.debug("File not found in alternative format", {
@@ -358,7 +358,7 @@ export class RuleService {
    * Create a new rule
    */
   async createRule(__id: string,
-    _content: string,
+    content: string,
     meta: RuleMeta,
     _options: CreateRuleOptions = {}
   ): Promise<Rule> {

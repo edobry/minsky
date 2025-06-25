@@ -88,7 +88,7 @@ describe("Shared CLI Options", () => {
 
   describe("Normalization Functions", () => {
     it("should normalize repository options", () => {
-      const _options: RepoOptions = {
+      const options: RepoOptions = {
         session: "test-session",
         repo: "test-repo",
         "upstream-repo": "test-upstream",
@@ -104,7 +104,7 @@ describe("Shared CLI Options", () => {
     });
 
     it("should normalize output format options", () => {
-      const _options: OutputOptions = {
+      const options: OutputOptions = {
         json: true,
         debug: true,
       };

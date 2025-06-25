@@ -126,12 +126,12 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         }
 
         return { success: true, data: state };
-      } catch (_error) {
+      } catch (error) {
         log.error("JSON parse error, reinitializing state:", { error: parseError });
         const state = this.initializeState();
         return { success: true, data: state };
       }
-    } catch (_error) {
+    } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);
       return {
@@ -177,7 +177,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         success: true,
         bytesWritten: json.length,
       };
-    } catch (_error) {
+    } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error writing database file ${this.filePath}: ${typedError.message}`);
       return {
@@ -193,7 +193,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
    * @param options Query options
    * @returns Promise resolving to the entity or null if not found
    */
-  async getEntity(__id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
+  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;
@@ -389,7 +389,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
       }
 
       return true;
-    } catch (_error) {
+    } catch (error) {
       log.error(
         `Error initializing storage: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -435,7 +435,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
  * @returns JsonFileStorage instance
  */
 export function createJsonFileStorage<T, S>(
-  _options: JsonFileStorageOptions<S>
+  options: JsonFileStorageOptions<S>
 ): DatabaseStorage<T, S> {
   return new JsonFileStorage<T, S>(_options);
 }

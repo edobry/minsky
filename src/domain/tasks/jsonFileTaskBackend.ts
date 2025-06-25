@@ -139,7 +139,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return JSON.stringify(state, null, 2);
   }
 
-  parseTaskSpec(__content: string): TaskSpecData {
+  parseTaskSpec(content: string): TaskSpecData {
     // Basic parsing of task spec content
     const lines = content.split("\n");
     let _title = "";
@@ -185,7 +185,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   // ---- Side Effects ----
 
-  async saveTasksData(__content: string): Promise<TaskWriteOperationResult> {
+  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
     try {
       // Parse the content to get tasks
       const tasks = this.parseTasks(__content);
@@ -257,7 +257,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
-  async fileExists(__path: string): Promise<boolean> {
+  async fileExists(path: string): Promise<boolean> {
     try {
       await access(path);
       return true;

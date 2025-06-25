@@ -73,7 +73,7 @@ export function outputResult(result: unknown, options: OutputOptions = {}): void
         log.cli(String(_result));
       }
     }
-  } catch (_error) {
+  } catch (error) {
     log.cliError("Failed to format output:", error);
     log.cli(String(_result));
   }

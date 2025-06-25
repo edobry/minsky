@@ -47,7 +47,7 @@ function extractGitHubRepoFromRemote(
     }
 
     return null;
-  } catch (_error) {
+  } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       _workspacePath,
       error: error instanceof Error ? error.message : String(error),
@@ -131,7 +131,7 @@ export async function createGitHubLabels(
       });
 
       log.debug(`Created GitHub label: ${labelName}`);
-    } catch (_error) {
+    } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
         error: error instanceof Error ? error.message : String(error),
       });

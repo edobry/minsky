@@ -28,7 +28,7 @@ interface CommandSchema<_Params, Result> {
       required: boolean;
     }
   >;
-  handler: (_params: unknown) => Promise<Result>;
+  handler: (params: unknown) => Promise<Result>;
 }
 
 import { registerGitCommands } from "../shared/commands/git.js";
@@ -79,7 +79,7 @@ const gitCommitCommandSchema: CommandSchema<any, any> = {
     },
   },
   // In real implementation, this would call the shared command registry
-  handler: async (_params: unknown) => {
+  handler: async (params: unknown) => {
     log.debug("MCP git.commit called with params:", params);
     return {
       success: true,

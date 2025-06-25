@@ -80,7 +80,7 @@ const DEFAULT_URI_OPTIONS: UriOptions = {
  * @throws ValidationError if the URI is invalid or doesn't meet requirements
  */
 export function normalizeRepositoryUri(_uri: string,
-  _options: UriOptions = DEFAULT_URI_OPTIONS
+  options: UriOptions = DEFAULT_URI_OPTIONS
 ): RepositoryUri {
   if (!uri) {
     throw new ValidationError("Repository URI cannot be empty");
@@ -190,7 +190,7 @@ export function normalizeRepositoryUri(_uri: string,
  * @throws ValidationError if the URI is invalid
  */
 export function validateRepositoryUri(_uri: string,
-  _options: UriOptions = DEFAULT_URI_OPTIONS
+  options: UriOptions = DEFAULT_URI_OPTIONS
 ): boolean {
   // This will throw if validation fails
   normalizeRepositoryUri(_uri, _options);
