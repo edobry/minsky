@@ -117,7 +117,7 @@ export interface CompatMockFunction<TReturn = any, TArgs extends any[] = any[]> 
   /**
    * Sets a new implementation for the mock function.
    */
-  mockImplementation(_fn: (..._args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
+  mockImplementation(_fn: (...args: TArgs) => TReturn): CompatMockFunction<TReturn, TArgs>;
 
   /**
    * Sets a one-time implementation for the next call.

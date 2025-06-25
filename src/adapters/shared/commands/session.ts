@@ -346,7 +346,6 @@ export function registerSessionCommands(): void {
           sessions,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:348:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to list sessions", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -383,7 +382,6 @@ export function registerSessionCommands(): void {
           session,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:385:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to get session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -428,7 +426,6 @@ export function registerSessionCommands(): void {
           session,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:430:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to start session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -462,7 +459,6 @@ export function registerSessionCommands(): void {
           directory,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:464:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to get session directory", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -497,7 +493,6 @@ export function registerSessionCommands(): void {
           session: params.name || params.task,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:499:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to delete session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name || params.task,
@@ -534,7 +529,6 @@ export function registerSessionCommands(): void {
           session: params.name || params.task,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:536:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to update session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name || params.task,
@@ -567,7 +561,6 @@ export function registerSessionCommands(): void {
           result,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:569:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to approve session", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -605,7 +598,6 @@ export function registerSessionCommands(): void {
           ...result,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:607:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to create session PR", {
           error: error instanceof Error ? error.message : String(error),
           session: params.name,
@@ -643,7 +635,6 @@ export function registerSessionCommands(): void {
           session,
         };
       } catch (error) {
-        console.log('[DEBUG] Caught error in src/adapters/shared/commands/session.ts:645:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         log.error("Failed to inspect session", {
           error: error instanceof Error ? error.message : String(error),
         });

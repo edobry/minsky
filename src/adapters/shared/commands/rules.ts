@@ -426,7 +426,7 @@ export function registerRulesCommands(): void {
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (_params: unknown) => {
+    execute: async (params: unknown) => {
       log.debug("Executing rules.search _command", { params, _context });
 
       try {

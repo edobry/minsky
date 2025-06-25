@@ -408,8 +408,8 @@ export class RuleService {
   /**
    * Update an existing rule
    */
-  async updateRule(__id: string,
-    _options: UpdateRuleOptions,
+  async updateRule(_id: string,
+    options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
     const rule = await this.getRule(_id, ruleOptions);

@@ -48,7 +48,6 @@ function extractGitHubRepoFromRemote(
 
     return null;
   } catch (error) {
-    console.log('[DEBUG] Caught error in src/domain/tasks/githubBackendConfig.ts:50:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
     log.debug("Failed to extract GitHub repo from git remote", {
       _workspacePath,
       error: error instanceof Error ? error.message : String(error),
@@ -116,7 +115,6 @@ export async function createGitHubLabels(
         log.debug(`Label ${labelName} already exists`);
         continue;
       } catch (error: unknown) {
-        console.log('[DEBUG] Caught error in src/domain/tasks/githubBackendConfig.ts:118:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
         // Label doesn't exist, continue to create it
         if (error.status !== HTTP_NOT_FOUND) {
           throw error;
@@ -134,7 +132,6 @@ export async function createGitHubLabels(
 
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/domain/tasks/githubBackendConfig.ts:136:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error(`Failed to create GitHub label: ${labelName}`, {
         error: error instanceof Error ? error.message : String(error),
       });

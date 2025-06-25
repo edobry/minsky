@@ -150,7 +150,6 @@ export class MarkdownTaskBackend implements TaskBackend {
       const files = await readdir(this.tasksDirectory);
       return files.filter((file) => file.startsWith(`${taskId}-`));
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/domain/tasks/markdownTaskBackend.ts:152:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: error instanceof Error ? error : String(error),
       });

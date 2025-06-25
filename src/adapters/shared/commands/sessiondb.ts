@@ -212,7 +212,6 @@ const sessionDbMigrateRegistration = {
         };
       }
     } catch (error) {
-      console.log('[DEBUG] Caught error in src/adapters/shared/commands/sessiondb.ts:214:', typeof error !== 'undefined' ? 'error defined' : 'error undefined', typeof _error !== 'undefined' ? '_error defined' : '_error undefined');
       log.error("Migration failed", {
         targetBackend,
         error: error instanceof Error ? error.message : String(error),
