@@ -226,3 +226,75 @@ Before submitting a rule, verify it:
   # Self-Improvement Router
   ...
   ```
+
+## Rule System Organization Strategy
+
+When working with complex rule systems, apply these organizational principles to minimize context usage:
+
+### 1. Workflow-Focused Rule Design (Critical for Context Minimization)
+- **Target specific developer workflows** rather than broad topics
+- **Minimize context usage** by creating focused rules that only load relevant guidance
+- **Clear separation of concerns**: Each rule should address one specific workflow or decision point
+- **Specific trigger conditions**: Include "When to Use This Rule" sections with clear scenarios
+- **Actionable workflows**: Provide step-by-step guidance for common developer tasks
+
+### 2. Examples of Workflow-Focused Organization
+Instead of: One large "test-design" rule covering everything
+
+Prefer: Separate focused rules:
+- `test-organization`: **File structure** and organization patterns
+- `designing-tests`: **Test content** and implementation patterns
+- `bun-test-patterns`: **Framework-specific** utilities and mocking
+
+Each rule targets specific developer questions:
+- "Where should I put this test?" → `test-organization`
+- "How should I write this test?" → `designing-tests`
+- "How do I mock this dependency?" → `bun-test-patterns`
+
+### 3. Rule Refactoring Strategy
+- When rules become too broad or overlapping, **extract specific workflows**
+- **Remove overlapping content** from existing rules and add cross-references
+- **Update router rules** to include new focused rules
+- **Verify clear boundaries** between related rules
+
+This strategy ensures AI assistants load only the minimal, relevant rule text for specific developer workflows rather than broad, overlapping guidance.
+
+## Rule System Organization Lessons
+
+When working with complex rule systems, apply these organizational principles to minimize context usage:
+
+1. **Workflow-Focused Rule Design** (Critical for Context Minimization):
+   - **Target specific developer workflows** rather than broad topics
+   - **Minimize context usage** by creating focused rules that only load relevant guidance
+   - **Clear separation of concerns**: Each rule should address one specific workflow or decision point
+   - **Specific trigger conditions**: Include "When to Use This Rule" sections with clear scenarios
+   - **Actionable workflows**: Provide step-by-step guidance for common developer tasks
+
+2. **Examples of Workflow-Focused Organization**:
+   - Instead of: One large "test-design" rule covering everything
+   - Prefer: Separate focused rules:
+     - `test-organization`: **File structure** and organization patterns
+     - `designing-tests`: **Test content** and implementation patterns
+     - `bun-test-patterns`: **Framework-specific** utilities and mocking
+   - Each rule targets specific developer questions:
+     - "Where should I put this test?" → `test-organization`
+     - "How should I write this test?" → `designing-tests`
+     - "How do I mock this dependency?" → `bun-test-patterns`
+
+3. **Rule Refactoring Strategy**:
+   - When rules become too broad or overlapping, **extract specific workflows**
+   - **Remove overlapping content** from existing rules and add cross-references
+   - **Update router rules** to include new focused rules
+   - **Verify clear boundaries** between related rules
+
+4. **Create Rule Hierarchies**:
+   - Create a router rule as the entry point for rule systems (4+ related rules)
+   - Organize rules into layers (Foundation, Implementation, Specialized)
+   - Ensure descriptions clearly indicate rule relationships
+
+5. **Rule Application Clarity**:
+   - Ensure every rule has a clear, unique purpose
+   - Prevent overlapping guidance between rules
+   - Use specific scenarios in descriptions to trigger correct rule application
+
+These principles ensure AI assistants load only the minimal, relevant rule text for specific developer workflows rather than broad, overlapping guidance.
