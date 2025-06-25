@@ -413,11 +413,11 @@ export class RemoteGitBackend implements RepositoryBackend {
         message: "Successfully pulled changes from remote repository",
       };
     } catch (error) {
-      const _error = err instanceof Error ? err : new Error(String(err));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to pull from remote repository: ${error.message}`,
-        error,
+        message: `Failed to pull from remote repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }

@@ -361,7 +361,7 @@ export async function createTaskFromParams(
 ): Promise<any> {
   try {
     // Validate params with Zod schema
-    const validParams = taskCreateParamsSchema.parse(_params);
+    const validParams = taskCreateParamsSchema.parse(params);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -415,7 +415,7 @@ export async function getTaskSpecContentFromParams(
 ): Promise<{ task: unknown; specPath: string; content: string; section?: string }> {
   try {
     // Validate params with Zod schema
-    const validParams = taskSpecContentParamsSchema.parse(_params);
+    const validParams = taskSpecContentParamsSchema.parse(params);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
