@@ -56,9 +56,9 @@ const agentLogFormat = format.combine(
 // Common format for program/CLI logs (plain text)
 const programLogFormat = format.combine(
   format.colorize(),
-  format.printf((_info: unknown) => {
-    // Cast _info to a proper type
-    const info = _info as { message?: unknown; stack?: string; [key: string]: unknown };
+  format.printf((info: unknown) => {
+    // Cast info to a proper type
+    const logInfo = info as { message?: unknown; stack?: string; [key: string]: unknown };
     // Ensure message is a string
     const message = typeof info.message === "string" ? info.message : JSON.stringify(info.message);
     // For user-facing CLI output, just show the message without timestamp and log level

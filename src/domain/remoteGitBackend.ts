@@ -330,9 +330,9 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
-    } catch (_error) {
+    } catch (error) {
       throw new RepositoryError(
-        `Failed to checkout _branch ${branch}`,
+        `Failed to checkout branch ${branch}`,
         error instanceof Error ? error : undefined
       );
     }

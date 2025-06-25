@@ -82,11 +82,11 @@ export function writeSessionDbFile(
 /**
  * Ensure the database directory exists
  */
-export function ensureDbDir(__dbPath: string): boolean {
+export function ensureDbDir(dbPath: string): boolean {
   try {
     const dbDir = dirname(dbPath);
     if (!existsSync(dbDir)) {
-      mkdirSync(_dbDir, { recursive: true });
+      mkdirSync(dbDir, { recursive: true });
     }
     return true;
   } catch (error) {

@@ -187,7 +187,7 @@ export function createMCPCommand(): Command {
           log.cli("\nStopping Minsky MCP Server...");
           process.exit(0);
         });
-      } catch (_error) {
+      } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
           transportType: options.httpStream ? "httpStream" : "stdio",
@@ -201,11 +201,11 @@ export function createMCPCommand(): Command {
         // Handle network errors in a user-friendly way
         if (isNetworkError(error)) {
           const port = parseInt(options.port, 10);
-          const networkError = createNetworkError(_error, port, options.host);
+          const networkError = createNetworkError(error, port, options.host);
           const isDebug = SharedErrorHandler.isDebugMode();
 
           // Output user-friendly message with suggestions
-          log.cliError(formatNetworkErrorMessage(_networkError, isDebug));
+          log.cliError(formatNetworkErrorMessage(networkError, isDebug));
 
           // Only show stack trace in debug mode
           if (isDebug && error instanceof Error && error.stack) {
