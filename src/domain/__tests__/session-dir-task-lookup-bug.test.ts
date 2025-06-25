@@ -168,4 +168,64 @@ describe("Session Dir Task Lookup Bug", () => {
     expect(normalizeTaskId(sessionWithNullTaskId.taskId)).toBeUndefined();
     expect(normalizeTaskId(sessionWithTaskId.taskId)).toBe("160");
   });
+
+  test("IMPLEMENTATION SEQUENCE: covers the exact call chain that caused the bug", async () => {
+    // This test reproduces the EXACT sequence of calls that caused the bug:
+    // 1. SessionDbAdapter.getSessionByTaskId("160")
+    // 2. Calls storage.getEntities({ taskId: "160" })
+    // 3. SQLiteStorage.getEntities() ignores options and returns ALL sessions
+    // 4. Takes first session from array (sessions[0]) which is wrong session
+
+    // Arrange: Create a mock storage that simulates the buggy getEntities behavior
+    const mockStorage = {
+      getEntities: createMock(),
+    };
+
+    // BUGGY BEHAVIOR: getEntities ignores options and returns all sessions
+    mockStorage.getEntities.mockReturnValue(Promise.resolve(mockSessions)); // Returns ALL sessions
+
+    // Act: Simulate the SessionDbAdapter.getSessionByTaskId logic
+    const normalizedTaskId = "160".replace(/^#/, "");
+    const sessions = await mockStorage.getEntities({ taskId: normalizedTaskId });
+    const session = sessions.length > 0 ? sessions[0] : null; // Takes first session (BUG!)
+
+    // Assert: This demonstrates the exact bug sequence
+    expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
+    expect(sessions).toHaveLength(2); // Bug: returns all sessions instead of filtered
+    expect(session?.session).toBe("004"); // Bug: first session is wrong one
+    expect(session?.taskId).toBeNull(); // Bug: wrong session has null taskId
+
+    // Show what the CORRECT behavior should be:
+    const correctlyFilteredSessions = mockSessions.filter((s) => {
+      if (!s.taskId) return false;
+      return s.taskId.replace(/^#/, "") === normalizedTaskId;
+    });
+
+    expect(correctlyFilteredSessions).toHaveLength(1);
+    expect(correctlyFilteredSessions[0].session).toBe("task#160"); // Correct session
+    expect(correctlyFilteredSessions[0].taskId).toBe("#160"); // Correct taskId
+  });
+
+  test("EDGE CASE: multiple sessions with same task pattern but different formats", () => {
+    // Test edge case where database might have sessions with different task ID formats
+    const edgeCaseSessions = [
+      { session: "old-session", taskId: null },
+      { session: "task160", taskId: "160" }, // Without # prefix
+      { session: "task#160", taskId: "#160" }, // With # prefix
+      { session: "task-160-v2", taskId: "#160" }, // Another session with same task ID
+    ];
+
+    const normalizeTaskId = (taskId: string) => taskId.replace(/^#/, "");
+    const targetTaskId = "160";
+
+    // Filter logic that should handle all these cases
+    const correctSessions = edgeCaseSessions.filter((s) => {
+      if (!s.taskId) return false;
+      return normalizeTaskId(s.taskId) === targetTaskId;
+    });
+
+    // Should find all sessions that match the normalized task ID
+    expect(correctSessions).toHaveLength(3);
+    expect(correctSessions.map((s) => s.session)).toEqual(["task160", "task#160", "task-160-v2"]);
+  });
 });

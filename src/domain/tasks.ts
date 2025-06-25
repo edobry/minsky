@@ -12,7 +12,7 @@ import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import { ResourceNotFoundError } from "../errors/index.js";
-import matter from "gray-matter";
+const matter = require("gray-matter");
 // Import constants and utilities for use within this file
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
 import type { TaskStatus } from "./tasks/taskConstants.js";
