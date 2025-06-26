@@ -6,6 +6,7 @@
 
 import { Command } from "commander";
 import { configurationService } from "../../domain/configuration";
+import { exit } from "../../utils/process.js";
 
 interface ShowOptions {
   json?: boolean;
@@ -29,7 +30,7 @@ export function createConfigShowCommand(): Command {
         }
       } catch (error) {
         process.stderr.write(`Failed to load configuration: ${error}\n`);
-        process.exit(1);
+        exit(1);
       }
     });
 }
