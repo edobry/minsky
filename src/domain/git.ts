@@ -4,7 +4,7 @@ import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import { SessionDB } from "./session";
+import { SessionDB, createSessionProvider } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index";
 import { log } from "../utils/logger";
@@ -234,7 +234,7 @@ export class GitService implements GitServiceInterface {
         "minsky",
         "git"
       );
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider({ workingDir: process.cwd() }) as SessionDB;
   }
 
   // Add public method to get session record
