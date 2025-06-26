@@ -105,7 +105,6 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 ### Fixed
 
 - **Task #167: Fix Task Creation CLI Bug - "status is not defined" Error**
-
   - Fixed critical "status is not defined" error that was preventing the `minsky tasks create` command from working
   - Resolved parameter naming mismatch in `getCheckboxFromStatus` function in `taskConstants.ts`
   - Changed parameter from `__status` to `status` to match the function body usage
