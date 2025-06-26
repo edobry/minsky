@@ -8,9 +8,6 @@
 
 import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
-import * as fs from "fs/promises";
-import * as path from "path";
-import * as os from "os";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -25,6 +22,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -409,8 +407,8 @@ const tasksGetParams: CommandParameterMap = {
 const tasksCreateParams: CommandParameterMap = {
   title: {
     schema: z.string().min(1),
-    description: "Title for the task (required when not using specPath)",
-    required: false,
+    description: "Title for the task",
+    required: true,
   },
   description: {
     schema: z.string(),
@@ -420,11 +418,6 @@ const tasksCreateParams: CommandParameterMap = {
   descriptionPath: {
     schema: z.string(),
     description: "Path to file containing task description",
-    required: false,
-  },
-  specPath: {
-    schema: z.string().min(1),
-    description: "Path to the task specification document (legacy, will be deprecated)",
     required: false,
   },
   force: {
@@ -459,95 +452,6 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
 };
-
-/**
- * Create a task from title and description parameters
- * This is a helper function that creates a temporary task specification
- * and then calls the standard createTaskFromParams function
- */
-async function createTaskFromTitleAndDescription(params: {
-  title: string;
-  description?: string;
-  descriptionPath?: string;
-  force?: boolean;
-  backend?: string;
-  repo?: string;
-  workspace?: string;
-  session?: string;
-}): Promise<any> {
-  let description = "";
-  
-  // Handle description input (either text or file)
-  if (params.description) {
-    description = params.description;
-  } else if (params.descriptionPath) {
-    // Read description from file
-    try {
-      description = await fs.readFile(params.descriptionPath, "utf-8") as string;
-    } catch (error) {
-      throw new ValidationError(
-        `Failed to read description file: ${params.descriptionPath}. ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  } else {
-    throw new ValidationError("Either description or descriptionPath must be provided");
-  }
-
-  // Create a temporary task specification content
-  const taskSpecContent = `# ${params.title}
-
-## Status
-
-BACKLOG
-
-## Priority
-
-MEDIUM
-
-## Description
-
-${description.trim()}
-
-## Requirements
-
-[To be filled in]
-
-## Success Criteria
-
-[To be filled in]
-`;
-
-  // Write to a temporary file and create the task
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-task-"));
-  const tempSpecPath = path.join(tempDir, "temp-task-spec.md");
-  
-  try {
-    await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-    
-    // Create the task using the temporary specification
-    const result = await createTaskFromParams({
-      specPath: tempSpecPath,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-    });
-    
-    // Clean up temporary file
-    await fs.rm(tempDir, { recursive: true, force: true });
-    
-    return result;
-  } catch (error) {
-    // Clean up temporary file on error
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch (cleanupError) {
-      // Ignore cleanup errors
-    }
-    throw error;
-  }
-}
 
 /**
  * Tasks commands registration parameters and definitions
@@ -600,42 +504,28 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document or using title and description",
+  description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
-    // Validate required parameters
-    if (!params.title && !params.specPath) {
-      throw new ValidationError("Either 'title' or 'specPath' must be provided");
+    // Title is required by schema, but validate it's provided
+    if (!params.title) {
+      throw new ValidationError("Title is required");
     }
 
-    // If title is provided, we use the new interface
-    if (params.title) {
-      // Validate that either description or descriptionPath is provided
-      if (!params.description && !params.descriptionPath) {
-        throw new ValidationError("Either 'description' or 'descriptionPath' must be provided when using --title");
-      }
-
-      // Both description and descriptionPath provided is an error
-      if (params.description && params.descriptionPath) {
-        throw new ValidationError("Cannot provide both 'description' and 'descriptionPath' - use one or the other");
-      }
-
-      return await createTaskFromTitleAndDescription({
-        title: params.title,
-        description: params.description,
-        descriptionPath: params.descriptionPath,
-        force: params.force ?? false,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-      });
+    // Validate that either description or descriptionPath is provided
+    if (!params.description && !params.descriptionPath) {
+      throw new ValidationError("Either --description or --description-path must be provided");
     }
 
-    // Legacy specPath interface
-    if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
-    return await createTaskFromParams({
-      specPath: params.specPath,
+    // Both description and descriptionPath provided is an error
+    if (params.description && params.descriptionPath) {
+      throw new ValidationError("Cannot provide both --description and --description-path - use one or the other");
+    }
+
+    return await createTaskFromTitleAndDescription({
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,
