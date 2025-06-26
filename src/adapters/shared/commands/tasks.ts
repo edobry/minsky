@@ -22,6 +22,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -404,10 +405,20 @@ const tasksGetParams: CommandParameterMap = {
  * Parameters for tasks create command
  */
 const tasksCreateParams: CommandParameterMap = {
-  specPath: {
+  title: {
     schema: z.string().min(1),
-    description: "Path to the task specification document",
+    description: "Title for the task",
     required: true,
+  },
+  description: {
+    schema: z.string(),
+    description: "Description text for the task",
+    required: false,
+  },
+  descriptionPath: {
+    schema: z.string(),
+    description: "Path to file containing task description",
+    required: false,
   },
   force: {
     schema: z.boolean().default(false),
@@ -493,12 +504,28 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
-    if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
-    return await createTaskFromParams({
-      specPath: params.specPath,
+    // Title is required by schema, but validate it's provided
+    if (!params.title) {
+      throw new ValidationError("Title is required");
+    }
+
+    // Validate that either description or descriptionPath is provided
+    if (!params.description && !params.descriptionPath) {
+      throw new ValidationError("Either --description or --description-path must be provided");
+    }
+
+    // Both description and descriptionPath provided is an error
+    if (params.description && params.descriptionPath) {
+      throw new ValidationError("Cannot provide both --description and --description-path - use one or the other");
+    }
+
+    return await createTaskFromTitleAndDescription({
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,
@@ -598,7 +625,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -649,7 +676,7 @@ const tasksMigrateRegistration = {
           total: result.migratedCount + result.skippedCount,
           errors: result.errors.length,
         },
-        conflicts: [], // TODO: Add conflict details from result
+        conflicts: [] as Array<{ taskId: string; resolution: string }>, // TODO: Add conflict details from result
         backupPath: result.backupPath,
       };
 
@@ -671,7 +698,7 @@ const tasksMigrateRegistration = {
       if (cliResult.conflicts && cliResult.conflicts.length > 0) {
         log.cliWarn("\n⚠️  ID Conflicts detected:");
         cliResult.conflicts.forEach((conflict) => {
-          log.cliWarn(`   • Task ${conflict._taskId}: ${conflict.resolution}`);
+          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
         });
       }
 

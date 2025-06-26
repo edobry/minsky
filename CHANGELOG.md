@@ -66,6 +66,13 @@ _See: SpecStory history [2025-06-17_23-16-check-mcp-server-status-and-tool-isola
 
 _See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/history/2025-01-17_github-issues-task-backend.md) for implementation details._
 
+- **Task #175: Add AI-powered task management subcommands**
+  - `estimate` - AI-powered task complexity estimation
+  - `decompose` - AI-assisted task breakdown into subtasks
+  - Additional commands for analysis, prioritization, and similarity detection
+
+_See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specstory/history/2025-01-24_13-58-start-working-on-task-166.md) for task creation._
+
 ### Changed
 
 - **Improved user experience for session PR command uncommitted changes error**

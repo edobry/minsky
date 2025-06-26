@@ -1,5 +1,7 @@
 # Fix Boolean Flag Parsing Issue
 
+> **⚠️ MERGED**: This task has been merged into [Task #177: Fix Shared Command Registry Architecture to Eliminate Interface Duplication](177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) as both issues stem from the same architectural failure.
+
 ## Problem
 
 The `--no-update` flag for `session pr` command is not working correctly. When specified, the flag remains `undefined` instead of being set to `true`.

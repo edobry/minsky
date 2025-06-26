@@ -106,19 +106,55 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
  */
 export const taskCreateParamsSchema = z
   .object({
-    specPath: z.string().min(1).describe("Path to the task specification document"),
+    title: z.string().min(1).describe("Title for the task"),
+    description: z.string().optional().describe("Description text for the task"),
+    descriptionPath: z.string().optional().describe("Path to file containing task description"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // Either description or descriptionPath must be provided
+      return data.description || data.descriptionPath;
+    },
+    {
+      message: "Either --description or --description-path must be provided",
+    }
+  );
 
 /**
  * Type for task create parameters
  */
 export type TaskCreateParams = z.infer<typeof taskCreateParamsSchema>;
+
+/**
+ * Type for task create from title and description parameters
+ */
+export type TaskCreateFromTitleAndDescriptionParams = z.infer<typeof taskCreateFromTitleAndDescriptionParamsSchema>;
+
+/**
+ * Schema for task create from title and description parameters
+ */
+export const taskCreateFromTitleAndDescriptionParamsSchema = z
+  .object({
+    title: z.string().min(1).describe("Title for the task (required)"),
+    description: z.string().optional().describe("Description text for the task"),
+    descriptionPath: z.string().optional().describe("Path to file containing task description"),
+    force: flagSchema("Force creation even if task already exists"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
+  })
+  .merge(commonCommandOptionsSchema)
+  .refine((data) => data.description || data.descriptionPath, {
+    message: "Either 'description' or 'descriptionPath' must be provided",
+    path: ["description"],
+  });
 
 /**
  * Schema for task spec content parameters

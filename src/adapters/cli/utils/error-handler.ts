@@ -16,6 +16,7 @@ import {
   ensureError,
 } from "../../../errors/index.js";
 import { log, isStructuredMode } from "../../../utils/logger.js";
+import { exit } from "../../../utils/process.js";
 /**
  * Determines if debug mode is enabled based on environment variables
  */
@@ -113,7 +114,7 @@ export function handleCliError(error: unknown): never {
     }
   }
 
-  process.exit(1);
+  exit(1);
 }
 
 /**
