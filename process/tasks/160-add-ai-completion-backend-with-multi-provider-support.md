@@ -1,213 +1,347 @@
 # Add AI completion backend with multi-provider support
 
-**Status:** TO-DO
+**Status:** IN-PROGRESS
 **Priority:** HIGH
 **Category:** FEATURE
 **Tags:** ai, backend, architecture, providers, integration
 
 ## Overview
 
-Implement a general AI backend that supports multiple model providers (OpenAI, Anthropic, etc.) with reasoning, tool use, and prompt caching capabilities. This backend will serve as the foundation for AI-powered features across Minsky including rules processing, context management, tools, and future agent implementation.
+Implement a general AI backend that supports multiple model providers (OpenAI, Anthropic, OpenRouter, LiteLLM, Ollama, etc.) with reasoning, tool use, and prompt caching capabilities. This backend will serve as the foundation for AI-powered features across Minsky including rules processing, context management, tools, and future agent implementation.
+
+## Progress Status
+
+### ✅ Completed (Phase 1)
+
+- [x] **Basic provider abstraction layer** with clean interfaces
+- [x] **Configuration system integration** using existing Minsky patterns
+- [x] **Vercel AI SDK integration** for provider abstraction
+- [x] **Core service implementation** (`AICompletionService`, `AIConfigurationService`)
+- [x] **Type-safe interfaces** with comprehensive TypeScript types
+- [x] **Initial OpenAI, Anthropic, Google support** with basic models
+- [x] **Tool calling capability** through AI SDK
+- [x] **Streaming support** for real-time completions
+- [x] **Error handling** with custom AI error types
+- [x] **Usage tracking and cost calculation** basics
+- [x] **Unit tests foundation** with mock providers
+- [x] **CLI integration** with `minsky ai` command
+
+### 🔄 In Progress (Phase 2)
+
+- [ ] **Expand model support** to latest/best models from each provider
+- [ ] **Add OpenRouter support** for unified API access to multiple models
+- [ ] **Add LiteLLM support** for proxy-based multi-provider access
+- [ ] **Add Ollama support** for local model execution
+- [ ] **Add OpenAI-compatible providers** (Together, Perplexity, etc.)
+- [ ] **Enhanced configuration management** with provider-specific options
+- [ ] **Comprehensive integration tests** with real API calls
 
 ## Requirements
 
 ### Core Functionality
 
-- Support for multiple AI model providers (OpenAI, Anthropic, etc.)
-- Focus on models that support:
-  - Reasoning capabilities (e.g., OpenAI o1, Claude 3.5 Sonnet)
-  - Tool/function calling
-  - Prompt caching (where available, e.g., Anthropic Claude)
+- Support for multiple AI model providers:
+  - **Major Providers**: OpenAI, Anthropic, Google, Cohere, Mistral
+  - **Aggregator Providers**: OpenRouter (unified API for 200+ models)
+  - **Proxy Providers**: LiteLLM (proxy for 100+ providers)
+  - **Local Providers**: Ollama (local model execution)
+  - **OpenAI-Compatible**: Together, Perplexity, Groq, etc.
+- Focus on **latest and most capable models**:
+  - **OpenAI**: GPT-4o, GPT-4o-mini, o1-preview, o1-mini (reasoning)
+  - **Anthropic**: Claude 3.5 Sonnet, Claude 3.5 Haiku (with caching)
+  - **Google**: Gemini 1.5 Pro, Gemini 1.5 Flash
+  - **Local**: Llama 3.3, Qwen 2.5, DeepSeek, etc. via Ollama
+  - **Via OpenRouter**: Access to Grok, Command R+, and 200+ other models
+- Support for advanced capabilities:
+  - Reasoning capabilities (o1 series, Claude thinking, etc.)
+  - Tool/function calling across providers
+  - Prompt caching (Anthropic, some others)
+  - Structured outputs and JSON mode
+  - Multi-modal inputs (text, images, documents)
 - Transparent provider swapping through abstraction layer
 - Extensible architecture for adding new providers
 
+### Enhanced Provider Support
+
+#### OpenRouter Integration
+
+- Unified API access to 200+ models from different providers
+- Single API key for multiple model access
+- Cost optimization through model selection
+- Access to latest models often before direct provider APIs
+
+#### LiteLLM Integration
+
+- Proxy-based access to 100+ providers
+- Consistent OpenAI-style interface
+- Load balancing between providers
+- Fallback mechanisms for provider failures
+
+#### Ollama Integration
+
+- Local model execution for privacy/cost
+- Support for popular open models (Llama, Qwen, etc.)
+- No API key required
+- Offline capability
+
+#### OpenAI-Compatible Providers
+
+- Generic OpenAI-compatible interface
+- Support for Together, Perplexity, Groq, etc.
+- Custom base URLs and authentication
+
 ### Technical Implementation
 
-- **Research & Evaluation**: Investigate and evaluate AI interaction libraries that:
-  - Abstract away low-level provider API details
-  - Provide unified interface across providers
-  - Support modern AI features (tool use, reasoning, caching)
-  - Examples to consider: LangChain, LlamaIndex, Vercel AI SDK, OpenAI SDKs, Anthropic SDKs, etc.
-- **Configuration Integration**: Integration with existing Minsky configuration system
-- **Security**: Secure API token management through config
-- **Error Handling**: Comprehensive error handling and fallback mechanisms
-- **Performance**: Rate limiting and usage monitoring
-- **Observability**: Logging and debugging capabilities
+- **✅ Completed**: Basic Vercel AI SDK integration with provider abstraction
+- **🔄 In Progress**: Extend to support latest models and additional providers
+- **Configuration Enhancement**: Support for provider-specific features and settings
+- **Security**: Enhanced API token management with provider-specific auth
+- **Error Handling**: Improved error handling with provider-specific error mapping
+- **Performance**: Enhanced rate limiting, caching, and cost optimization
+- **Observability**: Detailed logging and usage analytics
 
-### Integration Points
+### Model Coverage Enhancement
 
-- Configuration system for provider selection and API keys
-- Error handling that integrates with Minsky's error handling patterns
-- Logging that follows Minsky's logging conventions
-- Type-safe interfaces and schemas using Zod
-- Support for both synchronous and asynchronous operations
+Current model support is limited to older models. Need to expand to:
 
-### Future Use Cases (not initial scope)
+#### OpenAI
 
-This backend will eventually power:
+- **Current**: gpt-4o, o1-preview (limited)
+- **Add**: gpt-4o-mini, o1-mini, latest model variants
+- **Reasoning**: Full o1 series support with proper reasoning detection
 
-- Rules processing and validation
-- Context analysis and summarization
-- Tool recommendation and automation
-- Full agent implementation with reasoning
-- Interactive AI assistance within Minsky CLI
-- Automated task management and optimization
+#### Anthropic
 
-### Initial Implementation Strategy
+- **Current**: claude-3-5-sonnet-20241022 (one variant)
+- **Add**: claude-3-5-haiku, latest Sonnet variants
+- **Features**: Full prompt caching utilization
 
-1. **Provider Abstraction**: Start with basic provider abstraction layer
-2. **Initial Providers**: Implement OpenAI and Anthropic as initial providers
-3. **Core Features**: Focus on text completion and basic tool calling
-4. **Configuration**: Establish configuration patterns and API key management
-5. **Foundation**: Create extensible foundation for future features
-6. **Testing**: Comprehensive testing strategy with mock providers
+#### Google
+
+- **Current**: gemini-1.5-pro (basic)
+- **Add**: gemini-1.5-flash, latest variants, proper vision support
+
+#### New Providers
+
+- **OpenRouter**: Access to Grok, Command R+, and 200+ models
+- **LiteLLM**: Proxy access to providers not directly supported
+- **Ollama**: Local models like Llama 3.3, Qwen 2.5, DeepSeek
+- **OpenAI-Compatible**: Together, Perplexity, Groq, etc.
 
 ## Architecture Considerations
 
-### Domain-Oriented Design
+### ✅ Current Architecture
 
-- Place core AI domain logic in `src/domain/ai/`
-- Create adapters for different providers in `src/adapters/ai/`
-- Keep configuration in `src/domain/configuration/`
-- Follow existing Minsky architectural patterns
+- Domain-oriented design in `src/domain/ai/`
+- Provider abstraction through Vercel AI SDK
+- Configuration integration with existing Minsky patterns
+- Type-safe interfaces with comprehensive schemas
 
-### Interface Design
+### 🔄 Architecture Enhancements
+
+#### Provider Registry Pattern
 
 ```typescript
-interface AIBackend {
-  complete(prompt: string, options?: CompletionOptions): Promise<CompletionResult>;
-  completeWithTools(
-    prompt: string,
-    tools: Tool[],
-    options?: ToolCompletionOptions
-  ): Promise<ToolCompletionResult>;
-  // Other methods...
-}
-
-interface AIProvider {
-  name: string;
-  capabilities: ProviderCapabilities;
-  complete(request: CompletionRequest): Promise<CompletionResponse>;
-  // Provider-specific methods...
+interface ProviderRegistry {
+  registerProvider(provider: AIProvider): void;
+  getProvider(name: string): AIProvider | null;
+  listProviders(): string[];
+  getCapabilities(provider: string): AICapability[];
 }
 ```
 
-### Configuration Schema
+#### Enhanced Configuration Schema
 
 ```typescript
 interface AIConfig {
   defaultProvider: string;
   providers: {
-    openai: {
-      apiKey: string;
-      model: string;
-      endpoint?: string;
-    };
-    anthropic: {
-      apiKey: string;
-      model: string;
-      endpoint?: string;
-    };
+    openai: OpenAIConfig;
+    anthropic: AnthropicConfig;
+    google: GoogleConfig;
+    openrouter: OpenRouterConfig;
+    litellm: LiteLLMConfig;
+    ollama: OllamaConfig;
+    custom: CustomProviderConfig[];
+  };
+  features: {
+    promptCaching: boolean;
+    toolCalling: boolean;
+    streaming: boolean;
+    multiModal: boolean;
   };
   rateLimiting: RateLimitConfig;
-  caching: CacheConfig;
+  costOptimization: CostConfig;
+}
+
+interface OpenRouterConfig {
+  apiKey: string;
+  baseURL?: string;
+  preferredModels: string[];
+  fallbackStrategy: "cheapest" | "fastest" | "best";
+}
+
+interface OllamaConfig {
+  baseURL: string; // Default: http://localhost:11434
+  models: string[]; // Available local models
+  pullOnDemand: boolean;
 }
 ```
 
 ## Research Tasks
 
-### AI Library Evaluation
+### ✅ Completed Research
 
-Research and compare the following libraries:
+- **Vercel AI SDK**: Selected as primary abstraction layer
+- **Initial provider patterns**: Established with OpenAI, Anthropic, Google
 
-1. **Vercel AI SDK**: Modern, TypeScript-first, provider-agnostic
-2. **LangChain**: Comprehensive but complex, good for agents
-3. **LlamaIndex**: Focus on retrieval and knowledge management
-4. **Direct SDKs**: OpenAI SDK, Anthropic SDK for maximum control
-5. **Other options**: Ollama support, local models, etc.
+### 🔄 Additional Research Needed
 
-Evaluation criteria:
+#### OpenRouter Integration
 
-- TypeScript support and type safety
-- Provider abstraction quality
-- Tool/function calling support
-- Prompt caching support
-- Bundle size and performance
-- Documentation and community
-- Maintenance and updates
+- API patterns and authentication
+- Model selection and pricing optimization
+- Rate limiting and error handling specifics
+- Integration with Vercel AI SDK
 
-### Model Research
+#### LiteLLM Integration
 
-Identify specific models to target:
+- Proxy deployment patterns
+- Provider fallback mechanisms
+- Configuration management
+- Performance characteristics
 
-- **OpenAI**: GPT-4, GPT-4 Turbo, o1 series (reasoning)
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3.5 Haiku (with caching)
-- **Future providers**: Google Gemini, local models, etc.
+#### Ollama Integration
+
+- Local deployment and management
+- Model pulling and updating
+- Performance optimization
+- Integration with cloud providers
 
 ## Acceptance Criteria
 
-- [ ] **Multi-provider AI backend implemented** with clean abstraction layer
-- [ ] **Configuration system integration** for API tokens and provider selection
-- [ ] **Support for at least OpenAI and Anthropic** as initial providers
-- [ ] **Basic tool calling/function execution** capability implemented
-- [ ] **Comprehensive error handling** and logging integrated with Minsky patterns
-- [ ] **Type-safe interfaces** using Zod schemas throughout
-- [ ] **Documentation for adding new providers** including examples
-- [ ] **Unit tests for core functionality** with >90% coverage
-- [ ] **Integration tests with actual provider APIs** (using test/mock credentials)
-- [ ] **Performance considerations** including rate limiting and caching where applicable
-- [ ] **Security review** of API key handling and storage
+### ✅ Phase 1 Complete
+
+- [x] Multi-provider AI backend implemented with clean abstraction layer
+- [x] Configuration system integration for API tokens and provider selection
+- [x] Support for OpenAI, Anthropic, and Google as initial providers
+- [x] Basic tool calling/function execution capability implemented
+- [x] Comprehensive error handling and logging integrated with Minsky patterns
+- [x] Type-safe interfaces using Zod schemas throughout
+- [x] Unit tests for core functionality implemented
+
+### 🔄 Phase 2 In Progress
+
+- [ ] **Latest model support** for all major providers (GPT-4o-mini, Claude 3.5 Haiku, etc.)
+- [ ] **OpenRouter integration** with access to 200+ models
+- [ ] **LiteLLM integration** for proxy-based multi-provider access
+- [ ] **Ollama integration** for local model execution
+- [ ] **OpenAI-compatible provider support** (Together, Perplexity, Groq)
+- [ ] **Enhanced configuration management** with provider-specific features
+- [ ] **Advanced capabilities** (prompt caching, structured outputs, multi-modal)
+- [ ] **Cost optimization features** (model selection, usage tracking)
+- [ ] **Comprehensive integration tests** with real provider APIs
+- [ ] **Performance optimizations** (caching, rate limiting, batching)
+- [ ] **Documentation for all providers** including setup guides
+
+### 🎯 Phase 3 Future
+
+- [ ] **Advanced reasoning support** with provider-specific optimizations
+- [ ] **Multi-modal capabilities** (vision, audio, documents)
+- [ ] **Agent framework integration** for complex multi-step tasks
+- [ ] **Fine-tuning support** where available
+- [ ] **Custom model support** and deployment patterns
 
 ## Implementation Notes
 
-### Phase 1: Foundation
+### ✅ Phase 1: Foundation (COMPLETE)
 
-- Basic provider abstraction and configuration
-- OpenAI integration with simple text completion
-- Error handling and logging foundation
+- Basic provider abstraction and configuration ✅
+- OpenAI integration with modern models ✅
+- Error handling and logging foundation ✅
+- CLI integration with `minsky ai` command ✅
 
-### Phase 2: Enhanced Features
+### 🔄 Phase 2: Enhanced Provider Support (IN PROGRESS)
 
-- Anthropic integration with prompt caching
-- Tool calling support across providers
+- OpenRouter integration for unified model access
+- LiteLLM proxy integration
+- Ollama local model support
+- OpenAI-compatible provider framework
+- Latest model support across all providers
 - Advanced configuration options
 
-### Phase 3: Future Expansion
+### 🎯 Phase 3: Advanced Features (PLANNED)
 
-- Additional providers (Google, local models)
-- Advanced features (streaming, embeddings)
+- Multi-modal inputs (images, documents)
+- Advanced reasoning optimizations
+- Cost optimization and model selection
+- Performance enhancements (batching, caching)
 - Integration with existing Minsky features
+
+## Current Implementation Status
+
+### Files Implemented
+
+- `src/domain/ai/types.ts` - Comprehensive type definitions ✅
+- `src/domain/ai/completion-service.ts` - Core completion service ✅
+- `src/domain/ai/config-service.ts` - Configuration management ✅
+- `src/domain/ai/index.ts` - Domain exports ✅
+- `src/domain/ai/completion-service.test.ts` - Unit tests ✅
+- `src/commands/ai/index.ts` - CLI command ✅
+- `src/cli.ts` - CLI integration ✅
+
+### Known Issues to Address
+
+1. **Limited model coverage** - Need latest models from each provider
+2. **Missing provider support** - OpenRouter, LiteLLM, Ollama not implemented
+3. **Basic configuration** - Need provider-specific feature configuration
+4. **Integration testing** - Need tests with real API calls
+5. **Cost optimization** - Need intelligent model selection features
 
 ## Dependencies
 
-- Existing Minsky configuration system
-- Error handling patterns from `src/errors/`
-- Logging utilities from `src/utils/logger`
-- Zod for schema validation
+- ✅ Vercel AI SDK for provider abstraction
+- ✅ Existing Minsky configuration system
+- ✅ Error handling patterns from `src/errors/`
+- ✅ Zod for schema validation
+- 🔄 Provider-specific SDKs as needed
+- 🔄 OpenRouter API integration
+- 🔄 LiteLLM proxy setup
+- 🔄 Ollama local deployment
 
 ## Testing Strategy
 
-### Unit Tests
+### ✅ Implemented
 
-- Provider abstraction layer
-- Configuration management
-- Error handling scenarios
-- Tool calling functionality
+- Unit tests for core services with mock providers
+- Basic error handling scenarios
+- Configuration validation tests
 
-### Integration Tests
+### 🔄 In Progress
 
-- Real provider API interactions (with test keys)
-- Configuration loading and validation
-- Error recovery and fallback scenarios
+- Integration tests with real provider APIs
+- Provider-specific capability testing
+- Cost calculation accuracy tests
+- Performance and rate limiting tests
 
-### Mock Strategy
+### 🎯 Planned
 
-- Mock providers for isolated testing
-- Configurable responses for different scenarios
-- Performance testing with controlled responses
+- End-to-end workflow testing
+- Multi-provider fallback testing
+- Local model performance testing
+- Cost optimization validation
 
 ---
 
-**Estimated Effort:** Medium-Large (2-3 weeks)
-**Risk Level:** Medium (external API dependencies)
+**Estimated Effort:** Large (4-6 weeks total, Phase 1 complete)
+**Risk Level:** Medium (external API dependencies, multiple providers)
 **Blocking:** None currently identified
+
+**Next Steps:**
+
+1. Expand model support to latest offerings from each provider
+2. Implement OpenRouter integration for unified model access
+3. Add LiteLLM support for proxy-based multi-provider access
+4. Implement Ollama support for local model execution
+5. Add OpenAI-compatible provider framework
+6. Enhance configuration management for provider-specific features
