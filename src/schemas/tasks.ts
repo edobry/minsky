@@ -106,14 +106,33 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
  */
 export const taskCreateParamsSchema = z
   .object({
-    specPath: z.string().min(1).describe("Path to the task specification document"),
+    title: z.string().min(1).optional().describe("Title for the task (required when not using specPath)"),
+    description: z.string().optional().describe("Description text for the task"),
+    descriptionPath: z.string().optional().describe("Path to file containing task description"),
+    specPath: z.string().optional().describe("Path to the task specification document (legacy, will be deprecated)"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // New interface: title must be provided with either description or descriptionPath
+      if (data.title) {
+        return data.description || data.descriptionPath;
+      }
+      // Legacy interface: specPath must be provided if no title
+      if (!data.title) {
+        return !!data.specPath;
+      }
+      return true;
+    },
+    {
+      message: "Either provide --title with --description/descriptionPath, or provide specPath for legacy mode",
+    }
+  );
 
 /**
  * Type for task create parameters

@@ -8,6 +8,9 @@
 
 import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -22,7 +25,6 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
-  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -407,8 +409,8 @@ const tasksGetParams: CommandParameterMap = {
 const tasksCreateParams: CommandParameterMap = {
   title: {
     schema: z.string().min(1),
-    description: "Title for the task (required)",
-    required: true,
+    description: "Title for the task (required when not using specPath)",
+    required: false,
   },
   description: {
     schema: z.string(),
@@ -457,6 +459,95 @@ const tasksCreateParams: CommandParameterMap = {
     required: false,
   },
 };
+
+/**
+ * Create a task from title and description parameters
+ * This is a helper function that creates a temporary task specification
+ * and then calls the standard createTaskFromParams function
+ */
+async function createTaskFromTitleAndDescription(params: {
+  title: string;
+  description?: string;
+  descriptionPath?: string;
+  force?: boolean;
+  backend?: string;
+  repo?: string;
+  workspace?: string;
+  session?: string;
+}): Promise<any> {
+  let description = "";
+  
+  // Handle description input (either text or file)
+  if (params.description) {
+    description = params.description;
+  } else if (params.descriptionPath) {
+    // Read description from file
+    try {
+      description = await fs.readFile(params.descriptionPath, "utf-8") as string;
+    } catch (error) {
+      throw new ValidationError(
+        `Failed to read description file: ${params.descriptionPath}. ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } else {
+    throw new ValidationError("Either description or descriptionPath must be provided");
+  }
+
+  // Create a temporary task specification content
+  const taskSpecContent = `# ${params.title}
+
+## Status
+
+BACKLOG
+
+## Priority
+
+MEDIUM
+
+## Description
+
+${description.trim()}
+
+## Requirements
+
+[To be filled in]
+
+## Success Criteria
+
+[To be filled in]
+`;
+
+  // Write to a temporary file and create the task
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-task-"));
+  const tempSpecPath = path.join(tempDir, "temp-task-spec.md");
+  
+  try {
+    await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+    
+    // Create the task using the temporary specification
+    const result = await createTaskFromParams({
+      specPath: tempSpecPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
+    
+    // Clean up temporary file
+    await fs.rm(tempDir, { recursive: true, force: true });
+    
+    return result;
+  } catch (error) {
+    // Clean up temporary file on error
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
 
 /**
  * Tasks commands registration parameters and definitions
@@ -644,7 +735,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -695,7 +786,7 @@ const tasksMigrateRegistration = {
           total: result.migratedCount + result.skippedCount,
           errors: result.errors.length,
         },
-        conflicts: [], // TODO: Add conflict details from result
+        conflicts: [] as Array<{ taskId: string; resolution: string }>, // TODO: Add conflict details from result
         backupPath: result.backupPath,
       };
 
@@ -717,7 +808,7 @@ const tasksMigrateRegistration = {
       if (cliResult.conflicts && cliResult.conflicts.length > 0) {
         log.cliWarn("\n⚠️  ID Conflicts detected:");
         cliResult.conflicts.forEach((conflict) => {
-          log.cliWarn(`   • Task ${conflict._taskId}: ${conflict.resolution}`);
+          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
         });
       }
 
