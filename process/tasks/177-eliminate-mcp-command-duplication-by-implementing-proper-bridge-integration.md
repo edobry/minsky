@@ -1,17 +1,27 @@
-# Eliminate MCP Command Duplication by Implementing Proper Bridge Integration
+# Fix Shared Command Registry Architecture to Eliminate Interface Duplication
 
 ## Context
 
-The current MCP adapter implementation violates fundamental architectural principles by duplicating command definitions, parameters, and validation logic instead of using the existing MCP bridge. This creates a maintenance nightmare and defeats the purpose of the shared command registry.
+The shared command registry architecture is fundamentally broken, causing duplication and inconsistencies across both CLI and MCP interfaces. This architectural failure manifests in two critical ways:
 
-### Current Problem
+1. **MCP Interface**: Completely bypasses the existing MCP bridge, manually duplicating all command definitions
+2. **CLI Interface**: Requires manual parameter registration in multiple layers, breaking boolean flag handling
 
-The architecture has two conflicting approaches:
+This creates a maintenance nightmare and defeats the purpose of the shared command registry as a single source of truth.
 
-1. **Intended Architecture**: Shared command registry → MCP bridge → MCP server
-2. **Current Implementation**: Manual command duplication in MCP adapters
+### Current Problems
 
-**Evidence of Duplication:**
+The architecture failures manifest differently across interfaces but stem from the same root cause:
+
+#### MCP Interface Failure
+**Intended Architecture**: Shared command registry → MCP bridge → MCP server  
+**Current Implementation**: Manual command duplication in MCP adapters (ignoring bridge)
+
+#### CLI Interface Failure  
+**Intended Architecture**: Shared command registry → CLI bridge → CLI commands  
+**Current Implementation**: Multiple registration points with manual customizations
+
+**Evidence of MCP Duplication:**
 
 ```typescript
 // ❌ DUPLICATED: Shared command registry (src/adapters/shared/commands/tasks.ts)
@@ -29,12 +39,33 @@ z.object({
 })
 ```
 
+**Evidence of CLI Duplication:**
+
+```typescript
+// ❌ DUPLICATED: Schema layer (src/schemas/session.ts)
+export const sessionPrParamsSchema = z.object({
+  noUpdate: z.boolean().optional(),
+  // ... other parameters
+});
+
+// ❌ DUPLICATED: Shared command layer (src/adapters/shared/commands/session.ts)  
+const sessionPrParams: CommandParameterMap = {
+  noUpdate: { schema: z.boolean(), description: "Skip status update", required: false },
+  // ... same parameters again
+};
+
+// ❌ DUPLICATED: CLI factory layer (src/adapters/cli/cli-command-factory.ts)
+// Missing customization causes --no-update flag to not work!
+```
+
 This creates:
-- **Parameter schema duplication** between shared commands and MCP adapters
+- **Parameter schema duplication** across all interface layers (CLI and MCP)
 - **Validation logic duplication** (required/optional, descriptions)
 - **Execution logic duplication** (manual parameter mapping vs bridge handling)
+- **Boolean flag handling failures** (CLI flags not working due to missing registrations)
 - **Manual maintenance overhead** when updating commands
 - **Inconsistency risk** between CLI and MCP interfaces
+- **Broken functionality** (specific example: `--no-update` flag in `session pr` command)
 
 ## Architectural Principles
 
@@ -49,6 +80,28 @@ No command metadata, parameters, or execution logic should be duplicated across 
 
 ### Automatic Consistency
 When shared commands change, all interfaces should automatically reflect those changes without manual updates. This is only possible with proper bridge integration.
+
+## Critical Cases That Must Be Fixed
+
+This task merges and addresses issues from multiple sources:
+
+### From Task #172: Boolean Flag Parsing Issue
+- **Specific Problem**: `--no-update` flag for `session pr` command not working
+- **Root Cause**: Missing CLI factory customization for `session.pr` command
+- **Broader Impact**: All boolean flags across CLI system affected by registration duplication
+- **Required Fix**: Eliminate need for manual CLI factory customizations
+
+### From Task #177: MCP Command Duplication  
+- **Specific Problem**: All MCP commands manually duplicated instead of using bridge
+- **Root Cause**: MCP adapters completely ignore existing MCP bridge
+- **Broader Impact**: 80%+ code duplication in MCP adapter files
+- **Required Fix**: Replace manual MCP registration with automatic bridge integration
+
+### Unified Root Cause
+Both issues stem from the **shared command registry architecture not working as designed**:
+- CLI requires manual customizations (breaking automation)
+- MCP ignores bridges entirely (breaking single source of truth)
+- Both create maintenance overhead and functional bugs
 
 ## Technical Analysis
 
@@ -86,29 +139,40 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 
 ## Requirements
 
-### 1. Eliminate All Command Duplication
+### 1. Fix CLI Bridge Architecture
+
+- **Eliminate CLI factory duplication** by making shared commands work automatically
+- **Fix boolean flag handling** so flags like `--no-update` work without manual customizations
+- **Remove need for parameter registration in multiple layers** (schema → shared → CLI factory)
+- **Ensure CLI bridge properly applies customizations** from shared command registry
+
+### 2. Fix MCP Bridge Architecture
 
 - **Remove manual command registration** from all MCP adapters
-- **Replace with automatic registration** from shared command registry
-- **Ensure zero parameter duplication** between shared commands and MCP
-
-### 2. Implement Proper Bridge Integration
-
-- **Create MCP bridge integration utilities** to automatically register shared commands
+- **Replace with automatic registration** from shared command registry using existing bridge
 - **Use existing MCP bridge** (`executeMcpCommand`) for all command execution
 - **Convert shared command schemas** to MCP-compatible formats automatically
 
-### 3. Maintain Interface Compatibility
+### 3. Establish True Single Source of Truth
 
+- **All command definitions** exist only in shared command registry
+- **All parameter schemas** defined once and used by both interfaces  
+- **All validation logic** centralized in shared registry
+- **Zero duplication** across CLI factory, MCP adapters, and schema layers
+
+### 4. Maintain Interface Compatibility
+
+- **Preserve all existing CLI functionality** including boolean flags
 - **Preserve all existing MCP functionality** while eliminating duplication
 - **Ensure command names, parameters, and behavior** remain identical
-- **Maintain backward compatibility** for existing MCP clients
+- **Maintain backward compatibility** for existing CLI users and MCP clients
 
-### 4. Establish Automatic Consistency
+### 5. Establish Automatic Consistency
 
-- **Shared command changes** automatically propagate to MCP without manual updates
-- **Parameter additions/removals** automatically reflected in MCP interface
-- **Validation changes** automatically applied to MCP commands
+- **Shared command changes** automatically propagate to both CLI and MCP
+- **Parameter additions/removals** automatically reflected in both interfaces
+- **Validation changes** automatically applied to both CLI and MCP commands
+- **Boolean flag definitions** automatically work in CLI without manual registration
 
 ## Implementation Strategy
 
@@ -165,28 +229,39 @@ commandMapper.addTaskCommand("create", "...", z.object({...}), async (args) => {
 ## Success Criteria
 
 ### Elimination of Duplication
-- [ ] **Zero parameter definitions** duplicated between shared commands and MCP
+- [ ] **Zero parameter definitions** duplicated across CLI factory, MCP adapters, and schema layers
 - [ ] **Zero validation logic** duplicated across interfaces  
 - [ ] **Zero execution handlers** manually implemented in MCP adapters
+- [ ] **Zero CLI factory customizations** required for basic parameter handling
 - [ ] **Reduced lines of code** in MCP adapter files (>80% reduction expected)
+- [ ] **Reduced lines of code** in CLI factory customizations (>50% reduction expected)
+
+### Critical Bug Fixes
+- [ ] **`--no-update` flag works correctly** for `session pr` command
+- [ ] **All boolean flags work consistently** across CLI commands without manual registration
+- [ ] **MCP commands work identically** to current implementation but without duplication
+- [ ] **Parameter validation behaves exactly the same** for both CLI and MCP
 
 ### Automatic Consistency
-- [ ] **Shared command parameter changes** automatically reflected in MCP
-- [ ] **New shared commands** automatically available in MCP
-- [ ] **Command description updates** automatically propagated to MCP
-- [ ] **Validation rule changes** automatically applied to MCP
+- [ ] **Shared command parameter changes** automatically reflected in both CLI and MCP
+- [ ] **New shared commands** automatically available in both interfaces
+- [ ] **Command description updates** automatically propagated to both CLI and MCP
+- [ ] **Validation rule changes** automatically applied to both interfaces
+- [ ] **Boolean flag definitions** automatically work in CLI without manual steps
 
 ### Functional Equivalence
+- [ ] **All existing CLI commands** continue to work identically including flags
 - [ ] **All existing MCP commands** continue to work identically
-- [ ] **Parameter validation** behaves exactly the same
+- [ ] **Parameter validation** behaves exactly the same for both interfaces
 - [ ] **Error messages** remain consistent with current implementation
 - [ ] **Response formats** unchanged for backward compatibility
 
 ### Architectural Integrity
 - [ ] **Single source of truth** established for all command definitions
-- [ ] **Interface agnostic design** properly implemented
-- [ ] **DRY principle** enforced across all interfaces
-- [ ] **Bridge pattern** correctly utilized for MCP integration
+- [ ] **Interface agnostic design** properly implemented for both CLI and MCP
+- [ ] **DRY principle** enforced across all interfaces and layers
+- [ ] **Bridge pattern** correctly utilized for both CLI and MCP integration
+- [ ] **No manual registration required** for new commands in either interface
 
 ## Verification
 
