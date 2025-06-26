@@ -877,9 +877,60 @@ export async function updateSessionFromParams(
   try {
     // Get session record
     log.debug("Getting session record", { name });
-    const sessionRecord = await deps.sessionDB.getSession(name);
+    let sessionRecord = await deps.sessionDB.getSession(name);
+    
+    // TASK #168 FIX: Implement session self-repair for orphaned sessions
     if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+      log.debug("Session not found in database, attempting self-repair", { name });
+      
+      // Check if we're currently in a session workspace directory
+      const currentDir = process.cwd();
+      const pathParts = currentDir.split("/");
+      const sessionsIndex = pathParts.indexOf("sessions");
+      
+      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+        const sessionNameFromPath = pathParts[sessionsIndex + 1];
+        
+        // If the session name matches the one we're looking for, attempt self-repair
+        if (sessionNameFromPath === name) {
+          log.debug("Attempting to register orphaned session", { name, currentDir });
+          
+          try {
+            // Get the repository URL from git remote
+            const repoUrl = await deps.gitService.execInRepository(currentDir, "git remote get-url origin");
+            const repoName = normalizeRepoName(repoUrl.trim());
+            
+            // Extract task ID from session name if it follows the task#N pattern
+            const taskIdMatch = name.match(/^task#(\d+)$/);
+            const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+            
+            // Create session record
+            const newSessionRecord: SessionRecord = {
+              session: name,
+              repoUrl: repoUrl.trim(),
+              repoName,
+              createdAt: new Date().toISOString(),
+              taskId,
+              branch: name,
+              repoPath: currentDir,
+            };
+            
+            // Register the session
+            await deps.sessionDB.addSession(newSessionRecord);
+            sessionRecord = newSessionRecord;
+            
+            log.debug("Successfully registered orphaned session", { name, repoUrl: repoUrl.trim(), taskId });
+            
+          } catch (selfRepairError) {
+            log.debug("Session self-repair failed", { name, error: selfRepairError });
+            throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+          }
+        } else {
+          throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+        }
+      } else {
+        throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+      }
     }
 
     log.debug("Session record found", { sessionRecord });

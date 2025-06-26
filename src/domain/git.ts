@@ -1371,7 +1371,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 🗃️ Check registered sessions:
    minsky sessions list
 
-⚠️  Note: Session PR commands must be run from the main workspace, not from within the session directory.
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
 Current directory: ${process.cwd()}
 Session requested: "${options.session}"
