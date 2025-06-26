@@ -1,5 +1,3 @@
-# feat(#163): implement title/description interface for tasks create command
-
 Complete implementation of --title and --description options for the minsky tasks create command, replacing the legacy spec-path interface with a more user-friendly approach that matches the session pr command pattern.
 
 ## Summary
