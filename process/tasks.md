@@ -343,3 +343,5 @@
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
+
+- [ ] Test Task from Session Workspace [#176](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#163/process/tasks/176-test-task-from-session-workspace.md)
