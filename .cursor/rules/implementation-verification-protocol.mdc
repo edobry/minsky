@@ -5,52 +5,19 @@ alwaysApply: false
 ---
 # Implementation Verification Protocol
 
-## Core Rule
+## Rule
 
-**NEVER claim "implemented", "working", or "complete" without concrete proof.**
+**Never claim "implemented" or "working" without testing it first.**
 
-Code that compiles ≠ Working feature. Silent execution ≠ Functional implementation.
+## Test Required
 
-## Required Verification
-
-Before any completion claim, you MUST demonstrate:
-
+Before any success claim:
 ```bash
-# Prove it works
-$ command --help          # Shows actual help output
-$ command [valid usage]   # Shows actual results  
-$ command [invalid usage] # Shows actual errors
-$ ls -la [artifacts]     # Shows files actually created
+$ command [usage]  # Must show actual output/results
 ```
 
 ## Status Language
 
-❌ **PROHIBITED** (without proof):
-- "Successfully implemented" 
-- "Working correctly"
-- "Feature complete"
-
-✅ **ACCURATE** (without proof):
-- "Code written, testing needed"
-- "Structure in place, unverified"
-- "NOT IMPLEMENTED" (when nothing works)
-
-## Enforcement
-
-**Violation**: False implementation claims
-
-**Response**: Immediately acknowledge error, provide actual verification or admit "NOT IMPLEMENTED"
-
-## Case Study
-
-**Task 163 False Claim**: "Successfully implemented --title and --description"
-
-**Reality**: 
-```bash
-$ tasks create --title "Test" --description "Test"
-[no output, no files created, nothing works]
-```
-
-**Actual Status**: NOT IMPLEMENTED
-
-**Lesson**: Compilation + commits ≠ implementation. Proof required.
+❌ Without testing: "Successfully implemented"  
+✅ Without testing: "Code written, needs testing"  
+✅ With testing: "Verified working" + proof shown
