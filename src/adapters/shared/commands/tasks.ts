@@ -22,6 +22,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -406,7 +407,7 @@ const tasksGetParams: CommandParameterMap = {
 const tasksCreateParams: CommandParameterMap = {
   title: {
     schema: z.string().min(1),
-    description: "Title for the task (required)",
+    description: "Title for the task",
     required: true,
   },
   description: {
@@ -417,11 +418,6 @@ const tasksCreateParams: CommandParameterMap = {
   descriptionPath: {
     schema: z.string(),
     description: "Path to file containing task description",
-    required: false,
-  },
-  specPath: {
-    schema: z.string().min(1),
-    description: "Path to the task specification document (legacy, will be deprecated)",
     required: false,
   },
   force: {
@@ -508,103 +504,34 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task with --title and --description or from a specification document",
+  description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
-    // Legacy mode: using specPath
-    if (params.specPath) {
-      return await createTaskFromParams({
-        specPath: params.specPath,
-        force: params.force ?? false,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-      });
-    }
-
-    // New mode: using title and description/descriptionPath
+    // Title is required by schema, but validate it's provided
     if (!params.title) {
-      throw new ValidationError("Missing required parameter: title");
+      throw new ValidationError("Title is required");
     }
 
-    let description = "";
-
-    // Handle description input (either text or file)
-    if (params.description) {
-      description = params.description;
-    } else if (params.descriptionPath) {
-      // Read description from file
-      try {
-        const fs = await import("fs/promises");
-        description = await fs.readFile(params.descriptionPath, "utf-8");
-      } catch (error) {
-        throw new ValidationError(
-          `Failed to read description file: ${params.descriptionPath}. ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    } else {
-      throw new ValidationError("Either --description or descriptionPath must be provided");
+    // Validate that either description or descriptionPath is provided
+    if (!params.description && !params.descriptionPath) {
+      throw new ValidationError("Either --description or --description-path must be provided");
     }
 
-    // Create a temporary task specification content
-    const taskSpecContent = `# ${params.title}
-
-## Status
-
-BACKLOG
-
-## Priority
-
-MEDIUM
-
-## Description
-
-${description.trim()}
-
-## Requirements
-
-[To be filled in]
-
-## Success Criteria
-
-[To be filled in]
-`;
-
-    // Write to a temporary file and create the task
-    const fs = await import("fs/promises");
-    const path = await import("path");
-    const os = await import("os");
-
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-task-"));
-    const tempSpecPath = path.join(tempDir, "temp-task-spec.md");
-
-    try {
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-
-      // Create the task using the temporary specification
-      const result = await createTaskFromParams({
-        specPath: tempSpecPath,
-        force: params.force ?? false,
-        backend: params.backend,
-        repo: params.repo,
-        workspace: params.workspace,
-        session: params.session,
-      });
-
-      // Clean up temporary file
-      await fs.rm(tempDir, { recursive: true, force: true });
-
-      return result;
-    } catch (error) {
-      // Clean up temporary file on error
-      try {
-        await fs.rm(tempDir, { recursive: true, force: true });
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-      throw error;
+    // Both description and descriptionPath provided is an error
+    if (params.description && params.descriptionPath) {
+      throw new ValidationError("Cannot provide both --description and --description-path - use one or the other");
     }
+
+    return await createTaskFromTitleAndDescription({
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
   },
 };
 
@@ -698,7 +625,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${_error}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -749,7 +676,7 @@ const tasksMigrateRegistration = {
           total: result.migratedCount + result.skippedCount,
           errors: result.errors.length,
         },
-        conflicts: [], // TODO: Add conflict details from result
+        conflicts: [] as Array<{ taskId: string; resolution: string }>, // TODO: Add conflict details from result
         backupPath: result.backupPath,
       };
 
@@ -771,7 +698,7 @@ const tasksMigrateRegistration = {
       if (cliResult.conflicts && cliResult.conflicts.length > 0) {
         log.cliWarn("\n⚠️  ID Conflicts detected:");
         cliResult.conflicts.forEach((conflict) => {
-          log.cliWarn(`   • Task ${conflict._taskId}: ${conflict.resolution}`);
+          log.cliWarn(`   • Task ${conflict.taskId}: ${conflict.resolution}`);
         });
       }
 
