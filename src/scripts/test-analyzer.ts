@@ -21,6 +21,7 @@ import { join, resolve, relative } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { log } from "../utils/logger.js";
+import { exit } from "../utils/process.js";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -634,7 +635,7 @@ async function main() {
     );
   } catch (error) {
     log.cliError("Error running test analyzer:", error);
-    process.exit(1);
+    exit(1);
   }
 }
 
