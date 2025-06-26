@@ -11,6 +11,7 @@ import { SessionDbConfig } from "../../domain/configuration/types";
 import { configurationService } from "../../domain/configuration";
 import { log } from "../../utils/logger";
 import { join } from "path";
+import { exit } from "../../utils/process.js";
 
 export function createSessionDbMigrateCommand(): Command {
   const migrateCmd = new Command("migrate")
@@ -51,7 +52,7 @@ Examples:
         await handleMigration(targetBackend, options);
       } catch (error) {
         console.error(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        exit(1);
       }
     });
 
@@ -70,7 +71,7 @@ Examples:
         await handleRestore(options);
       } catch (error) {
         console.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        exit(1);
       }
     });
 
@@ -84,7 +85,7 @@ Examples:
         await handleStatus(options);
       } catch (error) {
         console.error(`Status check failed: ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
+        exit(1);
       }
     });
 

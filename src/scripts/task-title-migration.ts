@@ -13,6 +13,7 @@
 import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
+import { exit } from "../utils/process.js";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -342,32 +343,32 @@ if (import.meta.main) {
     const backupPath = args.find(arg => arg.startsWith("--backup-path="))?.split("=")[1];
     if (!backupPath) {
       console.error("Error: --rollback requires --backup-path=<path>");
-      process.exit(1);
+      exit(1);
     }
     
     migration.rollback(backupPath)
       .then(() => {
         console.log("Rollback completed successfully");
-        process.exit(0);
+        exit(0);
       })
       .catch(error => {
         console.error(`Rollback failed: ${error.message}`);
-        process.exit(1);
+        exit(1);
       });
   } else {
     migration.migrateAllTasks(options)
       .then(result => {
         if (result.success) {
           console.log(`Migration ${options.dryRun ? "preview" : "completed"} successfully`);
-          process.exit(0);
+          exit(0);
         } else {
           console.error("Migration failed");
-          process.exit(1);
+          exit(1);
         }
       })
       .catch(error => {
         console.error(`Migration error: ${error.message}`);
-        process.exit(1);
+        exit(1);
       });
   }
 } 
