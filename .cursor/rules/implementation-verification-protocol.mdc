@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Implementation Verification Protocol
+
+## Rule
+
+**Never claim "implemented" or "working" without testing it first.**
+
+## Test Required
+
+Before any success claim:
+```bash
+$ command [usage]  # Must show actual output/results
+```
+
+## Status Language
+
+❌ Without testing: "Successfully implemented"  
+✅ Without testing: "Code written, needs testing"  
+✅ With testing: "Verified working" + proof shown
