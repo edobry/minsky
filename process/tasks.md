@@ -340,4 +340,6 @@
 
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
-- [ ] Review Session PR Workflow Architecture [#174](/Users/edobry/Projects/minsky/process/tasks/174-review-session-pr-workflow-architecture.md)
+- [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
+
+- [ ] Add AI-powered task management subcommands [#175](/Users/edobry/Projects/minsky/process/tasks/175-add-ai-powered-task-management-subcommands.md)
