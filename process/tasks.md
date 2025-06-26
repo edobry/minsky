@@ -334,4 +334,10 @@
 
 - [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
 
-- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](/Users/edobry/Projects/minsky/process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+
+- [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
+
+- [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
+
+- [ ] Review Session PR Workflow Architecture [#174](/Users/edobry/Projects/minsky/process/tasks/174-review-session-pr-workflow-architecture.md)
