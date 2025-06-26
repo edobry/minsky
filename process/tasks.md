@@ -343,3 +343,5 @@
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
+
+- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
