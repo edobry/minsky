@@ -24,9 +24,8 @@ import {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
-  taskSpecContentParamsSchema,
-  type TaskSpecContentParams,
 } from "./tasks/taskCommands.js";
 
 export {
@@ -35,9 +34,8 @@ export {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
-  taskSpecContentParamsSchema,
-  type TaskSpecContentParams,
 };
 
 // Re-export task status constants from centralized location
