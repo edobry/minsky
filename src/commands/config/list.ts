@@ -7,6 +7,7 @@
 import { Command } from "commander";
 import { configurationService } from "../../domain/configuration";
 import { ConfigurationSources } from "../../domain/configuration/types";
+import { exit } from "../../utils/process.js";
 
 interface ListOptions {
   json?: boolean;
@@ -35,7 +36,7 @@ export function createConfigListCommand(): Command {
         }
       } catch (error) {
         console.error("Failed to load configuration:", error);
-        process.exit(1);
+        exit(1);
       }
     });
 }
