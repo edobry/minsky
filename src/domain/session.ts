@@ -835,13 +835,31 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, branch, remote, noStash, noPush, force } = params;
+  let { name, branch, remote, noStash, noPush, force } = params;
 
   log.debug("updateSessionFromParams called", { params });
 
+  // Auto-detect session name if not provided
+  if (!name) {
+    try {
+      // Try to detect session from current directory path
+      const currentDir = process.cwd();
+      const pathParts = currentDir.split("/");
+      const sessionsIndex = pathParts.indexOf("sessions");
+      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+        name = pathParts[sessionsIndex + 1];
+        log.debug("Auto-detected session from path", { name, currentDir });
+      }
+    } catch (error) {
+      log.debug("Failed to auto-detect session from path", { error });
+    }
+  }
+
   // Input validation
   if (!name) {
-    throw new ValidationError("Session name is required");
+    throw new ValidationError(
+      "Session name is required. Please provide a session name or run this command from within a session workspace."
+    );
   }
 
   // Set up dependencies with defaults
@@ -918,9 +936,46 @@ export async function updateSessionFromParams(
       log.debug("Branch merge completed", { mergeResult });
 
       if (mergeResult.conflicts) {
-        throw new MinskyError(
-          `Merge conflicts detected when merging ${remoteBranchToMerge}. Please resolve conflicts manually.`
-        );
+        // Check if we're in a situation where session changes were already merged to main
+        const currentDir = process.cwd();
+        const isSessionWorkspace = currentDir.includes("/sessions/");
+
+        const conflictMessage = isSessionWorkspace
+          ? `
+🚫 Merge conflicts detected when updating session '${name}'
+
+This usually happens when your session changes were already merged into main branch.
+
+Current situation:
+• Session branch: ${name}
+• Trying to merge: ${remoteBranchToMerge}
+• Location: ${workdir}
+
+Resolution options:
+
+1️⃣ If your changes are already in main (most common):
+   Skip the session update - your session is ready for PR creation:
+
+   minsky session pr --title "Your PR title"
+
+2️⃣ If you need to resolve conflicts manually:
+   cd ${workdir}
+   git status
+   # Resolve conflicts in the listed files
+   git add .
+   git commit -m "resolve merge conflicts"
+   minsky session update
+
+3️⃣ If you want to reset your session to match main:
+   cd ${workdir}
+   git reset --hard ${remoteBranchToMerge}
+   git push --force-with-lease
+
+💡 For most cases, option 1 (skip update, create PR directly) is the right choice.
+          `.trim()
+          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${name}'. Please resolve conflicts manually in ${workdir}.`;
+
+        throw new MinskyError(conflictMessage);
       }
 
       // Push changes if needed
@@ -1150,19 +1205,23 @@ Need help? Run 'git status' to see what files have changed.
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main
-    log.cli("Updating session with latest changes from main...");
-    try {
-      await updateSessionFromParams({
-        name: sessionName,
-        repo: params.repo,
-        json: false,
-      });
-      log.cli("Session updated successfully");
-    } catch (error) {
-      throw new MinskyError(
-        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
-      );
+    // STEP 5: Run session update first to merge latest changes from main (unless --no-update is specified)
+    if (!params.noUpdate) {
+      log.cli("Updating session with latest changes from main...");
+      try {
+        await updateSessionFromParams({
+          name: sessionName,
+          repo: params.repo,
+          json: false,
+        });
+        log.cli("Session updated successfully");
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      log.cli("Skipping session update (--no-update specified)");
     }
 
     // STEP 6: Now proceed with PR creation

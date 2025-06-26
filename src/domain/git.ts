@@ -298,10 +298,6 @@ export class GitService implements GitServiceInterface {
       normalizedRepoName,
     });
 
-    const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-    await mkdir(sessionsDir, { recursive: true });
-    log.debug("Sessions directory created", { sessionsDir });
-
     const workdir = this.getSessionWorkdir(normalizedRepoName, session);
     log.debug("Computed workdir path", { workdir });
 
@@ -312,22 +308,17 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Check if destination already exists and is not empty
-      try {
-        const fs = await import("fs/promises");
-        const dirContents = await fs.readdir(workdir);
-        if (dirContents.length > 0) {
-          log.warn("Destination directory is not empty", { workdir, contents: dirContents });
-        }
-      } catch (err) {
-        // Directory doesn't exist or can't be read - this is expected
-        log.debug("Destination directory doesn't exist or is empty", { workdir });
-      }
+      // Create the sessions directory structure ONLY after git clone succeeds
+      const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
 
-      // Clone the repository with verbose logging
+      // Clone the repository with verbose logging FIRST
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
+        // Create parent directory structure before clone
+        await mkdir(sessionsDir, { recursive: true });
+        log.debug("Sessions directory created", { sessionsDir });
+
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
           stdout: stdout.trim().substring(0, 200),
@@ -338,6 +329,19 @@ export class GitService implements GitServiceInterface {
           error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
           command: cloneCmd,
         });
+
+        // Clean up the directory we created if git clone fails
+        try {
+          const fs = await import("fs/promises");
+          await fs.rm(workdir, { recursive: true, force: true });
+          log.debug("Cleaned up session directory after git clone failure", { workdir });
+        } catch (cleanupErr) {
+          log.warn("Failed to cleanup session directory after git clone failure", {
+            workdir,
+            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          });
+        }
+
         throw cloneErr;
       }
 
@@ -1486,6 +1490,17 @@ Session requested: "${options.session}"
       remote: "origin",
       force: true,
     });
+
+    // Switch back to the original source branch after creating PR branch
+    try {
+      await execAsync(`git -C ${workdir} switch ${sourceBranch}`);
+      log.debug(`Switched back to original branch ${sourceBranch} after creating PR branch`);
+    } catch (err) {
+      log.warn(
+        `Failed to switch back to original branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      // Don't throw error here - PR creation was successful, this is just cleanup
+    }
 
     return {
       prBranch,

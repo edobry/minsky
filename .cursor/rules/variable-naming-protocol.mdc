@@ -3,6 +3,10 @@ description:
 globs:
 alwaysApply: true
 ---
+---
+description: Use when encountering variable naming linter errors or "not defined" errors before changing variable names
+---
+
 # Variable Naming Protocol
 
 ## Core Principle
