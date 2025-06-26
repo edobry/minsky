@@ -1205,19 +1205,23 @@ Need help? Run 'git status' to see what files have changed.
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main
-    log.cli("Updating session with latest changes from main...");
-    try {
-      await updateSessionFromParams({
-        name: sessionName,
-        repo: params.repo,
-        json: false,
-      });
-      log.cli("Session updated successfully");
-    } catch (error) {
-      throw new MinskyError(
-        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
-      );
+    // STEP 5: Run session update first to merge latest changes from main (unless --no-update is specified)
+    if (!params.noUpdate) {
+      log.cli("Updating session with latest changes from main...");
+      try {
+        await updateSessionFromParams({
+          name: sessionName,
+          repo: params.repo,
+          json: false,
+        });
+        log.cli("Session updated successfully");
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      log.cli("Skipping session update (--no-update specified)");
     }
 
     // STEP 6: Now proceed with PR creation
