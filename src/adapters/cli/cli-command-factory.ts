@@ -215,16 +215,13 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         parameters: {
           title: {
             asArgument: false,
-            description: "Title for the task (required when not using specPath)",
+            description: "Title for the task",
           },
           description: {
             description: "Description text for the task",
           },
           descriptionPath: {
             description: "Path to file containing task description",
-          },
-          specPath: {
-            description: "Path to task specification document (legacy)",
           },
         },
       },
