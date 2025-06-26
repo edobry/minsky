@@ -344,4 +344,4 @@
 
 - [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
 
-- [ ] Fix Shared Command Registry Architecture to Eliminate Interface Duplication [#177](process/tasks/177-fix-shared-command-registry-architecture-to-eliminate-interface-duplication.md)
+- [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
