@@ -28,38 +28,18 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
+  taskCreateFromTitleAndDescriptionParamsSchema,
+  taskSpecContentParamsSchema,
+  type TaskListParams,
+  type TaskGetParams,
+  type TaskStatusGetParams,
+  type TaskStatusSetParams,
+  type TaskCreateParams,
+  type TaskCreateFromTitleAndDescriptionParams,
+  type TaskSpecContentParams,
 } from "../../schemas/tasks.js";
 
-// Import params types
-import type {
-  TaskListParams,
-  TaskGetParams,
-  TaskStatusGetParams,
-  TaskStatusSetParams,
-  TaskCreateParams,
-} from "../../schemas/tasks.js";
-
-// Define the schema and type for task spec content parameters
-// These will eventually be moved to the tasks.js schema file
-export const taskSpecContentParamsSchema = z
-  .object({
-    taskId: z.string().min(1).describe("ID of the task to retrieve specification content for"),
-    section: z
-      .string()
-      .optional()
-      .describe("Specific section of the specification to retrieve (e.g., 'requirements')"),
-    backend: z.string().optional().describe("Specify task backend (markdown, json-file, github)"),
-  })
-  .merge(
-    z.object({
-      repo: z.string().optional().describe("Repository path"),
-      session: z.string().optional().describe("Session identifier"),
-      workspace: z.string().optional().describe("Workspace path"),
-    })
-  );
-
-// Type for task spec content parameters
-export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;
+// Task spec content parameters are imported from schemas
 
 /**
  * List tasks using the provided parameters
@@ -488,6 +468,89 @@ export async function getTaskSpecContentFromParams(
         error.format(),
         error
       );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Create a task from title and description using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for creating a task from title and description
+ * @returns The created task
+ */
+export async function createTaskFromTitleAndDescription(
+  params: TaskCreateFromTitleAndDescriptionParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveWorkspacePath: typeof resolveWorkspacePath;
+    createTaskService: (options: unknown) => TaskService;
+  } = {
+    resolveRepoPath,
+    resolveWorkspacePath,
+    createTaskService: (options) => createTaskServiceImpl(options as any),
+  }
+): Promise<any> {
+  try {
+    // Validate params with Zod schema
+    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
+
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveWorkspacePath({
+      workspace: validParams.workspace,
+      sessionRepo: repoPath,
+    });
+
+    // Create task service
+    const taskService = deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend,
+    });
+
+    // Read description from file if descriptionPath is provided
+    let description = validParams.description;
+    if (validParams.descriptionPath) {
+      try {
+        // Resolve relative paths relative to current working directory
+        const filePath = require("path").resolve(validParams.descriptionPath);
+        description = await readFile(filePath, "utf-8");
+
+        if (!description.trim()) {
+          throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
+        }
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          throw error;
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
+          throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
+        } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
+          throw new ValidationError(`Permission denied reading description file: ${validParams.descriptionPath}`);
+        } else {
+          throw new ValidationError(
+            `Failed to read description file: ${validParams.descriptionPath}. ${errorMessage}`
+          );
+        }
+      }
+    }
+
+    // Create the task from title and description
+    const task = await taskService.createTaskFromTitleAndDescription(validParams.title, description!, {
+      force: validParams.force,
+    });
+
+    return task;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for creating task from title and description", error.format(), error);
     }
     throw error;
   }

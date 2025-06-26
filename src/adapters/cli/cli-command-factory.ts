@@ -210,6 +210,23 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "tasks.create": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          title: {
+            description: "Title for the task (required)",
+          },
+          description: {
+            description: "Description text for the task",
+          },
+          descriptionPath: {
+            description: "Path to file containing task description",
+          },
+          specPath: {
+            description: "Path to task specification document (legacy)",
+          },
+        },
+      },
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
         parameters: {

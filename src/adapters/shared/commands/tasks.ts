@@ -22,6 +22,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -404,10 +405,25 @@ const tasksGetParams: CommandParameterMap = {
  * Parameters for tasks create command
  */
 const tasksCreateParams: CommandParameterMap = {
+  title: {
+    schema: z.string().min(1),
+    description: "Title for the task (required)",
+    required: true,
+  },
+  description: {
+    schema: z.string(),
+    description: "Description text for the task",
+    required: false,
+  },
+  descriptionPath: {
+    schema: z.string(),
+    description: "Path to file containing task description",
+    required: false,
+  },
   specPath: {
     schema: z.string().min(1),
-    description: "Path to the task specification document",
-    required: true,
+    description: "Path to the task specification document (legacy, will be deprecated)",
+    required: false,
   },
   force: {
     schema: z.boolean().default(false),
@@ -493,9 +509,39 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task from a specification document or using title and description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
+    // Validate required parameters
+    if (!params.title && !params.specPath) {
+      throw new ValidationError("Either 'title' or 'specPath' must be provided");
+    }
+
+    // If title is provided, we use the new interface
+    if (params.title) {
+      // Validate that either description or descriptionPath is provided
+      if (!params.description && !params.descriptionPath) {
+        throw new ValidationError("Either 'description' or 'descriptionPath' must be provided when using --title");
+      }
+
+      // Both description and descriptionPath provided is an error
+      if (params.description && params.descriptionPath) {
+        throw new ValidationError("Cannot provide both 'description' and 'descriptionPath' - use one or the other");
+      }
+
+      return await createTaskFromTitleAndDescription({
+        title: params.title,
+        description: params.description,
+        descriptionPath: params.descriptionPath,
+        force: params.force ?? false,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      });
+    }
+
+    // Legacy specPath interface
     if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
     return await createTaskFromParams({
       specPath: params.specPath,
