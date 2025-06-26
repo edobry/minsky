@@ -404,10 +404,25 @@ const tasksGetParams: CommandParameterMap = {
  * Parameters for tasks create command
  */
 const tasksCreateParams: CommandParameterMap = {
+  title: {
+    schema: z.string().min(1),
+    description: "Title for the task (required)",
+    required: true,
+  },
+  description: {
+    schema: z.string(),
+    description: "Description text for the task",
+    required: false,
+  },
+  descriptionPath: {
+    schema: z.string(),
+    description: "Path to file containing task description",
+    required: false,
+  },
   specPath: {
     schema: z.string().min(1),
-    description: "Path to the task specification document",
-    required: true,
+    description: "Path to the task specification document (legacy, will be deprecated)",
+    required: false,
   },
   force: {
     schema: z.boolean().default(false),
@@ -493,18 +508,103 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task with --title and --description or from a specification document",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
-    if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
-    return await createTaskFromParams({
-      specPath: params.specPath,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-    });
+    // Legacy mode: using specPath
+    if (params.specPath) {
+      return await createTaskFromParams({
+        specPath: params.specPath,
+        force: params.force ?? false,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      });
+    }
+
+    // New mode: using title and description/descriptionPath
+    if (!params.title) {
+      throw new ValidationError("Missing required parameter: title");
+    }
+
+    let description = "";
+
+    // Handle description input (either text or file)
+    if (params.description) {
+      description = params.description;
+    } else if (params.descriptionPath) {
+      // Read description from file
+      try {
+        const fs = await import("fs/promises");
+        description = await fs.readFile(params.descriptionPath, "utf-8");
+      } catch (error) {
+        throw new ValidationError(
+          `Failed to read description file: ${params.descriptionPath}. ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      throw new ValidationError("Either --description or descriptionPath must be provided");
+    }
+
+    // Create a temporary task specification content
+    const taskSpecContent = `# ${params.title}
+
+## Status
+
+BACKLOG
+
+## Priority
+
+MEDIUM
+
+## Description
+
+${description.trim()}
+
+## Requirements
+
+[To be filled in]
+
+## Success Criteria
+
+[To be filled in]
+`;
+
+    // Write to a temporary file and create the task
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-task-"));
+    const tempSpecPath = path.join(tempDir, "temp-task-spec.md");
+
+    try {
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+
+      // Create the task using the temporary specification
+      const result = await createTaskFromParams({
+        specPath: tempSpecPath,
+        force: params.force ?? false,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      });
+
+      // Clean up temporary file
+      await fs.rm(tempDir, { recursive: true, force: true });
+
+      return result;
+    } catch (error) {
+      // Clean up temporary file on error
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
   },
 };
 

@@ -1161,7 +1161,7 @@ Need help? Run 'git status' to see what files have changed.
 
     // Determine the session name
     let sessionName = params.session;
-    const sessionDb = new SessionDB();
+    const sessionDb = createSessionProvider({ workingDir: currentDir });
 
     // If no session name provided but task ID is, try to find the session by task ID
     if (!sessionName && params.task) {
