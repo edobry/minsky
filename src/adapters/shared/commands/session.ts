@@ -319,6 +319,12 @@ const sessionPrCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  noUpdate: {
+    schema: z.boolean(),
+    description: "Skip session update before creating PR",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -591,6 +597,7 @@ export function registerSessionCommands(): void {
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
           debug: params.debug,
+          noUpdate: params.noUpdate,
         });
 
         return {
