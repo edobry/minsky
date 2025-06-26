@@ -1,13 +1,13 @@
 /**
  * minsky config list command
- * 
+ *
  * Shows configuration from all sources with proper hierarchy display
  */
 
 import { Command } from "commander";
 import { configurationService } from "../../domain/configuration";
-import { ConfigurationSources } from "../../domain/configuration/types";
 import { exit } from "../../utils/process.js";
+import { ConfigurationSources } from "../../domain/configuration/types";
 
 interface ListOptions {
   json?: boolean;
@@ -24,12 +24,12 @@ export function createConfigListCommand(): Command {
       try {
         const workingDir = options.workingDir || process.cwd();
         const result = await configurationService.loadConfiguration(workingDir);
-        
+
         if (options.json) {
           console.log(JSON.stringify(result, null, 2));
         } else {
           displayConfigurationSources(result.sources);
-          console.log(`\n${  "=".repeat(60)}`);
+          console.log(`\n${"=".repeat(60)}`);
           console.log("RESOLVED CONFIGURATION");
           console.log("=".repeat(60));
           displayResolvedConfiguration(result.resolved);
@@ -95,7 +95,9 @@ function displayConfigurationSources(sources: ConfigurationSources) {
       console.log(`  Auto-detect Backend: ${sources.repository.repository.auto_detect_backend}`);
     }
     if (sources.repository.repository?.detection_rules) {
-      console.log(`  Detection Rules: ${sources.repository.repository.detection_rules.length} rules`);
+      console.log(
+        `  Detection Rules: ${sources.repository.repository.detection_rules.length} rules`
+      );
     }
   } else {
     console.log("  (file not found)");
@@ -108,7 +110,7 @@ function displayConfigurationSources(sources: ConfigurationSources) {
 
 function displayResolvedConfiguration(resolved: any) {
   console.log(`Backend: ${resolved.backend}`);
-  
+
   if (Object.keys(resolved.backendConfig).length > 0) {
     console.log("\nBackend Configuration:");
     for (const [backend, config] of Object.entries(resolved.backendConfig)) {
@@ -161,4 +163,4 @@ function displayConfigSection(config: any) {
       console.log(`  ${key}: ${value}`);
     }
   }
-} 
+}
