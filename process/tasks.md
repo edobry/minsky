@@ -346,4 +346,4 @@
 
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
 
-- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#167/process/tasks/175-bug-analysis-conflicting-session-pr-error-messages.md)
+- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
