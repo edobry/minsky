@@ -318,7 +318,7 @@
 
 - [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-research-and-design-comprehensive-ai-evals-framework-for-rules-context-construction-and-agent-operations.md)
 
-- [ ] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
+- [+] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
@@ -342,4 +342,4 @@
 
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
 
-- [ ] Add AI-powered task management subcommands [#175](/Users/edobry/Projects/minsky/process/tasks/175-add-ai-powered-task-management-subcommands.md)
+- [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)

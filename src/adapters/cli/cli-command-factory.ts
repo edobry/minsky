@@ -214,7 +214,8 @@ export function setupCommonCommandCustomizations(program?: Command): void {
         useFirstRequiredParamAsArgument: false,
         parameters: {
           title: {
-            description: "Title for the task (required)",
+            asArgument: false,
+            description: "Title for the task (required when not using specPath)",
           },
           description: {
             description: "Description text for the task",
