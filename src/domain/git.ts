@@ -4,7 +4,7 @@ import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import { SessionDB } from "./session";
+import { SessionDB, type SessionRecord } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
 import { MinskyError } from "../errors/index";
 import { log } from "../utils/logger";
@@ -1345,9 +1345,53 @@ Need help? Run: minsky git pr --help
 
     // Determine working directory and current branch
     if (options.session) {
-      const record = await this.sessionDb.getSession(options.session);
+      let record = await this.sessionDb.getSession(options.session);
+      
+      // TASK #168 FIX: Implement session self-repair for preparePr
       if (!record) {
-        throw new MinskyError(`
+        log.debug("Session not found in database, attempting self-repair in preparePr", { session: options.session });
+        
+        // Check if we're currently in a session workspace directory
+        const currentDir = process.cwd();
+        const pathParts = currentDir.split("/");
+        const sessionsIndex = pathParts.indexOf("sessions");
+        
+        if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+          const sessionNameFromPath = pathParts[sessionsIndex + 1];
+          
+          // If the session name matches the one we're looking for, attempt self-repair
+          if (sessionNameFromPath === options.session) {
+            log.debug("Attempting to register orphaned session in preparePr", { session: options.session, currentDir });
+            
+            try {
+              // Get the repository URL from git remote
+              const repoUrl = await this.execInRepository(currentDir, "git remote get-url origin");
+              const repoName = normalizeRepoName(repoUrl.trim());
+              
+              // Extract task ID from session name if it follows the task#N pattern
+              const taskIdMatch = options.session.match(/^task#(\d+)$/);
+              const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+              
+              // Create session record
+              const newSessionRecord: SessionRecord = {
+                session: options.session,
+                repoUrl: repoUrl.trim(),
+                repoName,
+                createdAt: new Date().toISOString(),
+                taskId,
+                branch: options.session,
+                repoPath: currentDir,
+              };
+              
+              // Register the session
+              await this.sessionDb.addSession(newSessionRecord);
+              record = newSessionRecord;
+              
+              log.debug("Successfully registered orphaned session in preparePr", { session: options.session, repoUrl: repoUrl.trim(), taskId });
+              
+            } catch (selfRepairError) {
+              log.debug("Session self-repair failed in preparePr", { session: options.session, error: selfRepairError });
+              throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
 The session exists in the file system but isn't registered in the session database.
@@ -1376,6 +1420,69 @@ This can happen when sessions are created outside of Minsky or the database gets
 Current directory: ${process.cwd()}
 Session requested: "${options.session}"
 `);
+            }
+          } else {
+            throw new MinskyError(`
+🔍 Session "${options.session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${options.session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${options.session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${process.cwd()}
+Session requested: "${options.session}"
+`);
+          }
+        } else {
+          throw new MinskyError(`
+🔍 Session "${options.session}" Not Found in Database
+
+The session exists in the file system but isn't registered in the session database.
+This can happen when sessions are created outside of Minsky or the database gets out of sync.
+
+💡 How to fix this:
+
+📋 Check if session exists on disk:
+   ls -la ~/.local/state/minsky/git/*/sessions/
+
+🔄 If session exists, re-register it:
+   cd /path/to/main/workspace
+   minsky sessions import "${options.session}"
+
+🆕 Or create a fresh session:
+   minsky session start ${options.session}
+
+📁 Alternative - use repository path directly:
+   minsky session pr --repo "/path/to/session/workspace" --title "Your PR title"
+
+🗃️ Check registered sessions:
+   minsky sessions list
+
+⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
+
+Current directory: ${process.cwd()}
+Session requested: "${options.session}"
+`);
+        }
       }
       const repoName = record.repoName || normalizeRepoName(record.repoUrl);
       workdir = this.getSessionWorkdir(repoName, options.session);
