@@ -15,6 +15,16 @@ Currently, task management in Minsky is primarily manual. Adding AI-powered capa
 
 This is an experimental approach to test the workflow and gather information before determining the long-term architecture.
 
+## Dependencies
+
+This task depends on **Task #160: Add AI completion backend with multi-provider support**, which provides the foundational AI backend infrastructure including:
+
+- Multi-provider AI abstraction layer (OpenAI, Anthropic, etc.)
+- Tool calling and function execution capabilities
+- Prompt caching and reasoning model support
+- Configuration system for API keys and provider selection
+- Error handling and logging patterns
+
 ## Proposed Solution
 
 Add the following subcommands to `minsky tasks`:
@@ -60,11 +70,12 @@ Add the following subcommands to `minsky tasks`:
    - Add new subcommands under `src/commands/tasks/`
    - Follow existing command patterns for consistency
 
-2. **AI Integration**:
+2. **AI Integration** (building on Task #160):
 
-   - Create AI service layer for task analysis
-   - Use configurable prompts with rule injection
-   - Support multiple AI providers (start with OpenAI/Anthropic)
+   - **Leverage existing AI backend** for provider abstraction and core functionality
+   - Build task-specific AI service layer using the established AI backend
+   - Use existing configuration system for API keys and provider selection
+   - Focus on task analysis domain logic rather than low-level AI integration
 
 3. **Data Storage**:
 
@@ -73,32 +84,37 @@ Add the following subcommands to `minsky tasks`:
    - Track AI usage for future analysis
 
 4. **Prompt Engineering**:
-   - Create reusable prompt templates
-   - Include relevant project rules and context
-   - Allow customization via config
+   - Create reusable prompt templates optimized for task analysis use cases
+   - Include relevant project rules and context in prompts
+   - Leverage prompt caching capabilities from the AI backend (Task #160)
+   - Design prompts optimized for reasoning models (o1, Claude 3.5 Sonnet)
 
 ## Implementation Steps
 
-1. Create base AI service infrastructure
-2. Implement `estimate` command as proof of concept
-3. Add task schema extensions for AI metadata
-4. Implement `decompose` command
-5. Add configuration for AI providers and prompts
-6. Implement additional commands based on initial feedback
-7. Add comprehensive tests
-8. Document usage and best practices
+**Prerequisites**: Task #160 (AI completion backend) must be completed first.
+
+1. **Build task-specific AI service** using the established AI backend
+2. **Implement `estimate` command** as proof of concept
+3. **Add task schema extensions** for AI metadata
+4. **Design and test prompt templates** for task analysis use cases
+5. **Implement `decompose` command** with task breakdown logic
+6. **Add remaining commands** based on initial feedback
+7. **Add comprehensive tests** including AI interaction testing
+8. **Document usage and best practices** for AI-powered task management
 
 ## Acceptance Criteria
 
-- [ ] `minsky tasks estimate <task-id>` returns complexity estimation
-- [ ] Estimations are stored in task metadata
-- [ ] `minsky tasks decompose <task-id>` suggests task breakdown
-- [ ] AI service supports configurable prompts
-- [ ] Commands include appropriate error handling
-- [ ] AI responses are validated before storage
-- [ ] Usage is tracked for analysis
-- [ ] Commands have comprehensive help text
-- [ ] Feature is documented in user guide
+- [ ] **Task #160 (AI completion backend) is completed** and available
+- [ ] **`minsky tasks estimate <task-id>`** returns complexity estimation using AI backend
+- [ ] **Estimations are stored** in task metadata with proper schema validation
+- [ ] **`minsky tasks decompose <task-id>`** suggests task breakdown using reasoning models
+- [ ] **Task-specific AI service** integrates cleanly with the general AI backend
+- [ ] **Prompt templates** are optimized for task analysis and support rule injection
+- [ ] **Commands include appropriate error handling** leveraging AI backend patterns
+- [ ] **AI responses are validated** before storage with proper type checking
+- [ ] **Usage is tracked** for analysis and optimization
+- [ ] **Commands have comprehensive help text** with examples
+- [ ] **Feature is documented** in user guide with AI backend integration details
 
 ## Future Considerations
 
