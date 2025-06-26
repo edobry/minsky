@@ -5,6 +5,7 @@ import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
+
 // Import centralized descriptions
 import {
   TASK_STATUS_FILTER_DESCRIPTION,
@@ -156,9 +157,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   // Task create command
   commandMapper.addTaskCommand(
     "create",
-    "Create a new task from a specification file",
+    "Create a new task with title and description or from a specification file",
     z.object({
-      specPath: z.string().describe("Path to the task specification file"),
+      title: z.string().optional().describe("Title for the task"),
+      description: z.string().optional().describe("Description text for the task"),
+      descriptionPath: z.string().optional().describe("Path to file containing task description"),
+      specPath: z.string().optional().describe("Path to the task specification file (legacy)"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),

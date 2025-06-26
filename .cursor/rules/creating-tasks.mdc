@@ -15,21 +15,32 @@ alwaysApply: false
 ### Task Creation Workflow
 
 1. **Check for existing tasks first**: Run `minsky tasks list | grep "relevant-keywords"` to verify no duplicate exists
-2. Draft your task specification as a temporary file (e.g., `process/tasks/temp-task-spec.md`).
-3. Run:
+2. **Create task with title and description**:
    ```bash
-   minsky tasks create process/tasks/temp-task-spec.md
+   # Method 1: Inline description
+   minsky tasks create --title "Task Title" --description "Task description text"
+   
+   # Method 2: Description from file
+   minsky tasks create --title "Task Title" path/to/description.md
    ```
-4. The CLI will:
-   - Assign the next available task ID.
-   - Add the task to `process/tasks.md` in the correct format.
-   - Output the assigned ID and new file path.
-5. Rename the spec file as instructed by the CLI (e.g., `process/tasks/042-task-title.md`).
-6. Verify the task appears in `process/tasks.md` and the spec file is correctly named and linked.
+3. The CLI will:
+   - Assign the next available task ID
+   - Generate a complete task specification file
+   - Add the task to `process/tasks.md` in the correct format
+   - Output the assigned ID and new file path
+4. Verify the task appears in `process/tasks.md` and the spec file is correctly created
 
 **Manual task creation is only allowed if the CLI is unavailable, and this must be noted in the commit message or task log.**
 
 > **This process is mandatory. Skipping the CLI or editing files directly is a process violation that can cause duplicate tasks and tracking inconsistencies.**
+
+### Legacy Interface (Deprecated)
+
+The old spec-path interface is still supported but deprecated:
+```bash
+# Legacy method (still works but discouraged)
+minsky tasks create process/tasks/temp-task-spec.md
+```
 
 ### Viewing Task Specifications
 
@@ -72,6 +83,16 @@ All tasks and work items must be tracked using the canonical process described h
 
 ### Method 1: Using the `minsky tasks create` Command (Recommended)
 
+**New Interface (Preferred):**
+```bash
+# Create task with inline description
+minsky tasks create --title "Task Title" --description "Task description text"
+
+# Create task with description from file
+minsky tasks create --title "Task Title" path/to/description.md
+```
+
+**Legacy Interface (Deprecated):**
 ⚠️ **IMPORTANT: Task ID Assignment**
 The task ID is assigned by the system when you run `minsky tasks create`. You must:
 1. Create a temporary spec file (e.g., `temp-task-spec.md`)
@@ -147,27 +168,30 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 1. **CLI Behavior**
    - Command signature:
      ```
-     minsky tasks create <spec-path>
+     minsky tasks create --title "Title" --description "Description"
      ```
    - The command should:
-     - Parse the provided task specification document
-     - Extract the title and description
+     - Accept title and description parameters
+     - Generate a complete task specification
      - Assign the next available ID
      - Add a checklist item to process/tasks.md
      - Return the created task details
 
 2. **Integration with Domain Module**
    - Use the TaskService domain module to record the task
-   - Add a createTask method to the TaskService class
-   - Implement createTask in the MarkdownTaskBackend
+   - Add a createTaskFromTitleAndDescription method to the TaskService class
+   - Implement createTaskFromTitleAndDescription in the task commands
 
 3. **Error Handling**
-   - Validate that the spec file exists
-   - Ensure the spec file has a valid title and description
+   - Validate that title is provided
+   - Ensure either description or descriptionPath is provided
    - Handle errors gracefully with informative messages
 
 4. **CLI Options**
    - Support the following options:
+     - `--title <string>`: Title for the task (required)
+     - `--description <string>`: Description text for the task
+     - `--description-path <string>`: Path to file containing task description
      - `--session <session>`: Session name to use for repo resolution
      - `--repo <repoPath>`: Path to a git repository (overrides session)
      - `--backend <backend>`: Specify task backend (markdown, github)
@@ -175,25 +199,26 @@ The Minsky CLI currently lacks a streamlined way to create new tasks from specif
 
 ## Implementation Steps
 
-1. [ ] Update TaskBackend interface to include createTask method
-2. [ ] Implement createTask in MarkdownTaskBackend:
-   - [ ] Parse the spec file to extract title and description
+1. [ ] Update TaskBackend interface to include createTaskFromTitleAndDescription method
+2. [ ] Implement createTaskFromTitleAndDescription in task commands:
+   - [ ] Accept title and description parameters
+   - [ ] Generate complete task specification content
    - [ ] Find the next available task ID
    - [ ] Create a task entry in tasks.md
    - [ ] Return the created Task object
-3. [ ] Add createTask method to TaskService
-4. [ ] Create a new file in src/commands/tasks/create.ts:
-   - [ ] Define command using Commander.js
-   - [ ] Add appropriate options and arguments
+3. [ ] Add createTaskFromTitleAndDescription method to TaskService
+4. [ ] Update shared command registration:
+   - [ ] Define command parameters with title and description options
+   - [ ] Add appropriate validation logic
    - [ ] Implement action handler to call domain method
    - [ ] Add proper error handling
-5. [ ] Register command in src/commands/tasks/index.ts
+5. [ ] Update CLI customizations for new parameters
 6. [ ] Add tests for the new functionality
 7. [ ] Update documentation
 
 ## Verification
 
-- [ ] Running `minsky tasks create path/to/spec.md` successfully creates a task
+- [ ] Running `minsky tasks create --title "Title" --description "Description"` successfully creates a task
 - [ ] The task is added to process/tasks.md with correct formatting
 - [ ] The command returns the created task details
 - [ ] All options work as expected
