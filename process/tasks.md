@@ -345,3 +345,5 @@
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
 - [ ] Test Task from Session Workspace [#176](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#163/process/tasks/176-test-task-from-session-workspace.md)
+
+- [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#177](process/tasks/177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
