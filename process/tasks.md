@@ -322,7 +322,7 @@
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
-- [ ] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+- [+] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
@@ -344,6 +344,6 @@
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
-- [ ] Test Task from Session Workspace [#176](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#163/process/tasks/176-test-task-from-session-workspace.md)
+- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
 
 - [ ] Fix Shared Command Registry Architecture to Eliminate Interface Duplication [#177](process/tasks/177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) ← Merged with #172
