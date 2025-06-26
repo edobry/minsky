@@ -336,7 +336,7 @@
 
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
 
-- [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
+- [→] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md) → Merged into #177
 
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
@@ -346,4 +346,4 @@
 
 - [ ] Test Task from Session Workspace [#176](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#163/process/tasks/176-test-task-from-session-workspace.md)
 
-- [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#177](process/tasks/177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
+- [ ] Fix Shared Command Registry Architecture to Eliminate Interface Duplication [#177](process/tasks/177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) ← Merged with #172
