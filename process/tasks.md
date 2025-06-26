@@ -336,8 +336,6 @@
 
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
 
-- [→] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md) → Merged into #177
-
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
 - [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
@@ -346,4 +344,4 @@
 
 - [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
 
-- [ ] Fix Shared Command Registry Architecture to Eliminate Interface Duplication [#177](process/tasks/177-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md) ← Merged with #172
+- [ ] Fix Shared Command Registry Architecture to Eliminate Interface Duplication [#177](process/tasks/177-fix-shared-command-registry-architecture-to-eliminate-interface-duplication.md)
