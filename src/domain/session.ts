@@ -651,9 +651,9 @@ export async function startSessionFromParams(
         } catch (cleanupError) {
           log.error("Failed to cleanup session record after git error", {
             sessionName,
-            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            gitError: getErrorMessage(gitError),
             cleanupError:
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              getErrorMessage(cleanupError),
           });
         }
       }
@@ -665,9 +665,9 @@ export async function startSessionFromParams(
         } catch (cleanupError) {
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,
-            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            gitError: getErrorMessage(gitError),
             cleanupError:
-              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+              getErrorMessage(cleanupError),
           });
         }
       }
@@ -692,7 +692,7 @@ Error: ${error}`);
         if (!quiet) {
           log.cliWarn(
             `Warning: Dependency installation failed. You may need to run install manually.
-Error: ${installError instanceof Error ? installError.message : String(installError)}`
+Error: ${getErrorMessage(installError)}`
           );
         }
       }

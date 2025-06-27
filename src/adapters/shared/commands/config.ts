@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -81,11 +82,11 @@ const configListRegistration = {
     } catch {
       log.error("Failed to load configuration", { 
         _workspacePath, 
-        error: error instanceof Error ? error.message : String(error) 
+        error: getErrorMessage(error) 
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       };
     }
   },
@@ -114,11 +115,11 @@ const configShowRegistration = {
     } catch {
       log.error("Failed to load configuration", { 
         _workspacePath, 
-        error: error instanceof Error ? error.message : String(error) 
+        error: getErrorMessage(error) 
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       };
     }
   },

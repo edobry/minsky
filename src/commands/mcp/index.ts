@@ -12,6 +12,7 @@ import { registerSessionTools } from "../../adapters/mcp/session";
 // import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
+import { getErrorMessage } from "../errors/index";
 import {
   isNetworkError,
   createNetworkError,
@@ -194,7 +195,7 @@ export function createMCPCommand(): Command {
           port: options.port,
           host: options.host,
           withInspector: options.withInspector || false,
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
         });
 
@@ -215,7 +216,7 @@ export function createMCPCommand(): Command {
         } else {
           // For other errors, provide a simpler message
           log.cliError(
-            `Failed to start MCP server: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to start MCP server: ${getErrorMessage(error)}`
           );
 
           // Show stack trace only in debug mode

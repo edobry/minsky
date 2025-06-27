@@ -11,6 +11,7 @@ import { SessionDbConfig } from "../../domain/configuration/types";
 import { configurationService } from "../../domain/configuration";
 import { log } from "../../utils/logger";
 import { join } from "path";
+import { getErrorMessage } from "../errors/index";
 
 export function createSessionDbMigrateCommand(): Command {
   const migrateCmd = new Command("migrate")
@@ -50,7 +51,7 @@ Examples:
       try {
         await handleMigration(targetBackend, options);
       } catch (error) {
-        console.error(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Migration failed: ${getErrorMessage(error)}`);
         process.exit(1);
       }
     });
@@ -69,7 +70,7 @@ Examples:
       try {
         await handleRestore(options);
       } catch (error) {
-        console.error(`Restore failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Restore failed: ${getErrorMessage(error)}`);
         process.exit(1);
       }
     });
@@ -83,7 +84,7 @@ Examples:
       try {
         await handleStatus(options);
       } catch (error) {
-        console.error(`Status check failed: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`Status check failed: ${getErrorMessage(error)}`);
         process.exit(1);
       }
     });

@@ -201,7 +201,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter", {
               filePath,
-              error: matterError instanceof Error ? matterError.message : String(matterError),
+              error: getErrorMessage(matterError),
               content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -310,7 +310,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
-              error: matterError instanceof Error ? matterError.message : String(matterError),
+              error: getErrorMessage(matterError),
               content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -334,7 +334,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in alternative format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           });
         }
         continue;

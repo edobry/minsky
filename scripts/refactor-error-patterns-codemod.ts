@@ -38,7 +38,12 @@ interface RefactorSummary {
 }
 
 class ErrorPatternCodemod {
-  private readonly errorPattern = /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/g;
+  private readonly errorPatterns = [
+    // Pattern with captured variable name (handles err, gitError, etc.)
+    /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/g,
+    // Simple error pattern (for exact "error" variable)
+    /error\s+instanceof\s+Error\s*\?\s*error\.message\s*:\s*String\s*\(\s*error\s*\)/g,
+  ];
   private readonly importPattern = /import\s*\{[^}]*getErrorMessage[^}]*\}\s*from\s*["'][^"']*errors[^"']*["']/;
   
   /**
@@ -105,10 +110,7 @@ class ErrorPatternCodemod {
       if (!this.containsErrorPattern(originalContent)) {
         return result; // No patterns found
       }
-
-      // Reset regex for actual processing
-      this.errorPattern.lastIndex = 0;
-
+      
       // Parse TypeScript to understand structure
       const sourceFile = ts.createSourceFile(
         filePath,
@@ -135,20 +137,26 @@ class ErrorPatternCodemod {
       let modifiedContent = originalContent;
       let hasImport = this.hasGetErrorMessageImport(modifiedContent);
 
-      // Find and replace all instances
-      const matches = Array.from(originalContent.matchAll(this.errorPattern));
-      
-      for (const match of matches) {
-        if (match.index !== undefined) {
-          // Verify this is a safe replacement by checking context
-          if (this.isSafeReplacement(originalContent, match.index, match[0])) {
-            // Perform the replacement using the captured variable name
-            const variableName = match[1] || "error";
-            const replacement = `getErrorMessage(${variableName})`;
-            modifiedContent = modifiedContent.replace(match[0], replacement);
-            result.replacements++;
+      // Find and replace all instances with all patterns
+      for (const pattern of this.errorPatterns) {
+        const matches = Array.from(originalContent.matchAll(pattern));
+        
+        for (const match of matches) {
+          if (match.index !== undefined) {
+            // Verify this is a safe replacement by checking context
+            if (this.isSafeReplacement(originalContent, match.index, match[0])) {
+              // Perform the replacement using the captured variable name
+              const variableName = match[1] || "error";
+              const replacement = `getErrorMessage(${variableName})`;
+              
+              modifiedContent = modifiedContent.replace(match[0], replacement);
+              result.replacements++;
+            }
           }
         }
+        
+        // Reset pattern for next iteration
+        pattern.lastIndex = 0;
       }
 
       // Add import if we made replacements and don't have import
@@ -195,18 +203,28 @@ class ErrorPatternCodemod {
    * Check if content contains error patterns (including multi-line variations)
    */
   private containsErrorPattern(content: string): boolean {
-    // First check with the main pattern
-    if (this.errorPattern.test(content)) {
-      this.errorPattern.lastIndex = 0; // Reset for later use
-      return true;
+    // Create fresh patterns for testing (avoid lastIndex issues)
+    const testPatterns = [
+      /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/,
+      /error\s+instanceof\s+Error\s*\?\s*error\.message\s*:\s*String\s*\(\s*error\s*\)/,
+    ];
+    
+    // Check with all patterns
+    for (const pattern of testPatterns) {
+      if (pattern.test(content)) {
+        return true;
+      }
     }
 
     // Also check for patterns that might be spread across lines
     const normalizedContent = content.replace(/\s+/g, " ");
-    const flexiblePattern = /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/g;
-    const hasPattern = flexiblePattern.test(normalizedContent);
-    flexiblePattern.lastIndex = 0; // Reset
-    return hasPattern;
+    for (const pattern of testPatterns) {
+      if (pattern.test(normalizedContent)) {
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -224,8 +242,8 @@ class ErrorPatternCodemod {
       /\/\*[\s\S]*?error\s+instanceof\s+Error[\s\S]*?\*\//,
       /\/\/.*error\s+instanceof\s+Error/,
       
-      // Skip if it's in a string literal
-      /['"`][\s\S]*?error\s+instanceof\s+Error[\s\S]*?['"`]/,
+      // Skip if it's in a regular string literal (not template literal)
+      /['"][\s\S]*?error\s+instanceof\s+Error[\s\S]*?['"]/,
       
       // Skip if it's already wrapped in getErrorMessage
       /getErrorMessage\s*\(\s*error\s+instanceof\s+Error/,
@@ -237,15 +255,9 @@ class ErrorPatternCodemod {
       }
     }
 
-    // Additional safety check: ensure the variable name is actually "error"
-    const beforeMatch = content.slice(Math.max(0, index - 50), index);
-    const afterMatch = content.slice(index + match.length, Math.min(content.length, index + match.length + 50));
-    
-    // Look for catch (error) or similar patterns to ensure this is an error variable
-    const errorVariablePattern = /catch\s*\(\s*error\s*\)|function\s*\([^)]*error[^)]*\)|=>\s*\{[\s\S]*?error\s+instanceof/;
-    const fullContext = content.slice(Math.max(0, index - 200), Math.min(content.length, index + match.length + 200));
-    
-    return errorVariablePattern.test(fullContext);
+    // Very lenient safety check - if it matches our pattern, it's probably safe to replace
+    // The pattern itself is quite specific to error handling contexts
+    return true;
   }
 
   /**

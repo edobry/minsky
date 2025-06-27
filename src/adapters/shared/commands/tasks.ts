@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { select, isCancel, cancel } from "@clack/prompts";
+import { getErrorMessage } from "../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -625,7 +626,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${error instanceof Error ? error.message : String(error)}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${getErrorMessage(error)}`);
       }
     }
 
@@ -709,7 +710,7 @@ const tasksMigrateRegistration = {
       return cliResult;
     } catch (error) {
       throw new ValidationError(
-        `Migration failed: ${error instanceof Error ? error.message : String(error)}`
+        `Migration failed: ${getErrorMessage(error)}`
       );
     }
   },
