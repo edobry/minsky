@@ -9,6 +9,7 @@ import { writeFile, readFile, existsSync } from "fs/promises";
 import { dirname } from "path";
 import { mkdirSync } from "fs";
 import { log } from "../../../utils/logger";
+import { getErrorMessage } from "../../../errors/index";
 import type { DatabaseStorage } from "../database-storage";
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
 import type {
@@ -113,7 +114,7 @@ export class SessionMigrator implements DataMigrator {
             migratedCount++;
             
           } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
+            const errorMsg = getErrorMessage(error);
             log.error(`Failed to migrate record ${session.session}: ${errorMsg}`);
             failedRecords.push(session.session);
             
@@ -314,7 +315,7 @@ export class SessionMigrator implements DataMigrator {
 
       return true;
     } catch (error) {
-      log.error(`Failed to create backup: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(`Failed to create backup: ${getErrorMessage(error)}`);
       return false;
     }
   }
