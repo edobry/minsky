@@ -173,7 +173,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to create task: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to create task: ${getErrorMessage(error)}`
         );
       }
     }

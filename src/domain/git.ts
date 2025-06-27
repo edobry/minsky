@@ -326,7 +326,7 @@ export class GitService implements GitServiceInterface {
         });
       } catch (cloneErr) {
         log.error("git clone command failed", {
-          error: cloneErr instanceof Error ? cloneErr.message : String(cloneErr),
+          error: getErrorMessage(cloneErr),
           command: cloneCmd,
         });
 
@@ -338,7 +338,7 @@ export class GitService implements GitServiceInterface {
         } catch (cleanupErr) {
           log.warn("Failed to cleanup session directory after git clone failure", {
             workdir,
-            error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            error: getErrorMessage(cleanupErr),
           });
         }
 
@@ -364,7 +364,7 @@ export class GitService implements GitServiceInterface {
         } catch (err) {
           log.warn("Could not read clone directory", {
             workdir,
-            error: err instanceof Error ? err.message : String(err),
+            error: getErrorMessage(err),
           });
         }
       } catch (accessErr) {
@@ -623,7 +623,7 @@ You need to specify one of these options to identify the target repository:
       return baseBranch;
     } catch (err) {
       log.debug("Failed to get remote HEAD", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
       });
     }
@@ -638,7 +638,7 @@ You need to specify one of these options to identify the target repository:
       return baseBranch;
     } catch (err) {
       log.debug("Failed to get upstream branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
       });
     }
@@ -650,7 +650,7 @@ You need to specify one of these options to identify the target repository:
       return "main";
     } catch (err) {
       log.debug("Failed to check main branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
     }
 
@@ -661,7 +661,7 @@ You need to specify one of these options to identify the target repository:
       return "master";
     } catch (err) {
       log.debug("Failed to check master branch", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
       });
     }
 
@@ -691,7 +691,7 @@ You need to specify one of these options to identify the target repository:
       log.debug("Found merge base with base branch", { baseBranch, mergeBase });
     } catch (err) {
       log.debug("Failed to find merge base", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         branch,
         baseBranch,
       });
@@ -704,7 +704,7 @@ You need to specify one of these options to identify the target repository:
         log.debug("Using first commit as base", { mergeBase });
       } catch (err) {
         log.debug("Failed to find first commit", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
           branch,
         });
         // If that also fails, use empty tree
@@ -1078,7 +1078,7 @@ You need to specify one of these options to identify the target repository:
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(
-        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to stash changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1096,7 +1096,7 @@ You need to specify one of these options to identify the target repository:
       await execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1119,7 +1119,7 @@ You need to specify one of these options to identify the target repository:
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to pull latest changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1139,7 +1139,7 @@ You need to specify one of these options to identify the target repository:
         log.debug("Merge completed successfully");
       } catch (err) {
         log.debug("Merge command failed, checking for conflicts", {
-          error: err instanceof Error ? err.message : String(err),
+          error: getErrorMessage(err),
         });
 
         // Check if there are merge conflicts
@@ -1178,12 +1178,12 @@ You need to specify one of these options to identify the target repository:
       return { workdir, merged, conflicts: false };
     } catch (err) {
       log.error("mergeBranch failed with error", {
-        error: err instanceof Error ? err.message : String(err),
+        error: getErrorMessage(err),
         workdir,
         branch,
       });
       throw new Error(
-        `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1419,7 +1419,7 @@ Session requested: "${options.session}"
       log.debug(`Created PR branch ${prBranch} from origin/${baseBranch}`);
     } catch (err) {
       throw new MinskyError(
-        `Failed to create PR branch: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create PR branch: ${getErrorMessage(err)}`
       );
     }
 
@@ -1460,7 +1460,7 @@ Session requested: "${options.session}"
         );
       }
       throw new MinskyError(
-        `Failed to create prepared merge commit: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to create prepared merge commit: ${getErrorMessage(err)}`
       );
     }
 
@@ -1477,7 +1477,7 @@ Session requested: "${options.session}"
       log.debug(`Switched back to original branch ${sourceBranch} after creating PR branch`);
     } catch (err) {
       log.warn(
-        `Failed to switch back to original branch ${sourceBranch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`
       );
       // Don't throw error here - PR creation was successful, this is just cleanup
     }
@@ -1650,7 +1650,7 @@ Session requested: "${options.session}"
       return { workdir, stashed: true };
     } catch (err) {
       throw new Error(
-        `Failed to stash changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to stash changes: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1674,7 +1674,7 @@ Session requested: "${options.session}"
       await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -1711,7 +1711,7 @@ Session requested: "${options.session}"
       return { workdir, merged: beforeHash.trim() !== afterHash.trim(), conflicts: false };
     } catch (err) {
       throw new Error(
-        `Failed to merge branch ${branch}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to merge branch ${branch}: ${getErrorMessage(err)}`
       );
     }
   }
@@ -1758,7 +1758,7 @@ Session requested: "${options.session}"
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to pull latest changes: ${getErrorMessage(err)}`
       );
     }
   }

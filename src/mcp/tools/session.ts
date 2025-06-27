@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CommandMapper } from "../command-mapper.js";
 import { execSync } from "child_process";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Register session-related tools with the MCP server
@@ -20,7 +21,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
     } catch (error) {
       log.error("Error listing sessions", { error });
       throw new Error(
-        `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to list sessions: ${getErrorMessage(error)}`
       );
     }
   });
@@ -43,7 +44,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error(`Error getting session ${args.session}`, { error, _session: args.session });
         throw new Error(
-          `Failed to get session ${args.session}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get session ${args.session}: ${getErrorMessage(error)}`
         );
       }
     }
@@ -91,7 +92,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error("Error starting session", { error, name: args.name, task: args.task });
         throw new Error(
-          `Failed to start _session: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to start _session: ${getErrorMessage(error)}`
         );
       }
     }
@@ -137,7 +138,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error("Error committing changes", { error, _session: args.session });
         throw new Error(
-          `Failed to commit changes: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to commit changes: ${getErrorMessage(error)}`
         );
       }
     }
@@ -178,7 +179,7 @@ export function registerSessionTools(commandMapper: CommandMapper): void {
       } catch (error) {
         log.error("Error pushing changes", { error, _session: args.session });
         throw new Error(
-          `Failed to push changes: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to push changes: ${getErrorMessage(error)}`
         );
       }
     }

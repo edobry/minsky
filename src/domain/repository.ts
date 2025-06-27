@@ -6,7 +6,7 @@ import { normalizeRepoName } from "./repo-utils.js";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
 import { SessionDB } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
-import { ValidationError, MinskyError } from "../errors/index.js";
+import {ValidationError, MinskyError, getErrorMessage} from "../errors/index.js";
 import { log } from "../utils/logger.js";
 
 /**
@@ -559,7 +559,7 @@ export async function resolveRepoPath(options: {
     }
   } catch (error) {
     throw new MinskyError(
-      `Failed to resolve repository _path: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to resolve repository _path: ${getErrorMessage(error)}`
     );
   }
 }

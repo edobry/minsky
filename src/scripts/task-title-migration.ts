@@ -247,7 +247,7 @@ export class TaskTitleMigration {
         }
       }
     } catch (error) {
-      throw new Error(`Failed to read tasks directory: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to read tasks directory: ${getErrorMessage(error)}`);
     }
 
     return taskFiles.sort();
@@ -314,7 +314,7 @@ export class TaskTitleMigration {
           errors.push(`${filePath}: Still has old title format: ${titleLine}`);
         }
       } catch (error) {
-        errors.push(`${filePath}: Failed to validate - ${error instanceof Error ? error.message : String(error)}`);
+        errors.push(`${filePath}: Failed to validate - ${getErrorMessage(error)}`);
       }
     }
 

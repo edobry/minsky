@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -255,7 +256,7 @@ export function registerRulesCommands(): void {
         };
       } catch {
         log.error("Failed to list rules", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
         throw error;
       }
@@ -292,7 +293,7 @@ export function registerRulesCommands(): void {
         };
       } catch {
         log.error("Failed to get rule", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           id: params.id,
         });
         throw error;
@@ -347,7 +348,7 @@ export function registerRulesCommands(): void {
         };
       } catch {
         log.error("Failed to create rule", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           id: params.id,
         });
         throw error;
@@ -411,7 +412,7 @@ export function registerRulesCommands(): void {
         };
       } catch {
         log.error("Failed to update rule", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           id: params.id,
         });
         throw error;
@@ -452,7 +453,7 @@ export function registerRulesCommands(): void {
         };
       } catch {
         log.error("Failed to search rules", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           query: params.query,
         });
         throw error;
