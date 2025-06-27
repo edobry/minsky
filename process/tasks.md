@@ -352,7 +352,7 @@
 
 - [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
-- [ ] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
+- [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
 
@@ -392,4 +392,4 @@
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
-- [ ] Improve CLI Command Output Messages [#203](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/183/process/tasks/203-improve-cli-command-output-messages.md)
+- [ ] Improve CLI Command Output Messages [#203](process/tasks/203-improve-cli-command-output-messages.md)
