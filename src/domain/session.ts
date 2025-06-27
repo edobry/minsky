@@ -605,7 +605,7 @@ export async function startSessionFromParams(
         rmSync(sessionDir, { recursive: true, force: true });
       } catch (error) {
         throw new MinskyError(
-          `Failed to clean up existing session directory: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to clean up existing session directory: ${getErrorMessage(error)}`
         );
       }
     }
@@ -709,7 +709,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
       } catch (error) {
         // Log the error but don't fail the session creation
         log.cliWarn(
-          `Warning: Failed to update status for task ${taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
         );
       }
     }
@@ -1028,7 +1028,7 @@ Resolution options:
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to update session: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to update session: ${getErrorMessage(error)}`,
         error
       );
     }
