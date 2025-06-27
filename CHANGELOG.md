@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Task 182: AI-powered rule suggestion MVP - `minsky context suggest-rules` command for intelligent rule selection based on natural language queries
+- Task 183: Rule suggestion evaluation and optimization - Advanced features including confidence scoring, model optimization, and evaluation integration
+
+### Changed
+
+- Task 082: Simplified to focus only on context analysis and visualization, removing obsolete concepts that don't match how AI context actually works
+- Task 182: Reduced scope to MVP functionality (1-2 weeks effort) with advanced features moved to Task 183
+
+### Added
+
 - **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
   - Implemented Phase 1: Critical File Operations
     - Created `session_edit_file` tool with support for Cursor's `// ... existing code ...` pattern
@@ -105,6 +115,7 @@ _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/20
 ### Fixed
 
 - **Task #167: Fix Task Creation CLI Bug - "status is not defined" Error**
+
   - Fixed critical "status is not defined" error that was preventing the `minsky tasks create` command from working
   - Resolved parameter naming mismatch in `getCheckboxFromStatus` function in `taskConstants.ts`
   - Changed parameter from `__status` to `status` to match the function body usage
