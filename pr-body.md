@@ -1,67 +1,65 @@
-Implements complete repository configuration system with 5-level hierarchy, backend auto-detection, and zero-config task operations.
+Implement comprehensive multi-backend storage system for SessionDB with JSON, SQLite, and PostgreSQL support.
 
 ## Summary
 
-This PR implements the repository configuration system (Task #141) that enables zero-config task operations by automatically resolving backend configuration from repository and user settings.
+This PR implements Task #091 to enhance SessionDB with multiple backend support, enabling users to choose between JSON file storage, SQLite database, or PostgreSQL database for session management.
 
-## Key Features
+## Changes
 
-### Configuration Hierarchy (5 levels)
-- CLI flags (highest priority)
-- Environment variables (MINSKY_*)
-- Global user config (~/.config/minsky/config.yaml)
-- Repository config (.minsky/config.yaml) 
-- Built-in defaults (lowest priority)
+### Added
 
-### Backend Auto-Detection
-- GitHub remote exists → github-issues backend
-- process/tasks.md exists → markdown backend
-- Always fallback → json-file backend
+- **Multi-Backend Storage System**: JSON, SQLite, and PostgreSQL backends
+- **Drizzle ORM Integration**: Modern TypeScript ORM for database operations
+- **Storage Backend Factory**: Configuration-driven backend selection
+- **Session Migration Tools**: Migrate data between storage backends
+- **Configuration Integration**: Extended Minsky config system for storage settings
+- **Database Schema**: Proper schema definitions for SQLite/PostgreSQL
+- **Connection Management**: Connection pooling for PostgreSQL backend
+- **Migration Verification**: Data integrity verification after migration
+- **Backup/Restore**: Safety mechanisms for data migration
 
-### Zero-Config Experience
-```bash
-# Before: Manual backend specification required
-minsky tasks list --backend json-file
+### Storage Backends
 
-# After: Automatic resolution from configuration
-minsky tasks list  # Just works!
+- **JsonFileStorage**: Wraps existing JSON file functionality
+- **SqliteStorage**: Local SQLite database with Drizzle ORM
+- **PostgresStorage**: Remote PostgreSQL with connection pooling
+
+### Migration System
+
+- **SessionMigrator**: Core migration functionality with progress tracking
+- **Migration Interface**: Type definitions for migration operations
+- **Migration Service**: Orchestration and batch processing
+- **Data Verification**: Ensures migration integrity
+- **Backup Creation**: Safety mechanism before migration
+
+## Configuration
+
+Users can now configure storage backend via:
+
+```typescript
+// Global config
+{
+  storage: {
+    backend: 'sqlite' | 'postgres' | 'json',
+    sqlite: { dbPath: './sessions.db' },
+    postgres: { host: 'localhost', port: 5432, database: 'minsky' }
+  }
+}
 ```
 
-## Implementation
+## Testing
 
-### Core Infrastructure
-- **Configuration Service**: Central orchestration with validation
-- **Config Loader**: YAML file parsing with hierarchy merging
-- **Backend Detector**: Smart repository characteristic detection
-- **Credential Manager**: Multi-source credential resolution
-- **Config Generator**: YAML file creation for init command
+- Created comprehensive test suite demonstrating all backends
+- Verified migration functionality between storage types
+- Tested configuration integration
+- Validated data integrity and backup mechanisms
 
-### CLI Integration
-- **Config Commands**: `minsky config list`, `minsky config show`
-- **Enhanced Init**: `--backend`, `--github-owner`, `--github-repo` options
-- **Task Integration**: Zero-config task service creation
+## Migration Path
 
-### Testing
-- Comprehensive test suite for all components
-- Integration tests for zero-config workflow
-- Error handling and fallback scenarios
+Existing JSON file users can migrate to SQLite/PostgreSQL:
+- Automatic backup creation
+- Progress tracking during migration
+- Data verification after migration
+- Rollback capability if needed
 
-## Files Changed
-
-### New Files
-- `src/domain/configuration/` - Complete configuration system
-- `src/commands/config/` - Configuration CLI commands
-- `docs/repository-configuration.md` - System documentation
-
-### Modified Files
-- Enhanced `minsky init` command with backend options
-- Updated task commands for configuration integration
-- CLI command registration and factory updates
-
-## Testing Results
-- ✅ Configuration service tests: 8/8 passing
-- ✅ Task integration tests: 3/3 passing
-- ✅ Zero-config workflow verified
-
-## Ready for Production
-The system is fully functional and enables teams to eliminate manual backend configuration while maintaining proper team consistency and user flexibility.
+This implementation provides the foundation for local SQLite and remote PostgreSQL session storage as requested.

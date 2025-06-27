@@ -2,7 +2,7 @@
  * Pure functions for task operations
  * These functions don't have side effects and work with the task data types
  */
-import type { TaskData, TaskState, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
+import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskData.js";
 
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants.js";
@@ -69,10 +69,10 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
  * @param tasks Array of task data objects
  * @returns Formatted markdown content
  */
-export function formatTasksToMarkdown(tasks: TaskData[]): string {
-  if (!tasks || tasks.length === 0) return "";
+export function formatTasksToMarkdown(__tasks: TaskData[]): string {
+  if (!__tasks || __tasks.length === 0) return "";
 
-  return tasks
+  return __tasks
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
@@ -147,10 +147,10 @@ export function normalizeTaskId(id: string): string | null {
  * @param tasks Array of task data objects
  * @returns Next available task ID
  */
-export function getNextTaskId(tasks: TaskData[]): string {
-  if (!tasks || tasks.length === 0) return "#001";
+export function getNextTaskId(__tasks: TaskData[]): string {
+  if (!__tasks || __tasks.length === 0) return "#001";
 
-  const maxId = tasks.reduce((max, task) => {
+  const maxId = __tasks.reduce((max, task) => {
     const id = parseInt(task.id.replace(/^#/, ""), 10);
     return !isNaN(id) && id > max ? id : max;
   }, 0);

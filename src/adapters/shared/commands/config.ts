@@ -10,7 +10,6 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
   type CommandExecutionContext,
 } from "../command-registry";
 import { configurationService } from "../../../domain/configuration";
@@ -67,21 +66,21 @@ const configListRegistration = {
   name: "list",
   description: "Show all configuration from all sources",
   parameters: configListParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
-    const workspacePath = params.workspace || process.cwd();
+  execute: async (params, _ctx: CommandExecutionContext) => {
+    const _workspacePath = params.workspace || process.cwd();
     
     try {
       // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      const configResult = await configurationService.loadConfiguration(_workspacePath);
       
       return {
         success: true,
         sources: configResult.sources,
         resolved: configResult.resolved,
       };
-    } catch (error) {
+    } catch {
       log.error("Failed to load configuration", { 
-        workspacePath, 
+        _workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {
@@ -101,20 +100,20 @@ const configShowRegistration = {
   name: "show",
   description: "Show the final resolved configuration",
   parameters: configShowParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
-    const workspacePath = params.workspace || process.cwd();
+  execute: async (params, _ctx: CommandExecutionContext) => {
+    const _workspacePath = params.workspace || process.cwd();
     
     try {
       // Load configuration
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      const configResult = await configurationService.loadConfiguration(_workspacePath);
       
       return {
         success: true,
         configuration: configResult.resolved,
       };
-    } catch (error) {
+    } catch {
       log.error("Failed to load configuration", { 
-        workspacePath, 
+        _workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {

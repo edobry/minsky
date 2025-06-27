@@ -1,3 +1,6 @@
+const SHORT_ID_LENGTH = 8;
+const TEST_VALUE = 123;
+
 /**
  * Shared Tasks Commands Tests
  * @migrated Migrated to native Bun patterns
@@ -14,6 +17,8 @@ import {
   expectToHaveBeenCalled,
   getMockCallArg,
 } from "../../../../utils/test-utils/assertions.js";
+
+const EXPECTED_TASKS_COMMANDS_COUNT = SHORT_ID_LENGTH;
 
 describe("Shared Tasks Commands", () => {
   // Set up spies for domain functions
@@ -49,7 +54,7 @@ describe("Shared Tasks Commands", () => {
 
     // Verify commands were registered
     const tasksCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-    expectToHaveLength(tasksCommands, 7); // All 7 tasks commands: list, get, create, status.get, status.set, spec, migrate
+    expectToHaveLength(tasksCommands, EXPECTED_TASKS_COMMANDS_COUNT); // All SHORT_ID_LENGTH tasks commands: list, get, create, status.get, status.set, _spec, migrate
 
     // Verify status get command
     const getCommand = sharedCommandRegistry.getCommand("tasks.status.get");
@@ -86,24 +91,24 @@ describe("Shared Tasks Commands", () => {
 
     // Execute command
     const params = {
-      taskId: "123",
+      taskId: "TEST_VALUE",
       repo: "/test/repo",
     };
-    const context = { interface: "test" };
-    const result = await getCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await getCommand!.execute(params, _context);
 
     // Verify domain function was called with correct params
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       repo: "/test/repo",
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
-      taskId: "#123",
-      status: "TODO",
+      taskId: "#TEST_VALUE",
+      _status: "TODO",
     });
   });
 
@@ -117,39 +122,39 @@ describe("Shared Tasks Commands", () => {
 
     // Execute command
     const params = {
-      taskId: "123",
+      taskId: "TEST_VALUE",
       status: "IN-PROGRESS",
       session: "test-session",
     };
-    const context = { interface: "test" };
-    const result = await setCommand!.execute(params, context);
+    const _context = { interface: "test" };
+    const _result = await setCommand!.execute(params, _context);
 
     // Verify domain function was called to get previous status
     expectToHaveBeenCalled(getTaskStatusSpy);
     expect(getMockCallArg(getTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       repo: undefined,
       workspace: undefined,
-      session: "test-session",
+      _session: "test-session",
       backend: undefined,
     });
 
     // Verify domain function was called to set status
     expectToHaveBeenCalled(setTaskStatusSpy);
     expect(getMockCallArg(setTaskStatusSpy, 0, 0)).toEqual({
-      taskId: "#123",
-      status: "IN-PROGRESS",
+      taskId: "#TEST_VALUE",
+      _status: "IN-PROGRESS",
       repo: undefined,
       workspace: undefined,
-      session: "test-session",
+      _session: "test-session",
       backend: undefined,
     });
 
     // Verify result
-    expect(result).toEqual({
+    expect(_result).toEqual({
       success: true,
-      taskId: "#123",
-      status: "IN-PROGRESS",
+      taskId: "#TEST_VALUE",
+      _status: "IN-PROGRESS",
       previousStatus: "TODO",
     });
   });

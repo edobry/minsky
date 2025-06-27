@@ -35,13 +35,13 @@ export type {
  */
 export interface OutputOptions {
   json?: boolean;
-  formatter?: (result: any) => void;
+  formatter?: (_result: unknown) => void;
 }
 
 /**
  * Format and output command results
  */
-export function outputResult(result: any, options: OutputOptions = {}): void {
+export function outputResult(result: unknown, options: OutputOptions = {}): void {
   if (result === undefined) {
     return;
   }
@@ -56,26 +56,26 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result);
+        log.cli(_result);
       } else if (typeof result === "object" && result !== null) {
-        if (Array.isArray(result)) {
+        if (Array.isArray(_result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
               log.cli(item);
             } else {
-              log.cli(JSON.stringify(item, null, 2));
+              log.cli(JSON.stringify(_item, null, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result, null, 2));
+          log.cli(JSON.stringify(__result, null, 2));
         }
       } else {
-        log.cli(String(result));
+        log.cli(String(_result));
       }
     }
   } catch (error) {
     log.cliError("Failed to format output:", error);
-    log.cli(String(result));
+    log.cli(String(_result));
   }
 }
 

@@ -1,3 +1,5 @@
+const HTTP_NOT_FOUND = 404;
+
 /**
  * Configuration helper for GitHub Issues task backend
  */
@@ -64,7 +66,7 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {
@@ -96,7 +98,7 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
-  octokit: any,
+  _octokit: unknown,
   owner: string,
   repo: string,
   labels: Record<string, string>
@@ -112,9 +114,9 @@ export async function createGitHubLabels(
         });
         log.debug(`Label ${labelName} already exists`);
         continue;
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Label doesn't exist, continue to create it
-        if (error.status !== 404) {
+        if (error.status !== HTTP_NOT_FOUND) {
           throw error;
         }
       }
@@ -124,7 +126,7 @@ export async function createGitHubLabels(
         owner,
         repo,
         name: labelName,
-        color: getColorForStatus(status),
+        color: getColorForStatus(_status),
         description: `Minsky task status: ${status}`,
       });
 

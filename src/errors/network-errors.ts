@@ -1,3 +1,5 @@
+const ALTERNATIVE_HTTP_PORT = 8082;
+
 /**
  * Network Error Handling Utilities
  *
@@ -7,6 +9,7 @@
 
 import { MinskyError } from "./base-errors";
 
+import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
 /**
  * Error class for network-related errors
  */
@@ -34,8 +37,8 @@ export class PortInUseError extends NetworkError {
    * Get suggested actions for resolving this error
    */
   getSuggestions(): string[] {
-    const nextPort = this.port ? this.port + 1 : 8081;
-    const currentPort = this.port || 8080;
+    const nextPort = this.port ? this.port + 1 : ALTERNATIVE_HTTP_PORT;
+    const currentPort = this.port || DEFAULT_DEV_PORT;
 
     return [
       `Use a different port: minsky mcp start --sse --port ${nextPort}`,
@@ -58,7 +61,7 @@ export class NetworkPermissionError extends NetworkError {
    */
   getSuggestions(): string[] {
     return [
-      "Use a port number above 1024: minsky mcp start --sse --port 8080",
+      "Use a port number above BYTES_PER_KB: minsky mcp start --sse --port DEFAULT_DEV_PORT",
       "Run the command with elevated permissions (not recommended)",
     ];
   }
@@ -89,13 +92,7 @@ export function createNetworkError(
   case "EACCES":
     return new NetworkPermissionError(port, host, originalError);
   default:
-    return new NetworkError(
-      `Network error: ${originalError.message}`,
-      errorCode,
-      port,
-      host,
-      originalError
-    );
+    return new NetworkError(originalError.message, errorCode, port, host, originalError);
   }
 }
 

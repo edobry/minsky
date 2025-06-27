@@ -1,25 +1,32 @@
+import fs from "fs";
+import path from "path";
 import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
+import { registerDebugTools } from "../../adapters/mcp/debug";
+import { registerGitTools } from "../../adapters/mcp/git";
+import { registerInitTools } from "../../adapters/mcp/init";
+import { registerRulesTools } from "../../adapters/mcp/rules";
+import { registerSessionTools } from "../../adapters/mcp/session";
+// import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+import { registerTaskTools } from "../../adapters/mcp/tasks";
+import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import {
   isNetworkError,
   createNetworkError,
   formatNetworkErrorMessage,
 } from "../../errors/network-errors.js";
-import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
-import fs from "fs";
-import path from "path";
+import { DEFAULT_DEV_PORT } from "../../utils/constants";
+import { exit } from "../../utils/process.js";
+
+const INSPECTOR_PORT = 3001;
 
 // Import adapter-based tool registrations
-import { registerSessionTools } from "../../adapters/mcp/session";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerDebugTools } from "../../adapters/mcp/debug";
+// import { registerSessionFileTools } from "../../adapters/mcp/session-files";
+// import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 
 /**
  * Create the MCP command
@@ -35,18 +42,18 @@ export function createMCPCommand(): Command {
   startCommand
     .option("--stdio", "Use stdio transport (default)")
     .option("--http-stream", "Use HTTP Stream transport")
-    .option("-p, --port <port>", "Port for HTTP Stream server", "8080")
+    .option("-p, --port <port>", "Port for HTTP Stream server", DEFAULT_DEV_PORT.toString())
     .option("-h, --host <host>", "Host for HTTP Stream server", "localhost")
     .option(
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
     .option("--with-inspector", "Launch MCP inspector alongside the server")
-    .option("--inspector-port <port>", "Port for the MCP inspector", "6274")
+    .option("--inspector-port <port>", "Port for the MCP inspector", INSPECTOR_PORT.toString())
     .action(async (options) => {
       try {
         // Determine transport type based on options
-        let transportType: "stdio" | "httpStream" = "stdio";
+        let transportType: "stdio" | "sse" | "httpStream" = "stdio";
         if (options.httpStream) {
           transportType = "httpStream";
         }
@@ -61,11 +68,11 @@ export function createMCPCommand(): Command {
           // Validate that the path exists and is a directory
           if (!fs.existsSync(repositoryPath)) {
             log.cliError(`Repository path does not exist: ${repositoryPath}`);
-            process.exit(1);
+            exit(1);
           }
           if (!fs.statSync(repositoryPath).isDirectory()) {
             log.cliError(`Repository path is not a directory: ${repositoryPath}`);
-            process.exit(1);
+            exit(1);
           }
 
           try {
@@ -78,7 +85,7 @@ export function createMCPCommand(): Command {
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
               log.cliError(error.message);
             }
-            process.exit(1);
+            exit(1);
           }
         }
 
@@ -97,9 +104,14 @@ export function createMCPCommand(): Command {
           version: "1.0.0", // TODO: Import from package.json
           transportType,
           projectContext,
+          sse: {
+            port: 8080, // Default SSE port (not currently used via CLI)
+            host: options.host,
+            path: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
+          },
           httpStream: {
-            endpoint: "/mcp", // Updated from /stream to /mcp per fastmcp v3.x
-            port,
+            port: transportType === "httpStream" ? port : 8080,
+            endpoint: "/mcp",
           },
         });
 
@@ -114,6 +126,9 @@ export function createMCPCommand(): Command {
         // Register main application tools
         registerTaskTools(commandMapper);
         registerSessionTools(commandMapper);
+        // registerSessionWorkspaceTools(commandMapper);
+        // registerSessionFileTools(commandMapper);
+        // registerSessionEditTools(commandMapper);
         registerGitTools(commandMapper);
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
@@ -166,12 +181,12 @@ export function createMCPCommand(): Command {
         // Handle termination signals
         process.on("SIGINT", () => {
           log.cli("\nStopping Minsky MCP Server...");
-          process.exit(0);
+          exit(0);
         });
 
         process.on("SIGTERM", () => {
           log.cli("\nStopping Minsky MCP Server...");
-          process.exit(0);
+          exit(0);
         });
       } catch (error) {
         // Log detailed error info for debugging
@@ -211,7 +226,7 @@ export function createMCPCommand(): Command {
           }
         }
 
-        process.exit(1);
+        exit(1);
       }
     });
 

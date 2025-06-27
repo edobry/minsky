@@ -29,17 +29,17 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
    * GitHub personal access token
    */
   githubToken: string;
-  
+
   /**
    * Repository owner (username or organization)
    */
   owner: string;
-  
+
   /**
    * Repository name
    */
   repo: string;
-  
+
   /**
    * Labels to use for task status mapping
    */
@@ -56,7 +56,7 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
  */
 const DEFAULT_STATUS_LABELS = {
   TODO: "minsky:todo",
-  "IN-PROGRESS": "minsky:in-progress", 
+  "IN-PROGRESS": "minsky:in-progress",
   "IN-REVIEW": "minsky:in-review",
   DONE: "minsky:done",
 } as const;
@@ -64,20 +64,24 @@ const DEFAULT_STATUS_LABELS = {
 /**
  * Extract GitHub owner and repo from git remote URL
  */
-function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; repo: string } | null {
+function extractGitHubRepoFromRemote(
+  workspacePath: string
+): { owner: string; repo: string } | null {
   try {
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8" as BufferEncoding,
-    }).toString().trim();
+    })
+      .toString()
+      .trim();
 
     // Parse GitHub repository from various URL formats
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git
     const sshMatch = remoteUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
     const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
-    
+
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
@@ -85,7 +89,7 @@ function extractGitHubRepoFromRemote(workspacePath: string): { owner: string; re
         repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
       };
     }
-    
+
     return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
@@ -168,7 +172,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
 
       // Convert issues to a format that can be parsed by parseTasks
       const issueData = JSON.stringify(issues);
-      
+
       return {
         success: true,
         content: issueData,
@@ -192,18 +196,18 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // For GitHub backend, spec data is typically embedded in issue descriptions
       // or linked to external files. For now, we'll generate basic spec content
       // from the issue data.
-      
+
       // Extract task ID from spec path
       const pathParts = specPath.split("/");
       const fileName = pathParts[pathParts.length - 1];
       const taskIdMatch = fileName?.match(/^(\d+)-/);
-      
+
       if (!taskIdMatch || !taskIdMatch[1]) {
         throw new Error(`Invalid spec path format: ${specPath}`);
       }
 
       const taskId = `#${taskIdMatch[1]}`;
-      
+
       // Try to find the corresponding GitHub issue
       const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
@@ -241,7 +245,7 @@ ${issue.body || "No description provided"}
 - Updated: ${issue.updated_at}
 
 ## Labels
-${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
+${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.name}`).join("\n")}
 `;
 
       return {
@@ -278,7 +282,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   formatTasks(tasks: TaskData[]): string {
     // For GitHub backend, we don't store tasks in a file format
     // This is used when syncing back to GitHub
-    return JSON.stringify(tasks.map(task => this.convertTaskDataToIssueFormat(task)));
+    return JSON.stringify(tasks.map((task) => this.convertTaskDataToIssueFormat(task)));
   }
 
   parseTaskSpec(content: string): TaskSpecData {
@@ -287,13 +291,13 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     let title = "";
     let description = "";
     let metadata: Record<string, any> = {};
-    
+
     let currentSection = "";
     let descriptionLines: string[] = [];
 
     for (const line of lines) {
       const trimmed = line.trim();
-      
+
       if (trimmed.startsWith("# ")) {
         title = trimmed.substring(2).trim();
         // Extract task ID from title if present
@@ -323,9 +327,9 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
 
   formatTaskSpec(spec: TaskSpecData): string {
     const { title, description, metadata } = spec;
-    
+
     let content = `# Task ${metadata?.taskId || "#000"}: ${title}\n\n`;
-    
+
     if (description) {
       content += `## Description\n${description}\n\n`;
     }
@@ -348,7 +352,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     try {
       // Parse the task data and sync to GitHub
       const tasks = JSON.parse(content);
-      
+
       for (const taskData of tasks) {
         await this.syncTaskToGitHub(taskData);
       }
@@ -371,7 +375,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
       // For GitHub backend, we don't typically save spec files locally
       // The spec content is managed through GitHub issues
       log.debug("GitHub backend: spec data managed through issues", { specPath });
-      
+
       return { success: true };
     } catch (error) {
       log.error("Failed to save task spec data", {
@@ -398,13 +402,10 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
     return join("process", "tasks", `${id}-${normalizedTitle}.md`);
   }
 
-  async fileExists(path: string): Promise<boolean> {
-    try {
-      // For GitHub backend, we check if an issue exists rather than local files
-      return true; // Simplified for now
-    } catch {
-      return false;
-    }
+  async fileExists(_path: string): Promise<boolean> {
+    // For GitHub backend, we always return true since we don't check local files
+    // TODO: Implement actual GitHub issue existence check
+    return true;
   }
 
   // ---- Private Helper Methods ----
@@ -412,7 +413,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   private convertIssueToTaskData(issue: any): TaskData {
     const taskId = this.extractTaskIdFromIssue(issue);
     const status = this.getTaskStatusFromIssue(issue);
-    
+
     return {
       id: taskId,
       title: issue.title,
@@ -450,12 +451,14 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   private getTaskStatusFromIssue(issue: any): string {
     // Check labels for status
     const labels = issue.labels || [];
-    
+
     for (const [status, labelName] of Object.entries(this.statusLabels)) {
-      if (labels.some((label: any) => {
-        const name = typeof label === "string" ? label : label.name;
-        return name === labelName;
-      })) {
+      if (
+        labels.some((label: any) => {
+          const name = typeof label === "string" ? label : label.name;
+          return name === labelName;
+        })
+      ) {
         return status;
       }
     }
@@ -472,7 +475,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
   private async syncTaskToGitHub(taskData: TaskData): Promise<void> {
     try {
       const issueData = this.convertTaskDataToIssueFormat(taskData);
-      
+
       // For now, we'll always create new issues since we can't track existing ones without metadata
       // TODO: Implement a better way to track GitHub issue numbers
       const response = await this.octokit.rest.issues.create({
@@ -482,7 +485,7 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
         body: issueData.body,
         labels: issueData.labels,
       });
-      
+
       log.debug("Created GitHub issue", {
         issueNumber: response.data.number,
         title: issueData.title,
@@ -504,4 +507,4 @@ ${issue.labels.map(label => `- ${typeof label === "string" ? label : label.name}
  */
 export function createGitHubIssuesTaskBackend(config: GitHubIssuesTaskBackendOptions): TaskBackend {
   return new GitHubIssuesTaskBackend(config);
-} 
+}

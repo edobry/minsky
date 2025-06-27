@@ -1,6 +1,9 @@
 import * as fs from "fs";
+import { DEFAULT_DEV_PORT } from "../utils/constants";
 import * as path from "path";
 import { z } from "zod";
+const TEST_VALUE = 123;
+
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
   backend: z.enum(["tasks.md", "tasks.csv"]),
@@ -259,7 +262,7 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation tasks, ensuring code isolation |
+| **session-first-workflow** | Enforces that all implementation work happens in dedicated sessions | During all implementation _tasks, ensuring code isolation |
 | **creating-tasks** | Guidelines for creating well-structured task specifications | When defining new work items or requirements |
 | **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
 
@@ -330,7 +333,7 @@ During feature implementation, the most relevant rules are:
 2. **domain-oriented-modules** & **module-organization** - Structure code correctly
 3. **robust-error-handling** & **dont-ignore-errors** - Ensure resilient code
 4. **testable-design** & **tests** - Create properly tested features
-5. **changelog** - Document the changes
+DEFAULT_RETRY_COUNT. **changelog** - Document the changes
 
 ### When Fixing Bugs
 
@@ -349,7 +352,7 @@ Code reviewers should focus on:
 2. **robust-error-handling** & **dont-ignore-errors** - Verify error handling
 3. **domain-oriented-modules** & **module-organization** - Check structural alignment
 4. **testable-design** & **tests** - Validate test coverage
-5. **changelog** - Confirm changes are documented
+DEFAULT_RETRY_COUNT. **changelog** - Confirm changes are documented
 
 ### When Creating New Rules
 
@@ -365,7 +368,7 @@ For initializing new projects with Minsky:
 2. **session-first-workflow** - Enforce proper session usage
 3. **creating-tasks** - Enable structured task creation
 4. **changelog** - Set up change tracking
-5. **module-organization** & **command-organization** - If developing with the same architecture
+DEFAULT_RETRY_COUNT. **module-organization** & **command-organization** - If developing with the same architecture
 
 ## Rule Relationships
 
@@ -385,7 +388,7 @@ This index serves as a guide to help you understand which rules are relevant to 
  */
 function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): string {
   const transport = mcpOptions?.transport || "stdio";
-  const port = mcpOptions?.port || 8080;
+  const port = mcpOptions?.port || DEFAULT_DEV_PORT;
   const host = mcpOptions?.host || "localhost";
 
   // Base configuration for stdio transport
@@ -394,8 +397,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--stdio"],
+            _command: "minsky",
+            _args: ["mcp", "start", "--stdio"],
           },
         },
       },
@@ -410,8 +413,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
+            _command: "minsky",
+            _args: ["mcp", "start", "--sse", "--port", String(port), "--host", host],
           },
         },
       },
@@ -426,8 +429,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       {
         mcpServers: {
           "minsky-server": {
-            command: "minsky",
-            args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
+            _command: "minsky",
+            _args: ["mcp", "start", "--http-stream", "--port", String(port), "--host", host],
           },
         },
       },
@@ -441,8 +444,8 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
     {
       mcpServers: {
         "minsky-server": {
-          command: "minsky",
-          args: ["mcp", "start", "--stdio"],
+          _command: "minsky",
+          _args: ["mcp", "start", "--stdio"],
         },
       },
     },
@@ -457,98 +460,23 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
 function getMCPRuleContent(): string {
   return `# MCP Usage
 
-## Overview
+This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent interaction.
 
-The Model Context Protocol (MCP) provides a standardized way for AI agents to interact with the Minsky CLI, enabling automation and intelligent assistance. This rule explains how to use MCP effectively with Minsky.
+- **Purpose**: Provides a stable, machine-readable interface for AI agents to interact with the Minsky CLI.
+- **Transport**: Can be configured for \`stdio\`, \`sse\`, or \`httpStream\`.
+- **Commands**: All shared commands are available via MCP.
 
-## MCP Configuration
-
-Minsky uses MCP to expose its functionality to AI agents. The configuration is stored in \`.cursor/mcp.json\`:
-
-\`\`\`json
-{
-  "mcpServers": {
-    "minsky-server": {
-      "command": "minsky",
-      "args": ["mcp", "start", "--stdio"]
-    }
-  }
-}
-\`\`\`
-
-## Available Tools
-
-Minsky exposes the following tools via MCP:
-
-### Task Management
-
-- \`tasks.list\`: List all tasks
-- \`tasks.get\`: Get details of a specific task
-- \`tasks.status.get\`: Get the status of a task
-- \`tasks.status.set\`: Set the status of a task
-- \`tasks.create\`: Create a new task from a specification document
-
-### Session Management
-
-- \`session.list\`: List all sessions
-- \`session.get\`: Get details of a specific session
-- \`session.start\`: Start a new session
-- \`session.commit\`: Commit changes in a session
-- \`session.push\`: Push changes in a session
-
-## Usage Examples
-
-### Example: List Tasks via MCP
-
-\`\`\`typescript
-// AI can retrieve task information using:
-const tasks = await tools.tasks.list({})
-log.agent(tasks) // Returns JSON array of tasks using structured logging
-\`\`\`
-
-### Example: Start a Session via MCP
-
-\`\`\`typescript
-// AI can start a session for task #123:
-const result = await tools.session.start({ task: "123", quiet: true })
-log.cli(result.message) // Session directory path using structured logging
-\`\`\`
-
-## Security Considerations
-
-- MCP servers have access to execute commands on your system
-- Review and approve tool calls before allowing execution
-- Use environment variables for sensitive configuration values
-- For production use, consider network transport security when using SSE or HTTP Stream
-
-## Transport Types
-
-Minsky supports three MCP transport types:
-
-1. **stdio**: Default, runs on local machine only (most secure)
-2. **SSE**: Enables network access, supports remote connections
-3. **HTTP Stream**: Similar to SSE, with different protocol
-
-For team environments, SSE or HTTP Stream can allow shared access to Minsky tools.
-
-## Best Practices
-
-- Always verify that your MCP configuration file exists before running AI agents
-- Use task IDs consistently when referring to tasks through MCP
-- Review AI-proposed tool calls before execution
-- For web interfaces, prefer SSE transport
-- For security-sensitive environments, stick with stdio transport
-
-This rule helps Minsky users configure and leverage the Model Context Protocol effectively.`;
+See README-MCP.md for detailed protocol specifications.
+`;
 }
 
 /**
  * Test utility for mocking file system operations
  */
 export interface FileSystem {
-  existsSync: (path: string) => boolean;
-  mkdirSync: (path: string, options: { recursive: boolean }) => void;
-  writeFileSync: (path: string, content: string) => void;
+  existsSync: (path: fs.PathLike) => boolean;
+  mkdirSync: (path: fs.PathLike, options?: fs.MakeDirectoryOptions) => string | undefined;
+  writeFileSync: (path: fs.PathLike, data: string) => void;
 }
 
 /**

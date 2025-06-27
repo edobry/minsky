@@ -10,7 +10,6 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../shared/command-registry.js";
 import { RuleService, type RuleFormat } from "../../../domain/rules.js";
@@ -232,13 +231,13 @@ export function registerRulesCommands(): void {
     name: "list",
     description: "List all rules in the workspace",
     parameters: rulesListCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing rules.list command", { params, context });
+    execute: async (params: unknown) => {
+      log.debug("Executing rules.list _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert parameters
         const format = params.format as RuleFormat | undefined;
@@ -254,7 +253,7 @@ export function registerRulesCommands(): void {
           success: true,
           rules,
         };
-      } catch (error) {
+      } catch {
         log.error("Failed to list rules", {
           error: error instanceof Error ? error.message : String(error),
         });
@@ -270,13 +269,13 @@ export function registerRulesCommands(): void {
     name: "get",
     description: "Get a specific rule by ID",
     parameters: rulesGetCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing rules.get command", { params, context });
+    execute: async (params: unknown) => {
+      log.debug("Executing rules.get _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert parameters
         const format = params.format as RuleFormat | undefined;
@@ -291,7 +290,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch {
         log.error("Failed to get rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -308,21 +307,21 @@ export function registerRulesCommands(): void {
     name: "create",
     description: "Create a new rule",
     parameters: rulesCreateCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing rules.create command", { params, context });
+    execute: async (params: unknown) => {
+      log.debug("Executing rules.create _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(params.content);
+        const _content = await readContentFromFileIfExists(params._content);
 
         // Process globs and tags
         const globs = parseGlobs(params.globs);
         const tags = params.tags
-          ? params.tags.split(",").map((tag: string) => tag.trim())
+          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
           : undefined;
 
         // Prepare metadata
@@ -337,7 +336,7 @@ export function registerRulesCommands(): void {
         const format = params.format as RuleFormat | undefined;
 
         // Call domain function
-        const rule = await ruleService.createRule(params.id, content, meta, {
+        const rule = await ruleService.createRule(params.id, _content, meta, {
           format,
           overwrite: params.overwrite,
         });
@@ -346,7 +345,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch {
         log.error("Failed to create rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -363,27 +362,27 @@ export function registerRulesCommands(): void {
     name: "update",
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing rules.update command", { params, context });
+    execute: async (params: unknown) => {
+      log.debug("Executing rules.update _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Process content if provided (could be file path)
-        const content = params.content
-          ? await readContentFromFileIfExists(params.content)
+        const _content = params.content
+          ? await readContentFromFileIfExists(params._content)
           : undefined;
 
         // Process globs and tags
         const globs = params.globs ? parseGlobs(params.globs) : undefined;
         const tags = params.tags
-          ? params.tags.split(",").map((tag: string) => tag.trim())
+          ? params.tags.split(",").map((_tag: unknown) => tag.trim())
           : undefined;
 
         // Prepare metadata updates
-        const meta: Record<string, any> = {};
+        const meta: Record<string, unknown> = {};
 
         if (params.name !== undefined) meta.name = params.name;
         if (params.description !== undefined) meta.description = params.description;
@@ -397,7 +396,7 @@ export function registerRulesCommands(): void {
         const rule = await ruleService.updateRule(
           params.id,
           {
-            content,
+            _content,
             meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
           {
@@ -410,7 +409,7 @@ export function registerRulesCommands(): void {
           success: true,
           rule,
         };
-      } catch (error) {
+      } catch {
         log.error("Failed to update rule", {
           error: error instanceof Error ? error.message : String(error),
           id: params.id,
@@ -427,13 +426,13 @@ export function registerRulesCommands(): void {
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: Record<string, any>, context: CommandExecutionContext) => {
-      log.debug("Executing rules.search command", { params, context });
+    execute: async (params: unknown) => {
+      log.debug("Executing rules.search _command", { params, _context });
 
       try {
         // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
+        const _workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(_workspacePath);
 
         // Convert format
         const format = params.format as RuleFormat | undefined;
@@ -451,7 +450,7 @@ export function registerRulesCommands(): void {
           query: params.query,
           matchCount: rules.length,
         };
-      } catch (error) {
+      } catch {
         log.error("Failed to search rules", {
           error: error instanceof Error ? error.message : String(error),
           query: params.query,

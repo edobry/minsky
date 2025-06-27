@@ -130,13 +130,13 @@ export function normalizeRepositoryUri(
     format = UriFormat.FILE;
     isLocal = true;
     // Extract local path
-    const path = normalizedUri.replace(/^file:\/\//, "");
+    const localPath = normalizedUri.replace(/^file:\/\//, "");
     // For local repos, use local/<basename> as the name
-    normalizedName = `local/${basename(path)}`;
+    normalizedName = `local/${basename(localPath)}`;
 
     // Validate that the path exists if requested
-    if (validateLocalExists && !existsSync(path)) {
-      throw new ValidationError(`Local repository does not exist: ${path}`);
+    if (validateLocalExists && !existsSync(localPath)) {
+      throw new ValidationError(`Local repository does not exist: ${localPath}`);
     }
   }
   // 4. Handle plain filesystem paths
@@ -157,7 +157,7 @@ export function normalizeRepositoryUri(
       format = UriFormat.FILE;
     }
   }
-  // 5. Handle GitHub shorthand notation (org/repo)
+  // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)
   else if (normalizedUri.match(/^[^\/]+\/[^\/]+$/)) {
     format = UriFormat.SHORTHAND;
     // Shorthand is already in org/repo format
@@ -273,7 +273,7 @@ export async function detectRepositoryFromCwd(cwd?: string): Promise<string | un
     const { execAsync } = await import("../utils/exec.js");
     const { stdout } = await execAsync("git rev-parse --show-toplevel", { cwd });
     return stdout.trim();
-  } catch (error) {
+  } catch (_error) {
     // Not in a Git repository
     return undefined;
   }

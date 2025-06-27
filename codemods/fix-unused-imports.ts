@@ -1,12 +1,12 @@
-#!/usr/bin/env bun
+// console is a global
 /**
  * Simple script to remove specific unused imports from session.test.ts
  * This serves as a proof of concept for automated unused import removal
  */
 
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync  } from "fs";
 
-const filePath = "src/adapters/__tests__/integration/session.test.ts";
+const filePath = "src/adapters/tests__/integration/session.test.ts";
 
 // Read the current file
 const content = readFileSync(filePath, "utf-8");
@@ -22,7 +22,7 @@ const modifiedLines = lines.filter((line, index) => {
         line.includes("startSessionFromParams") ||
         line.includes("deleteSessionFromParams") ||
         line.includes("SessionDB") ||
-        line.includes("type Session") ||
+        line.includes("type, Session") ||
         line.includes("createSessionDeps")) {
       return false; // Remove this line
     }
@@ -49,10 +49,10 @@ const modifiedLines = lines.filter((line, index) => {
 // Clean up the remaining import lines
 const finalLines = modifiedLines.map(line => {
   // Clean up any trailing commas in import statements
-  if (line.includes("} from") && line.includes(",,")) {
+  if (line.includes("}, from") && line.includes(",,")) {
     return line.replace(/,,+/g, ",");
   }
-  if (line.includes("} from") && line.endsWith(",")) {
+  if (line.includes("}, from") && line.endsWith(",")) {
     return line.slice(0, -1);
   }
   return line;
@@ -62,18 +62,18 @@ const finalLines = modifiedLines.map(line => {
 const modifiedContent = finalLines.join("\n");
 writeFileSync(filePath, modifiedContent);
 
-console.log("✅ Removed unused imports from session.test.ts");
+console.log("✅ Removed unused imports from, session.test.ts");
 
 // Show what was removed
-console.log("🗑️  Removed unused imports:");
-console.log("  - getSessionFromParams");
-console.log("  - listSessionsFromParams"); 
-console.log("  - startSessionFromParams");
-console.log("  - deleteSessionFromParams");
-console.log("  - SessionDB");
-console.log("  - type Session");
-console.log("  - createSessionDeps");
-console.log("  - GitService");
-console.log("  - TaskService");
-console.log("  - WorkspaceUtils");
-console.log("  - createMockObject"); 
+console.log("🗑️  Removed unused, imports:");
+console.log("  -, getSessionFromParams");
+console.log("  -, listSessionsFromParams"); 
+console.log("  -, startSessionFromParams");
+console.log("  -, deleteSessionFromParams");
+console.log("  -, SessionDB");
+console.log("  - type, Session");
+console.log("  -, createSessionDeps");
+console.log("  -, GitService");
+console.log("  -, TaskService");
+console.log("  -, WorkspaceUtils");
+console.log("  -, createMockObject"); 

@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = 7;
+
 /**
  * Task operations for the Minsky CLI
  * This file provides all task-related functionality including managing tasks
@@ -10,7 +12,7 @@ import { normalizeTaskId } from "./tasks/utils";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 export { normalizeTaskId } from "./tasks/utils.js"; // Re-export normalizeTaskId from new location
 import { ResourceNotFoundError } from "../errors/index.js";
-import matter from "gray-matter";
+const matter = require("gray-matter");
 // Import constants and utilities for use within this file
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants.js";
 import type { TaskStatus } from "./tasks/taskConstants.js";
@@ -22,9 +24,8 @@ import {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
-  taskSpecContentParamsSchema,
-  type TaskSpecContentParams,
 } from "./tasks/taskCommands.js";
 
 export {
@@ -33,9 +34,8 @@ export {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
-  taskSpecContentParamsSchema,
-  type TaskSpecContentParams,
 };
 
 // Re-export task status constants from centralized location
@@ -210,7 +210,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       await fs.access(fullPath);
       return specPath; // Return relative path if file exists
-    } catch {
+    } catch (error) {
       // If file doesn't exist, try looking for any file with the task ID prefix
       const taskDir = join(this.workspacePath, "process", "tasks");
       try {
@@ -219,7 +219,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (matchingFile) {
           return join("process", "tasks", matchingFile);
         }
-      } catch {
+      } catch (err) {
         // Directory doesn't exist or can't be read
       }
       return undefined;
@@ -246,37 +246,28 @@ export class MarkdownTaskBackend implements TaskBackend {
 
         const { checkbox, title, id } = parsed;
         if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
-        const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
-        // Aggregate indented lines as description
-        let description = "";
-        for (let j = i + 1; j < lines.length; j++) {
-          const subline = lines[j] ?? "";
-          if (subline.trim().startsWith("```")) break;
-          if (/^- \[.\]/.test(subline)) break; // next top-level task
-          if (/^\s+- /.test(subline)) {
-            description += `${subline.trim().replace(/^- /, "") ?? ""}\n`;
-          } else if ((subline.trim() ?? "") === "") {
-            continue;
-          } else {
-            break;
-          }
-        }
 
-        // Use the new validateSpecPath function to get the correct path
+        const status = Object.keys(TASK_STATUS_CHECKBOX).find(
+          (key) => TASK_STATUS_CHECKBOX[key] === checkbox
+        );
+        if (!status) continue;
+
         const specPath = await this.validateSpecPath(id, title);
 
         tasks.push({
           id,
           title,
           status,
-          description: description.trim(),
           specPath,
         });
       }
       return tasks;
-    } catch (error) {
-      log.error("Error reading tasks file", { error, filePath: this.filePath });
-      return [];
+    } catch (error: any) {
+      if (error.code === "ENOENT") {
+        log.warn(`Task file not found at ${this.filePath}. Returning empty task list.`);
+        return []; // File not found, return empty array
+      }
+      throw error; // Re-throw other errors
     }
   }
 
@@ -329,12 +320,12 @@ export class MarkdownTaskBackend implements TaskBackend {
       // Skip if this looks like an old task format to avoid false positives
       if (title.startsWith("Task ")) {
         throw new Error(
-          'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
+          "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
         );
       }
     } else {
       throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
+        "Invalid spec file: Missing or invalid title. Expected formats: \"# Title\", \"# Task: Title\" or \"# Task #XXX: Title\""
       );
     }
 
@@ -412,12 +403,12 @@ export class MarkdownTaskBackend implements TaskBackend {
         try {
           await fs.access(fullSpecPath);
           await fs.unlink(fullSpecPath);
-        } catch (error) {
+        } catch (error: any) {
           // If file doesn't exist or can't be deleted, just log it
           log.warn("Could not delete original spec file", { error, path: fullSpecPath });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(
         `Failed to rename or update spec file: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -463,7 +454,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     try {
       // Read the spec file
-      const fileContent = await fs.readFile(specFilePath, "utf8");
+      const fileContent = await fs.readFile(specFilePath, "utf-8");
 
       // Parse the file with frontmatter
       const parsed = matter(fileContent);
@@ -479,10 +470,10 @@ export class MarkdownTaskBackend implements TaskBackend {
       const updatedContent = matter.stringify(parsed.content, data);
 
       // Write back to the file
-      await fs.writeFile(specFilePath, updatedContent, "utf8");
+      await fs.writeFile(specFilePath, updatedContent, "utf-8");
 
       log.debug("Updated task metadata", { id, specFilePath, metadata });
-    } catch (error) {
+    } catch (error: any) {
       log.error("Failed to update task metadata", {
         error: error instanceof Error ? error.message : String(error),
         id,
@@ -520,7 +511,11 @@ export class GitHubTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    log.debug("GitHub task backend not fully implemented", { method: "setTaskStatus", id, status });
+    log.debug("GitHub task backend not fully implemented", {
+      method: "setTaskStatus",
+      id,
+      status,
+    });
   }
 
   getWorkspacePath(): string {

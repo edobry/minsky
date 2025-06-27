@@ -1,3 +1,5 @@
+const COMMIT_HASH_SHORT_LENGTH = 7;
+
 /**
  * Task I/O operations module
  * This module isolates side effects like file reading/writing from pure functions
@@ -101,7 +103,7 @@ export async function writeTaskSpecFile(
     // Create parent directories if they don't exist
     await createDirectory(dirname(filePath));
 
-    await fs.writeFile(filePath, content, "utf-8");
+    await fs.writeFile(filePath, content, "utf8");
     return {
       success: true,
       filePath,
@@ -126,7 +128,7 @@ export async function fileExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
     return true;
-  } catch {
+  } catch (_error) {
     return false;
   }
 }
@@ -202,8 +204,8 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
  * @param workspacePath Workspace path
  * @returns Path to the tasks file
  */
-export function getTasksFilePath(workspacePath: string): string {
-  return join(workspacePath, "process", "tasks.md");
+export function getTasksFilePath(__workspacePath: string): string {
+  return join(__workspacePath, "process", "tasks.md");
 }
 
 /**
@@ -211,19 +213,23 @@ export function getTasksFilePath(workspacePath: string): string {
  * @param workspacePath Workspace path
  * @returns Path to the task specs directory
  */
-export function getTaskSpecsDirectoryPath(workspacePath: string): string {
-  return join(workspacePath, "process", "tasks");
+export function getTaskSpecsDirectoryPath(__workspacePath: string): string {
+  return join(__workspacePath, "process", "tasks");
 }
 
 /**
- * Get task spec file path from task ID, title, and workspace path
+ * Get task spec file path from task ID, _title, and workspace path
  * @param taskId Task ID (with or without # prefix)
  * @param title Task title
  * @param workspacePath Workspace path
  * @returns Path to the task spec file
  */
-export function getTaskSpecFilePath(taskId: string, title: string, workspacePath: string): string {
-  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-  const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+export function getTaskSpecFilePath(
+  __taskId: string,
+  _title: string,
+  _workspacePath: string
+): string {
+  const taskIdNum = __taskId.startsWith("#") ? __taskId.slice(1) : __taskId;
+  const normalizedTitle = _title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return join(getTaskSpecsDirectoryPath(_workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
 }

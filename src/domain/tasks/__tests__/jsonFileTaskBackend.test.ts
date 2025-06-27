@@ -1,3 +1,6 @@
+const SIZE_6 = 6;
+const TEST_ARRAY_SIZE = 3;
+
 /**
  * Tests for JsonFileTaskBackend
  */
@@ -9,7 +12,7 @@ import { rmSync, existsSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
 import type { JsonFileTaskBackend } from "../jsonFileTaskBackend";
-import type { TaskData } from "../../../types/tasks/taskData";
+import type {} from "../../../types/tasks/taskData";
 import { log } from "../../../utils/logger";
 
 // Global test isolation to prevent race conditions
@@ -18,7 +21,7 @@ let testSequenceNumber = 0;
 describe("JsonFileTaskBackend", () => {
   const testDir = join(process.cwd(), "test-tmp", "json-backend-test");
   let dbPath: string;
-  let workspacePath: string;
+  let _workspacePath: string;
   let backend: JsonFileTaskBackend;
 
   beforeEach(async () => {
@@ -31,13 +34,13 @@ describe("JsonFileTaskBackend", () => {
 
     // Create test directories
     await mkdir(testDir, { recursive: true });
-    await mkdir(workspacePath, { recursive: true });
-    await mkdir(join(workspacePath, "process", "tasks"), { recursive: true });
+    await mkdir(_workspacePath, { recursive: true });
+    await mkdir(join(_workspacePath, "process", "tasks"), { recursive: true });
 
     // Create backend instance
     backend = createJsonFileTaskBackend({
       name: "json-file",
-      workspacePath,
+      _workspacePath,
       dbFilePath: dbPath,
     }) as JsonFileTaskBackend;
   });
@@ -49,13 +52,13 @@ describe("JsonFileTaskBackend", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Clean up test directories
-      if (existsSync(workspacePath)) {
-        rmSync(workspacePath, { recursive: true, force: true });
+      if (existsSync(_workspacePath)) {
+        rmSync(_workspacePath, { recursive: true, force: true });
       }
       if (existsSync(dbPath)) {
         rmSync(dbPath, { force: true });
       }
-    } catch (error) {
+    } catch {
       // Log but don't fail tests on cleanup errors
       log.cliWarn("Cleanup warning:", error);
     }
@@ -100,12 +103,12 @@ describe("JsonFileTaskBackend", () => {
       await backend.createTaskData(testTask);
 
       // Update task
-      const updated = await backend.updateTaskData("#002", { status: "IN-PROGRESS" });
-      expect(updated?.status).toBe("IN-PROGRESS");
+      const updated = await backend.updateTaskData("#002", { _status: "IN-PROGRESS" });
+      expect(updated?._status).toBe("IN-PROGRESS");
 
       // Verify update
       const retrieved = await backend.getTaskById("#002");
-      expect(retrieved?.status).toBe("IN-PROGRESS");
+      expect(retrieved?._status).toBe("IN-PROGRESS");
     });
 
     test("should delete tasks", async () => {
@@ -142,7 +145,7 @@ describe("JsonFileTaskBackend", () => {
     test("should implement saveTasksData", async () => {
       const taskData = JSON.stringify(
         {
-          tasks: [{ id: "#004", title: "Test Task 4", status: "TODO" }],
+          _tasks: [{ id: "#004", _title: "Test Task 4", _status: "TODO" }],
           lastUpdated: new Date().toISOString(),
           metadata: {},
         },
@@ -155,15 +158,15 @@ describe("JsonFileTaskBackend", () => {
 
       // Verify the task was saved
       const retrieved = await backend.getTaskById("#004");
-      expect(retrieved?.title).toBe("Test Task 4");
+      expect(retrieved?._title).toBe("Test Task 4");
     });
 
     test("should implement parseTasks", () => {
       const jsonContent = JSON.stringify({
-        tasks: [{ id: "#005", title: "Test Task 5", status: "TODO" }],
+        _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
       });
 
-      const tasks = backend.parseTasks(jsonContent);
+      const _tasks = backend.parseTasks(jsonContent);
       expect(tasks.length).toBe(1);
       if (tasks.length > 0 && tasks[0]) {
         expect(tasks[0].id).toBe("#005");
@@ -171,30 +174,30 @@ describe("JsonFileTaskBackend", () => {
     });
 
     test("should implement formatTasks", () => {
-      const tasks: TaskData[] = [{ id: "#006", title: "Test Task 6", status: "TODO" }];
+      const _tasks: TaskData[] = [{ id: "#006", title: "Test Task SIZE_6", status: "TODO" }];
 
-      const formatted = backend.formatTasks(tasks);
+      const formatted = backend.formatTasks(_tasks);
       const parsed = JSON.parse(formatted);
       expect(parsed.tasks.length).toBe(1);
       expect(parsed.tasks[0].id).toBe("#006");
     });
 
     test("should handle task spec operations", async () => {
-      const specPath = "process/tasks/007-test-task.md";
+      const _specPath = "process/tasks/007-test-task.md";
       const specContent = "# Test Task\n\n## Context\n\nThis is a test task specification.";
 
       // Save spec
-      const saveResult = await backend.saveTaskSpecData(specPath, specContent);
+      const saveResult = await backend.saveTaskSpecData(_specPath, specContent);
       expect(saveResult.success).toBe(true);
 
       // Read spec
-      const readResult = await backend.getTaskSpecData(specPath);
+      const readResult = await backend.getTaskSpecData(_specPath);
       expect(readResult.success).toBe(true);
       expect(readResult.content).toBe(specContent);
 
       // Parse spec
       const parsed = backend.parseTaskSpec(specContent);
-      expect(parsed.title).toBe("Test Task");
+      expect(parsed._title).toBe("Test Task");
       expect(parsed.description).toBe("This is a test task specification.");
     });
   });
@@ -207,13 +210,13 @@ describe("JsonFileTaskBackend", () => {
 - [x] Test Task Two [#002](process/tasks/002-test-task-two.md)
 `;
 
-      const tasks = backend.parseTasks(markdownContent);
+      const _tasks = backend.parseTasks(markdownContent);
       expect(tasks.length).toBe(2);
       if (tasks.length >= 2 && tasks[0] && tasks[1]) {
         expect(tasks[0].id).toBe("#001");
-        expect(tasks[0].status).toBe("TODO");
+        expect(tasks[0]._status).toBe("TODO");
         expect(tasks[1].id).toBe("#002");
-        expect(tasks[1].status).toBe("DONE");
+        expect(tasks[1]._status).toBe("DONE");
       }
     });
   });
@@ -226,7 +229,7 @@ describe("JsonFileTaskBackend", () => {
 
     test("should return correct workspace path", () => {
       const path = backend.getWorkspacePath();
-      expect(path).toBe(workspacePath);
+      expect(path).toBe(_workspacePath);
     });
   });
 });

@@ -37,15 +37,15 @@ repository:
       
       // Test that the service is created successfully
       const taskService = await createConfiguredTaskService({
-        workspacePath: tempDir
+        _workspacePath: tempDir
       });
       
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
       
       // Test that tasks can be listed (even if empty)
-      const tasks = await taskService.listTasks();
-      expect(Array.isArray(tasks)).toBe(true);
+      const _tasks = await taskService.listTasks();
+      expect(Array.isArray(_tasks)).toBe(true);
       
     } finally {
       // Cleanup
@@ -59,7 +59,7 @@ repository:
     
     // Should not throw an error, but use fallback
     const taskService = await createConfiguredTaskService({
-      workspacePath: nonExistentDir
+      _workspacePath: nonExistentDir
     });
     
     expect(taskService).toBeDefined();
@@ -72,7 +72,7 @@ repository:
     try {
       // Create a task service with explicit backend
       const taskService = await createConfiguredTaskService({
-        workspacePath: tempDir,
+        _workspacePath: tempDir,
         backend: "markdown" // Explicit backend should override configuration
       });
       

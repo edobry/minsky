@@ -54,14 +54,12 @@ export const TASK_ID_DESCRIPTION = "ID of the task (with or without # prefix)";
 /**
  * Description for task status filter option
  */
-export const TASK_STATUS_FILTER_DESCRIPTION = 
-  `Filter tasks by status (${TASK_STATUS_VALUES.join(", ")})`;
+export const TASK_STATUS_FILTER_DESCRIPTION = `Filter tasks by status (${TASK_STATUS_VALUES.join(", ")})`;
 
 /**
  * Description for task status option
  */
-export const TASK_STATUS_DESCRIPTION = 
-  `Task status (${TASK_STATUS_VALUES.join(", ")})`;
+export const TASK_STATUS_DESCRIPTION = `Task status (${TASK_STATUS_VALUES.join(", ")})`;
 
 /**
  * Description for all tasks option
@@ -127,7 +125,7 @@ export const NO_STATUS_UPDATE_DESCRIPTION = "Skip updating task status";
 /**
  * Description for rule content option
  */
-export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing content)";
+export const RULE_CONTENT_DESCRIPTION = "Content of the rule (or path to file containing _content)";
 
 /**
  * Description for rule description option

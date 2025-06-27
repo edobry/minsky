@@ -1,4 +1,5 @@
 import { join } from "path";
+import { HTTP_OK } from "../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
@@ -14,6 +15,10 @@ import type {
   Result,
   RepoStatus,
 } from "./index.js";
+
+const HTTP_NOT_FOUND = 404;
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
 
 // Define a global for process to avoid linting errors
 declare const process: {
@@ -116,22 +121,33 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         session,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
 
       // Provide more informative error messages for common GitHub issues
-      if (error.message.includes("Authentication failed")) {
-        throw new Error("GitHub authentication failed. Check your Git credentials.");
-      } else if (error.message.includes("not found")) {
+      if (normalizedError.message.includes("Authentication failed")) {
+        throw new Error(`
+🔐 GitHub Authentication Failed
+
+Unable to authenticate with GitHub repository: ${this.owner}/${this.repo}
+
+💡 Quick fixes:
+   • Verify you have access to ${this.owner}/${this.repo}
+   • Check your GitHub credentials (SSH key or personal access token)
+   • Ensure the repository exists and is accessible
+
+Repository: https://github.com/${this.owner}/${this.repo}
+`);
+      } else if (normalizedError.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`
         );
-      } else if (error.message.includes("timed out")) {
+      } else if (normalizedError.message.includes("timed out")) {
         throw new Error(
           "GitHub connection timed out. Check your network connection and try again."
         );
       } else {
-        throw new Error(`Failed to clone GitHub repository: ${error.message}`);
+        throw new Error(`Failed to clone GitHub repository: ${normalizedError.message}`);
       }
     }
   }
@@ -154,9 +170,9 @@ export class GitHubBackend implements RepositoryBackend {
         workdir,
         branch,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to create branch in GitHub repository: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to create branch in GitHub repository: ${normalizedError.message}`);
     }
   }
 
@@ -200,7 +216,7 @@ export class GitHubBackend implements RepositoryBackend {
           behind = parseInt(counts[0] || "0", 10);
           ahead = parseInt(counts[1] || "0", 10);
         }
-      } catch {
+      } catch (error) {
         // If no upstream branch is set, this will fail - that's okay
       }
 
@@ -247,9 +263,9 @@ export class GitHubBackend implements RepositoryBackend {
         gitHubOwner: this.owner,
         gitHubRepo: this.repo,
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to get GitHub repository status: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to get GitHub repository status: ${normalizedError.message}`);
     }
   }
 
@@ -284,7 +300,7 @@ export class GitHubBackend implements RepositoryBackend {
       if (repoSession) {
         return this.getSessionWorkdir(repoSession.session);
       }
-    } catch (err) {
+    } catch (error) {
       // If we can't find a session, just return the base directory
     }
 
@@ -311,26 +327,26 @@ export class GitHubBackend implements RepositoryBackend {
       if (this.owner && this.repo) {
         // Use curl to check if the repo exists without cloning
         // Note: Using public API without token for validation only
-        const command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
+        const _command = `curl -s -o /dev/null -w "%{http_code}" https://api.github.com/repos/${this.owner}/${this.repo}`;
 
-        const { stdout } = await execAsync(command);
+        const { stdout } = await execAsync(_command);
         const statusCode = parseInt(stdout.trim(), 10);
 
-        if (statusCode === 404) {
+        if (statusCode === HTTP_NOT_FOUND) {
           return {
             valid: false,
             success: false,
             issues: [`GitHub repository not found: ${this.owner}/${this.repo}`],
             message: `GitHub repository not found: ${this.owner}/${this.repo}`,
           };
-        } else if (statusCode === 401 || statusCode === 403) {
+        } else if (statusCode === HTTP_UNAUTHORIZED || statusCode === HTTP_FORBIDDEN) {
           return {
             valid: false,
             success: false,
             issues: ["GitHub API rate limit or permissions issue. The repo may still be valid."],
             message: "GitHub API rate limit or permissions issue. The repo may still be valid.",
           };
-        } else if (statusCode !== 200) {
+        } else if (statusCode !== HTTP_OK) {
           return {
             valid: false,
             success: false,
@@ -345,14 +361,14 @@ export class GitHubBackend implements RepositoryBackend {
         success: true,
         message: "GitHub repository validated successfully",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         valid: false,
         success: false,
-        issues: [`Failed to validate GitHub repository: ${error.message}`],
-        message: `Failed to validate GitHub repository: ${error.message}`,
-        error,
+        issues: [`Failed to validate GitHub repository: ${normalizedError.message}`],
+        message: `Failed to validate GitHub repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -390,12 +406,12 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pushed to repository"
           : "No changes to push or push failed",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to push to repository: ${error.message}`,
-        error,
+        message: `Failed to push to repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -429,12 +445,12 @@ export class GitHubBackend implements RepositoryBackend {
           ? "Successfully pulled changes from repository"
           : "Already up-to-date. No changes pulled.",
       };
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
-        message: `Failed to pull from repository: ${error.message}`,
-        error,
+        message: `Failed to pull from repository: ${normalizedError.message}`,
+        error: normalizedError,
       };
     }
   }
@@ -460,9 +476,9 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
       await execAsync(`git -C ${workdir} checkout ${branch}`);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      throw new Error(`Failed to checkout branch: ${error.message}`);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      throw new Error(`Failed to checkout branch: ${normalizedError.message}`);
     }
   }
 

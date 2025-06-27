@@ -52,7 +52,7 @@ export async function resolveRepoPath(
   try {
     const { stdout } = await deps.execCwd("git rev-parse --show-toplevel");
     return stdout.trim();
-  } catch (error) {
+  } catch (_error) {
     // If git command fails, fall back to process.cwd()
     return deps.getCurrentDirectory();
   }

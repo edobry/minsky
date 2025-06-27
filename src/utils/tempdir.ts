@@ -17,16 +17,16 @@ export function createRobustTempDir(
 ): string | null {
   const locations = [
     "/tmp/minsky-test-tmp",
-    process.env.SESSION_WORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null,
+    process.env.SESSIONWORKSPACE ? path.join(process.env.SESSION_WORKSPACE, "test-tmp") : null,
     path.join(os.tmpdir(), "minsky-test-tmp"),
   ].filter(Boolean) as string[];
 
   for (const base of locations) {
     try {
       if (!fs.existsSync(base)) {
-        fs.mkdirSync(base, { recursive: true });
+        fs.mkdirSync(_base, { recursive: true });
       }
-      const tempDir = fs.mkdtempSync(path.join(base, prefix));
+      const tempDir = fs.mkdtempSync(path.join(_base, _prefix));
       if (process.env.DEBUG_TEST_UTILS) {
         log.debug(`createRobustTempDir: ${tempDir}`);
       }
@@ -34,7 +34,7 @@ export function createRobustTempDir(
         throw new Error(`[UTIL FAILURE] Temp dir was not created: ${tempDir}`);
       }
       return tempDir;
-    } catch (err) {
+    } catch (error) {
       log.error(
         `Failed to create temp dir at ${base} with prefix ${prefix}:`,
         err instanceof Error ? err : new Error(String(err))

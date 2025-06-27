@@ -3,8 +3,8 @@
  */
 import { Command } from "commander";
 import { log } from "../../../utils/logger.js";
-import type { TaskSpecContentParams } from "../../../schemas/tasks.js";
 import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks.js";
+import type { TaskSpecContentParams } from "../../../domain/tasks/taskCommands.js";
 import { ValidationError } from "../../../errors/index.js";
 import {
   addRepoOptions,
@@ -20,8 +20,8 @@ import { handleCliError, outputResult } from "../utils/error-handler.js";
  */
 export function createSpecCommand(): Command {
   const command = new Command("spec")
-    .description("Get task specification content")
-    .argument("<task-id>", "ID of the task to retrieve specification content for")
+    .description("Get task specification _content")
+    .argument("<task-id>", "ID of the task to retrieve specification _content for")
     .option(
       "--section <section>",
       "Specific section of the specification to retrieve (e.g., 'requirements')"
@@ -34,7 +34,7 @@ export function createSpecCommand(): Command {
 
   command.action(
     async (
-      taskId: string,
+      _taskId: string,
       options: {
         section?: string;
         session?: string;
@@ -46,10 +46,10 @@ export function createSpecCommand(): Command {
     ) => {
       try {
         // Normalize the task ID before passing to domain
-        const normalizedTaskId = normalizeTaskId(taskId);
+        const normalizedTaskId = normalizeTaskId(_taskId);
         if (!normalizedTaskId) {
           throw new ValidationError(
-            `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+            `Invalid task ID: '${_taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
           );
         }
 
@@ -59,7 +59,7 @@ export function createSpecCommand(): Command {
         // Convert CLI options to domain parameters
         const params: TaskSpecContentParams = {
           ...normalizedParams,
-          taskId: normalizedTaskId,
+          _taskId: normalizedTaskId,
           section: options.section,
         };
 
@@ -69,31 +69,27 @@ export function createSpecCommand(): Command {
         // Format and display the result
         outputResult(result, {
           json: options.json,
-          formatter: (data: {
-            task: { id: string; title: string };
-            specPath: string;
-            content: string;
-            section?: string;
-          }) => {
+          formatter: (data: any) => {
             log.cli(`Task ${data.task.id}: ${data.task.title}`);
             log.cli(`Specification file: ${data.specPath}`);
 
             // If a specific section was requested, try to extract it
             if (data.section) {
               // Simple extraction logic for common section patterns
-              const content = data.content;
               const sectionRegex = new RegExp(`## ${data.section}`, "i");
-              const match = content.match(sectionRegex);
+              const match = data.content.match(sectionRegex);
 
               if (match && match.index !== undefined) {
                 const startIndex = match.index;
                 // Find the next section or the end of the file
-                const nextSectionMatch = content.slice(startIndex + match[0].length).match(/^## /m);
+                const nextSectionMatch = data.content
+                  .slice(startIndex + match[0].length)
+                  .match(/^## /m);
                 const endIndex = nextSectionMatch
                   ? startIndex + match[0].length + nextSectionMatch.index
-                  : content.length;
+                  : data.content.length;
 
-                const sectionContent = content.slice(startIndex, endIndex).trim();
+                const sectionContent = data.content.slice(startIndex, endIndex).trim();
                 log.cli(`\n${sectionContent}`);
               } else {
                 log.cli(`\nSection "${data.section}" not found in specification.`);

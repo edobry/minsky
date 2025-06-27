@@ -16,6 +16,7 @@ import {
   ensureError,
 } from "../../../errors/index.js";
 import { log, isStructuredMode } from "../../../utils/logger.js";
+import { exit } from "../../../utils/process.js";
 /**
  * Determines if debug mode is enabled based on environment variables
  */
@@ -70,8 +71,8 @@ export function handleCliError(error: unknown): never {
     }
   } else if (error instanceof GitOperationError) {
     log.cliError(`Git operation failed: ${normalizedError.message}`);
-    if (error.command) {
-      log.cliError(`Command: ${error.command}`);
+    if (error._command) {
+      log.cliError(`Command: ${error._command}`);
     }
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${normalizedError.message}`);
@@ -89,11 +90,11 @@ export function handleCliError(error: unknown): never {
     // Log cause chain if available
     if (normalizedError instanceof MinskyError && normalizedError.cause) {
       log.cliError("\nCaused by:");
-      const cause = normalizedError.cause;
+      const _cause = normalizedError.cause;
       if (cause instanceof Error) {
         log.cliError(cause.stack || cause.message);
       } else {
-        log.cliError(String(cause));
+        log.cliError(String(_cause));
       }
     }
   }
@@ -113,7 +114,7 @@ export function handleCliError(error: unknown): never {
     }
   }
 
-  process.exit(1);
+  exit(1);
 }
 
 /**
@@ -124,21 +125,21 @@ export function handleCliError(error: unknown): never {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (result: T) => void }
+  options: { json?: boolean; formatter?: (_result: unknown) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent("Command result", { result });
+      log.agent("Command result", { _result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(result, null, 2));
+      log.cli(JSON.stringify(__result, null, 2));
     }
   } else if (options.formatter) {
-    options.formatter(result);
+    options.formatter(_result);
   } else {
-    log.cli(String(result));
+    log.cli(String(_result));
   }
 }

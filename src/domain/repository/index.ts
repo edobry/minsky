@@ -11,6 +11,7 @@ export * from "./RepositoryBackend";
 // Import RepositoryStatus but define our own ValidationResult
 import type { RepositoryStatus } from "../repository.js";
 
+import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -73,7 +74,7 @@ export interface RepositoryBackendConfig {
     retryAttempts?: number;
 
     /**
-     * Timeout in milliseconds for git operations (default: 30000)
+     * Timeout in milliseconds for git operations (default: DEFAULT_TIMEOUT_MS)
      */
     timeout?: number;
 
@@ -152,14 +153,14 @@ export interface BranchResult {
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
-  clone(session: string): Promise<CloneResult>;
-  branch(session: string, branch: string): Promise<BranchResult>;
+  clone(__session: string): Promise<CloneResult>;
+  branch(__session: string, _branch: string): Promise<BranchResult>;
   getStatus(session?: string): Promise<any>;
   getPath(session?: string): string | Promise<string>;
   validate(): Promise<any>;
-  push(branch?: string): Promise<any>;
-  pull(branch?: string): Promise<any>;
-  checkout?(branch: string): Promise<void>;
+  push(_branch?: string): Promise<any>;
+  pull(_branch?: string): Promise<any>;
+  checkout?(_branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
 }
 
@@ -211,7 +212,7 @@ export async function createRepositoryBackend(
 
   // Backend-specific validation
   switch (config.type) {
-  case RepositoryBackendType.LOCAL:
+  case RepositoryBackendType.LOCAL: {
     // For local repositories, validate the path exists (if it's a local path)
     if (!config.repoUrl.includes("://") && !config.repoUrl.includes("@")) {
       try {
@@ -224,19 +225,20 @@ export async function createRepositoryBackend(
         if (stdout.trim() === "not exists") {
           throw new Error(`Repository path does not exist: ${config.repoUrl}`);
         }
-      } catch (err) {
+      } catch (error) {
         throw new Error(
-          `Failed to validate local repository path: ${
-            err instanceof Error ? err.message : String(err)
+          `Failed to validate local repository _path: ${
+            error instanceof Error ? error.message : String(error)
           }`
         );
       }
     }
 
     const { LocalGitBackend } = await import("./local");
-    return new LocalGitBackend(config);
+    return new LocalGitBackend(_config);
+  }
 
-  case RepositoryBackendType.REMOTE:
+  case RepositoryBackendType.REMOTE: {
     // For remote repositories, validate URL format and required options
     if (
       !config.repoUrl.startsWith("http://") &&
@@ -267,9 +269,10 @@ export async function createRepositoryBackend(
     }
 
     const { RemoteGitBackend } = await import("./remote");
-    return new RemoteGitBackend(config);
+    return new RemoteGitBackend(_config);
+  }
 
-  case RepositoryBackendType.GITHUB:
+  case RepositoryBackendType.GITHUB: {
     // For GitHub repositories, validate GitHub-specific options
     if (config.github) {
       // If owner and repo are provided, validate them
@@ -287,7 +290,8 @@ export async function createRepositoryBackend(
     }
 
     const { GitHubBackend } = await import("./github");
-    return new GitHubBackend(config);
+    return new GitHubBackend(_config);
+  }
 
   default:
     throw new Error(`Unsupported repository backend type: ${config.type}`);

@@ -15,7 +15,7 @@ describe("DefaultConfigurationService", () => {
 
   describe("validateRepositoryConfig", () => {
     it("should validate a valid repository config", () => {
-      const config: RepositoryConfig = {
+      const _config: RepositoryConfig = {
         version: 1,
         backends: {
           default: "github-issues",
@@ -26,16 +26,16 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const result = service.validateRepositoryConfig(config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
     it("should require version", () => {
-      const config = {} as RepositoryConfig;
+      const _config = {} as RepositoryConfig;
 
-      const result = service.validateRepositoryConfig(config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
@@ -43,7 +43,7 @@ describe("DefaultConfigurationService", () => {
     });
 
     it("should validate GitHub backend configuration", () => {
-      const config: RepositoryConfig = {
+      const _config: RepositoryConfig = {
         version: 1,
         backends: {
           default: "github-issues",
@@ -54,21 +54,21 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const result = service.validateRepositoryConfig(config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "MISSING_GITHUB_REPO")).toBe(true);
     });
 
     it("should reject invalid backend types", () => {
-      const config: RepositoryConfig = {
+      const _config: RepositoryConfig = {
         version: 1,
         backends: {
           default: "invalid-backend" as any
         }
       };
 
-      const result = service.validateRepositoryConfig(config);
+      const result = service.validateRepositoryConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "INVALID_BACKEND")).toBe(true);
@@ -77,7 +77,7 @@ describe("DefaultConfigurationService", () => {
 
   describe("validateGlobalUserConfig", () => {
     it("should validate a valid global user config", () => {
-      const config: GlobalUserConfig = {
+      const _config: GlobalUserConfig = {
         version: 1,
         credentials: {
           github: {
@@ -86,16 +86,16 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const result = service.validateGlobalUserConfig(config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
     });
 
     it("should require version", () => {
-      const config = {} as GlobalUserConfig;
+      const _config = {} as GlobalUserConfig;
 
-      const result = service.validateGlobalUserConfig(config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(1);
@@ -103,7 +103,7 @@ describe("DefaultConfigurationService", () => {
     });
 
     it("should validate credential sources", () => {
-      const config: GlobalUserConfig = {
+      const _config: GlobalUserConfig = {
         version: 1,
         credentials: {
           github: {
@@ -112,14 +112,14 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const result = service.validateGlobalUserConfig(config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.code === "INVALID_CREDENTIAL_SOURCE")).toBe(true);
     });
 
     it("should warn about incomplete file credentials", () => {
-      const config: GlobalUserConfig = {
+      const _config: GlobalUserConfig = {
         version: 1,
         credentials: {
           github: {
@@ -129,7 +129,7 @@ describe("DefaultConfigurationService", () => {
         }
       };
 
-      const result = service.validateGlobalUserConfig(config);
+      const result = service.validateGlobalUserConfig(_config);
 
       expect(result.valid).toBe(true); // Still valid, just a warning
       expect(result.warnings.some(w => w.code === "INCOMPLETE_FILE_CREDENTIALS")).toBe(true);

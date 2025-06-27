@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Targeted script to fix unused imports in tasks.test.ts
  * The generic codemod missed these because they're more complex patterns

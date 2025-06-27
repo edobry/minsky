@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
 
+const COMMIT_HASH_SHORT_LENGTH = 8;
+const SIZE_15 = 15;
+
 /**
  * Test Analyzer Script
  *
@@ -18,13 +21,14 @@ import { join, resolve, relative } from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "fs";
 import { log } from "../utils/logger.js";
+import { exit } from "../utils/process.js";
 
 // Get current directory
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const baseDir = resolve(__dirname, "../..");
+const baseDir = resolve(___dirname, "../..");
 
 // Configuration
-const config = {
+const _config = {
   outputFile: "test-analysis-report.json",
   targetDir: "src",
   testFilePattern: /\.test\.ts$/,
@@ -142,11 +146,11 @@ interface AnalysisReport {
 async function findTestFiles(dir: string): Promise<string[]> {
   const files: string[] = [];
 
-  async function scan(currentDir: string) {
-    const entries = await readdir(currentDir, { withFileTypes: true });
+  async function scan(__currentDir: string) {
+    const entries = await readdir(_currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const path = join(currentDir, entry.name);
+      const _path = join(_currentDir, entry.name);
 
       if (entry.isDirectory()) {
         await scan(path);
@@ -168,7 +172,7 @@ function extractImports(content: string): string[] {
   const imports: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = importRegex.exec(content)) !== null) {
+  while ((match = importRegex.exec(_content)) !== null) {
     const importPath = match[1];
     if (importPath) {
       imports.push(importPath);
@@ -186,7 +190,7 @@ function extractMockDependencies(content: string): string[] {
   const dependencies: string[] = [];
   let match: RegExpExecArray | null;
 
-  while ((match = mockRegex.exec(content)) !== null) {
+  while ((match = mockRegex.exec(_content)) !== null) {
     const dependency = match[1];
     if (dependency) {
       dependencies.push(dependency);
@@ -200,8 +204,8 @@ function extractMockDependencies(content: string): string[] {
  * Analyze a single test file
  */
 async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
-  const content = await readFile(path, "utf-8");
-  const relativePath = relative(baseDir, path);
+  const _content = await readFile(_path, "utf-COMMIT_HASH_SHORT_LENGTH");
+  const relativePath = relative(_baseDir, path);
   const counts = {
     mockPatterns: {} as Record<string, number>,
     frameworkFeatures: {} as Record<string, number>,
@@ -219,19 +223,19 @@ async function analyzeTestFile(path: string): Promise<TestFileAnalysis> {
   }
 
   // Extract imports and mock dependencies
-  const imports = extractImports(content);
-  const mockDependencies = extractMockDependencies(content);
+  const imports = extractImports(_content);
+  const mockDependencies = extractMockDependencies(_content);
 
   // Calculate metrics for classification
   const totalMocks = Object.values(counts.mockPatterns).reduce((sum, count) => sum + count, 0);
   const usesJest =
-    imports.some((i: string) => i.includes("jest")) ||
+    imports.some((_i: unknown) => i.includes("jest")) ||
     (counts.frameworkFeatures.jestImport !== undefined && counts.frameworkFeatures.jestImport > 0);
   const usesBun =
-    imports.some((i: string) => i.includes("bun:test")) ||
+    imports.some((_i: unknown) => i.includes("bun:test")) ||
     (counts.frameworkFeatures.bunImport !== undefined && counts.frameworkFeatures.bunImport > 0);
   const usesVitest =
-    imports.some((i: string) => i.includes("vitest")) ||
+    imports.some((_i: unknown) => i.includes("vitest")) ||
     (counts.frameworkFeatures.vitestImport !== undefined &&
       counts.frameworkFeatures.vitestImport > 0);
   const usesCustomMocks =
@@ -363,7 +367,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.mockModule !== undefined &&
       file.counts.mockPatterns.mockModule > 0 &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[0]?.files?.push(file.relativePath);
     }
@@ -372,7 +376,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.spyOn !== undefined &&
       file.counts.mockPatterns.spyOn > 0 &&
-      !file.imports.some((i: string) => i.includes("createSpyOn"))
+      !file.imports.some((_i: unknown) => i.includes("createSpyOn"))
     ) {
       failingPatterns[1]?.files?.push(file.relativePath);
     }
@@ -383,7 +387,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
         file.counts.frameworkFeatures.jestBeforeEach > 0) ||
         (file.counts.frameworkFeatures.jestAfterEach !== undefined &&
           file.counts.frameworkFeatures.jestAfterEach > 0)) &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((_i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[2]?.files?.push(file.relativePath);
     }
@@ -392,7 +396,7 @@ async function generateReport(testFiles: TestFileAnalysis[]): Promise<AnalysisRe
     if (
       file.counts.mockPatterns.bunMock !== undefined &&
       file.counts.mockPatterns.bunMock > 0 &&
-      !file.imports.some((i: string) => i.includes("bun:test"))
+      !file.imports.some((_i: unknown) => i.includes("bun:test"))
     ) {
       failingPatterns[3]?.files?.push(file.relativePath);
     }
@@ -521,14 +525,14 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     );
     md.push("");
 
-    for (const file of filesWithDifficulty.slice(0, 15)) {
-      // Show up to 15 files per difficulty
+    for (const file of filesWithDifficulty.slice(0, SIZE_15)) {
+      // Show up to SIZE_15 files per difficulty
       md.push(
         `- \`${file.relativePath}\` - ${file.classification.mockingComplexity} mocking, ${file.classification.testType} test`
       );
     }
-    if (filesWithDifficulty.length > 15) {
-      md.push(`- ... and ${filesWithDifficulty.length - 15} more files`);
+    if (filesWithDifficulty.length > SIZE_15) {
+      md.push(`- ... and ${filesWithDifficulty.length - SIZE_15} more files`);
     }
     md.push("");
   }
@@ -566,7 +570,7 @@ async function generateMarkdownSummary(report: AnalysisReport, outputPath: strin
     md.push(`- \`${file.relativePath}\``);
   }
 
-  await writeFile(outputPath, md.join("\n"));
+  await writeFile(_outputPath, md.join("\n"));
 }
 
 /**
@@ -579,7 +583,7 @@ async function main() {
     log.cli(`Analyzing tests in: ${config.targetDir}`);
 
     // Find all test files
-    const targetDir = resolve(baseDir, config.targetDir);
+    const targetDir = resolve(_baseDir, config.targetDir);
     const testFiles = await findTestFiles(targetDir);
     log.cli(`Found ${testFiles.length} test files`);
 
@@ -587,7 +591,7 @@ async function main() {
     const analyses: TestFileAnalysis[] = [];
     for (const [index, file] of testFiles.entries()) {
       process.stdout.write(
-        `Analyzing file ${index + 1}/${testFiles.length}: ${relative(baseDir, file)}\r`
+        `Analyzing file ${index + 1}/${testFiles.length}: ${relative(_baseDir, file)}\r`
       );
       const analysis = await analyzeTestFile(file);
       analyses.push(analysis);
@@ -598,7 +602,7 @@ async function main() {
     const report = await generateReport(analyses);
 
     // Create output directory if needed
-    const outputDir = resolve(baseDir, "test-analysis");
+    const outputDir = resolve(config.baseDir, "test-analysis");
     if (!existsSync(outputDir)) {
       await mkdir(outputDir, { recursive: true });
     }
@@ -631,7 +635,7 @@ async function main() {
     );
   } catch (error) {
     log.cliError("Error running test analyzer:", error);
-    process.exit(1);
+    exit(1);
   }
 }
 

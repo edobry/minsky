@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { normalizeTaskId } from "./utils";
 
+const TEST_VALUE = 123;
+
 describe("normalizeTaskId", () => {
   const testCases = [
     { input: "#064", expected: "#064", note: "with # and leading zero" },
@@ -33,7 +35,7 @@ describe("normalizeTaskId", () => {
     { input: "   ", note: "whitespace only" },
     { input: null, note: "null input" },
     { input: undefined, note: "undefined input" },
-    { input: 123, note: "number input type" },
+    { input: TEST_VALUE, note: "number input type" },
   ];
 
   for (const { input, note } of invalidInputs) {

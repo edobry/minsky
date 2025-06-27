@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
-import winston, { format, transports } from "winston";
-import type { TransformableInfo } from "logform";
+import * as winston from "winston";
+const { format, transports } = winston;
+import type {} from "logform";
 
 // Environment variable for log level
 // Set default to "info" - explicit LOG_LEVEL="debug" is required for debug logs
-const logLevel = process.env.LOG_LEVEL || "info";
+const logLevel = process.env.LOGLEVEL || "info";
 
 // Environment variable for log mode
 // STRUCTURED: Full JSON logs for machine consumption (for CI/CD, integrations)
@@ -56,30 +57,33 @@ const agentLogFormat = format.combine(
 // Common format for program/CLI logs (plain text)
 const programLogFormat = format.combine(
   format.colorize(),
-  format.printf((info: TransformableInfo) => {
+  format.printf((info: any) => {
+    // Cast info to a proper type
+    const logInfo = info as { message?: unknown; stack?: string; [key: string]: unknown };
     // Ensure message is a string
-    const message = typeof info.message === "string" ? info.message : JSON.stringify(info.message);
+    const message =
+      typeof logInfo.message === "string" ? logInfo.message : JSON.stringify(logInfo.message);
     // For user-facing CLI output, just show the message without timestamp and log level
     let log = message;
-    if (info.stack) {
-      log += `\n${info.stack}`;
+    if (logInfo.stack) {
+      log += `\n${logInfo.stack}`;
     }
     // Add other metadata if it exists
-    const metadata = Object.keys(info).reduce(
+    const metadata = Object.keys(logInfo).reduce(
       (acc, key) => {
         if (["level", "message", "timestamp", "stack"].includes(key)) {
           return acc;
         }
-        acc[key] = info[key];
+        acc[key] = logInfo[key];
         return acc;
       },
-      {} as Record<string, any>
+      {} as Record<string, unknown>
     );
 
     if (Object.keys(metadata).length > 0) {
       try {
         log += ` ${JSON.stringify(metadata)}`;
-      } catch (e) {
+      } catch (error) {
         // ignore serialization errors for metadata in text logs
       }
     }
@@ -123,7 +127,7 @@ programLogger.exceptions.handle(new transports.Console({ format: programLogForma
 programLogger.rejections.handle(new transports.Console({ format: programLogFormat }));
 
 interface LogContext {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Check if we're in structured mode
@@ -134,32 +138,35 @@ export const isHumanMode = () => currentLogMode === LogMode.HUMAN;
 // Convenience wrapper
 export const log = {
   // Agent logs (structured JSON to stdout)
-  agent: (message: string, context?: LogContext) => {
+  agent: (message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.info(message, context);
+    agentLogger.info(message);
   },
-  debug: (message: string, context?: LogContext) => {
+  debug: (message: unknown) => {
     // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       // No-op in HUMAN mode to prevent "no transports" warning
       return;
     }
     // Otherwise, use agentLogger as normal
-    agentLogger.debug(message, context);
+    agentLogger.debug(message);
   },
-  warn: (message: string, context?: LogContext) => {
+  warn: (message: unknown) => {
     // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
       return;
     }
-    agentLogger.warn(message, context);
+    agentLogger.warn(message);
   },
   error: (
     message: string,
-    context?: LogContext | Error | { originalError?: any; stack?: string; [key: string]: any }
+    context?:
+      | LogContext
+      | Error
+      | { originalError?: unknown; stack?: string; [key: string]: unknown }
   ) => {
     // For errors, in HUMAN mode route to programLogger.error instead of suppressing
     if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
@@ -202,21 +209,21 @@ export const log = {
     }
   },
   // Program/CLI logs (plain text to stderr)
-  cli: (message: string, ...args: any[]) => programLogger.info(message, ...args),
-  cliWarn: (message: string, ...args: any[]) => programLogger.warn(message, ...args),
-  cliError: (message: string, ...args: any[]) => programLogger.error(message, ...args),
+  cli: (message: unknown) => programLogger.info(String(message)),
+  cliWarn: (message: unknown) => programLogger.warn(String(message)),
+  cliError: (message: unknown) => programLogger.error(String(message)),
   // Add ability to set log level
   setLevel: (level: string) => {
     agentLogger.level = level;
     programLogger.level = level;
   },
   // Add additional CLI-oriented debug log
-  cliDebug: (message: string, ...args: any[]) => programLogger.debug(message, ...args),
+  cliDebug: (message: unknown) => programLogger.debug(String(message)),
   // Add system-level debug logging that always goes to stderr, bypassing the mode limitations
   // Use this for important system debugging that should always be visible when debug level is set
-  systemDebug: (message: string, ...args: any[]) => {
+  systemDebug: (message: unknown) => {
     // Always log to programLogger (stderr) regardless of mode
-    programLogger.debug(message, ...args);
+    programLogger.debug(String(message));
   },
   // Expose log mode information
   mode: currentLogMode,
@@ -234,22 +241,12 @@ const handleExit = async (error?: Error) => {
   await new Promise((resolve) => setTimeout(resolve, 100));
 };
 
-process.on("uncaughtException", async (error) => {
-  await handleExit(error);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", async (reason, promise) => {
-  await handleExit(reason instanceof Error ? reason : new Error(String(reason)));
-  process.exit(1);
-});
-
 // Basic test to ensure it works - can be removed or moved to a test file
 if (process.env.RUN_LOGGER_TEST === "true") {
   log.cli("--- Agent Logger (stdout) ---");
-  log.debug("Agent debug message", { data: "some debug data" });
-  log.agent("Agent info message", { user: "test" });
-  log.warn("Agent warning message", { code: 100 });
+  log.debug("Agent debug message");
+  log.agent("Agent info message");
+  log.warn("Agent warning message");
   log.error("Agent error message (string)", { details: "string error" });
   log.error("Agent error via Error object", new Error("Test error"));
 

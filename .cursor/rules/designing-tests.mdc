@@ -12,6 +12,7 @@ Write comprehensive, maintainable tests following these principles:
 - Name tests with clear, action-oriented descriptions of what's being tested
 - Follow the Arrange-Act-Assert pattern for test clarity
 - Keep test files alongside the code they test with matching names (e.g., `file.ts` and `file.test.ts`)
+- For test file organization patterns, see [test-organization](mdc:.cursor/rules/test-organization.mdc)
 
 ## Environment Isolation
 - Create temporary test directories for filesystem operations

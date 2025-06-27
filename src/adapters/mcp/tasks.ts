@@ -5,6 +5,7 @@ import type { CommandMapper } from "../../mcp/command-mapper.js";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
+
 // Import centralized descriptions
 import {
   TASK_STATUS_FILTER_DESCRIPTION,
@@ -38,7 +39,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       all: z.boolean().optional().describe(TASK_ALL_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
-    async (args) => {
+    async (args: any) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.list", {
@@ -64,15 +65,10 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     "get",
     "Get a task by ID",
     z.object({
-      taskId: z
-        .union([
-          z.string().describe("Task ID to retrieve"),
-          z.array(z.string()).describe("Array of task IDs to retrieve"),
-        ])
-        .describe("Task ID or array of task IDs to retrieve"),
+      taskId: z.string().describe("Task ID to retrieve (e.g., '077' or '#077')"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
-    async (args) => {
+    async (args: any) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.get", {
@@ -100,7 +96,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       taskId: z.string().describe("Task ID to retrieve status for"),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
-    async (args) => {
+    async (args: any) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.get", {
@@ -133,7 +129,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       status: z.string().describe(TASK_STATUS_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
-    async (args) => {
+    async (args: any) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.status.set", {
@@ -161,13 +157,16 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   // Task create command
   commandMapper.addTaskCommand(
     "create",
-    "Create a new task from a specification file",
+    "Create a new task with title and description or from a specification file",
     z.object({
-      specPath: z.string().describe("Path to the task specification file"),
+      title: z.string().optional().describe("Title for the task"),
+      description: z.string().optional().describe("Description text for the task"),
+      descriptionPath: z.string().optional().describe("Path to file containing task description"),
+      specPath: z.string().optional().describe("Path to the task specification file (legacy)"),
       force: z.boolean().optional().describe(FORCE_DESCRIPTION),
       backend: z.string().optional().describe(TASK_BACKEND_DESCRIPTION),
     }),
-    async (args) => {
+    async (args: any) => {
       // Log the repository path being used
       if (args.repositoryPath) {
         log.debug("Using explicit repository path for tasks.create", {

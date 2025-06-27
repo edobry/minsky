@@ -42,8 +42,8 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBe("bun");
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBe("bun");
     });
 
     test("detects yarn from yarn.lock", () => {
@@ -52,8 +52,8 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBe("yarn");
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBe("yarn");
     });
 
     test("detects pnpm from pnpm-lock.yaml", () => {
@@ -62,8 +62,8 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBe("pnpm");
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBe("pnpm");
     });
 
     test("detects npm from package-lock.json", () => {
@@ -72,8 +72,8 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBe("npm");
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBe("npm");
     });
 
     test("defaults to npm if only package.json exists", () => {
@@ -82,15 +82,15 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBe("npm");
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBe("npm");
     });
 
     test("returns undefined if no package files exist", () => {
       existsSyncMock.mockImplementation(() => false);
 
-      const result = detectPackageManager("/fake/repo");
-      expect(result).toBeUndefined();
+      const _result = detectPackageManager("/fake/repo");
+      expect(_result).toBeUndefined();
     });
   });
 

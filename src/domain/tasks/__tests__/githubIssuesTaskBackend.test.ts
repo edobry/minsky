@@ -12,7 +12,7 @@ describe("GitHubIssuesTaskBackend", () => {
     // Create backend instance for testing pure functions
     backend = createGitHubIssuesTaskBackend({
       name: "github-issues",
-      workspacePath: "/test/workspace",
+      _workspacePath: "/test/workspace",
       githubToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
@@ -28,7 +28,7 @@ describe("GitHubIssuesTaskBackend", () => {
     test("should initialize with custom status labels", () => {
       const customBackend = createGitHubIssuesTaskBackend({
         name: "github-issues",
-        workspacePath: "/test/workspace",
+        _workspacePath: "/test/workspace",
         githubToken: "test-token",
         owner: "test-owner",
         repo: "test-repo",
@@ -49,7 +49,7 @@ describe("GitHubIssuesTaskBackend", () => {
       const issuesJson = JSON.stringify([
         {
           number: 1,
-          title: "Test Issue #001",
+          _title: "Test Issue #001",
           body: "Test description",
           state: "open",
           labels: [{ name: "minsky:todo" }],
@@ -59,24 +59,24 @@ describe("GitHubIssuesTaskBackend", () => {
         },
       ]);
 
-      const tasks = backend.parseTasks(issuesJson);
+      const _tasks = backend.parseTasks(issuesJson);
 
       expect(tasks.length).toBe(1);
       expect(tasks[0]?.id).toBe("#001");
-      expect(tasks[0]?.title).toBe("Test Issue #001");
+      expect(tasks[0]?._title).toBe("Test Issue #001");
       expect(tasks[0]?.description).toBe("Test description");
-      expect(tasks[0]?.status).toBe("TODO");
+      expect(tasks[0]?._status).toBe("TODO");
     });
 
     test("should handle invalid JSON gracefully", () => {
-      const tasks = backend.parseTasks("invalid json");
-      expect(tasks).toEqual([]);
+      const _tasks = backend.parseTasks("invalid json");
+      expect(_tasks).toEqual([]);
     });
   });
 
   describe("formatTasks", () => {
     test("should format TaskData objects for GitHub API", () => {
-      const tasks = [
+      const _tasks = [
         {
           id: "#001",
           title: "Test Task",
@@ -86,11 +86,11 @@ describe("GitHubIssuesTaskBackend", () => {
         },
       ];
 
-      const result = backend.formatTasks(tasks);
-      const formattedTasks = JSON.parse(result);
+      const _result = backend.formatTasks(_tasks);
+      const formattedTasks = JSON.parse(_result);
 
       expect(formattedTasks.length).toBe(1);
-      expect(formattedTasks[0]?.title).toBe("Test Task");
+      expect(formattedTasks[0]?._title).toBe("Test Task");
       expect(formattedTasks[0]?.body).toBe("Test description");
       expect(formattedTasks[0]?.state).toBe("open");
     });
@@ -108,9 +108,9 @@ This is a test task description.
 - Requirement 2
 `;
 
-      const spec = backend.parseTaskSpec(specContent);
+      const _spec = backend.parseTaskSpec(specContent);
 
-      expect(spec.title).toBe("Test Task");
+      expect(spec._title).toBe("Test Task");
       expect(spec.description).toBe("This is a test task description.");
       expect(spec.metadata?.taskId).toBe("#001");
     });
@@ -118,7 +118,7 @@ This is a test task description.
 
   describe("formatTaskSpec", () => {
     test("should format task specification data", () => {
-      const spec = {
+      const _spec = {
         title: "Test Task",
         description: "Test description",
         metadata: {
@@ -131,12 +131,12 @@ This is a test task description.
         },
       };
 
-      const result = backend.formatTaskSpec(spec);
+      const _result = backend.formatTaskSpec(_spec);
 
-      expect(result).toContain("# Task #001: Test Task");
-      expect(result).toContain("## Description\nTest description");
-      expect(result).toContain("## GitHub Issue");
-      expect(result).toContain("- Issue: #1");
+      expect(_result).toContain("# Task #001: Test Task");
+      expect(_result).toContain("## Description\nTest description");
+      expect(_result).toContain("## GitHub Issue");
+      expect(_result).toContain("- Issue: #1");
     });
   });
 

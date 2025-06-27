@@ -1,3 +1,7 @@
+import { MINUTE_IN_SECONDS } from "../utils/constants";
+
+const DEFAULT_TIMEOUT_MS = 5000;
+
 /**
  * Repository utilities for Minsky.
  * Provides caching and common functions for repository operations.
@@ -22,7 +26,7 @@ export class RepositoryMetadataCache {
   /**
    * Default TTL for cache entries in milliseconds (5 minutes).
    */
-  private readonly DEFAULT_TTL = 5 * 60 * 1000;
+  private readonly DEFAULT_TTL = 5 * MINUTE_IN_SECONDS * DEFAULT_TIMEOUT_MS;
 
   /**
    * Private constructor to enforce singleton pattern.
@@ -45,10 +49,10 @@ export class RepositoryMetadataCache {
    *
    * @param key Cache key
    * @param fetcher Function to fetch the value if it's not in the cache
-   * @param ttl Time to live in milliseconds (defaults to 5 minutes)
+   * @param ttl Time to live in milliseconds (defaults to DEFAULT_RETRY_COUNT minutes)
    * @returns The cached or fetched value
    */
-  async get<T>(key: string, fetcher: () => Promise<T>, ttl = this.DEFAULT_TTL): Promise<T> {
+  async get<T>(key: string, fetcher: () => Promise<T>, ttl: number = this.DEFAULT_TTL): Promise<T> {
     const cacheEntry = this.cache.get(key) as CacheEntry<T> | undefined;
     const now = Date.now();
 
