@@ -156,11 +156,11 @@ export class SessionDbHealthMonitor {
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
-      status.errors?.push(error instanceof Error ? error.message : String(error));
+      status.errors?.push(getErrorMessage(error));
 
       log.warn("Backend health check failed", {
         backend: config.backend,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         responseTime: status.responseTime,
       });
     }
@@ -242,7 +242,7 @@ export class SessionDbHealthMonitor {
       }
 
     } catch (error) {
-      status.warnings?.push(`JSON health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error)}`);
     }
   }
 

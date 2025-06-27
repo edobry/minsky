@@ -110,7 +110,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task status for ${args.taskId}: ${getErrorMessage(error)}`
         );
       }
     }
@@ -140,12 +140,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         };
       } catch (error) {
         log.error(`MCP: Error setting task status for ${args.taskId} via execSync`, {
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to set task status for ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to set task status for ${args.taskId}: ${getErrorMessage(error)}`
         );
       }
     }

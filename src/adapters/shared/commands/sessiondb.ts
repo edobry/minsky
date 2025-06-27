@@ -219,7 +219,7 @@ const sessionDbMigrateRegistration = {
       });
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       };
     }
   },

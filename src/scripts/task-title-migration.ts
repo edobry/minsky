@@ -187,7 +187,7 @@ export class TaskTitleMigration {
       result.wasModified = true;
 
     } catch (error) {
-      result.error = error instanceof Error ? error.message : String(error);
+      result.error = getErrorMessage(error);
     }
 
     return result;
