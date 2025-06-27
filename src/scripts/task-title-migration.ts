@@ -13,6 +13,7 @@
 import { join, resolve } from "path";
 import { readdir, readFile, writeFile, mkdir, copyFile } from "fs/promises";
 import { existsSync } from "fs";
+import { getErrorMessage } from "../errors/index";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -122,7 +123,7 @@ export class TaskTitleMigration {
       }
 
     } catch (error) {
-      result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+      result.errors.push(`Migration failed: ${getErrorMessage(error)}`);
       result.success = false;
     }
 

@@ -8,6 +8,7 @@ import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/pr
 import { join, resolve, relative, dirname } from "path";
 import { SessionDB } from "../../domain/session.js";
 import { log } from "../../utils/logger.js";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -123,7 +124,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           ),
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
           session: args.session,
           path: args.path,
@@ -185,7 +186,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           bytesWritten: args.content.length,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
           session: args.session,
           path: args.path,
@@ -263,7 +264,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           totalEntries: files.length + directories.length,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {
           session: args.session,
           path: args.path,
@@ -331,7 +332,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           size,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file exists check failed", {
           session: args.session,
           path: args.path,
@@ -388,7 +389,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           deleted: true,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file delete failed", {
           session: args.session,
           path: args.path,
@@ -443,7 +444,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           recursive: args.recursive,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session directory create failed", {
           session: args.session,
           path: args.path,

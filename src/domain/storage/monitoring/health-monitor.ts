@@ -9,6 +9,7 @@ import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
 import { configurationService } from "../../configuration";
+import { getErrorMessage } from "../../../errors/index";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -95,7 +96,7 @@ export class SessionDbHealthMonitor {
 
     } catch (error) {
       log.error("Health check failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         duration: Date.now() - startTime,
       });
 
@@ -106,7 +107,7 @@ export class SessionDbHealthMonitor {
           backend: config?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          errors: [`Health check failed: ${error instanceof Error ? error.message : String(error)}`],
+          errors: [`Health check failed: ${getErrorMessage(error)}`],
         },
         performance: {
           averageResponseTime: 0,

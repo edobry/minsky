@@ -1570,7 +1570,7 @@ Session requested: "${options.session}"
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -1598,7 +1598,7 @@ Session requested: "${options.session}"
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -1813,7 +1813,7 @@ Session requested: "${options.session}"
       return { workdir, session };
     } catch (error) {
       throw new Error(
-        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to clone git repository: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1956,7 +1956,7 @@ export async function createPullRequestFromParams(params: {
       repo: params.repo,
       branch: params.branch,
       taskId: params.taskId,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -1999,7 +1999,7 @@ export async function commitChangesFromParams(params: {
       message: params.message,
       all: params.all,
       amend: params.amend,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2035,7 +2035,7 @@ export async function preparePrFromParams(params: {
       session: params.session,
       repo: params.repo,
       baseBranch: params.baseBranch,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
