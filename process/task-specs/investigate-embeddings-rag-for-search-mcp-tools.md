@@ -139,7 +139,7 @@ Conduct comprehensive research into embeddings/RAG technologies for code search 
 
 ## Investigation Tasks
 
-### Phase 1: Research and Analysis (1-2 days)
+### Phase 1: Research and Analysis
 
 1. **Literature Review:**
 
@@ -161,7 +161,7 @@ Conduct comprehensive research into embeddings/RAG technologies for code search 
    - Identify integration points with our current MCP architecture
    - Document architectural recommendations
 
-### Phase 2: Proof of Concept (2-3 days)
+### Phase 2: Proof of Concept
 
 1. **Simple Embedding Search:**
 
@@ -183,7 +183,7 @@ Conduct comprehensive research into embeddings/RAG technologies for code search 
    - Test integration with existing MCP tools
    - Identify technical blockers and requirements
 
-### Phase 3: Implementation Planning (1 day)
+### Phase 3: Implementation Planning
 
 1. **Technical Specification:**
 
@@ -226,12 +226,11 @@ Conduct comprehensive research into embeddings/RAG technologies for code search 
 5. **Cost Analysis:** Resource requirements and operational considerations
 6. **Integration Plan:** Strategy for enhancing existing MCP tools
 
-## Timeline
+## Investigation Phases
 
-- **Phase 1:** 2 days - Research and analysis
-- **Phase 2:** 3 days - Proof of concept development
-- **Phase 3:** 1 day - Implementation planning
-- **Total:** 6 days
+- **Phase 1:** Research and analysis
+- **Phase 2:** Proof of concept development
+- **Phase 3:** Implementation planning
 
 ## Resources
 
