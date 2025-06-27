@@ -259,33 +259,18 @@ export class GitService implements GitServiceInterface {
   }
 
   async clone(options: CloneOptions): Promise<CloneResult> {
-    log.debug("GitService.clone called with options", {
-      repoUrl: options.repoUrl,
-      session: options.session,
-      destination: options.destination,
-      branch: options.branch,
-    });
-
     await this.ensureBaseDir();
-    log.debug("Base directory ensured", { baseDir: this.baseDir });
 
     const session = options.session || this.generateSessionId();
-    log.debug("Using session name", { session, wasProvided: !!options.session });
-
-    // Get the repository name from the URL
     const repoName = normalizeRepoName(options.repoUrl);
-    log.debug("Repository name determined", { repoName });
 
-    // For compatibility with other code, ensure consistent normalization
-    // This is crucial for local repositories which may have paths with slashes
+    // Fix for local repository paths: handle the case where repoName contains slashes
     let normalizedRepoName = repoName;
-
-    // Special handling for local repositories to match SessionDB's normalization
     if (repoName.startsWith("local/")) {
-      // First, try the format used in session records
+      // Replace slashes with dashes in the path segments after "local/"
       const parts = repoName.split("/");
       if (parts.length > 1) {
-        // Use "local-" prefix plus remaining parts normalized
+        // Keep "local" as is, but normalize the rest
         normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
       }
     } else {
@@ -308,14 +293,15 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Create the sessions directory structure ONLY after git clone succeeds
+      // Define sessions directory path but don't create it yet
       const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
 
       // Clone the repository with verbose logging FIRST
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
-        // Create parent directory structure before clone
+        // Create sessions directory structure ONLY when ready to clone
+        // This ensures no orphaned directories if validation fails
         await mkdir(sessionsDir, { recursive: true });
         log.debug("Sessions directory created", { sessionsDir });
 
@@ -330,7 +316,7 @@ export class GitService implements GitServiceInterface {
           command: cloneCmd,
         });
 
-        // Clean up the directory we created if git clone fails
+        // Clean up orphaned session directory if git clone fails
         try {
           const fs = await import("fs/promises");
           await fs.rm(workdir, { recursive: true, force: true });
