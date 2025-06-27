@@ -839,29 +839,6 @@ export async function updateSessionFromParams(
 
   log.debug("updateSessionFromParams called", { params });
 
-  // Auto-detect session name if not provided
-  if (!name) {
-    try {
-      // Try to detect session from current directory path
-      const currentDir = process.cwd();
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        name = pathParts[sessionsIndex + 1];
-        log.debug("Auto-detected session from path", { name, currentDir });
-      }
-    } catch (error) {
-      log.debug("Failed to auto-detect session from path", { error });
-    }
-  }
-
-  // Input validation
-  if (!name) {
-    throw new ValidationError(
-      "Session name is required. Please provide a session name or run this command from within a session workspace."
-    );
-  }
-
   // Set up dependencies with defaults
   const deps = {
     gitService: depsInput?.gitService || createGitService(),
@@ -869,13 +846,35 @@ export async function updateSessionFromParams(
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
+  // Auto-detect session name if not provided
+  let sessionName: string;
+  if (!name) {
+    log.debug("Session name not provided, attempting auto-detection from current directory");
+    const currentDir = process.cwd();
+    try {
+      const detectedSession = await deps.getCurrentSession(currentDir);
+      if (detectedSession) {
+        sessionName = detectedSession;
+        log.debug("Auto-detected session name", { sessionName, currentDir });
+      } else {
+        throw new ValidationError(
+          "Session name is required. Either provide a session name or run this command from within a session workspace."
+        );
+      }
+    } catch (error) {
+      log.debug("Failed to auto-detect session", { error, currentDir });
+      throw new ValidationError(
+        "Session name is required. Either provide a session name or run this command from within a session workspace."
+      );
+    }
+  } else {
+    sessionName = name;
+  }
+
   log.debug("Dependencies set up", {
     hasGitService: !!deps.gitService,
     hasSessionDB: !!deps.sessionDB,
   });
-
-  // Use provided name or auto-detected name
-  const sessionName = name;
 
   log.debug("Session update requested", {
     sessionName,
@@ -916,9 +915,8 @@ export async function updateSessionFromParams(
             ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown"
             : "local-minsky";
 
-          // Extract task ID from session name if it follows the task#N pattern
-          const taskIdMatch = sessionName.match(/^task#(\d+)$/);
-          const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+          // Extract task ID from session name - simpler and more reliable approach
+          const taskId = sessionName.startsWith("task#") ? sessionName : undefined;
 
           // Create session record
           const newSessionRecord: SessionRecord = {
@@ -926,7 +924,7 @@ export async function updateSessionFromParams(
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),
-            taskId: taskId || (sessionName.startsWith("task#") ? sessionName : undefined),
+            taskId,
             branch: sessionName,
             repoPath: currentDir,
           };

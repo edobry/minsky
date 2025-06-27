@@ -344,4 +344,6 @@
 
 - [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
 
-- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](/Users/edobry/Projects/minsky/process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
+- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
+
+- [ ] Investigate and improve configuration system design [#181](/Users/edobry/Projects/minsky/process/tasks/181-investigate-and-improve-configuration-system-design.md)
