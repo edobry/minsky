@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
 import { SessionDB, createSessionProvider } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
-import { MinskyError, createSessionNotFoundMessage, createErrorContext } from "../errors/index";
+import { MinskyError, createSessionNotFoundMessage, createErrorContext, getErrorMessage } from "../errors/index";
 import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
@@ -381,13 +381,13 @@ export class GitService implements GitServiceInterface {
       };
     } catch (error) {
       log.error("Error during git clone", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         stack: error instanceof Error ? error.stack : undefined,
         repoUrl: options.repoUrl,
         workdir,
       });
       throw new MinskyError(
-        `Failed to clone git repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to clone git repository: ${getErrorMessage(error)}`
       );
     }
   }
@@ -479,7 +479,7 @@ export class GitService implements GitServiceInterface {
         } catch (error) {
           if (options.debug) {
             log.debug(
-              `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+              `Failed to update task status: ${getErrorMessage(error)}`
             );
           }
         }
@@ -487,7 +487,7 @@ export class GitService implements GitServiceInterface {
     } catch (error) {
       if (options.debug) {
         log.debug(
-          `Task status update skipped: ${error instanceof Error ? error.message : String(error)}`
+          `Task status update skipped: ${getErrorMessage(error)}`
         );
       }
     }

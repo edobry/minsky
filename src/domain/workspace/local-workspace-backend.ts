@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import { join, resolve, relative, dirname } from "path";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 import {
   WorkspaceBackend,
   FileInfo,
@@ -67,7 +68,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       };
     } catch (error) {
       throw new WorkspaceError(
-        `Failed to get file info: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to get file info: ${getErrorMessage(error)}`,
         "file_info",
         workspaceDir,
         relative(workspaceDir, fullPath),
@@ -110,7 +111,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       throw new WorkspaceError(
-        `Failed to read file: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to read file: ${getErrorMessage(error)}`,
         "read_file",
         workspaceDir,
         relativePath,
@@ -158,7 +159,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         throw error;
       }
       
-      const message = `Failed to write file: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Failed to write file: ${getErrorMessage(error)}`;
       log.error("Write file failed", {
         workspaceDir,
         relativePath,
@@ -208,7 +209,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
       
-      const message = `Failed to delete: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Failed to delete: ${getErrorMessage(error)}`;
       log.error("Delete failed", {
         workspaceDir,
         relativePath,
@@ -247,7 +248,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           // Log but don't fail on individual file errors
           log.warn("Failed to get info for directory entry", {
             entry,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           });
         }
       }
@@ -276,7 +277,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
       
       throw new WorkspaceError(
-        `Failed to list directory: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to list directory: ${getErrorMessage(error)}`,
         "list_directory",
         workspaceDir,
         relativePath,
@@ -318,7 +319,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         throw error;
       }
       
-      const message = `Failed to create directory: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Failed to create directory: ${getErrorMessage(error)}`;
       log.error("Create directory failed", {
         workspaceDir,
         relativePath,
