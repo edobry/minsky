@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB } from "./session";
+import { SessionDB, createSessionProvider } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -197,24 +197,15 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
       if (pathParts.length >= 3 && pathParts[1] === "sessions") {
         const sessionName = pathParts[2];
          
-        // For now, use a known mapping for the main workspace
-        // TODO: This should be replaced with proper session database lookup
-        if (sessionName === "183" && pathParts[0] === "local-minsky") {
-          return "/Users/edobry/Projects/minsky";
-        }
-         
-        // Use the session CLI to get the repository URL
+        // Use the session database to get the repository URL
         try {
-          const sessionResult = await execAsyncDep(`bun src/cli.ts session get ${sessionName}`, { cwd: currentDir });
-          const lines = sessionResult.stdout.split("\n");
-          const repoUrlLine = lines.find(line => line.startsWith("Repository URL:"));
-           
-          if (repoUrlLine) {
-            const repoUrl = repoUrlLine.replace("Repository URL:", "").trim();
-            return repoUrl;
+          const sessionProvider = createSessionProvider();
+          const sessionRecord = await sessionProvider.getSession(sessionName);
+          if (sessionRecord && sessionRecord.repoUrl) {
+            return sessionRecord.repoUrl;
           }
         } catch (sessionError) {
-          // If session CLI fails, fall back to current directory
+          // If session DB lookup fails, fall back to current directory
         }
       }
     }
