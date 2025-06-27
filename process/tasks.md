@@ -303,7 +303,6 @@
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
 
 - [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
-- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
 
 - [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
 
@@ -319,7 +318,7 @@
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
-- [ ] Replace process.exit() Calls with Custom Exit Utility for Bun Compatibility [#165](process/tasks/165-replace-process-exit-calls-with-custom-exit-utility-for-bun-compatibility.md)
+- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
@@ -332,6 +331,8 @@
 - [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
 
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+
+- [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
 - [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
 
@@ -347,4 +348,8 @@
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
-- [ ] Investigate and improve configuration system design [#181](/Users/edobry/Projects/minsky/process/tasks/181-investigate-and-improve-configuration-system-design.md)
+- [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+
+- [ ] Fix Task Operations to Use Main Workspace [#182](process/tasks/182-fix-task-operations-to-use-main-workspace.md)
+
+- [ ] Add AI-Powered Rule Suggestion for Context Construction [#182](process/tasks/182-add-ai-powered-rule-suggestion-for-context-construction.md)
