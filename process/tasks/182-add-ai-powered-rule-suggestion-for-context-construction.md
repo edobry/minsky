@@ -136,7 +136,7 @@ Expected output might include rules like:
 
 ## Future Enhancement
 
-See Task 183 for advanced features including:
+See Task 202 for advanced features including:
 
 - Evaluation integration with Task 162
 - Confidence scoring and advanced output formatting
