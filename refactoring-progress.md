@@ -54,6 +54,7 @@ throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
 Applied `getErrorMessage(error)` to replace repeated pattern in:
 - **session.ts**: 4 instances
 - **session-workspace-service.ts**: 3 instances  
+- **session-db-adapter.ts**: 7 instances ✅ NEWLY COMPLETED
 
 **Before:**
 ```typescript
@@ -64,6 +65,8 @@ error instanceof Error ? error.message : String(error)
 ```typescript
 getErrorMessage(error)
 ```
+
+**Total Pattern Refactoring**: 14 instances across 3 files
 
 ### 3. SessionErrorType Enum Enhancement ✅
 **Fixed confusing string literals:**
@@ -98,7 +101,7 @@ createInvalidSessionMessage(sessionName, context)
 - `src/domain/storage/*` (15+ instances across multiple files)
 - `src/domain/tasks/*` (10+ instances across multiple files)
 
-**Total Remaining**: ~35 files with 65+ error message refactoring opportunities
+**Total Remaining**: ~32 files with 51+ error message refactoring opportunities
 
 ## Impact Summary
 

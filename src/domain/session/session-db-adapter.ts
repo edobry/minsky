@@ -12,6 +12,7 @@ import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
+import { getErrorMessage } from "../../errors/index";
 import { configurationService } from "../configuration";
 import { homedir } from "os";
 import { join } from "path";
@@ -67,9 +68,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.getEntities();
     } catch (error) {
-      log.error(
-        `Error listing sessions: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Error listing sessions: ${getErrorMessage(error)}`);
       return [];
     }
   }
@@ -79,7 +78,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.getEntity(session);
     } catch (error) {
-      log.error(`Error getting session: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(`Error getting session: ${getErrorMessage(error)}`);
       return null;
     }
   }
@@ -93,9 +92,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const session = sessions.length > 0 ? sessions[0] : null;
       return session || null;
     } catch (error) {
-      log.error(
-        `Error getting session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Error getting session by task ID: ${getErrorMessage(error)}`);
       return null;
     }
   }
@@ -105,7 +102,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       await storage.createEntity(record);
     } catch (error) {
-      log.error(`Error adding session: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(`Error adding session: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -121,9 +118,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
         throw new Error(`Session '${session}' not found`);
       }
     } catch (error) {
-      log.error(
-        `Error updating session: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Error updating session: ${getErrorMessage(error)}`);
       throw error;
     }
   }
@@ -133,9 +128,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const storage = await this.getStorage();
       return await storage.deleteEntity(session);
     } catch (error) {
-      log.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Error deleting session: ${getErrorMessage(error)}`);
       return false;
     }
   }
@@ -190,9 +183,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       // Return initialized state if read fails
       return initializeSessionDbState();
     } catch (error) {
-      log.warn(
-        `Error reading storage state, using defaults: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.warn(`Error reading storage state, using defaults: ${getErrorMessage(error)}`);
       return initializeSessionDbState();
     }
   }
