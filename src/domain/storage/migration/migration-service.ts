@@ -12,6 +12,7 @@ import { SessionDbConfig } from "../../configuration/types";
 import { log } from "../../../utils/logger";
 import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { getErrorMessage } from "../../../errors/index";
 
 export interface MigrationOptions {
   sourceConfig: SessionDbConfig;
@@ -133,7 +134,7 @@ export class MigrationService {
           await targetStorage.createEntity(session);
           migratedCount++;
         } catch (error) {
-          const errorMsg = `Failed to migrate session ${session.session}: ${error instanceof Error ? error.message : String(error)}`;
+          const errorMsg = `Failed to migrate session ${session.session}: ${getErrorMessage(error)}`;
           result.errors.push(errorMsg);
           log.debug(errorMsg); // Use debug level to reduce console noise
         }
@@ -159,7 +160,7 @@ export class MigrationService {
 
       return result;
     } catch (error) {
-      const errorMsg = `Migration failed: ${error instanceof Error ? error.message : String(error)}`;
+      const errorMsg = `Migration failed: ${getErrorMessage(error)}`;
       result.errors.push(errorMsg);
       log.error(errorMsg);
       return result;
@@ -251,7 +252,7 @@ export class MigrationService {
     } catch (error) {
       verification.success = false;
       verification.inconsistencies.push(
-        `Verification failed: ${error instanceof Error ? error.message : String(error)}`
+        `Verification failed: ${getErrorMessage(error)}`
       );
       return verification;
     }
@@ -339,7 +340,7 @@ export class MigrationService {
 
       return result;
     } catch (error) {
-      const errorMsg = `Restore failed: ${error instanceof Error ? error.message : String(error)}`;
+      const errorMsg = `Restore failed: ${getErrorMessage(error)}`;
       result.errors.push(errorMsg);
       log.error(errorMsg);
       return result;

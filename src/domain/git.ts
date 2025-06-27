@@ -1308,12 +1308,12 @@ You need to specify one of these options to identify the target repository:
       return stdout;
     } catch (error) {
       log.error("Command execution failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         command,
         workdir,
       });
       throw new MinskyError(
-        `Failed to execute command in repository: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to execute command in repository: ${getErrorMessage(error)}`
       );
     }
   }
