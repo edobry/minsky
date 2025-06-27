@@ -1,132 +1,110 @@
-# Add Context Management Commands for Environment-Agnostic AI Collaboration
+# Add Context Analysis and Visualization Commands
 
 ## Context
 
-Modern AI agents like those used in Minsky rely heavily on prompt engineering and context management. Currently, there's no way to analyze, visualize, or manipulate this context, making it difficult to debug issues or optimize prompts. Additionally, understanding context utilization across different LLM models is crucial for performance optimization and cost management.
+Modern AI assistants construct context dynamically for each request, combining rules, code, conversation history, and other elements. Currently, there's no way to analyze or visualize this context composition, making it difficult to understand token usage, optimize prompts, or debug context-related issues.
 
-**Key Challenge**: Minsky should enable collaboration with AI agents that aren't bound to specific development environments like Cursor. To achieve this capability - creating environment-agnostic agents with capabilities comparable to human engineers - we need foundational tools that allow us to understand, manipulate, and transfer context between different environments and models.
+Understanding context utilization is crucial for:
 
-The "salient rule loading" workflow (where rules are dynamically loaded based on relevance) requires tools to simulate and test this behavior. Engineers need visibility into how much context is being used and how effectively it's being managed.
+- **Cost optimization** - knowing how tokens are distributed across different elements
+- **Performance tuning** - identifying inefficient context patterns
+- **Debugging** - understanding why certain rules or code aren't being considered
+- **Context awareness** - helping users understand what information is available to AI assistants
 
 ## Goals
 
-1. Create a foundation for environment-agnostic AI collaboration
-2. Enable context portability between different AI agents and environments
-3. Provide tools for understanding and optimizing context usage
-4. Support development of AI agents that can function effectively across any development environment
+1. Provide visibility into context composition and token usage
+2. Enable analysis of context efficiency and optimization opportunities
+3. Support debugging of context-related issues
+4. Help users understand how their context is constructed and utilized
 
 ## Requirements
 
-1. **Model Awareness and Environment Abstraction**
+1. **Context Analysis**
 
-   - Create an abstraction layer for model information that can:
-     - Identify which model is being used for a given session
-     - Retrieve model specifications (context window size, token limits, capabilities)
-     - Support both online API-based models and local inference models
-     - Allow for model simulation/emulation for testing
-     - Define environment-agnostic interfaces for context transportation
-
-2. **Context Analysis Commands**
-
-   - `minsky context analyze` - Analyze the current context and provide metrics
-     - Show total tokens used/available
-     - Breakdown of context usage by category (rules, code, conversation history)
+   - `minsky context analyze` - Analyze current context composition and provide metrics
+     - Show total token usage and breakdown by category (rules, code, open files, etc.)
      - Identify potential optimization opportunities
-     - Highlight transportable vs. environment-specific context elements
+     - Display context window utilization percentage
+     - Show which elements consume the most tokens
+     - Support different model tokenization (leveraging task 160's model metadata)
 
-3. **Context Visualization**
+2. **Context Visualization**
 
-   - `minsky context visualize` - Generate a visual representation of context usage
-     - Command-line based visualization for quick reference
-     - Optional output to structured formats (JSON, CSV) for further analysis
-     - Visualize context boundaries and portability across environments
-
-4. **Rule Simulation**
-
-   - `minsky context simulate-rules` - Test rule loading behavior
-     - Allow specification of which rules to include
-     - Show how rules would be loaded in a real scenario
-     - Calculate token usage impact of different rule combinations
-     - Simulate rule transportation across different environments
-     - **Note**: For practical AI-powered rule selection, see task 182 which provides `minsky context suggest-rules` for immediate rule recommendation needs
-
-5. **Context Management and Collaboration**
-   - `minsky context prune` - Optimize context by removing less relevant content
-   - `minsky context prioritize` - Reorder context elements based on importance
-   - `minsky context export` - Export context in a format that can be used by other agents
-   - `minsky context import` - Import context from other agents or environments
+   - `minsky context visualize` - Generate visual representation of context usage
+     - Command-line based charts showing context distribution
+     - Token usage breakdown with visual indicators
+     - Optional structured output formats (JSON, CSV) for further analysis
+     - Interactive display showing which elements are included/excluded
 
 ## Dependencies
 
-- **Task 182**: AI-Powered Rule Suggestion (complementary - provides practical rule selection functionality that complements this task's simulation capabilities)
+- **Task 160**: AI completion backend (required - provides model metadata and tokenization capabilities)
+- **Task 182**: AI-Powered Rule Suggestion (complementary - provides rule selection while this task provides analysis)
 
 ## Implementation Steps
 
 1. [ ] **Research and Design**
 
-   - [ ] Research token counting libraries and approaches for different models
-   - [ ] Design model abstraction layer that works with various LLM providers
-   - [ ] Create data structures for representing context elements and their metadata
-   - [ ] Design the command interface and options
-   - [ ] Research context portability formats and standards
+   - [ ] Research context analysis approaches and visualization techniques
+   - [ ] Design data structures for representing context elements and their metadata
+   - [ ] Design the command interface and output formats
+   - [ ] Research CLI visualization libraries and techniques
 
-2. [ ] **Model Awareness Implementation**
+2. [ ] **Core Context Analysis Engine**
 
-   - [ ] Create a ModelInfo interface and concrete implementations
-   - [ ] Implement detection logic for identifying the active model
-   - [ ] Build adapters for online vs. local models
-   - [ ] Add model specification repository (context sizes, capabilities)
-   - [ ] Implement environment detection and abstraction
+   - [ ] Implement context discovery logic (identify current rules, open files, etc.)
+   - [ ] Integrate with task 160's tokenization capabilities for accurate token counting
+   - [ ] Create context categorization system (rules, code, conversation, etc.)
+   - [ ] Build analysis algorithms for context breakdown and optimization suggestions
 
-3. [ ] **Core Context Analysis**
+3. [ ] **Command Implementation**
 
-   - [ ] Implement token counting functions for different model types
-   - [ ] Create analysis algorithms for context breakdown
-   - [ ] Develop recommendation engine for context optimization
-   - [ ] Build context portability analyzer
+   - [ ] Implement `context analyze` command with detailed metrics
+   - [ ] Implement `context visualize` command with CLI-based charts
+   - [ ] Add support for different output formats (human-readable, JSON, CSV)
+   - [ ] Implement interactive features for exploring context composition
 
-4. [ ] **Command Implementation**
+4. [ ] **Testing and Validation**
 
-   - [ ] Implement `context analyze` command
-   - [ ] Implement `context visualize` command
-   - [ ] Implement `context simulate-rules` command (focus on testing/debugging rather than selection - practical selection is handled by task 182)
-   - [ ] Implement `context prune` command
-   - [ ] Implement `context prioritize` command
-   - [ ] Implement `context export` command
-   - [ ] Implement `context import` command
+   - [ ] Create unit tests for context analysis logic
+   - [ ] Test with various context sizes and compositions
+   - [ ] Validate token counting accuracy across different models
+   - [ ] Performance testing for large context analysis
 
-5. [ ] **Testing**
-
-   - [ ] Create unit tests for token counting and analysis
-   - [ ] Develop integration tests for model detection
-   - [ ] Test with various rule combinations and context sizes
-   - [ ] Performance testing for large contexts
-   - [ ] Cross-environment context transfer testing
-
-6. [ ] **Documentation**
-   - [ ] Add command documentation and examples
-   - [ ] Create guides for context optimization
-   - [ ] Document model specifications and limitations
-   - [ ] Create tutorials for cross-environment agent collaboration
+5. [ ] **Documentation and Examples**
+   - [ ] Add command documentation with usage examples
+   - [ ] Create guides for interpreting context analysis results
+   - [ ] Document best practices for context optimization
 
 ## Verification
 
-- [ ] Commands correctly identify and report on the model in use
-- [ ] Token counting is accurate across different model types
-- [ ] Rule simulation correctly predicts loading behavior
-- [ ] Context analysis provides actionable insights
-- [ ] Commands work in all supported environments (local and API-based)
-- [ ] Context can be successfully transferred between different environments
-- [ ] AI agents can collaborate effectively using transported context
-- [ ] Performance meets requirements (specify metrics)
+- [ ] Context analysis accurately identifies and categorizes all context elements
+- [ ] Token counting is accurate across different model types (leveraging task 160)
+- [ ] Context visualization provides clear, actionable insights
+- [ ] Commands work correctly in both main and session workspaces
+- [ ] Analysis performance is acceptable for interactive use
+- [ ] Output formats (human-readable, JSON, CSV) work correctly
+- [ ] Context optimization suggestions are relevant and helpful
 
 ## Technical Considerations
 
-- **Model Abstraction**: We'll need a flexible abstraction that works with different model providers and can be extended as new models emerge.
-- **Environment Abstraction**: Create a layer that abstracts away environment-specific details to enable true portability.
-- **Token Counting**: Different models have different tokenization algorithms; we'll need to account for this.
-- **Performance**: Context analysis should be efficient and not significantly impact workflow.
-- **API Integration**: For online models, we'll need to integrate with provider APIs to get accurate model information.
-- **Context Portability**: Define standard formats for exporting/importing context that maintain semantic meaning.
-- **Collaboration Protocols**: Define how agents can share context efficiently while maintaining coherence.
-- **Extensibility**: The system should be designed to accommodate future models and development environments.
+- **Token Counting Accuracy**: Leverage task 160's model metadata and tokenization capabilities for accurate token counting across different models
+- **Performance**: Context analysis should be efficient and not significantly impact workflow, especially for large contexts
+- **CLI Visualization**: Research effective CLI-based visualization techniques for context distribution and token usage
+- **Context Discovery**: Implement robust logic to identify all relevant context elements (rules, files, conversation, etc.)
+- **Extensibility**: Design the analysis framework to accommodate new context types and analysis methods
+- **Output Formats**: Support both human-readable displays and structured output for programmatic use
+
+## Use Cases
+
+This task enables scenarios like:
+
+- **Cost Analysis**: "Which elements are consuming the most tokens in my context?"
+- **Context Debugging**: "Why isn't my rule being applied? Is it even loaded?"
+- **Optimization**: "How can I reduce context size while maintaining effectiveness?"
+- **Understanding**: "What exactly is being sent to the AI assistant?"
+
+## Relationship with Task 182
+
+Task 082 focuses on **analysis** ("What's in my context and how much does it cost?") while Task 182 focuses on **selection** ("What rules should I load for this task?"). Together they provide comprehensive context understanding and optimization capabilities.
