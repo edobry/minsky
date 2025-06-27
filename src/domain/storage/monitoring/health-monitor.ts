@@ -284,7 +284,7 @@ export class SessionDbHealthMonitor {
       }
 
     } catch (error) {
-      status.warnings?.push(`SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error)}`);
     }
   }
 

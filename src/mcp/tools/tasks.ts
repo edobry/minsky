@@ -168,7 +168,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         return JSON.parse(output);
       } catch (error) {
         log.error("MCP: Error creating task via execSync", {
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
