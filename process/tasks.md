@@ -345,3 +345,5 @@
 - [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
 
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
+
+- [ ] Establish Codemod Best Practices and Standards [#178](/Users/edobry/.local/state/minsky/git/local-minsky/sessions/169/process/tasks/178-establish-codemod-best-practices-and-standards.md)

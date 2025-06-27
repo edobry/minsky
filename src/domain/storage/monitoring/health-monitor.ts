@@ -339,7 +339,7 @@ export class SessionDbHealthMonitor {
       }
 
     } catch (error) {
-      status.warnings?.push(`PostgreSQL health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -404,7 +404,7 @@ export class SessionDbHealthMonitor {
 
     } catch (error) {
       log.warn("Storage metrics check failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
 

@@ -370,7 +370,7 @@ export class GitService implements GitServiceInterface {
       } catch (accessErr) {
         log.error(".git directory not found after clone", {
           workdir,
-          error: accessErr instanceof Error ? accessErr.message : String(accessErr),
+          error: getErrorMessage(accessErr),
         });
         throw new MinskyError("Git repository was not properly cloned: .git directory not found");
       }

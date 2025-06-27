@@ -225,7 +225,7 @@ export class MinskyMCPServer {
         });
       } catch (e) {
         log.debug("Could not log MCP server methods", {
-          error: e instanceof Error ? e.message : String(e),
+          error: getErrorMessage(e),
         });
       }
     } catch (error) {
