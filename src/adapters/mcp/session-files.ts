@@ -444,7 +444,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           recursive: args.recursive,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session directory create failed", {
           session: args.session,
           path: args.path,

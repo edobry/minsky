@@ -1590,7 +1590,7 @@ export async function sessionReviewFromParams(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from current directory", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         currentDir: process.cwd(),
       });
     }
@@ -1648,7 +1648,7 @@ export async function sessionReviewFromParams(
       }
     } catch (error) {
       log.debug("Error getting task specification", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         taskId,
       });
     }
@@ -1694,7 +1694,7 @@ export async function sessionReviewFromParams(
     }
   } catch (error) {
     log.debug("Error getting PR description", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       prBranch: prBranchToUse,
     });
   }
@@ -1731,7 +1731,7 @@ export async function sessionReviewFromParams(
     result.diff = diffOutput;
   } catch (error) {
     log.debug("Error getting diff information", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       baseBranch,
       prBranch: prBranchToUse,
     });

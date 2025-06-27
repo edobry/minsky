@@ -2066,7 +2066,7 @@ export async function mergePrFromParams(params: {
       baseBranch: params.baseBranch,
       session: params.session,
       repo: params.repo,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2097,7 +2097,7 @@ export async function cloneFromParams(params: {
       session: params.session,
       destination: params.destination,
       branch: params.branch,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2122,7 +2122,7 @@ export async function branchFromParams(params: {
     log.error("Error creating branch", {
       session: params.session,
       name: params.name,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -2155,7 +2155,7 @@ export async function pushFromParams(params: {
       repo: params.repo,
       remote: params.remote,
       force: params.force,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;

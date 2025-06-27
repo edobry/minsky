@@ -187,7 +187,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           replaceText: args.replace,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
           session: args.session,
           path: args.path,

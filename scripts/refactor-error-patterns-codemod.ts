@@ -20,7 +20,7 @@
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
 import { join, extname } from "path";
-import ts from "typescript";
+import * as ts from "typescript";
 
 interface RefactorResult {
   file: string;
@@ -119,12 +119,12 @@ class ErrorPatternCodemod {
 
       // Check for syntax errors by examining the AST
       let hasSyntaxErrors = false;
-      function checkForErrors(node: ts.Node): void {
+      const checkForErrors = (node: ts.Node): void => {
         if (node.kind === ts.SyntaxKind.Unknown) {
           hasSyntaxErrors = true;
         }
         ts.forEachChild(node, checkForErrors);
-      }
+      };
       checkForErrors(sourceFile);
 
       if (hasSyntaxErrors) {
@@ -165,12 +165,12 @@ class ErrorPatternCodemod {
         );
 
         let modifiedHasSyntaxErrors = false;
-        function checkModifiedForErrors(node: ts.Node): void {
+        const checkModifiedForErrors = (node: ts.Node): void => {
           if (node.kind === ts.SyntaxKind.Unknown) {
             modifiedHasSyntaxErrors = true;
           }
           ts.forEachChild(node, checkModifiedForErrors);
-        }
+        };
         checkModifiedForErrors(modifiedSourceFile);
 
         if (modifiedHasSyntaxErrors) {
