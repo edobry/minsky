@@ -18,6 +18,7 @@ import type {
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
 import { dirname } from "path";
+import { getErrorMessage } from "../../../errors/index";
 
 export interface SqliteStorageConfig {
   dbPath: string;
@@ -185,7 +186,7 @@ implements DatabaseStorage<TEntity, TState>
 
       return (result[0] as TEntity) || null;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
       return null;
     }
@@ -231,7 +232,7 @@ implements DatabaseStorage<TEntity, TState>
       const sessions = await query;
       return sessions as TEntity[];
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       log.error(`Failed to get sessions: ${errorMessage}`);
       return [];
     }
@@ -256,7 +257,7 @@ implements DatabaseStorage<TEntity, TState>
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
       throw error;
     }
