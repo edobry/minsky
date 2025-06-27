@@ -1,7 +1,14 @@
 import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
 import { join } from "path";
-import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
+import { 
+  MinskyError, 
+  ResourceNotFoundError, 
+  ValidationError,
+  getErrorMessage,
+  createCommandFailureMessage,
+  createErrorContext
+} from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
   SessionListParams,
@@ -166,9 +173,7 @@ export class SessionDB implements SessionProviderInterface {
       await this.ensureDbDir();
       await writeFile(this.dbPath, JSON.stringify(sessions, null, 2));
     } catch (error) {
-      log.error(
-        `Error writing session database: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(getErrorMessage(error));
     }
   }
 
@@ -217,9 +222,7 @@ export class SessionDB implements SessionProviderInterface {
       const found = sessions.find((s) => normalize(s.taskId) === normalizedInput);
       return found || null; // Ensure we return null, not undefined
     } catch (error) {
-      log.error(
-        `Error finding session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(getErrorMessage(error));
       return null;
     }
   }
@@ -235,9 +238,7 @@ export class SessionDB implements SessionProviderInterface {
       await this.writeDb(sessions);
       return true;
     } catch (error) {
-      log.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(getErrorMessage(error));
       return false;
     }
   }
@@ -324,9 +325,7 @@ export class SessionDB implements SessionProviderInterface {
       return newPath;
     } catch (error) {
       // If we can't create the directory, fall back to the original path
-      log.error(
-        `Warning: Failed to create session directory: ${error instanceof Error ? error.message : String(error)}`
-      );
+      log.error(`Warning: Failed to create session directory: ${getErrorMessage(error)}`);
       return newPath;
     }
   }
@@ -731,7 +730,7 @@ Error: ${installError instanceof Error ? installError.message : String(installEr
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to start session: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to start session: ${getErrorMessage(error)}`,
         error
       );
     }
