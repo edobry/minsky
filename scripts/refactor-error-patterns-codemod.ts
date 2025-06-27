@@ -136,7 +136,7 @@ class ErrorPatternCodemod {
       let hasImport = this.hasGetErrorMessageImport(modifiedContent);
 
       // Find and replace all instances
-      const matches = [...originalContent.matchAll(this.errorPattern)];
+      const matches = Array.from(originalContent.matchAll(this.errorPattern));
       
       for (const match of matches) {
         if (match.index !== undefined) {
@@ -249,11 +249,13 @@ class ErrorPatternCodemod {
 
     // Find the last import statement
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith("import ") && line.includes("from ")) {
+      const line = lines[i];
+      if (!line) continue;
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith("import ") && trimmedLine.includes("from ")) {
         insertIndex = i + 1;
         hasOtherImports = true;
-      } else if (hasOtherImports && line && !line.startsWith("import ") && !line.startsWith("//") && !line.startsWith("/*")) {
+      } else if (hasOtherImports && trimmedLine && !trimmedLine.startsWith("import ") && !trimmedLine.startsWith("//") && !trimmedLine.startsWith("/*")) {
         break;
       }
     }
@@ -365,12 +367,12 @@ async function main() {
     console.log("\n✨ No files needed modification - all error patterns already use getErrorMessage()");
   }
   
-  process.exit(summary.errors.length > 0 ? 1 : 0);
+  (globalThis as any).process?.exit?.(summary.errors.length > 0 ? 1 : 0);
 }
 
 if (import.meta.main) {
   main().catch(error => {
     console.error("💥 Codemod failed:", error);
-    process.exit(1);
+    (globalThis as any).process?.exit?.(1);
   });
 }
