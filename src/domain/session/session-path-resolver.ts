@@ -1,6 +1,7 @@
 import { resolve, relative, join, normalize } from "path";
 import { log } from "../../utils/logger";
 import { InvalidPathError } from "../workspace/workspace-backend";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Error thrown when a session is not found or invalid
@@ -85,7 +86,7 @@ export class SessionPathResolver {
       log.warn("Error checking path boundaries", {
         sessionDir,
         resolvedPath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -114,7 +115,7 @@ export class SessionPathResolver {
       log.warn("Error converting absolute to relative path", {
         sessionDir,
         absolutePath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return null;
     }
