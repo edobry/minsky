@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB } from "./session";
+import { SessionDB, createSessionProvider } from "./session";
 import { log } from "../utils/logger";
 import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
@@ -137,7 +137,7 @@ export async function getSessionFromWorkspace(
       return null;
     }
 
-    const db = sessionDbOverride || new SessionDB();
+    const db = sessionDbOverride || SessionDB;
     const sessionRecord = await db.getSession(sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
@@ -155,6 +155,68 @@ export async function getSessionFromWorkspace(
 
 // Alias getSessionFromWorkspace as getSessionFromRepo for backwards compatibility
 export const getSessionFromRepo = getSessionFromWorkspace;
+
+/**
+ * Resolves the main workspace path from a repository URL.
+ * This is a simplified implementation that assumes the URL is a local path.
+ * @param repoUrl The repository URL (e.g., a local file path)
+ * @returns The resolved main workspace path
+ */
+export function resolveMainWorkspaceFromRepoUrl(repoUrl: string): string {
+  // In our current setup, the repoUrl is the direct path to the main workspace.
+  // This might need to be more sophisticated if we support remote URLs differently.
+  return repoUrl;
+}
+
+/**
+ * Always resolves to the main workspace path, even when called from a session workspace.
+ * This is specifically designed for task operations that must always operate on the main workspace.
+ * 
+ * @param deps Test dependencies for dependency injection
+ * @returns Promise resolving to the main workspace path
+ */
+export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Promise<string> {
+  const currentDir = process.cwd();
+  const { execAsync: execAsyncDep = execAsync } = deps;
+  
+  try {
+    // Get the git root of the current directory
+    const { stdout } = await execAsyncDep("git rev-parse --show-toplevel", { cwd: currentDir });
+    const gitRoot = stdout.trim();
+
+    // Check if this is in the minsky sessions directory structure
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+    const minskyPath = join(xdgStateHome, "minsky", "git");
+
+    if (gitRoot.startsWith(minskyPath)) {
+      // We're in a session workspace, extract session name and get the main workspace path
+      const relativePath = gitRoot.substring(minskyPath.length + 1);
+      const pathParts = relativePath.split("/");
+
+      // Check if this follows the sessions directory structure
+      if (pathParts.length >= 3 && pathParts[1] === "sessions") {
+        const sessionName = pathParts[2];
+         
+        // Use the session database to get the repository URL
+        try {
+          const sessionProvider = createSessionProvider();
+          const sessionRecord = await sessionProvider.getSession(sessionName);
+          if (sessionRecord && sessionRecord.repoUrl) {
+            return sessionRecord.repoUrl;
+          }
+        } catch (sessionError) {
+          // If session DB lookup fails, fall back to current directory
+        }
+      }
+    }
+    
+    // Not in a session or couldn't resolve session info, return git root
+    return gitRoot;
+  } catch (error) {
+    // If git command fails, fall back to current directory
+    return currentDir;
+  }
+}
 
 /**
  * Resolve the workspace path for task operations
@@ -239,8 +301,8 @@ export async function getCurrentSessionContext(
   }
 
   const db = sessionDbOverride
-    ? ({ getSession: sessionDbOverride.getSession } as SessionDB)
-    : new SessionDB();
+    ? ({ getSession: sessionDbOverride.getSession } as typeof SessionDB)
+    : SessionDB;
 
   try {
     const sessionRecord = await db.getSession(currentSessionName);
