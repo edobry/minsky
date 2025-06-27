@@ -10,6 +10,14 @@ import { MinskyError, ensureError } from "./base-errors";
 export { MinskyError, ensureError };
 
 /**
+ * Safely extract error message from unknown error value
+ * Replaces the common pattern: error instanceof Error ? error.message : String(error)
+ */
+export function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
  * Thrown when user input or request parameters fail validation.
  */
 export class ValidationError extends MinskyError {
