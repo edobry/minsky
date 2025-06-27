@@ -176,8 +176,6 @@
 
 - [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
-- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
-
 - [x] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
 - [x] Implement Consistent CLI Error Handling Across All Commands [#093](process/tasks/093-implement-consistent-cli-error-handling-across-all-commands.md)
@@ -270,8 +268,6 @@
 
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
-- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
-
 - [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
@@ -322,13 +318,13 @@
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
-- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+- [ ] Replace process.exit() Calls with Custom Exit Utility for Bun Compatibility [#165](process/tasks/165-replace-process-exit-calls-with-custom-exit-utility-for-bun-compatibility.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [ ] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+- [-] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
 - [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
 
@@ -347,3 +343,5 @@
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
 
 - [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
+
+- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](/Users/edobry/Projects/minsky/process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)

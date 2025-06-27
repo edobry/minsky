@@ -874,104 +874,99 @@ export async function updateSessionFromParams(
     hasSessionDB: !!deps.sessionDB,
   });
 
+  // Use provided name or auto-detected name
+  const sessionName = name;
+
+  log.debug("Session update requested", {
+    sessionName,
+    branch,
+    remote,
+    noStash,
+    noPush,
+    force,
+  });
+
   try {
     // Get session record
-    log.debug("Getting session record", { name });
-    let sessionRecord = await deps.sessionDB.getSession(name);
-    
-    // TASK #168 FIX: Implement session self-repair for orphaned sessions
-    if (!sessionRecord) {
-      log.debug("Session not found in database, attempting self-repair", { name });
-      
-      // Check if we're currently in a session workspace directory
+    log.debug("Getting session record", { name: sessionName });
+    let sessionRecord = await deps.sessionDB.getSession(sessionName);
+
+    // TASK #168 FIX: Self-repair logic for orphaned sessions
+    if (!sessionRecord && sessionName) {
+      log.debug("Session not found in database, attempting self-repair", { sessionName });
       const currentDir = process.cwd();
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-      
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        const sessionNameFromPath = pathParts[sessionsIndex + 1];
-        
-        // If the session name matches the one we're looking for, attempt self-repair
-        if (sessionNameFromPath === name) {
-          log.debug("Attempting to register orphaned session", { name, currentDir });
-          
-          try {
-            // Get the repository URL from git remote
-            const repoUrl = await deps.gitService.execInRepository(currentDir, "git remote get-url origin");
-            const repoName = normalizeRepoName(repoUrl.trim());
-            
-            // Extract task ID from session name if it follows the task#N pattern
-            const taskIdMatch = name.match(/^task#(\d+)$/);
-            const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
-            
-            // Create session record
-            const newSessionRecord: SessionRecord = {
-              session: name,
-              repoUrl: repoUrl.trim(),
-              repoName,
-              createdAt: new Date().toISOString(),
-              taskId,
-              branch: name,
-              repoPath: currentDir,
-            };
-            
-            // Register the session
-            await deps.sessionDB.addSession(newSessionRecord);
-            sessionRecord = newSessionRecord;
-            
-            log.debug("Successfully registered orphaned session", { name, repoUrl: repoUrl.trim(), taskId });
-            
-          } catch (selfRepairError) {
-            log.debug("Session self-repair failed", { name, error: selfRepairError });
-            throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
-          }
-        } else {
-          throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
+
+      // Check if we're in a session workspace
+      if (currentDir.includes("/sessions/") && currentDir.includes(sessionName)) {
+        log.debug("Detected orphaned session workspace, attempting to register", {
+          sessionName,
+          currentDir,
+        });
+
+        try {
+          // Get repository URL from git remote
+          const remoteOutput = await deps.gitService.execInRepository(
+            currentDir,
+            "git remote get-url origin"
+          );
+          const repoUrl = remoteOutput.trim();
+
+          // Extract repo name from URL or path
+          const repoName = repoUrl.includes("/")
+            ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown"
+            : "local-minsky";
+
+          // Extract task ID from session name if it follows the task#N pattern
+          const taskIdMatch = sessionName.match(/^task#(\d+)$/);
+          const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+
+          // Create session record
+          const newSessionRecord: SessionRecord = {
+            session: sessionName,
+            repoName,
+            repoUrl,
+            createdAt: new Date().toISOString(),
+            taskId: taskId || (sessionName.startsWith("task#") ? sessionName : undefined),
+            branch: sessionName,
+            repoPath: currentDir,
+          };
+
+          await deps.sessionDB.addSession(newSessionRecord);
+          sessionRecord = newSessionRecord;
+
+          log.cli(`🔧 Self-repair: Registered orphaned session '${sessionName}' in database`);
+        } catch (repairError) {
+          log.warn("Failed to self-repair orphaned session", {
+            sessionName,
+            error: repairError instanceof Error ? repairError.message : String(repairError),
+          });
         }
-      } else {
-        throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
       }
+    }
+
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${sessionName}' not found`, "session", sessionName);
     }
 
     log.debug("Session record found", { sessionRecord });
 
-    // Get session working directory
-    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
-    log.debug("Session workdir determined", { workdir });
+    // Get session workdir
+    const workdir = await deps.sessionDB.getSessionWorkdir(sessionName);
+    log.debug("Session workdir resolved", { workdir });
 
-    // Validate that the session workspace directory exists
-    try {
-      await access(workdir);
-      log.debug("Workspace directory exists", { workdir });
-    } catch (error) {
-      throw new MinskyError(
-        `Session workspace directory does not exist: ${workdir}. ` +
-          `The session '${name}' exists in the database but its workspace directory is missing. ` +
-          "This can happen if the directory was manually deleted or the session creation was interrupted. " +
-          `Please delete the session with 'minsky session delete ${name}' and recreate it.`
-      );
+    // Get current branch
+    const currentBranch = await deps.gitService.getCurrentBranch(workdir);
+    log.debug("Current branch", { currentBranch });
+
+    // Validate current state if not forced
+    if (!force) {
+      const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workdir);
+      if (hasUncommittedChanges && !noStash) {
+        log.debug("Stashing uncommitted changes", { workdir });
+        await deps.gitService.stashChanges(workdir);
+        log.debug("Changes stashed");
+      }
     }
-
-    // Check if the workspace is dirty using git status command directly
-    log.debug("Checking workspace status", { workdir });
-    const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
-    const isDirty = statusOutput.trim().length > 0;
-    log.debug("Workspace status checked", { isDirty, statusOutput: statusOutput.trim() });
-
-    if (isDirty && !force) {
-      throw new MinskyError(
-        "Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override."
-      );
-    }
-
-    // Stash changes if needed
-    if (!noStash) {
-      log.debug("Stashing changes", { workdir });
-      await deps.gitService.stashChanges(workdir);
-      log.debug("Changes stashed");
-    }
-
-    let stashError: unknown;
 
     try {
       // Pull latest changes
@@ -993,12 +988,12 @@ export async function updateSessionFromParams(
 
         const conflictMessage = isSessionWorkspace
           ? `
-🚫 Merge conflicts detected when updating session '${name}'
+🚫 Merge conflicts detected when updating session '${sessionName}'
 
 This usually happens when your session changes were already merged into main branch.
 
 Current situation:
-• Session branch: ${name}
+• Session branch: ${sessionName}
 • Trying to merge: ${remoteBranchToMerge}
 • Location: ${workdir}
 
@@ -1024,66 +1019,67 @@ Resolution options:
 
 💡 For most cases, option 1 (skip update, create PR directly) is the right choice.
           `.trim()
-          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${name}'. Please resolve conflicts manually in ${workdir}.`;
+          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${sessionName}'. Please resolve conflicts manually in ${workdir}.`;
 
         throw new MinskyError(conflictMessage);
       }
 
       // Push changes if needed
       if (!noPush) {
-        log.debug("Pushing changes", { workdir, remote: remote || "origin" });
+        log.debug("Pushing changes to remote", { workdir, remote: remote || "origin" });
         await deps.gitService.push({
           repoPath: workdir,
           remote: remote || "origin",
         });
+        log.debug("Changes pushed to remote");
       }
-    } finally {
-      // Always try to restore stashed changes
+
+      // Restore stashed changes if we stashed them
       if (!noStash) {
         try {
           log.debug("Restoring stashed changes", { workdir });
           await deps.gitService.popStash(workdir);
           log.debug("Stashed changes restored");
         } catch (error) {
-          stashError = error;
+          log.warn("Failed to restore stashed changes", {
+            error: error instanceof Error ? error.message : String(error),
+            workdir,
+          });
+          // Don't fail the entire operation if stash pop fails
         }
       }
+
+      log.cli(`Session '${sessionName}' updated successfully`);
+
+      return {
+        session: sessionName,
+        repoName: sessionRecord.repoName || "unknown",
+        repoUrl: sessionRecord.repoUrl,
+        branch: currentBranch,
+        createdAt: sessionRecord.createdAt,
+        taskId: sessionRecord.taskId,
+        repoPath: workdir,
+      };
+    } catch (error) {
+      // If there's an error during update, try to clean up any stashed changes
+      if (!noStash) {
+        try {
+          await deps.gitService.popStash(workdir);
+          log.debug("Restored stashed changes after error");
+        } catch (stashError) {
+          log.warn("Failed to restore stashed changes after error", {
+            stashError: stashError instanceof Error ? stashError.message : String(stashError),
+          });
+        }
+      }
+      throw error;
     }
-
-    // Handle stash error outside finally block
-    if (stashError) {
-      log.error("Failed to restore stashed changes:", { error: stashError });
-      throw new MinskyError(
-        "Session was updated, but failed to restore stashed changes. Please resolve manually.",
-        stashError
-      );
-    }
-
-    log.debug("Session update completed successfully", { sessionName: name });
-
-    // Return the updated session information
-    return {
-      session: sessionRecord.session,
-      repoName: sessionRecord.repoName,
-      repoUrl: sessionRecord.repoUrl,
-      branch: sessionRecord.branch,
-      createdAt: sessionRecord.createdAt,
-      taskId: sessionRecord.taskId,
-      repoPath: workdir,
-    };
   } catch (error) {
     log.error("Session update failed", {
       error: error instanceof Error ? error.message : String(error),
-      name,
+      name: sessionName,
     });
-    if (error instanceof MinskyError) {
-      throw error;
-    } else {
-      throw new MinskyError(
-        `Failed to update session: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
-    }
+    throw error;
   }
 }
 

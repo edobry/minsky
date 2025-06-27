@@ -1343,35 +1343,52 @@ Need help? Run: minsky git pr --help
     let sourceBranch: string;
     const baseBranch = options.baseBranch || "main";
 
+    // Add debugging for session lookup
+    if (options.session) {
+      log.debug(
+        `Attempting to look up session in database: ${options.session}, dbPath: ${this.sessionDb.dbPath}`
+      );
+    }
+
     // Determine working directory and current branch
     if (options.session) {
       let record = await this.sessionDb.getSession(options.session);
-      
+
+      // Add more detailed debugging
+      log.debug(
+        `Session database lookup result: ${options.session}, found: ${!!record}, recordData: ${record ? JSON.stringify({ repoName: record.repoName, repoUrl: record.repoUrl, taskId: record.taskId }) : "null"}`
+      );
+
       // TASK #168 FIX: Implement session self-repair for preparePr
       if (!record) {
-        log.debug("Session not found in database, attempting self-repair in preparePr", { session: options.session });
-        
+        log.debug("Session not found in database, attempting self-repair in preparePr", {
+          session: options.session,
+        });
+
         // Check if we're currently in a session workspace directory
         const currentDir = process.cwd();
         const pathParts = currentDir.split("/");
         const sessionsIndex = pathParts.indexOf("sessions");
-        
+
         if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
           const sessionNameFromPath = pathParts[sessionsIndex + 1];
-          
+
           // If the session name matches the one we're looking for, attempt self-repair
           if (sessionNameFromPath === options.session) {
-            log.debug("Attempting to register orphaned session in preparePr", { session: options.session, currentDir });
-            
+            log.debug("Attempting to register orphaned session in preparePr", {
+              session: options.session,
+              currentDir,
+            });
+
             try {
               // Get the repository URL from git remote
               const repoUrl = await this.execInRepository(currentDir, "git remote get-url origin");
               const repoName = normalizeRepoName(repoUrl.trim());
-              
+
               // Extract task ID from session name if it follows the task#N pattern
               const taskIdMatch = options.session.match(/^task#(\d+)$/);
               const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
-              
+
               // Create session record
               const newSessionRecord: SessionRecord = {
                 session: options.session,
@@ -1382,15 +1399,35 @@ Need help? Run: minsky git pr --help
                 branch: options.session,
                 repoPath: currentDir,
               };
-              
+
               // Register the session
               await this.sessionDb.addSession(newSessionRecord);
               record = newSessionRecord;
-              
-              log.debug("Successfully registered orphaned session in preparePr", { session: options.session, repoUrl: repoUrl.trim(), taskId });
-              
+
+              log.debug("Successfully registered orphaned session in preparePr", {
+                session: options.session,
+                repoUrl: repoUrl.trim(),
+                taskId,
+              });
             } catch (selfRepairError) {
-              log.debug("Session self-repair failed in preparePr", { session: options.session, error: selfRepairError });
+              log.debug("Session self-repair failed in preparePr", {
+                session: options.session,
+                error: selfRepairError,
+              });
+
+              // Before throwing error, let's try to understand what sessions are in the database
+              try {
+                const allSessions = await this.sessionDb.listSessions();
+                log.debug(
+                  `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                    .map((s) => s.session)
+                    .slice(0, 10)
+                    .join(", ")}, searchedFor=${options.session}`
+                );
+              } catch (listError) {
+                log.error(`Failed to list sessions for debugging: ${listError}`);
+              }
+
               throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
@@ -1422,6 +1459,19 @@ Session requested: "${options.session}"
 `);
             }
           } else {
+            // Before throwing error, let's try to understand what sessions are in the database
+            try {
+              const allSessions = await this.sessionDb.listSessions();
+              log.debug(
+                `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                  .map((s) => s.session)
+                  .slice(0, 10)
+                  .join(", ")}, searchedFor=${options.session}`
+              );
+            } catch (listError) {
+              log.error(`Failed to list sessions for debugging: ${listError}`);
+            }
+
             throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
@@ -1453,6 +1503,19 @@ Session requested: "${options.session}"
 `);
           }
         } else {
+          // Before throwing error, let's try to understand what sessions are in the database
+          try {
+            const allSessions = await this.sessionDb.listSessions();
+            log.debug(
+              `All sessions in database: count=${allSessions.length}, sessionNames=${allSessions
+                .map((s) => s.session)
+                .slice(0, 10)
+                .join(", ")}, searchedFor=${options.session}`
+            );
+          } catch (listError) {
+            log.error(`Failed to list sessions for debugging: ${listError}`);
+          }
+
           throw new MinskyError(`
 🔍 Session "${options.session}" Not Found in Database
 
