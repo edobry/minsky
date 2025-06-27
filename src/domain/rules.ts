@@ -228,7 +228,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in requested format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
           });
         }
         // Instead of failing immediately, try other formats below
