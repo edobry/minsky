@@ -1,6 +1,6 @@
 /**
  * SessionDB Health Monitoring Service
- * 
+ *
  * Provides health checks, performance monitoring, and diagnostics
  * for all SessionDB storage backends.
  */
@@ -9,6 +9,7 @@ import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
 import { configurationService } from "../../configuration";
+import { getErrorMessage } from "../../../errors";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -55,7 +56,7 @@ export class SessionDbHealthMonitor {
    */
   static async performHealthCheck(config?: SessionDbConfig): Promise<SystemHealth> {
     const startTime = Date.now();
-    
+
     try {
       // Load configuration if not provided
       if (!config) {
@@ -65,13 +66,13 @@ export class SessionDbHealthMonitor {
 
       // Check backend health
       const backendHealth = await this.checkBackendHealth(config);
-      
+
       // Analyze performance metrics
       const performance = this.analyzePerformance();
-      
+
       // Check storage-specific metrics
       const storage = await this.checkStorageMetrics(config);
-      
+
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
 
@@ -92,7 +93,6 @@ export class SessionDbHealthMonitor {
         storage,
         recommendations,
       };
-
     } catch (error) {
       log.error("Health check failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -106,7 +106,9 @@ export class SessionDbHealthMonitor {
           backend: config?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          errors: [`Health check failed: ${error instanceof Error ? error.message : String(error)}`],
+          errors: [
+            `Health check failed: ${error instanceof Error ? error.message : String(error)}`,
+          ],
         },
         performance: {
           averageResponseTime: 0,
@@ -137,10 +139,10 @@ export class SessionDbHealthMonitor {
     try {
       // Create storage backend with timeout
       const storage = StorageBackendFactory.createFromConfig(config);
-      
+
       // Test basic operations with timeout
       const testPromise = this.testBasicOperations(storage);
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Health check timeout")), this.HEALTH_CHECK_TIMEOUT)
       );
 
@@ -151,7 +153,6 @@ export class SessionDbHealthMonitor {
 
       // Backend-specific health checks
       await this.performBackendSpecificChecks(config, status);
-
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
@@ -218,14 +219,15 @@ export class SessionDbHealthMonitor {
 
     try {
       const dbPath = path.join(config.baseDir || "", "session-db.json");
-      
+
       if (fs.existsSync(dbPath)) {
         const stats = fs.statSync(dbPath);
         status.details!.fileSize = stats.size;
         status.details!.lastModified = stats.mtime.toISOString();
-        
+
         // Warn about large files
-        if (stats.size > 10_000_000) { // 10MB
+        if (stats.size > 10_000_000) {
+          // 10MB
           status.warnings?.push("Large JSON file detected - consider migrating to SQLite");
         }
       }
@@ -239,9 +241,10 @@ export class SessionDbHealthMonitor {
         status.errors?.push("Directory not writable");
         status.details!.directoryWritable = false;
       }
-
     } catch (error) {
-      status.warnings?.push(`JSON health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(
+        `JSON health check warning: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -269,7 +272,7 @@ export class SessionDbHealthMonitor {
         // Check WAL mode
         const journalMode = db.pragma("journal_mode", { simple: true });
         status.details!.journalMode = journalMode;
-        
+
         if (journalMode !== "wal") {
           status.warnings?.push("Consider enabling WAL mode for better performance");
         }
@@ -277,13 +280,13 @@ export class SessionDbHealthMonitor {
         // Check for locks
         const busyTimeout = db.pragma("busy_timeout", { simple: true });
         status.details!.busyTimeout = busyTimeout;
-
       } finally {
         db.close();
       }
-
     } catch (error) {
-      status.warnings?.push(`SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(
+        `SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -300,7 +303,7 @@ export class SessionDbHealthMonitor {
 
       try {
         const client = await pool.connect();
-        
+
         try {
           // Check server version
           const versionResult = await client.query("SELECT version()");
@@ -310,7 +313,9 @@ export class SessionDbHealthMonitor {
           const connectionsResult = await client.query(
             "SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'"
           );
-          status.details!.activeConnections = parseInt(connectionsResult.rows[0].active_connections);
+          status.details!.activeConnections = parseInt(
+            connectionsResult.rows[0].active_connections
+          );
 
           // Check database size
           const sizeResult = await client.query(
@@ -324,21 +329,18 @@ export class SessionDbHealthMonitor {
           );
           const lockCount = parseInt(locksResult.rows[0].locks);
           status.details!.blockedQueries = lockCount;
-          
+
           if (lockCount > 0) {
             status.warnings?.push(`${lockCount} blocked queries detected`);
           }
-
         } finally {
           client.release();
         }
-
       } finally {
         await pool.end();
       }
-
     } catch (error) {
-      status.warnings?.push(`PostgreSQL health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -351,7 +353,7 @@ export class SessionDbHealthMonitor {
     recentErrors: number;
     } {
     const recentMetrics = this.metrics.slice(-100); // Last 100 operations
-    
+
     if (recentMetrics.length === 0) {
       return {
         averageResponseTime: 0,
@@ -361,8 +363,8 @@ export class SessionDbHealthMonitor {
     }
 
     const totalDuration = recentMetrics.reduce((sum, metric) => sum + metric.duration, 0);
-    const successCount = recentMetrics.filter(metric => metric.success).length;
-    const recentErrors = recentMetrics.filter(metric => !metric.success).length;
+    const successCount = recentMetrics.filter((metric) => metric.success).length;
+    const recentErrors = recentMetrics.filter((metric) => !metric.success).length;
 
     return {
       averageResponseTime: totalDuration / recentMetrics.length,
@@ -385,7 +387,7 @@ export class SessionDbHealthMonitor {
       // Check disk usage
       const fs = require("fs");
       const path = require("path");
-      
+
       let checkPath: string;
       if (config.backend === "json") {
         checkPath = config.baseDir || "";
@@ -400,7 +402,6 @@ export class SessionDbHealthMonitor {
         // This is a simplified check - real disk usage would require platform-specific tools
         metrics.diskUsage = stats.size || 0;
       }
-
     } catch (error) {
       log.warn("Storage metrics check failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -473,7 +474,11 @@ export class SessionDbHealthMonitor {
       return "unhealthy";
     }
 
-    if (performance.successRate < 0.98 || performance.averageResponseTime > 2000 || performance.recentErrors > 3) {
+    if (
+      performance.successRate < 0.98 ||
+      performance.averageResponseTime > 2000 ||
+      performance.recentErrors > 3
+    ) {
       return "degraded";
     }
 
@@ -485,7 +490,7 @@ export class SessionDbHealthMonitor {
    */
   static recordMetric(metric: PerformanceMetrics): void {
     this.metrics.push(metric);
-    
+
     // Keep only recent metrics
     if (this.metrics.length > this.MAX_METRICS) {
       this.metrics = this.metrics.slice(-this.MAX_METRICS);
@@ -533,19 +538,22 @@ export class SessionDbHealthMonitor {
   }> {
     const performance = this.analyzePerformance();
     const totalOperations = this.metrics.length;
-    
+
     // Simple uptime calculation (time since first metric)
-    const uptime = this.metrics.length > 0 
-      ? Date.now() - new Date(this.metrics[0].timestamp).getTime()
-      : 0;
+    const uptime =
+      this.metrics.length > 0 ? Date.now() - new Date(this.metrics[0].timestamp).getTime() : 0;
 
     return {
-      status: performance.successRate < 0.9 ? "unhealthy" : 
-        performance.successRate < 0.98 ? "degraded" : "healthy",
+      status:
+        performance.successRate < 0.9
+          ? "unhealthy"
+          : performance.successRate < 0.98
+            ? "degraded"
+            : "healthy",
       uptime,
       totalOperations,
       errorRate: 1 - performance.successRate,
       avgResponseTime: performance.averageResponseTime,
     };
   }
-} 
+}

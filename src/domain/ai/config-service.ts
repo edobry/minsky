@@ -21,6 +21,14 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
+      // First, try to resolve API key from all sources (env vars + config files)
+      const apiKey = await this.resolveAPIKey(provider);
+
+      // If no API key is available, we can't use this provider
+      if (!apiKey) {
+        return null;
+      }
+
       const result = await this.configService.loadConfiguration(process.cwd());
       const config = result.resolved;
 
@@ -28,14 +36,10 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       const repoConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
       const userConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
 
-      if (!repoConfig && !userConfig) {
-        return null;
-      }
-
-      // Merge configurations with user config taking precedence for personal settings
+      // Create provider config with API key and any available settings
       return {
         provider: provider as any,
-        apiKey: await this.resolveAPIKey(provider),
+        apiKey,
         baseURL: userConfig?.base_url || repoConfig?.base_url,
         defaultModel: userConfig?.default_model || repoConfig?.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),

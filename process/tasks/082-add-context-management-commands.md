@@ -48,12 +48,17 @@ The "salient rule loading" workflow (where rules are dynamically loaded based on
      - Show how rules would be loaded in a real scenario
      - Calculate token usage impact of different rule combinations
      - Simulate rule transportation across different environments
+     - **Note**: For practical AI-powered rule selection, see task 182 which provides `minsky context suggest-rules` for immediate rule recommendation needs
 
 5. **Context Management and Collaboration**
    - `minsky context prune` - Optimize context by removing less relevant content
    - `minsky context prioritize` - Reorder context elements based on importance
    - `minsky context export` - Export context in a format that can be used by other agents
    - `minsky context import` - Import context from other agents or environments
+
+## Dependencies
+
+- **Task 182**: AI-Powered Rule Suggestion (complementary - provides practical rule selection functionality that complements this task's simulation capabilities)
 
 ## Implementation Steps
 
@@ -84,7 +89,7 @@ The "salient rule loading" workflow (where rules are dynamically loaded based on
 
    - [ ] Implement `context analyze` command
    - [ ] Implement `context visualize` command
-   - [ ] Implement `context simulate-rules` command
+   - [ ] Implement `context simulate-rules` command (focus on testing/debugging rather than selection - practical selection is handled by task 182)
    - [ ] Implement `context prune` command
    - [ ] Implement `context prioritize` command
    - [ ] Implement `context export` command
