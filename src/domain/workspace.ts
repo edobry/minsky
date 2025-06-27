@@ -8,6 +8,7 @@ import { createHash } from "crypto";
 import { readFileSync, existsSync } from "fs";
 import { sep } from "path";
 import { homedir } from "os";
+import { getErrorMessage } from "../errors/index";
 
 const execAsync = promisify(exec);
 
@@ -258,7 +259,7 @@ export async function getCurrentSessionContext(
   } catch (error) {
     log.error("Error fetching session record", {
       _sessionName: currentSessionName,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
       cwd,
     });

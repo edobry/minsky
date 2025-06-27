@@ -10,6 +10,7 @@ import { SessionPathResolver } from "./session-files.js";
 import { log } from "../../utils/logger.js";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Interface for edit file operation
@@ -113,7 +114,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
           session: args.session,
           path: args.path,

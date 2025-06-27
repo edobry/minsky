@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -353,7 +354,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to list sessions", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
         throw error;
       }
@@ -389,7 +390,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to get session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name,
           task: params.task,
         });
@@ -433,7 +434,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to start session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name,
           task: params.task,
         });
@@ -466,7 +467,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to get session directory", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name,
           task: params.task,
         });
@@ -500,7 +501,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to delete session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name || params.task,
         });
         throw error;
@@ -536,7 +537,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to update session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name || params.task,
         });
         throw error;
@@ -568,7 +569,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to approve session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name,
           task: params.task,
         });
@@ -606,7 +607,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to create session PR", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
           session: params.name,
           task: params.task,
         });
@@ -643,7 +644,7 @@ export function registerSessionCommands(): void {
         };
       } catch (error) {
         log.error("Failed to inspect session", {
-          error: error instanceof Error ? error.message : String(error),
+          error: getErrorMessage(error),
         });
         throw error;
       }

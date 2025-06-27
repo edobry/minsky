@@ -1021,7 +1021,7 @@ Resolution options:
     };
   } catch (error) {
     log.error("Session update failed", {
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       name,
     });
     if (error instanceof MinskyError) {
@@ -1145,7 +1145,7 @@ Need help? Run 'git status' to see what files have changed.
           throw error;
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Body file not found: ${params.bodyPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
@@ -1216,7 +1216,7 @@ Need help? Run 'git status' to see what files have changed.
         log.cli("Session updated successfully");
       } catch (error) {
         throw new MinskyError(
-          `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to update session before creating PR: ${getErrorMessage(error)}`
         );
       }
     } else {
@@ -1245,7 +1245,7 @@ Need help? Run 'git status' to see what files have changed.
           log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(
-            `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to update task status: ${getErrorMessage(error)}`
           );
         }
       }
@@ -1257,7 +1257,7 @@ Need help? Run 'git status' to see what files have changed.
       session: params.session,
       task: params.task,
       bodyPath: params.bodyPath,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -1428,7 +1428,7 @@ export async function approveSessionFromParams(
         log.cli(`Updated task ${taskId} status to DONE`);
       } catch (error) {
         // BUG FIX: Use proper logging instead of console.error and make error visible
-        const errorMsg = `Failed to update task status: ${error instanceof Error ? error.message : String(error)}`;
+        const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
         log.error(errorMsg, { taskId, error });
         log.cli(`Warning: ${errorMsg}`);
         // Still don't fail the whole operation, but now errors are visible
@@ -1441,7 +1441,7 @@ export async function approveSessionFromParams(
       throw error;
     } else {
       throw new MinskyError(
-        `Failed to approve session: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to approve session: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1573,7 +1573,7 @@ export async function sessionReviewFromParams(
     } catch (error) {
       // Just log and continue - session detection is optional
       log.debug("Failed to detect session from repo path", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         repoPath: params.repo,
       });
     }

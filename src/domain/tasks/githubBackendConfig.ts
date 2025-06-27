@@ -10,6 +10,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
+import { getErrorMessage } from "../../errors/index";
 
 // Load environment variables from .env file only if it exists
 const envPath = join(process.cwd(), ".env");
@@ -50,7 +51,7 @@ function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     });
     return null;
   }
@@ -133,7 +134,7 @@ export async function createGitHubLabels(
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
   }

@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -214,7 +215,7 @@ const sessionDbMigrateRegistration = {
     } catch (error) {
       log.error("Migration failed", {
         targetBackend,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return {
         success: false,

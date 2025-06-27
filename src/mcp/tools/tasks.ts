@@ -3,6 +3,7 @@ import { CommandMapper } from "../command-mapper.js";
 import { execSync } from "child_process";
 import { log } from "../../utils/logger";
 import { TASK_STATUS_VALUES } from "../../domain/tasks/taskConstants.js";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Register task-related tools with the MCP server
@@ -45,12 +46,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         return JSON.parse(output);
       } catch (error) {
         log.error("MCP: Error listing tasks via execSync", {
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to list tasks: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to list tasks: ${getErrorMessage(error)}`
         );
       }
     }
@@ -73,12 +74,12 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         return JSON.parse(output);
       } catch (error) {
         log.error(`MCP: Error getting task ${args.taskId} via execSync`, {
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });
         throw new Error(
-          `Failed to get task ${args.taskId}: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to get task ${args.taskId}: ${getErrorMessage(error)}`
         );
       }
     }
@@ -104,7 +105,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         };
       } catch (error) {
         log.error(`MCP: Error getting task status for ${args.taskId} via execSync`, {
-          originalError: error instanceof Error ? error.message : String(error),
+          originalError: getErrorMessage(error),
           stack: error instanceof Error ? error.stack : undefined,
           mcpArgs: args,
         });

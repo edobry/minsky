@@ -241,7 +241,7 @@ export class SessionWorkspaceService {
       log.debug("Path validation failed", {
         sessionId,
         relativePath,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       return false;
     }
