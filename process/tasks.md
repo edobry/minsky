@@ -347,3 +347,5 @@
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
 - [ ] Investigate and improve configuration system design [#181](/Users/edobry/Projects/minsky/process/tasks/181-investigate-and-improve-configuration-system-design.md)
+
+- [ ] Fix Task Operations to Use Main Workspace [#182](process/tasks/182-fix-task-operations-to-use-main-workspace.md)
