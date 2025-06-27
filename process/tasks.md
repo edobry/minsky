@@ -324,7 +324,7 @@
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [-] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
 - [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
 
