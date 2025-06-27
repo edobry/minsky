@@ -38,7 +38,7 @@ interface RefactorSummary {
 }
 
 class ErrorPatternCodemod {
-  private readonly errorPattern = /error\s+instanceof\s+Error\s*\?\s*error\.message\s*:\s*String\s*\(\s*error\s*\)/g;
+  private readonly errorPattern = /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/g;
   private readonly importPattern = /import\s*\{[^}]*getErrorMessage[^}]*\}\s*from\s*["'][^"']*errors[^"']*["']/;
   
   /**
@@ -101,8 +101,8 @@ class ErrorPatternCodemod {
     try {
       const originalContent = readFileSync(filePath, "utf-8") as string;
       
-      // Check if file contains the error pattern
-      if (!this.errorPattern.test(originalContent)) {
+      // Check if file contains the error pattern (including multi-line variations)
+      if (!this.containsErrorPattern(originalContent)) {
         return result; // No patterns found
       }
 
@@ -142,8 +142,10 @@ class ErrorPatternCodemod {
         if (match.index !== undefined) {
           // Verify this is a safe replacement by checking context
           if (this.isSafeReplacement(originalContent, match.index, match[0])) {
-            // Perform the replacement
-            modifiedContent = modifiedContent.replace(match[0], "getErrorMessage(error)");
+            // Perform the replacement using the captured variable name
+            const variableName = match[1] || "error";
+            const replacement = `getErrorMessage(${variableName})`;
+            modifiedContent = modifiedContent.replace(match[0], replacement);
             result.replacements++;
           }
         }
@@ -187,6 +189,24 @@ class ErrorPatternCodemod {
       result.errors.push(`Processing error: ${error instanceof Error ? error.message : String(error)}`);
       return result;
     }
+  }
+
+  /**
+   * Check if content contains error patterns (including multi-line variations)
+   */
+  private containsErrorPattern(content: string): boolean {
+    // First check with the main pattern
+    if (this.errorPattern.test(content)) {
+      this.errorPattern.lastIndex = 0; // Reset for later use
+      return true;
+    }
+
+    // Also check for patterns that might be spread across lines
+    const normalizedContent = content.replace(/\s+/g, " ");
+    const flexiblePattern = /(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\s*:\s*String\s*\(\s*\1\s*\)/g;
+    const hasPattern = flexiblePattern.test(normalizedContent);
+    flexiblePattern.lastIndex = 0; // Reset
+    return hasPattern;
   }
 
   /**
