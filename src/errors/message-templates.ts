@@ -222,11 +222,20 @@ export function createCommandFailureMessage(
 }
 
 /**
+ * Session error types
+ */
+export enum SessionErrorType {
+  NOT_FOUND = "not_found",
+  ALREADY_EXISTS = "exists", 
+  INVALID = "invalid"
+}
+
+/**
  * Template for session-related errors
  */
 export function createSessionErrorMessage(
   sessionName: string,
-  errorType: "not_found" | "exists" | "invalid",
+  errorType: SessionErrorType,
   context?: ContextInfo[]
 ): string {
   const templates = {
@@ -304,6 +313,36 @@ export function createSessionErrorMessage(
   };
   
   return buildErrorMessage(template, context);
+}
+
+/**
+ * Convenience function for session not found errors
+ */
+export function createSessionNotFoundMessage(
+  sessionName: string,
+  context?: ContextInfo[]
+): string {
+  return createSessionErrorMessage(sessionName, SessionErrorType.NOT_FOUND, context);
+}
+
+/**
+ * Convenience function for session already exists errors
+ */
+export function createSessionExistsMessage(
+  sessionName: string,
+  context?: ContextInfo[]
+): string {
+  return createSessionErrorMessage(sessionName, SessionErrorType.ALREADY_EXISTS, context);
+}
+
+/**
+ * Convenience function for invalid session errors
+ */
+export function createInvalidSessionMessage(
+  sessionName: string,
+  context?: ContextInfo[]
+): string {
+  return createSessionErrorMessage(sessionName, SessionErrorType.INVALID, context);
 }
 
 /**

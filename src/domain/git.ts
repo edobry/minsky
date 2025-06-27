@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
 import { SessionDB, createSessionProvider } from "./session";
 import { TaskService, TASK_STATUS } from "./tasks";
-import { MinskyError } from "../errors/index";
+import { MinskyError, createSessionNotFoundMessage, createErrorContext } from "../errors/index";
 import { log } from "../utils/logger";
 
 const execAsync = promisify(exec);
@@ -577,31 +577,11 @@ You need to specify one of these options to identify the target repository:
 
     const session = await deps.getSession(sessionName);
     if (!session) {
-      throw new MinskyError(`
-🔍 Session "${sessionName}" Not Found
-
-The session you're trying to create a PR for doesn't exist.
-
-💡 What you can do:
-
-📋 List all available sessions:
-   minsky sessions list
-
-🔍 Check if session exists:
-   minsky sessions get --name "${sessionName}"
-
-🆕 Create a new session:
-   minsky session start "${sessionName}"
-
-🎯 Use a different session:
-   minsky sessions list  # Find existing session
-   minsky git pr --session "existing-session"
-
-📁 Or target a specific repository directly:
-   minsky git pr --repo-path "/path/to/your/repo"
-
-Need help? Run: minsky git pr --help
-`);
+      const context = createErrorContext()
+        .addCommand("minsky git pr")
+        .build();
+      
+      throw new MinskyError(createSessionNotFoundMessage(sessionName, context));
     }
     const repoName = session.repoName || normalizeRepoName(session.repoUrl);
     const workdir = deps.getSessionWorkdir(repoName, sessionName);
