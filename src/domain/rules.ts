@@ -3,7 +3,8 @@ import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = 7;
+import { log } from "../utils/logger";
+import { getErrorMessage } from "../errors/index";const COMMIT_HASH_SHORT_LENGTH = 7;
 
 // Added logger import
 import * as jsYaml from "js-yaml";
@@ -118,7 +119,7 @@ export class RuleService {
           } catch (error) {
             log.error("Error processing rule file", {
               file,
-              originalError: error instanceof Error ? error.message : String(error),
+              originalError: getErrorMessage(error),
               stack: error instanceof Error ? error.stack : undefined,
             });
           }
@@ -128,7 +129,7 @@ export class RuleService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
             format,
-            originalError: error instanceof Error ? error.message : String(error),
+            originalError: getErrorMessage(error),
             stack: error instanceof Error ? error.stack : undefined,
           });
         }

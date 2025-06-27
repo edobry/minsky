@@ -12,6 +12,7 @@ import {
   extractRepositoryInfo,
   detectRepositoryFromCwd,
 } from "./uri-utils.js";
+import { getErrorMessage } from "../errors/index";
 
 /**
  * Repository URI types that match the formats in UriFormat
@@ -164,7 +165,7 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
   } catch (error) {
     return {
       valid: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }
