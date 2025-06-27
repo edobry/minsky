@@ -65,7 +65,7 @@ export type CommandParameterMap = Record<string, CommandParameterDefinition>;
  * Represents a command execution handler function
  */
 export type CommandExecutionHandler<
-  T extends CommandParameterMap = CommandParameterMap,
+  T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
   R = unknown,
 > = (
   parameters: { [K in keyof T]: z.infer<T[K]["schema"]> },
@@ -76,7 +76,7 @@ export type CommandExecutionHandler<
  * Represents a command registration in the shared registry
  */
 export interface CommandDefinition<
-  T extends CommandParameterMap = CommandParameterMap,
+  T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
   R = unknown,
 > {
   /** Unique command identifier */
@@ -103,7 +103,7 @@ export interface SharedCommand {
   name: string;
   description: string;
   parameters: CommandParameterMap;
-  execute: (params: Record<string, any>, context: CommandExecutionContext) => Promise<any>;
+  execute: (_params: unknown) => Promise<any>;
 }
 
 /**
@@ -115,7 +115,12 @@ export interface CommandRegistry {
    *
    * @param commandDef Command definition to register
    */
-  registerCommand<T extends CommandParameterMap, R>(commandDef: CommandDefinition<T, R>): void;
+  registerCommand<
+    T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    R = unknown,
+  >(
+    commandDef: CommandDefinition<T, R>
+  ): void;
 
   /**
    * Get a command by its identifier
@@ -131,7 +136,7 @@ export interface CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): SharedCommand[];
+  getCommandsByCategory(_category: CommandCategory): SharedCommand[];
 
   /**
    * List all registered commands
@@ -154,10 +159,10 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param options Registration options
    * @throws {MinskyError} If command with same ID is already registered and allowOverwrite is false
    */
-  registerCommand<T extends CommandParameterMap, R>(
-    commandDef: CommandDefinition<T, R>,
-    options: { allowOverwrite?: boolean } = {}
-  ): void {
+  registerCommand<
+    T extends CommandParameterMap = Record<string, CommandParameterDefinition>,
+    R = unknown,
+  >(commandDef: CommandDefinition<T, R>, options: { allowOverwrite?: boolean } = {}): void {
     if (this.commands.has(commandDef.id) && !options.allowOverwrite) {
       throw new MinskyError(`Command with ID '${commandDef.id}' is already registered`);
     }
@@ -181,8 +186,8 @@ export class SharedCommandRegistry implements CommandRegistry {
    * @param category Command category
    * @returns Array of command definitions
    */
-  getCommandsByCategory(category: CommandCategory): SharedCommand[] {
-    return Array.from(this.commands.values()).filter((cmd) => cmd.category === category);
+  getCommandsByCategory(_category: CommandCategory): SharedCommand[] {
+    return Array.from(this.commands.values()).filter((cmd) => cmd.category === _category);
   }
 
   /**

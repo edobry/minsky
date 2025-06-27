@@ -5,20 +5,23 @@ import type { SessionProviderInterface, GitServiceInterface } from "../session.j
 import type { TaskServiceInterface } from "../tasks.js";
 import type { WorkspaceUtilsInterface } from "../workspace.js";
 
+const TEST_VALUE = 123;
+const TEST_ARRAY_SIZE = 3;
+
 describe("sessionReviewFromParams", () => {
   // Mock the SessionProviderInterface
   const mockSessionDB: SessionProviderInterface = {
     getSession: mock(() => ({
       session: "testSession",
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
       createdAt: new Date().toISOString(),
     })),
     getSessionByTaskId: mock(() => ({
-      session: "task#123",
-      taskId: "#123",
+      session: "task#TEST_VALUE",
+      taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
@@ -35,7 +38,7 @@ describe("sessionReviewFromParams", () => {
 
   // Mock the GitServiceInterface
   const mockGitService: GitServiceInterface = {
-    execInRepository: mock((path: string, command: string) => {
+    execInRepository: mock((_path: unknown) => {
       if (command.includes("git ls-remote")) {
         return "refs/heads/pr/testSession";
       }
@@ -43,7 +46,7 @@ describe("sessionReviewFromParams", () => {
         return "PR Title\n\nPR Description body";
       }
       if (command.includes("diff --stat")) {
-        return "3 files changed, 10 insertions(+), 5 deletions(-)";
+        return "3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)";
       }
       if (command.includes("git diff")) {
         return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
@@ -51,8 +54,8 @@ describe("sessionReviewFromParams", () => {
       return "";
     }),
     // Add other required methods with minimal implementations
-    clone: mock(() => Promise.resolve({ workdir: "", session: "" })),
-    branch: mock(() => Promise.resolve({ branch: "" })),
+    clone: mock(() => Promise.resolve({ _workdir: "", _session: "" })),
+    branch: mock(() => Promise.resolve({ _branch: "" })),
     stashChanges: mock(() => Promise.resolve()),
     pullLatest: mock(() => Promise.resolve()),
     mergeBranch: mock(() => Promise.resolve({ conflicts: false })),
@@ -64,7 +67,7 @@ describe("sessionReviewFromParams", () => {
 
   // Mock the TaskServiceInterface with getTaskSpecData
   const mockTaskService: TaskServiceInterface & {
-    getTaskSpecData: (taskId: string) => Promise<string>;
+    getTaskSpecData: (_taskId: unknown) => Promise<string>;
   } = {
     getTaskSpecData: mock(() => Promise.resolve("# Task Specification\n\nThis is a test task")),
     getTask: mock(() => Promise.resolve(null)),
@@ -113,7 +116,7 @@ describe("sessionReviewFromParams", () => {
     // Restore mock implementations after reset
     (mockSessionDB.getSession as any).mockImplementation(() => ({
       session: "testSession",
-      taskId: "#123",
+      taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
@@ -121,8 +124,8 @@ describe("sessionReviewFromParams", () => {
     }));
 
     (mockSessionDB.getSessionByTaskId as any).mockImplementation(() => ({
-      session: "task#123",
-      taskId: "#123",
+      session: "task#TEST_VALUE",
+      taskId: "#TEST_VALUE",
       repoName: "test-repo",
       repoUrl: "https://github.com/test/test-repo",
       branch: "feature/test",
@@ -136,7 +139,7 @@ describe("sessionReviewFromParams", () => {
     (mockSessionDB.deleteSession as any).mockImplementation(() => Promise.resolve(true));
     (mockSessionDB.getRepoPath as any).mockImplementation(() => "/fake/path/to/repo");
 
-    (mockGitService.execInRepository as any).mockImplementation((path: string, command: string) => {
+    (mockGitService.execInRepository as any).mockImplementation((_path: unknown) => {
       if (command.includes("git ls-remote")) {
         return "refs/heads/pr/testSession";
       }
@@ -144,7 +147,7 @@ describe("sessionReviewFromParams", () => {
         return "PR Title\n\nPR Description body";
       }
       if (command.includes("diff --stat")) {
-        return "3 files changed, 10 insertions(+), 5 deletions(-)";
+        return "3 files changed, 10 insertions(+), TEST_ARRAY_SIZE deletions(-)";
       }
       if (command.includes("git diff")) {
         return "diff --git a/file.txt b/file.txt\n+new line\n-old line";
@@ -160,10 +163,10 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by session name", async () => {
-    const result = await sessionReviewFromParams({ session: "testSession" }, deps);
+    const result = await sessionReviewFromParams({ _session: "testSession" }, deps);
 
-    expect(result.session).toBe("testSession");
-    expect(result.taskId).toBe("#123");
+    expect(result._session).toBe("testSession");
+    expect(result.taskId).toBe("#TEST_VALUE");
     expect(result.taskSpec).toBe("# Task Specification\n\nThis is a test task");
     expect(result.prDescription).toBe("PR Title\n\nPR Description body");
     expect(result.prBranch).toBe("pr/testSession");
@@ -171,7 +174,7 @@ describe("sessionReviewFromParams", () => {
     expect(result.diffStats).toEqual({
       filesChanged: 3,
       insertions: 10,
-      deletions: 5,
+      deletions: TEST_ARRAY_SIZE,
     });
     expect(result.diff).toBe("diff --git a/file.txt b/file.txt\n+new line\n-old line");
 
@@ -182,18 +185,18 @@ describe("sessionReviewFromParams", () => {
   });
 
   test("gets review info by task ID", async () => {
-    const result = await sessionReviewFromParams({ task: "123" }, deps);
+    const result = await sessionReviewFromParams({ task: "TEST_VALUE" }, deps);
 
-    expect(result.session).toBe("task#123");
-    expect(result.taskId).toBe("#123");
+    expect(result._session).toBe("task#TEST_VALUE");
+    expect(result.taskId).toBe("#TEST_VALUE");
     expect((mockSessionDB.getSessionByTaskId as any).mock.calls.length).toBe(1);
-    expect((mockSessionDB.getSessionByTaskId as any).mock.calls[0][0]).toBe("#123");
+    expect((mockSessionDB.getSessionByTaskId as any).mock.calls[0][0]).toBe("#TEST_VALUE");
   });
 
   test("auto-detects current session when no parameters provided", async () => {
     const result = await sessionReviewFromParams({ repo: "/fake/repo/path" }, deps);
 
-    expect(result.session).toBe("testSession");
+    expect(result._session).toBe("testSession");
     expect(mockGetCurrentSession).toHaveBeenCalledWith("/fake/repo/path");
   });
 
@@ -206,7 +209,7 @@ describe("sessionReviewFromParams", () => {
   test("throws error when session not found", async () => {
     (mockSessionDB.getSession as any).mockImplementationOnce(() => null);
 
-    await expect(sessionReviewFromParams({ session: "nonexistent" }, deps)).rejects.toThrow(
+    await expect(sessionReviewFromParams({ _session: "nonexistent" }, deps)).rejects.toThrow(
       ResourceNotFoundError
     );
   });

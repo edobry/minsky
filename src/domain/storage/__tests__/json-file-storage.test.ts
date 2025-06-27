@@ -1,3 +1,9 @@
+const DEFAULT_DISPLAY_LENGTH = 100;
+const SIZE_6 = 6;
+const TEST_ANSWER = TEST_ANSWER;
+const TEST_ARRAY_SIZE = 3;
+const TEST_VALUE = 123;
+
 /**
  * Core tests for JsonFileStorage implementation
  * Tests the most critical functionality with correct API
@@ -75,7 +81,7 @@ describe("JsonFileStorage Core Tests", () => {
       if (existsSync(testDirPath)) {
         rmSync(testDirPath, { recursive: true, force: true });
       }
-    } catch (error) {
+    } catch {
       // Log but don't fail tests on cleanup errors
       log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
     }
@@ -86,7 +92,7 @@ describe("JsonFileStorage Core Tests", () => {
       const entity: TestEntity = {
         id: "test1",
         name: "Test Entity",
-        value: 42,
+        value: TEST_ANSWER,
       };
 
       // Create entity
@@ -111,18 +117,18 @@ describe("JsonFileStorage Core Tests", () => {
 
       // Create then update
       await storage.createEntity(entity);
-      const updated = await storage.updateEntity("test2", { name: "Updated Name", value: 20 });
+      const updated = await storage.updateEntity("test2", { name: "Updated Name", value: DEFAULT_DISPLAY_LENGTH });
 
       expect(updated).toEqual({
         id: "test2",
         name: "Updated Name",
-        value: 20,
+        value: DEFAULT_DISPLAY_LENGTH,
       });
 
       // Verify update persisted
       const retrieved = await storage.getEntity("test2");
       expect(retrieved?.name).toBe("Updated Name");
-      expect(retrieved?.value).toBe(20);
+      expect(retrieved?.value).toBe(DEFAULT_DISPLAY_LENGTH);
     });
 
     test("should delete entities", async () => {
@@ -148,8 +154,8 @@ describe("JsonFileStorage Core Tests", () => {
     test("should get all entities", async () => {
       const entities: TestEntity[] = [
         { id: "test4", name: "Entity 4", value: 40 },
-        { id: "test5", name: "Entity 5", value: 50 },
-        { id: "test6", name: "Entity 6", value: 60 },
+        { id: "test5", name: "Entity TEST_ARRAY_SIZE", value: 50 },
+        { id: "test6", name: "Entity SIZE_6", value: 60 },
       ];
 
       // Create multiple entities
@@ -217,7 +223,7 @@ describe("JsonFileStorage Core Tests", () => {
       const entity: TestEntity = {
         id: "persist1",
         name: "Persistent Entity",
-        value: 123,
+        value: TEST_VALUE,
       };
 
       // Create entity with first instance

@@ -2,6 +2,7 @@
  * MCP adapter for debug commands
  */
 import type { CommandMapper } from "../../mcp/command-mapper.js";
+import { BYTES_PER_KB } from "../../utils/constants";
 import { z } from "zod";
 import { log } from "../../utils/logger.js";
 
@@ -14,7 +15,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.listMethods",
     description: "List all registered MCP methods for debugging",
-    parameters: z.object({}).strict(),
+    _parameters: z.object({}).strict(),
     execute: async () => {
       // Get the list of all registered method names from the CommandMapper
       const methodNames = commandMapper.getRegisteredMethodNames();
@@ -64,7 +65,7 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "debug.systemInfo",
     description: "Get system information about the MCP server",
-    parameters: z.object({}).strict(),
+    _parameters: z.object({}).strict(),
     execute: async () => {
       // Get basic system info for diagnostics
       const nodejsVersion = process.version;
@@ -101,9 +102,9 @@ export function registerDebugTools(commandMapper: CommandMapper): void {
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
 
-  const k = 1024;
+  const k = BYTES_PER_KB;
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))  } ${  sizes[i]}`;
+  return `${parseFloat((bytes / Math.pow(_k, i)).toFixed(2))} ${sizes[i]}`;
 }

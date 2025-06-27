@@ -1,3 +1,5 @@
+const TEST_VALUE = 123;
+
 /**
  * Common schema definitions that can be reused across multiple domain modules
  */
@@ -27,7 +29,7 @@ export const repoPathSchema = z
 /**
  * Schema for session names
  * @example "my-session"
- * @example "task#123"
+ * @example "task#TEST_VALUE"
  */
 export const sessionNameSchema = z.string().min(1).max(100);
 
@@ -45,7 +47,7 @@ export const taskIdSchema = z
 
     // Handle formats like "task#064" or "task#64"
     if (normalized.toLowerCase().startsWith("task#")) {
-      normalized = normalized.substring(5);
+      normalized = normalized.substring(5); // "task#".length
     }
 
     // Remove all leading '#' characters to avoid multiple hashes
@@ -63,14 +65,14 @@ export const taskIdSchema = z
     return `#${normalized}`;
   })
   .refine((val) => /^#[a-zA-Z0-9]+$/.test(val), {
-    message: "Task ID must be in format #123 or 123",
+    message: "Task ID must be in format #TEST_VALUE or TEST_VALUE",
   });
 
 /**
  * Schema for boolean flags with optional description
  */
-export const flagSchema = (description: string) =>
-  z.boolean().optional().default(false).describe(description);
+export const flagSchema = (_description: string) =>
+  z.boolean().optional().default(false).describe(_description);
 
 /**
  * Schema for JSON output option

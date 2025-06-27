@@ -23,7 +23,7 @@ describe("MCP Server", () => {
     try {
       require("fastmcp");
       importSucceeded = true;
-    } catch (error) {
+    } catch {
       importSucceeded = false;
     }
     expect(importSucceeded).toBe(true);

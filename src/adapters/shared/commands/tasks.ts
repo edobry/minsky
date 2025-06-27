@@ -11,8 +11,8 @@ import { select, isCancel, cancel } from "@clack/prompts";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandParameterMap,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import {
   getTaskStatusFromParams,
@@ -22,6 +22,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndDescription,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -164,7 +165,7 @@ const tasksStatusGetRegistration = {
   name: "status get",
   description: "Get the status of a task",
   parameters: tasksStatusGetParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -193,9 +194,11 @@ const tasksStatusSetRegistration = {
   description: "Set the status of a task",
   parameters: tasksStatusSetParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
+    log.systemDebug("Starting tasks.status.set execution");
     if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
 
     // Normalize and validate task ID first
+    log.systemDebug("About to normalize task ID");
     const normalizedTaskId = normalizeTaskId(params.taskId);
     if (!normalizedTaskId) {
       throw new ValidationError(
@@ -205,6 +208,7 @@ const tasksStatusSetRegistration = {
 
     // Verify the task exists before prompting for status and get current status
     // This will throw ResourceNotFoundError if task doesn't exist
+    log.systemDebug("About to get previous status");
     const previousStatus = await getTaskStatusFromParams({
       taskId: normalizedTaskId,
       repo: params.repo,
@@ -212,6 +216,7 @@ const tasksStatusSetRegistration = {
       session: params.session,
       backend: params.backend,
     });
+    log.systemDebug("Previous status retrieved successfully");
 
     let status = params.status;
 
@@ -250,7 +255,8 @@ const tasksStatusSetRegistration = {
         return "Operation cancelled by user";
       }
 
-      status = selectedStatus;
+      // Re-assign status from the interactive prompt
+      status = selectedStatus as string;
     }
 
     if (!status) throw new ValidationError("Missing required parameter: status");
@@ -282,7 +288,7 @@ const tasksSpecRegistration = {
   name: "spec",
   description: "Get task specification content",
   parameters: tasksSpecParams,
-  execute: async (params, _ctx: CommandExecutionContext) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     try {
       const normalizedTaskId = normalizeTaskId(params.taskId);
       if (!normalizedTaskId) {
@@ -399,10 +405,20 @@ const tasksGetParams: CommandParameterMap = {
  * Parameters for tasks create command
  */
 const tasksCreateParams: CommandParameterMap = {
-  specPath: {
+  title: {
     schema: z.string().min(1),
-    description: "Path to the task specification document",
+    description: "Title for the task",
     required: true,
+  },
+  description: {
+    schema: z.string(),
+    description: "Description text for the task",
+    required: false,
+  },
+  descriptionPath: {
+    schema: z.string(),
+    description: "Path to file containing task description",
+    required: false,
   },
   force: {
     schema: z.boolean().default(false),
@@ -488,12 +504,28 @@ const tasksCreateRegistration = {
   id: "tasks.create",
   category: CommandCategory.TASKS,
   name: "create",
-  description: "Create a new task from a specification document",
+  description: "Create a new task with --title and --description",
   parameters: tasksCreateParams,
   execute: async (params, ctx) => {
-    if (!params.specPath) throw new ValidationError("Missing required parameter: specPath");
-    return await createTaskFromParams({
-      specPath: params.specPath,
+    // Title is required by schema, but validate it's provided
+    if (!params.title) {
+      throw new ValidationError("Title is required");
+    }
+
+    // Validate that either description or descriptionPath is provided
+    if (!params.description && !params.descriptionPath) {
+      throw new ValidationError("Either --description or --description-path must be provided");
+    }
+
+    // Both description and descriptionPath provided is an error
+    if (params.description && params.descriptionPath) {
+      throw new ValidationError("Cannot provide both --description and --description-path - use one or the other");
+    }
+
+    return await createTaskFromTitleAndDescription({
+      title: params.title,
+      description: params.description,
+      descriptionPath: params.descriptionPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,
@@ -593,7 +625,7 @@ const tasksMigrateRegistration = {
       try {
         parsedStatusMapping = JSON.parse(statusMapping);
       } catch (error) {
-        throw new ValidationError(`Invalid status mapping JSON: ${error}`);
+        throw new ValidationError(`Invalid status mapping JSON: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -644,7 +676,7 @@ const tasksMigrateRegistration = {
           total: result.migratedCount + result.skippedCount,
           errors: result.errors.length,
         },
-        conflicts: [], // TODO: Add conflict details from result
+        conflicts: [] as Array<{ taskId: string; resolution: string }>, // TODO: Add conflict details from result
         backupPath: result.backupPath,
       };
 

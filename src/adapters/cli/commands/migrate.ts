@@ -63,10 +63,14 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
     // Validate backend names
     const validBackends = ["markdown", "json-file", "github-issues"];
     if (!validBackends.includes(options.from)) {
-      throw new Error(`Invalid source backend: ${options.from}. Valid options: ${validBackends.join(", ")}`);
+      throw new Error(
+        `Invalid source backend: ${options.from}. Valid options: ${validBackends.join(", ")}`
+      );
     }
     if (!validBackends.includes(options.to)) {
-      throw new Error(`Invalid target backend: ${options.to}. Valid options: ${validBackends.join(", ")}`);
+      throw new Error(
+        `Invalid target backend: ${options.to}. Valid options: ${validBackends.join(", ")}`
+      );
     }
 
     // Create task services for source and target backends
@@ -103,7 +107,7 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
       preserveIds: options.preserveIds ?? true,
       dryRun: options.dryRun ?? false,
       statusMapping,
-      idConflictStrategy: options.idConflictStrategy as "skip" | "rename" | "overwrite" ?? "skip",
+      idConflictStrategy: (options.idConflictStrategy as "skip" | "rename" | "overwrite") ?? "skip",
       rollbackOnFailure: options.rollbackOnFailure ?? true,
       createBackup: options.createBackup ?? true,
     };
@@ -119,16 +123,15 @@ async function handleMigrateCommand(options: MigrateCommandOptions): Promise<voi
       log.cli("Migration completed successfully!");
       log.cli(`  - Migrated: ${result.migratedCount} tasks`);
       log.cli(`  - Skipped: ${result.skippedCount} tasks`);
-      
+
       if (result.backupPath) {
         log.cli(`  - Backup created: ${result.backupPath}`);
       }
     } else {
       log.cliError("Migration failed:");
-      result.errors.forEach(error => log.cliError(`  - ${error}`));
+      result.errors.forEach((error) => log.cliError(`  - ${error}`));
       throw new Error("Migration operation failed");
     }
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.cliError(`Migration failed: ${errorMessage}`);
@@ -145,10 +148,10 @@ async function promptConfirmation(message: string): Promise<boolean> {
     const { confirm } = await import("@clack/prompts");
     const result = await confirm({ message });
     return Boolean(result);
-  } catch {
+  } catch (_error) {
     // Fallback - just log warning and proceed
     log.cliWarn("Interactive prompts not available. Proceeding with migration...");
     log.cli(`Confirmation requested: ${message}`);
     return true;
   }
-} 
+}

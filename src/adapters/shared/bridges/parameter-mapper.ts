@@ -8,6 +8,7 @@
 import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
+import { paramNameToFlag } from "../schema-bridge";
 
 /**
  * Configuration options for parameter mapping
@@ -18,15 +19,15 @@ export interface ParameterMappingOptions {
   /** Override the parameter description */
   description?: string;
   /** Override the default value */
-  defaultValue?: any;
+  defaultValue?: unknown;
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
-  validator?: (value: any) => boolean;
+  validator?: (value: unknown) => boolean;
   /** Custom error message for validation failures */
   errorMessage?: string;
   /** Custom parser for the value */
-  parser?: (value: string) => any;
+  parser?: (value: unknown) => any;
   /** Whether to handle this as a variadic parameter */
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
@@ -62,8 +63,7 @@ export function addArgumentsFromMappings(command: Command, mappings: ParameterMa
       return 0;
     })
     .forEach((mapping) => {
-      // Get schema type for proper argument definition
-      const schemaType = getZodSchemaType(mapping.paramDef.schema);
+      // Schema type not needed for arguments, only for options
 
       // Format the argument name
       const argName = formatArgumentName(
@@ -124,8 +124,8 @@ function formatOptionFlag(name: string, alias?: string, schemaType?: string): st
     flag += `-${alias}, `;
   }
 
-  // Add main flag
-  flag += `--${name}`;
+  // Add main flag with kebab-case conversion
+  flag += `--${paramNameToFlag(name)}`;
 
   // Add value placeholder for non-boolean types
   if (schemaType !== "boolean") {
@@ -162,7 +162,7 @@ function formatArgumentName(name: string, required: boolean, variadic?: boolean)
 function addTypeHandlingToOption(
   option: Option,
   schemaType?: string,
-  customParser?: (value: string) => any
+  customParser?: (value: unknown) => any
 ): Option {
   // If a custom parser is provided, use it
   if (customParser) {
@@ -245,9 +245,9 @@ export function createParameterMappings(
  */
 export function normalizeCliParameters(
   parametersSchema: Record<string, CommandParameterDefinition>,
-  cliParameters: Record<string, any>
-): Record<string, any> {
-  const result: Record<string, any> = {};
+  cliParameters: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
 
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {

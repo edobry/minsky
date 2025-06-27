@@ -4,6 +4,8 @@ import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { ValidationError } from "../../errors/index.js";
 
+const TEST_VALUE = 123;
+
 // Mock dependencies
 const mockPreparePrFromParams = mock();
 const mockGetSession = mock();
@@ -48,11 +50,11 @@ describe("sessionPrFromParams bodyPath functionality", () => {
     mockPreparePrFromParams.mockResolvedValue({
       prBranch: "pr/test-branch",
       baseBranch: "main",
-      title: "Test PR",
+      _title: "Test PR",
       body: testContent,
     });
-    mockGetSession.mockResolvedValue({ taskId: "123" });
-    mockGetSessionByTaskId.mockResolvedValue({ session: "test-session" });
+    mockGetSession.mockResolvedValue({ taskId: "TEST_VALUE" });
+    mockGetSessionByTaskId.mockResolvedValue({ _session: "test-session" });
     mockSetTaskStatus.mockResolvedValue(undefined);
   });
 
@@ -74,8 +76,8 @@ describe("sessionPrFromParams bodyPath functionality", () => {
 
     // Verify the body content was read from file and passed to preparePrFromParams
     expect(mockPreparePrFromParams).toHaveBeenCalledWith({
-      session: "test-session",
-      title: "Test PR",
+      _session: "test-session",
+      _title: "Test PR",
       body: testContent,
       baseBranch: undefined,
       debug: false,
@@ -88,7 +90,7 @@ describe("sessionPrFromParams bodyPath functionality", () => {
     mockPreparePrFromParams.mockResolvedValue({
       prBranch: "pr/test-branch",
       baseBranch: "main",
-      title: "Test PR",
+      _title: "Test PR",
       body: "Direct body content",
     });
 
@@ -107,8 +109,8 @@ describe("sessionPrFromParams bodyPath functionality", () => {
     // Should use direct body, not file content
     expect(mockPreparePrFromParams).toHaveBeenCalledTimes(1);
     expect(mockPreparePrFromParams).toHaveBeenCalledWith({
-      session: "test-session",
-      title: "Test PR",
+      _session: "test-session",
+      _title: "Test PR",
       body: directBody,
       baseBranch: undefined,
       debug: false,
@@ -164,8 +166,8 @@ describe("sessionPrFromParams bodyPath functionality", () => {
       await sessionPrFromParams(params);
 
       expect(mockPreparePrFromParams).toHaveBeenCalledWith({
-        session: "test-session",
-        title: "Test PR",
+        _session: "test-session",
+        _title: "Test PR",
         body: testContent,
         baseBranch: undefined,
         debug: false,

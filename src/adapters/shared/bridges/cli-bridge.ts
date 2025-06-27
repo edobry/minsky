@@ -8,8 +8,6 @@ import { Command } from "commander";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandDefinition,
-  type CommandParameterMap,
   type CommandExecutionContext,
   type SharedCommand,
 } from "../command-registry";
@@ -55,7 +53,7 @@ export interface CliCommandOptions {
   /** Custom examples to show in help */
   examples?: string[];
   /** Custom output formatter */
-  outputFormatter?: (result: any) => void;
+  outputFormatter?: (_result: unknown) => void;
 }
 
 /**
@@ -126,6 +124,8 @@ export class CliCommandBridge {
    * @internal
    */
   generateCommand(commandId: string, context?: { viaFactory?: boolean }): Command | null {
+    log.systemDebug(`generateCommand called with commandId: ${commandId}`);
+
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -134,14 +134,17 @@ export class CliCommandBridge {
     }
 
     const commandDef = sharedCommandRegistry.getCommand(commandId);
+    log.systemDebug(`commandDef found: ${!!commandDef}`);
     if (!commandDef) {
       return null;
     }
 
     const options = this.getCommandOptions(commandId);
+    log.systemDebug(`options retrieved: ${!!options}`);
 
     // Create the basic command
     const command = new Command(commandDef.name).description(commandDef.description);
+    log.systemDebug(`command created: ${command.name()}`);
 
     // Add aliases if specified
     if (options.aliases?.length) {
@@ -155,7 +158,9 @@ export class CliCommandBridge {
     }
 
     // Create parameter mappings
+    log.systemDebug("About to create parameter mappings");
     const mappings = this.createCommandParameterMappings(commandDef, options);
+    log.systemDebug(`Parameter mappings created: ${mappings.length}`);
 
     // Add arguments to the command
     addArgumentsFromMappings(command, mappings);
@@ -232,7 +237,10 @@ export class CliCommandBridge {
    * ⚠️  WARNING: Use CLI Command Factory instead for proper customization support
    * @internal
    */
-  generateCategoryCommand(category: CommandCategory, context?: { viaFactory?: boolean }): Command | null {
+  generateCategoryCommand(
+    category: CommandCategory,
+    context?: { viaFactory?: boolean }
+  ): Command | null {
     // Warn about direct usage in development (but not when called via factory)
     if (process.env.NODE_ENV !== "production" && !context?.viaFactory) {
       log.warn(
@@ -351,7 +359,7 @@ export class CliCommandBridge {
     commandDef: SharedCommand,
     options: CliCommandOptions
   ): ParameterMapping[] {
-    const mappings = createParameterMappings(commandDef.parameters, options.parameters || {});
+    const mappings = createParameterMappings(commandDef.parameters || {}, options.parameters || {});
 
     // If automatic argument generation is enabled
     if (options.useFirstRequiredParamAsArgument && !options.forceOptions) {
@@ -371,11 +379,11 @@ export class CliCommandBridge {
    * Extract raw parameters from CLI options and arguments
    */
   private extractRawParameters(
-    parameters: CommandParameterMap,
-    options: Record<string, any>,
-    positionalArgs: any[],
+    parameters: Record<string, unknown>,
+    options: Record<string, unknown>,
+    positionalArgs: unknown[],
     mappings: ParameterMapping[]
-  ): Record<string, any> {
+  ): Record<string, unknown> {
     const result = { ...options };
 
     // Map positional arguments to parameter names
@@ -401,9 +409,9 @@ export class CliCommandBridge {
   /**
    * Get a default formatter for command results
    */
-  private getDefaultFormatter(commandDef: SharedCommand): (result: any) => void {
+  private getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
     // Very simple default formatter
-    return (result: any) => {
+    return (result: unknown) => {
       if (Array.isArray(result)) {
         // Handle arrays specifically
         if (result.length === 0) {
@@ -433,8 +441,8 @@ export class CliCommandBridge {
         } else if (commandDef.id === "session.list" && result.sessions) {
           // Handle session list results
           if (Array.isArray(result.sessions) && result.sessions.length > 0) {
-            result.sessions.forEach((session: Record<string, unknown>) => {
-              this.formatSessionSummary(session);
+            result.sessions.forEach((_session: unknown) => {
+              this.formatSessionSummary(_session);
             });
           } else {
             log.cli("No sessions found.");
@@ -443,7 +451,7 @@ export class CliCommandBridge {
           // Handle rules list results
           if (Array.isArray(result.rules)) {
             if (result.rules.length > 0) {
-              result.rules.forEach((rule: Record<string, unknown>) => {
+              result.rules.forEach((rule: unknown) => {
                 this.formatRuleSummary(rule);
               });
             } else {
@@ -502,10 +510,10 @@ export class CliCommandBridge {
 
     // Display session information in a user-friendly format
     if (session.session) log.cli(`Session: ${session.session}`);
-    if (session.taskId) log.cli(`Task ID: ${session.taskId}`);
+    if (session._taskId) log.cli(`Task ID: ${session._taskId}`);
     if (session.repoName) log.cli(`Repository: ${session.repoName}`);
     if (session.repoPath) log.cli(`Session Path: ${session.repoPath}`);
-    if (session.branch) log.cli(`Branch: ${session.branch}`);
+    if (session._branch) log.cli(`Branch: ${session._branch}`);
     if (session.createdAt) log.cli(`Created: ${session.createdAt}`);
     if (session.backendType) log.cli(`Backend: ${session.backendType}`);
     if (session.repoUrl && session.repoUrl !== session.repoName) {

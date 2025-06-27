@@ -1,11 +1,15 @@
 ---
 description: REQUIRED when user signals error, confusion, dissatisfaction, or expresses preferences for future behavior
-globs: 
+globs:
 alwaysApply: false
 ---
 # Self-Improvement
 
 When the user indicates that your actions, reasoning, or responses are incorrect or suboptimal, or when they express preferences for future behavior, implement this systematic error detection and correction framework.
+
+## CLI Command Output Design
+
+For detailed CLI output design principles, see [cli-output-design](mdc:.cursor/rules/cli-output-design.mdc).
 
 ## Error Detection Signals
 
@@ -69,30 +73,9 @@ Assistant: "I'll do that." [no rule update, preference likely to be forgotten]
 User: "Going forward, always use absolute paths when editing files in the session workspace."
 Assistant: "I'm updating the session-first-workflow rule to explicitly require absolute paths for all file edits in session workspaces. I'll add a verification step to confirm file locations before edits. This will ensure consistent correct behavior." [documents change in appropriate rule]
 
-## Rule System Organization Lessons
+## Rule System Organization
 
-When working with complex rule systems (like testing rules), apply these organizational principles:
-
-1. **Create Rule Hierarchies**:
-   - Create a router rule as the entry point for the rule system
-   - Organize rules into layers (Foundation, Implementation, Specialized)
-   - Ensure descriptions clearly indicate rule relationships
-
-2. **Cross-Rule References**:
-   - Always include explicit references to related rules
-   - Use relationship indicators in descriptions ("Apply alongside X")
-   - Create a relationship matrix in the router rule showing when each rule applies
-
-3. **Rule Application Clarity**:
-   - Ensure every rule has a clear, unique purpose
-   - Prevent overlapping guidance between rules
-   - Use specific scenarios in descriptions to trigger correct rule application
-
-4. **Combine Related Rules When Appropriate**:
-   - If multiple rules cover similar topics and are consistently applied together, consider merging them
-   - If a rule system becomes too complex (10+ rules), look for consolidation opportunities
-
-These lessons should be applied proactively when creating or refactoring rule systems to improve AI understanding and rule application.
+For rule system organization principles, see [rule-creation-guidelines](mdc:.cursor/rules/rule-creation-guidelines.mdc).
 
 ## Common Self-Improvement Scenarios
 
@@ -227,3 +210,9 @@ This rule MUST be applied whenever:
 4. The user expresses a preference for future behavior
 5. The user asks you to do something differently
 6. Your action results in an error
+
+## ⚠️ Critical Variable Naming Protocol
+
+For variable naming enforcement protocols, see [variable-naming-protocol](mdc:.cursor/rules/variable-naming-protocol.mdc).
+
+**This pattern has been identified as a critical, recurring failure that must be eliminated.**

@@ -1,0 +1,119 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+---
+description: Use when designing or implementing CLI command output and user-facing messages
+---
+
+# CLI Output Design Principles
+
+**Learned from config command redesign experience**
+
+## Core Philosophy: State, Not Process
+- **Show WHAT is active**, not HOW it was determined
+- **Current state only**, not implementation details or decision logic
+- **Facts, not explanations** - users want to see their configuration, not learn about the system
+
+## Design Principles
+
+### 1. State Over Process
+- Show current configuration/status, not the decision tree that led to it
+- Avoid verbose explanations of system behavior
+- Remove auto-detection rules, decision logic, and "how we got here" explanations
+
+### 2. User-Centric Language
+- Use terminology users understand, not technical jargon
+- Explain what settings mean in practical terms
+- Example: "Task Storage: Using Markdown files" instead of "Backend: markdown"
+
+### 3. Follow Established CLI Tool Patterns
+Study and emulate successful CLI tools:
+- `git config --list` → shows key=value pairs, no explanations
+- `docker info` → current system state, not how Docker works
+- `kubectl config view` → effective configuration, not resolution logic
+- `npm config list` → current values, not where they came from
+
+### 4. Concise and Scannable
+- Prioritize brevity over completeness
+- Use emojis or symbols for visual organization
+- Group related information together
+- Avoid walls of text
+
+### 5. Facts Not Explanations
+- Present current state as facts
+- Avoid educational content in command output
+- Move verbose explanations to documentation
+- Remove "Configuration Sources" and similar meta-information
+
+## Output Formatting Guidelines
+
+### Good Examples
+```
+📋 CURRENT CONFIGURATION
+📁 Task Storage: Markdown files (process/tasks.md)
+🔐 Authentication: GitHub (env)
+💾 Session Storage: SQLite database (~/.local/state/minsky/sessions.db)
+```
+
+### Bad Examples
+```
+Configuration Sources:
+The configuration system loads settings from multiple sources in order...
+[15+ lines of system explanation]
+
+Backend Auto-Detection Rules:
+1. If process/tasks.md exists, use markdown backend
+2. If .minsky/tasks.json exists, use json-file backend
+[verbose decision tree explanation]
+```
+
+## Implementation Guidelines
+
+### Custom Formatters
+- Use `outputFormatter` functions in CLI adapters
+- Build complete output strings with template literals
+- Avoid multiple `console.log()` calls
+- Sanitize sensitive information (tokens, passwords)
+
+### Credential Handling
+- Hide sensitive tokens: `******************** (hidden)`
+- Show source of credentials: `GitHub (env)` or `GitHub (file)`
+- Never expose actual credential values
+
+### Error Messages
+- Be specific about what went wrong
+- Provide actionable next steps
+- Use the same concise, user-friendly language
+
+## Anti-Patterns to Avoid
+❌ **Verbose explanations**: "Minsky will choose task backend based on..."
+❌ **Implementation details**: Auto-detection rules, decision trees, precedence explanations
+❌ **Documentation in output**: Configuration source explanations, how the system works
+❌ **Technical jargon**: "Backend: markdown" instead of "Task Storage: Markdown files"
+
+## Good Patterns to Follow
+✅ **Concise state**: `📁 Task Storage: Markdown files (process/tasks.md)`
+✅ **User-focused labels**: "Task Storage" not "Backend", "Authentication" not "Credentials"
+✅ **Essential context only**: Show file paths/sources when relevant to user action
+✅ **Consistent format**: Similar to other CLI tools users already know
+
+## Design Process
+1. **Start with user needs**: What do they need to know to take action?
+2. **Study comparable tools**: How do git, docker, kubectl handle similar output?
+3. **Remove explanations**: If it explains HOW something works, remove it
+4. **Test holistically**: Does this feel like other professional CLI tools?
+
+## When to Show Details
+- **Error output**: Show diagnostic information to help user fix problems
+- **Debug flags**: `--verbose` or `--debug` can show implementation details
+- **Help text**: Explanations belong in `--help`, not regular output
+- **Documentation**: Complex explanations belong in docs, not command output
+
+## Testing Output Design
+
+- Test with real users when possible
+- Ask "What would confuse someone new to this tool?"
+- Verify output is scannable and actionable
+- Ensure critical information is immediately visible

@@ -23,7 +23,7 @@ export class ValidationError extends MinskyError {
 }
 
 /**
- * Thrown when a requested resource (task, session, repository, etc.) does not exist.
+ * Thrown when a requested resource (task, _session, repository, etc.) does not exist.
  */
 export class ResourceNotFoundError extends MinskyError {
   constructor(

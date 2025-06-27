@@ -1,7 +1,6 @@
-import { join } from "path";
+import { existsSync, rmSync } from "fs";
 import { readFile, writeFile, mkdir, access, rename } from "fs/promises";
-import { existsSync } from "fs";
-import { normalizeRepoName } from "./repo-utils.js";
+import { join } from "path";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../errors/index.js";
 import { taskIdSchema } from "../schemas/common.js";
 import type {
@@ -13,18 +12,18 @@ import type {
   SessionUpdateParams,
   SessionPrParams,
 } from "../schemas/session.js";
+import { log } from "../utils/logger.js";
+import { installDependencies } from "../utils/package-manager.js";
 import { type GitServiceInterface, preparePrFromParams } from "./git.js";
+import { createGitService } from "./git.js";
+import { normalizeRepoName, resolveRepoPath } from "./repo-utils.js";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks.js";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
   getCurrentSessionContext,
 } from "./workspace.js";
-import { resolveRepoPath } from "./repo-utils.js";
 import * as WorkspaceUtils from "./workspace.js";
-import { log } from "../utils/logger.js";
-import { createGitService } from "./git.js";
-import { installDependencies } from "../utils/package-manager.js";
 
 export interface SessionRecord {
   session: string;
@@ -260,7 +259,7 @@ export class SessionDB implements SessionProviderInterface {
     }
 
     // Special handling for CloneResult
-    if (record.cloneResult && record.cloneResult.workdir) {
+    if (record.cloneResult?.workdir) {
       return record.cloneResult.workdir;
     }
 
@@ -380,7 +379,7 @@ export class SessionDB implements SessionProviderInterface {
 
     for (const session of sessions) {
       // Skip sessions that already have a repoPath
-      if (session.repoPath && session.repoPath.includes("/sessions/")) {
+      if (session.repoPath?.includes("/sessions/")) {
         continue;
       }
 
@@ -486,7 +485,7 @@ export async function startSessionFromParams(
     taskService:
       depsInput?.taskService ||
       new TaskService({
-        workspacePath: repo || process.cwd(),
+        workspacePath: process.cwd(),
         backend: "markdown",
       }),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
@@ -593,15 +592,26 @@ export async function startSessionFromParams(
       deps.sessionDB instanceof SessionDB
         ? deps.sessionDB.getNewSessionRepoPath(normalizedRepoName, sessionName)
         : join(
-            process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
-            "minsky",
-            "git",
-            normalizedRepoName,
-            "sessions",
-            sessionName
-          );
+          process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state"),
+          "minsky",
+          "git",
+          normalizedRepoName,
+          "sessions",
+          sessionName
+        );
 
-    // First record the session in the DB
+    // Check if session directory already exists and clean it up
+    if (existsSync(sessionDir)) {
+      try {
+        rmSync(sessionDir, { recursive: true, force: true });
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to clean up existing session directory: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
+    // Prepare session record but don't add to DB yet
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
@@ -612,20 +622,59 @@ export async function startSessionFromParams(
       repoPath: sessionDir, // Include the repository path explicitly
     };
 
-    await deps.sessionDB.addSession(sessionRecord);
-
-    // Now clone the repo
-    const gitCloneResult = await deps.gitService.clone({
-      repoUrl,
-      session: sessionName,
-    });
-
-    // Create a branch based on the session name
+    let sessionAdded = false;
+    // Define branchName outside try block so it's available in return statement
     const branchName = branch || sessionName;
-    const branchResult = await deps.gitService.branch({
-      session: sessionName,
-      branch: branchName,
-    });
+
+    try {
+      // First clone the repo
+      const gitCloneResult = await deps.gitService.clone({
+        repoUrl,
+        session: sessionName,
+      });
+
+      // Create a branch based on the session name - use branchWithoutSession
+      // since session record hasn't been added to DB yet
+      const branchResult = await deps.gitService.branchWithoutSession({
+        repoName: normalizeRepoName(repoUrl),
+        session: sessionName,
+        branch: branchName,
+      });
+
+      // Only add session to DB after git operations succeed
+      await deps.sessionDB.addSession(sessionRecord);
+      sessionAdded = true;
+    } catch (gitError) {
+      // Clean up session record if it was added but git operations failed
+      if (sessionAdded) {
+        try {
+          await deps.sessionDB.deleteSession(sessionName);
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session record after git error", {
+            sessionName,
+            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
+      }
+
+      // Clean up the directory if it was created
+      if (existsSync(sessionDir)) {
+        try {
+          rmSync(sessionDir, { recursive: true, force: true });
+        } catch (cleanupError) {
+          log.error("Failed to cleanup session directory after git error", {
+            sessionDir,
+            gitError: gitError instanceof Error ? gitError.message : String(gitError),
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        }
+      }
+
+      throw gitError;
+    }
 
     // Install dependencies if not skipped
     if (!skipInstall) {
@@ -786,12 +835,9 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, branch, remote, noStash, noPush, force } = params;
+  let { name, branch, remote, noStash, noPush, force } = params;
 
-  // Input validation
-  if (!name) {
-    throw new ValidationError("Session name is required");
-  }
+  log.debug("updateSessionFromParams called", { params });
 
   // Set up dependencies with defaults
   const deps = {
@@ -800,93 +846,238 @@ export async function updateSessionFromParams(
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
-  try {
-    // Get session record
-    const sessionRecord = await deps.sessionDB.getSession(name);
-    if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${name}' not found`, "session", name);
-    }
-
-    // Get session working directory
-    const workdir = deps.gitService.getSessionWorkdir(sessionRecord.repoName, name);
-
-    // Check if the workspace is dirty using git status command directly
-    const statusOutput = await deps.gitService.execInRepository(workdir, "git status --porcelain");
-    const isDirty = statusOutput.trim().length > 0;
-
-    if (isDirty && !force) {
-      throw new MinskyError(
-        "Session workspace has uncommitted changes. Commit or stash your changes before updating, or use --force to override."
-      );
-    }
-
-    // Stash changes if needed
-    if (!noStash) {
-      await deps.gitService.stashChanges(workdir);
-    }
-
-    let stashError: unknown;
-
+  // Auto-detect session name if not provided
+  let sessionName: string;
+  if (!name) {
+    log.debug("Session name not provided, attempting auto-detection from current directory");
+    const currentDir = process.cwd();
     try {
-      // Pull latest changes
-      await deps.gitService.pullLatest(workdir, remote || "origin");
-
-      // Merge specified branch
-      const branchToMerge = branch || "main";
-      const mergeResult = await deps.gitService.mergeBranch(workdir, branchToMerge);
-
-      if (mergeResult.conflicts) {
-        throw new MinskyError(
-          `Merge conflicts detected when merging ${branchToMerge}. Please resolve conflicts manually.`
+      const detectedSession = await deps.getCurrentSession(currentDir);
+      if (detectedSession) {
+        sessionName = detectedSession;
+        log.debug("Auto-detected session name", { sessionName, currentDir });
+      } else {
+        throw new ValidationError(
+          "Session name is required. Either provide a session name or run this command from within a session workspace."
         );
       }
+    } catch (error) {
+      log.debug("Failed to auto-detect session", { error, currentDir });
+      throw new ValidationError(
+        "Session name is required. Either provide a session name or run this command from within a session workspace."
+      );
+    }
+  } else {
+    sessionName = name;
+  }
 
-      // Push changes if needed
-      if (!noPush) {
-        await deps.gitService.push({
-          repoPath: workdir,
-          remote: remote || "origin",
+  log.debug("Dependencies set up", {
+    hasGitService: !!deps.gitService,
+    hasSessionDB: !!deps.sessionDB,
+  });
+
+  log.debug("Session update requested", {
+    sessionName,
+    branch,
+    remote,
+    noStash,
+    noPush,
+    force,
+  });
+
+  try {
+    // Get session record
+    log.debug("Getting session record", { name: sessionName });
+    let sessionRecord = await deps.sessionDB.getSession(sessionName);
+
+    // TASK #168 FIX: Self-repair logic for orphaned sessions
+    if (!sessionRecord && sessionName) {
+      log.debug("Session not found in database, attempting self-repair", { sessionName });
+      const currentDir = process.cwd();
+
+      // Check if we're in a session workspace
+      if (currentDir.includes("/sessions/") && currentDir.includes(sessionName)) {
+        log.debug("Detected orphaned session workspace, attempting to register", {
+          sessionName,
+          currentDir,
         });
-      }
-    } finally {
-      // Always try to restore stashed changes
-      if (!noStash) {
+
         try {
-          await deps.gitService.popStash(workdir);
-        } catch (error) {
-          stashError = error;
+          // Get repository URL from git remote
+          const remoteOutput = await deps.gitService.execInRepository(
+            currentDir,
+            "git remote get-url origin"
+          );
+          const repoUrl = remoteOutput.trim();
+
+          // Extract repo name from URL or path
+          const repoName = repoUrl.includes("/")
+            ? repoUrl.split("/").pop()?.replace(".git", "") || "unknown"
+            : "local-minsky";
+
+          // Extract task ID from session name - simpler and more reliable approach
+          const taskId = sessionName.startsWith("task#") ? sessionName : undefined;
+
+          // Create session record
+          const newSessionRecord: SessionRecord = {
+            session: sessionName,
+            repoName,
+            repoUrl,
+            createdAt: new Date().toISOString(),
+            taskId,
+            branch: sessionName,
+            repoPath: currentDir,
+          };
+
+          await deps.sessionDB.addSession(newSessionRecord);
+          sessionRecord = newSessionRecord;
+
+          log.cli(`🔧 Self-repair: Registered orphaned session '${sessionName}' in database`);
+        } catch (repairError) {
+          log.warn("Failed to self-repair orphaned session", {
+            sessionName,
+            error: repairError instanceof Error ? repairError.message : String(repairError),
+          });
         }
       }
     }
 
-    // Handle stash error outside finally block
-    if (stashError) {
-      log.error("Failed to restore stashed changes:", { error: stashError });
-      throw new MinskyError(
-        "Session was updated, but failed to restore stashed changes. Please resolve manually.",
-        stashError
-      );
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${sessionName}' not found`, "session", sessionName);
     }
 
-    // Return the updated session information
-    return {
-      session: sessionRecord.session,
-      repoName: sessionRecord.repoName,
-      repoUrl: sessionRecord.repoUrl,
-      branch: sessionRecord.branch,
-      createdAt: sessionRecord.createdAt,
-      taskId: sessionRecord.taskId,
-      repoPath: workdir,
-    };
-  } catch (error) {
-    if (error instanceof MinskyError) {
-      throw error;
-    } else {
-      throw new MinskyError(
-        `Failed to update session: ${error instanceof Error ? error.message : String(error)}`,
-        error
-      );
+    log.debug("Session record found", { sessionRecord });
+
+    // Get session workdir
+    const workdir = await deps.sessionDB.getSessionWorkdir(sessionName);
+    log.debug("Session workdir resolved", { workdir });
+
+    // Get current branch
+    const currentBranch = await deps.gitService.getCurrentBranch(workdir);
+    log.debug("Current branch", { currentBranch });
+
+    // Validate current state if not forced
+    if (!force) {
+      const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workdir);
+      if (hasUncommittedChanges && !noStash) {
+        log.debug("Stashing uncommitted changes", { workdir });
+        await deps.gitService.stashChanges(workdir);
+        log.debug("Changes stashed");
+      }
     }
+
+    try {
+      // Pull latest changes
+      log.debug("Pulling latest changes", { workdir, remote: remote || "origin" });
+      await deps.gitService.pullLatest(workdir, remote || "origin");
+      log.debug("Latest changes pulled");
+
+      // Merge specified branch from remote (this was the key fix)
+      const branchToMerge = branch || "main";
+      const remoteBranchToMerge = `${remote || "origin"}/${branchToMerge}`;
+      log.debug("Merging branch", { branchToMerge: remoteBranchToMerge, workdir });
+      const mergeResult = await deps.gitService.mergeBranch(workdir, remoteBranchToMerge);
+      log.debug("Branch merge completed", { mergeResult });
+
+      if (mergeResult.conflicts) {
+        // Check if we're in a situation where session changes were already merged to main
+        const currentDir = process.cwd();
+        const isSessionWorkspace = currentDir.includes("/sessions/");
+
+        const conflictMessage = isSessionWorkspace
+          ? `
+🚫 Merge conflicts detected when updating session '${sessionName}'
+
+This usually happens when your session changes were already merged into main branch.
+
+Current situation:
+• Session branch: ${sessionName}
+• Trying to merge: ${remoteBranchToMerge}
+• Location: ${workdir}
+
+Resolution options:
+
+1️⃣ If your changes are already in main (most common):
+   Skip the session update - your session is ready for PR creation:
+
+   minsky session pr --title "Your PR title"
+
+2️⃣ If you need to resolve conflicts manually:
+   cd ${workdir}
+   git status
+   # Resolve conflicts in the listed files
+   git add .
+   git commit -m "resolve merge conflicts"
+   minsky session update
+
+3️⃣ If you want to reset your session to match main:
+   cd ${workdir}
+   git reset --hard ${remoteBranchToMerge}
+   git push --force-with-lease
+
+💡 For most cases, option 1 (skip update, create PR directly) is the right choice.
+          `.trim()
+          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${sessionName}'. Please resolve conflicts manually in ${workdir}.`;
+
+        throw new MinskyError(conflictMessage);
+      }
+
+      // Push changes if needed
+      if (!noPush) {
+        log.debug("Pushing changes to remote", { workdir, remote: remote || "origin" });
+        await deps.gitService.push({
+          repoPath: workdir,
+          remote: remote || "origin",
+        });
+        log.debug("Changes pushed to remote");
+      }
+
+      // Restore stashed changes if we stashed them
+      if (!noStash) {
+        try {
+          log.debug("Restoring stashed changes", { workdir });
+          await deps.gitService.popStash(workdir);
+          log.debug("Stashed changes restored");
+        } catch (error) {
+          log.warn("Failed to restore stashed changes", {
+            error: error instanceof Error ? error.message : String(error),
+            workdir,
+          });
+          // Don't fail the entire operation if stash pop fails
+        }
+      }
+
+      log.cli(`Session '${sessionName}' updated successfully`);
+
+      return {
+        session: sessionName,
+        repoName: sessionRecord.repoName || "unknown",
+        repoUrl: sessionRecord.repoUrl,
+        branch: currentBranch,
+        createdAt: sessionRecord.createdAt,
+        taskId: sessionRecord.taskId,
+        repoPath: workdir,
+      };
+    } catch (error) {
+      // If there's an error during update, try to clean up any stashed changes
+      if (!noStash) {
+        try {
+          await deps.gitService.popStash(workdir);
+          log.debug("Restored stashed changes after error");
+        } catch (stashError) {
+          log.warn("Failed to restore stashed changes after error", {
+            stashError: stashError instanceof Error ? stashError.message : String(stashError),
+          });
+        }
+      }
+      throw error;
+    }
+  } catch (error) {
+    log.error("Session update failed", {
+      error: error instanceof Error ? error.message : String(error),
+      name: sessionName,
+    });
+    throw error;
   }
 }
 
@@ -927,8 +1118,55 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
     // STEP 4: Check for uncommitted changes
     const hasUncommittedChanges = await gitService.hasUncommittedChanges(currentDir);
     if (hasUncommittedChanges) {
+      // Get the status of uncommitted changes to show in the error
+      let statusInfo = "";
+      try {
+        const status = await gitService.getStatus(currentDir);
+        const changes = [];
+
+        if (status.modified.length > 0) {
+          changes.push(`📝 Modified files (${status.modified.length}):`);
+          status.modified.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        if (status.untracked.length > 0) {
+          changes.push(`📄 New files (${status.untracked.length}):`);
+          status.untracked.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        if (status.deleted.length > 0) {
+          changes.push(`🗑️  Deleted files (${status.deleted.length}):`);
+          status.deleted.forEach((file) => changes.push(`   ${file}`));
+        }
+
+        statusInfo = changes.length > 0 ? changes.join("\n") : "No detailed changes available";
+      } catch (statusError) {
+        statusInfo = "Unable to get detailed status.";
+      }
+
       throw new MinskyError(
-        "Cannot create PR with uncommitted changes. Please commit or stash your changes first."
+        `
+🚫 Cannot create PR with uncommitted changes
+
+You have uncommitted changes in your session workspace that need to be committed first.
+
+Current changes:
+${statusInfo}
+
+To fix this, run one of the following:
+
+📝 Commit your changes:
+   git add .
+   git commit -m "Your commit message"
+
+📦 Or stash your changes temporarily:
+   git stash
+
+💡 Then try creating the PR again:
+   minsky session pr --title "your title"
+
+Need help? Run 'git status' to see what files have changed.
+      `.trim()
       );
     }
 
@@ -968,7 +1206,7 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
 
     // Determine the session name
     let sessionName = params.session;
-    const sessionDb = new SessionDB();
+    const sessionDb = createSessionProvider({ workingDir: currentDir });
 
     // If no session name provided but task ID is, try to find the session by task ID
     if (!sessionName && params.task) {
@@ -1012,19 +1250,23 @@ export async function sessionPrFromParams(params: SessionPrParams): Promise<{
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main
-    log.cli("Updating session with latest changes from main...");
-    try {
-      await updateSessionFromParams({
-        name: sessionName,
-        repo: params.repo,
-        json: false,
-      });
-      log.cli("Session updated successfully");
-    } catch (error) {
-      throw new MinskyError(
-        `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
-      );
+    // STEP 5: Run session update first to merge latest changes from main (unless --no-update is specified)
+    if (!params.noUpdate) {
+      log.cli("Updating session with latest changes from main...");
+      try {
+        await updateSessionFromParams({
+          name: sessionName,
+          repo: params.repo,
+          json: false,
+        });
+        log.cli("Session updated successfully");
+      } catch (error) {
+        throw new MinskyError(
+          `Failed to update session before creating PR: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    } else {
+      log.cli("Skipping session update (--no-update specified)");
     }
 
     // STEP 6: Now proceed with PR creation
@@ -1255,8 +1497,18 @@ export async function approveSessionFromParams(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: { dbPath?: string }): SessionProviderInterface {
-  // Use the new functional implementation
+export function createSessionProvider(options?: {
+  dbPath?: string;
+  workingDir?: string;
+  useNewBackend?: boolean;
+}): SessionProviderInterface {
+  // Use new configuration-based backend by default, but allow fallback
+  if (options?.useNewBackend !== false) {
+    const { SessionDbAdapter } = require("./session/session-db-adapter");
+    return new SessionDbAdapter(options?.workingDir);
+  }
+
+  // Fallback to legacy JSON file implementation
   return new SessionDB(options?.dbPath);
 }
 
@@ -1269,7 +1521,7 @@ export async function inspectSessionFromParams(params: {
   // Auto-detect the current session from the workspace
   const context = await getCurrentSessionContext(process.cwd());
 
-  if (!context || !context.sessionId) {
+  if (!context?.sessionId) {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 

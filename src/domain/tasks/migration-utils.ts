@@ -1,3 +1,6 @@
+const SIZE_6 = 6;
+const TEST_VALUE = 123;
+
 /**
  * Migration utilities for transitioning from markdown to JSON task storage
  *
@@ -7,7 +10,7 @@
 
 import { readFile, writeFile, access } from "fs/promises";
 import { join } from "path";
-import type { TaskData, TaskState } from "../../types/tasks/taskData";
+import type {} from "../../types/tasks/taskData";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import { log } from "../../utils/logger";
 
@@ -58,7 +61,7 @@ export class TaskMigrationUtils {
   private readonly createBackup: boolean;
   private readonly preserveOriginal: boolean;
 
-  constructor(config: MigrationConfig) {
+  constructor(__config: MigrationConfig) {
     this.workspacePath = config.workspacePath;
     this.targetDbPath =
       config.targetDbPath || join(getHomeDirectory(), ".local", "state", "minsky", "tasks.json");
@@ -71,14 +74,14 @@ export class TaskMigrationUtils {
    * @returns Promise resolving to migration result
    */
   async migrateToJson(): Promise<MigrationResult> {
-    const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+    const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
     let backupFile: string | undefined;
 
     try {
       // Check if tasks.md exists
       try {
         await access(tasksFilePath);
-      } catch {
+      } catch (error) {
         return {
           success: false,
           error: new Error(`tasks.md not found at ${tasksFilePath}`),
@@ -88,8 +91,8 @@ export class TaskMigrationUtils {
       }
 
       // Read and parse tasks.md
-      const content = (await readFile(tasksFilePath, "utf8")) as string;
-      const tasks = this.parseMarkdownTasks(content);
+      const _content = (await readFile(_tasksFilePath, "utf8")) as string;
+      const _tasks = this.parseMarkdownTasks(_content);
 
       if (tasks.length === 0) {
         log.debug("No tasks found in tasks.md to migrate");
@@ -104,12 +107,12 @@ export class TaskMigrationUtils {
       // Create backup if requested
       if (this.createBackup) {
         backupFile = `${tasksFilePath}.backup.${Date.now()}`;
-        await writeFile(backupFile, content, "utf8");
+        await writeFile(_backupFile, _content, "utf8");
         log.debug(`Created backup at ${backupFile}`);
       }
 
       // Create JSON storage and initialize
-      const storage = createJsonFileStorage<TaskData, TaskState>({
+      const storage = createJsonFileStorage<TaskState>({
         filePath: this.targetDbPath,
         entitiesField: "tasks",
         idField: "id",
@@ -132,7 +135,7 @@ export class TaskMigrationUtils {
       const existingTasks = stateResult.success && stateResult.data ? stateResult.data.tasks : [];
 
       // Merge with migrated tasks, avoiding duplicates
-      const mergedTasks = this.mergeTasks(existingTasks, tasks);
+      const mergedTasks = this.mergeTasks(_existingTasks, _tasks);
 
       // Create new state
       const newState: TaskState = {
@@ -183,12 +186,12 @@ export class TaskMigrationUtils {
    * @returns Promise resolving to migration result
    */
   async migrateFromJson(): Promise<MigrationResult> {
-    const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+    const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
     let backupFile: string | undefined;
 
     try {
       // Create JSON storage instance
-      const storage = createJsonFileStorage<TaskData, TaskState>({
+      const storage = createJsonFileStorage<TaskState>({
         filePath: this.targetDbPath,
         entitiesField: "tasks",
         idField: "id",
@@ -212,26 +215,26 @@ export class TaskMigrationUtils {
         };
       }
 
-      const tasks = stateResult.data.tasks;
+      const _tasks = stateResult.data.tasks;
 
       // Create backup of existing tasks.md if it exists
       if (this.createBackup) {
         try {
           await access(tasksFilePath);
-          const existingContent = await readFile(tasksFilePath, "utf8");
+          const existingContent = await readFile(_tasksFilePath, "utf8");
           backupFile = `${tasksFilePath}.backup.${Date.now()}`;
-          await writeFile(backupFile, existingContent, "utf8");
+          await writeFile(_backupFile, existingContent, "utf8");
           log.debug(`Created backup at ${backupFile}`);
-        } catch {
+        } catch (_error) {
           // tasks.md doesn't exist, no backup needed
         }
       }
 
       // Convert tasks to markdown format
-      const markdownContent = this.formatTasksToMarkdown(tasks);
+      const markdownContent = this.formatTasksToMarkdown(_tasks);
 
       // Write to tasks.md
-      await writeFile(tasksFilePath, markdownContent, "utf8");
+      await writeFile(_tasksFilePath, markdownContent, "utf8");
 
       log.debug(
         `Successfully migrated ${tasks.length} tasks from JSON database to ${tasksFilePath}`
@@ -275,21 +278,21 @@ export class TaskMigrationUtils {
     };
   }> {
     try {
-      const tasksFilePath = join(this.workspacePath, "process", "tasks.md");
+      const tasksFilePath = join(this._workspacePath, "process", "tasks.md");
 
       // Read markdown tasks
       let markdownTasks: TaskData[] = [];
       try {
-        const content = (await readFile(tasksFilePath, "utf8")) as string;
-        markdownTasks = this.parseMarkdownTasks(content);
-      } catch {
+        const _content = (await readFile(_tasksFilePath, "utf8")) as string;
+        markdownTasks = this.parseMarkdownTasks(_content);
+      } catch (_error) {
         // tasks.md doesn't exist or can't be read
       }
 
       // Read JSON tasks
       let jsonTasks: TaskData[] = [];
       try {
-        const storage = createJsonFileStorage<TaskData, TaskState>({
+        const storage = createJsonFileStorage<TaskState>({
           filePath: this.targetDbPath,
           entitiesField: "tasks",
           idField: "id",
@@ -305,12 +308,12 @@ export class TaskMigrationUtils {
         if (stateResult.success && stateResult.data) {
           jsonTasks = stateResult.data.tasks;
         }
-      } catch {
+      } catch (_error) {
         // JSON database doesn't exist or can't be read
       }
 
       // Compare tasks
-      const differences = this.compareTasks(markdownTasks, jsonTasks);
+      const differences = this.compareTasks(_markdownTasks, jsonTasks);
 
       return {
         success: true,
@@ -343,35 +346,35 @@ export class TaskMigrationUtils {
    * @private
    */
   private parseMarkdownTasks(content: string): TaskData[] {
-    const tasks: TaskData[] = [];
+    const _tasks: TaskData[] = [];
     const lines = content.split("\n");
 
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
         const completed = trimmed.startsWith("- [x] ");
-        const taskLine = trimmed.slice(6); // Remove '- [ ] ' or '- [x] '
+        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
 
         // Extract task ID and title from different possible formats
         let id = "";
-        let title = "";
-        let specPath = "";
+        let _title = "";
+        let _specPath = "";
 
-        // Try format: Title [#123](path/to/spec.md)
+        // Try format: Title [#TEST_VALUE](path/to/spec.md)
         const linkMatch = taskLine.match(/^(.+?)\s+\[#(\d+)\]\(([^)]+)\)/);
         if (linkMatch && linkMatch[1] && linkMatch[2] && linkMatch[3]) {
           title = linkMatch[1].trim();
           id = `#${linkMatch[2]}`;
           specPath = linkMatch[3];
         } else {
-          // Try format: [Title](path/to/spec.md) [#123]
+          // Try format: [Title](path/to/spec.md) [#TEST_VALUE]
           const altMatch = taskLine.match(/^\[([^\]]+)\]\(([^)]+)\)\s+\[#(\d+)\]/);
           if (altMatch && altMatch[1] && altMatch[2] && altMatch[3]) {
             title = altMatch[1];
             specPath = altMatch[2];
             id = `#${altMatch[3]}`;
           } else {
-            // Try simple format: Title #123
+            // Try simple format: Title #TEST_VALUE
             const simpleMatch = taskLine.match(/^(.+?)\s+#(\d+)$/);
             if (simpleMatch && simpleMatch[1] && simpleMatch[2]) {
               title = simpleMatch[1].trim();
@@ -387,9 +390,9 @@ export class TaskMigrationUtils {
         if (title && id) {
           tasks.push({
             id,
-            title,
-            status: completed ? "DONE" : "TODO",
-            specPath: specPath || undefined,
+            _title,
+            _status: completed ? "DONE" : "TODO",
+            _specPath: specPath || undefined,
           });
         }
       }
@@ -404,7 +407,7 @@ export class TaskMigrationUtils {
    * @returns Formatted markdown content
    * @private
    */
-  private formatTasksToMarkdown(tasks: TaskData[]): string {
+  private formatTasksToMarkdown(__tasks: TaskData[]): string {
     const lines: string[] = [];
 
     // Add header
@@ -431,7 +434,7 @@ export class TaskMigrationUtils {
    * @returns Merged tasks array
    * @private
    */
-  private mergeTasks(existing: TaskData[], incoming: TaskData[]): TaskData[] {
+  private mergeTasks(_existing: TaskData[], incoming: TaskData[]): TaskData[] {
     const merged = [...existing];
     const existingIds = new Set(existing.map((t) => t.id));
 
@@ -451,7 +454,7 @@ export class TaskMigrationUtils {
    * @returns Comparison result
    * @private
    */
-  private compareTasks(markdownTasks: TaskData[], jsonTasks: TaskData[]) {
+  private compareTasks(_markdownTasks: TaskData[], jsonTasks: TaskData[]) {
     const markdownMap = new Map(markdownTasks.map((t) => [t.id, t]));
     const jsonMap = new Map(jsonTasks.map((t) => [t.id, t]));
 
@@ -466,8 +469,8 @@ export class TaskMigrationUtils {
       } else {
         // Check if they're different
         const jsonTask = jsonMap.get(task.id)!;
-        if (!this.tasksEqual(task, jsonTask)) {
-          different.push({ id: task.id, markdown: task, json: jsonTask });
+        if (!this.tasksEqual(_task, jsonTask)) {
+          different.push({ _id: task.id, markdown: task, json: jsonTask });
         }
       }
     }
@@ -508,8 +511,8 @@ export class TaskMigrationUtils {
  * @param config Migration configuration
  * @returns TaskMigrationUtils instance
  */
-export function createMigrationUtils(config: MigrationConfig): TaskMigrationUtils {
-  return new TaskMigrationUtils(config);
+export function createMigrationUtils(__config: MigrationConfig): TaskMigrationUtils {
+  return new TaskMigrationUtils(_config);
 }
 
 /**
@@ -518,13 +521,12 @@ export function createMigrationUtils(config: MigrationConfig): TaskMigrationUtil
  * @param options Migration options
  * @returns Promise resolving to migration result
  */
-export async function migrateWorkspaceToJson(
-  workspacePath: string,
-  options?: Partial<MigrationConfig>
+export async function migrateWorkspaceToJson(__workspacePath: string,
+  _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
-    workspacePath,
-    ...options,
+    _workspacePath,
+    ..._options,
   });
   return utils.migrateToJson();
 }
@@ -535,13 +537,12 @@ export async function migrateWorkspaceToJson(
  * @param options Migration options
  * @returns Promise resolving to migration result
  */
-export async function migrateWorkspaceFromJson(
-  workspacePath: string,
-  options?: Partial<MigrationConfig>
+export async function migrateWorkspaceFromJson(__workspacePath: string,
+  _options?: Partial<MigrationConfig>
 ): Promise<MigrationResult> {
   const utils = createMigrationUtils({
-    workspacePath,
-    ...options,
+    _workspacePath,
+    ..._options,
   });
   return utils.migrateFromJson();
 }

@@ -1,6 +1,6 @@
 /**
  * Configuration file generator for Minsky
- * 
+ *
  * Generates properly formatted YAML configuration files for both
  * repository (.minsky/config.yaml) and global user configs
  */
@@ -31,8 +31,8 @@ export class ConfigurationGenerator {
     const config: RepositoryConfig = {
       version: 1,
       backends: {
-        default: options.backend
-      }
+        default: options.backend,
+      },
     };
 
     // Add GitHub-specific configuration
@@ -42,7 +42,7 @@ export class ConfigurationGenerator {
       }
       config.backends!["github-issues"] = {
         owner: options.githubOwner,
-        repo: options.githubRepo
+        repo: options.githubRepo,
       };
     }
 
@@ -52,8 +52,8 @@ export class ConfigurationGenerator {
       detection_rules: [
         { condition: "github_remote_exists", backend: "github-issues" },
         { condition: "tasks_md_exists", backend: "markdown" },
-        { condition: "always", backend: "json-file" }
-      ]
+        { condition: "always", backend: "json-file" },
+      ],
     };
 
     this.writeRepositoryConfig(workingDir, config);
@@ -64,14 +64,14 @@ export class ConfigurationGenerator {
    */
   generateGlobalUserConfig(options: GlobalUserConfigOptions): void {
     const config: GlobalUserConfig = {
-      version: 1
+      version: 1,
     };
 
     if (options.githubToken || options.githubTokenSource) {
       config.credentials = {
         github: {
-          source: options.githubTokenSource || "file"
-        }
+          source: options.githubTokenSource || "file",
+        },
       };
 
       if (options.githubToken && options.githubTokenSource === "file") {
@@ -94,11 +94,12 @@ export class ConfigurationGenerator {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = this.generateYamlHeader("Repository") + stringifyYaml(config, {
-      indent: 2,
-      lineWidth: 100,
-      quotingType: '"'
-    });
+    const yamlContent =
+      this.generateYamlHeader("Repository") +
+      stringifyYaml(config, {
+        indent: 2,
+        lineWidth: 100,
+      });
 
     writeFileSync(configPath, yamlContent, { encoding: "utf8" });
   }
@@ -115,11 +116,13 @@ export class ConfigurationGenerator {
       mkdirSync(configDir, { recursive: true });
     }
 
-    const yamlContent = this.generateYamlHeader("Global User") + stringifyYaml(config, {
-      indent: 2,
-      lineWidth: 100,
-      quotingType: '"'
-    });
+    const yamlContent =
+      this.generateYamlHeader("Global User") +
+      stringifyYaml(config, {
+        indent: 2,
+        lineWidth: 100,
+        quotingType: "\"",
+      });
 
     writeFileSync(configPath, yamlContent, { encoding: "utf8" });
   }
@@ -148,8 +151,8 @@ export class ConfigurationGenerator {
   /**
    * Get the repository configuration file path
    */
-  static getRepositoryConfigPath(workingDir: string): string {
-    return join(workingDir, CONFIG_PATHS.REPOSITORY);
+  static getRepositoryConfigPath(__workingDir: string): string {
+    return join(__workingDir, CONFIG_PATHS.REPOSITORY);
   }
 
   /**
@@ -162,4 +165,4 @@ export class ConfigurationGenerator {
     }
     return configPath;
   }
-} 
+}

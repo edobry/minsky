@@ -7,6 +7,8 @@ import {
   createMockObject,
 } from "../../../utils/test-utils/mocking.js";
 
+const TEST_VALUE = 123;
+
 // Tests have been migrated to test domain methods directly
 
 // Set up automatic mock cleanup
@@ -47,12 +49,12 @@ describe("Session Domain Methods", () => {
   );
 
   const mockGitService = createMockObject(["clone", "checkout", "getBranch", "getSessionRecord"], {
-    clone: () => ({ workdir: "/mock/path/to/repo" }),
+    clone: () => ({ _workdir: "/mock/path/to/repo" }),
     getBranch: () => "main",
   });
 
   const mockTaskService = createMockObject(["getTask", "updateTaskStatus"], {
-    getTask: () => ({ id: "123", title: "Test Task", status: "TODO" }),
+    getTask: () => ({ id: "TEST_VALUE", title: "Test Task", status: "TODO" }),
   });
 
   const mockWorkspaceUtils = {
@@ -99,25 +101,25 @@ describe("Session Domain Methods", () => {
       const params = { name: "test-session" };
 
       // Act
-      const result = await mockGetSessionFromParams(params);
+      const _result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(sessionData);
+      expect(_result).toEqual(sessionData);
     });
 
     test("gets session by task ID", async () => {
       // Arrange
-      const sessionData = { session: "task-session", repoName: "task-repo", taskId: "123" };
+      const sessionData = { session: "task-session", repoName: "task-repo", taskId: "TEST_VALUE" };
       mockGetSessionFromParams.mockResolvedValue(sessionData);
-      const params = { task: "123" };
+      const params = { task: "TEST_VALUE" };
 
       // Act
-      const result = await mockGetSessionFromParams(params);
+      const _result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(sessionData);
+      expect(_result).toEqual(sessionData);
     });
 
     test("returns null when no session is found", async () => {
@@ -126,11 +128,11 @@ describe("Session Domain Methods", () => {
       const params = { name: "non-existent" };
 
       // Act
-      const result = await mockGetSessionFromParams(params);
+      const _result = await mockGetSessionFromParams(params);
 
       // Assert
       expect(mockGetSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBeNull();
+      expect(_result).toBeNull();
     });
   });
 
@@ -145,13 +147,13 @@ describe("Session Domain Methods", () => {
       const params = {};
 
       // Act
-      const result = await mockListSessionsFromParams(params);
+      const _result = await mockListSessionsFromParams(params);
 
       // Assert
       expect(mockListSessionsFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(sessionsData);
-      expect(result[0]?.session).toBe("session1");
-      expect(result[1]?.session).toBe("session2");
+      expect(_result).toEqual(sessionsData);
+      expect(result[0]?._session).toBe("session1");
+      expect(result[1]?._session).toBe("session2");
     });
   });
 
@@ -166,11 +168,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const result = await mockDeleteSessionFromParams(params);
+      const _result = await mockDeleteSessionFromParams(params);
 
       // Assert
       expect(mockDeleteSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBe(true);
+      expect(_result).toBe(true);
     });
 
     test("throws error when session not found", async () => {
@@ -226,54 +228,54 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const result = await mockStartSessionFromParams(params);
+      const _result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(sessionResult);
-      expect(result.sessionRecord.session).toBe("new-session");
-      expect(result.cloneResult?.workdir).toBe("/path/to/workdir");
+      expect(_result).toEqual(sessionResult);
+      expect(result.sessionRecord._session).toBe("new-session");
+      expect(result.cloneResult?._workdir).toBe("/path/to/workdir");
     });
 
     test("starts a new session with task parameter", async () => {
       // Arrange
       const sessionResult = {
         sessionRecord: {
-          session: "task#123",
+          session: "task#TEST_VALUE",
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo.git",
-          branch: "task#123",
-          taskId: "123",
+          branch: "task#TEST_VALUE",
+          taskId: "TEST_VALUE",
         },
         cloneResult: { workdir: "/path/to/workdir" },
-        branchResult: { branch: "task#123" },
-        statusUpdateResult: { id: "123", status: "IN-PROGRESS" },
+        branchResult: { branch: "task#TEST_VALUE" },
+        statusUpdateResult: { id: "TEST_VALUE", status: "IN-PROGRESS" },
       };
       mockStartSessionFromParams.mockResolvedValue(sessionResult);
       const params = {
-        task: "123",
+        task: "TEST_VALUE",
         repo: "https://github.com/test/repo.git",
       };
 
       // Act
-      const result = await mockStartSessionFromParams(params);
+      const _result = await mockStartSessionFromParams(params);
 
       // Assert
       expect(mockStartSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(sessionResult);
-      expect(result.sessionRecord.taskId).toBe("123");
-      expect(result.statusUpdateResult?.status).toBe("IN-PROGRESS");
+      expect(_result).toEqual(sessionResult);
+      expect(result.sessionRecord.taskId).toBe("TEST_VALUE");
+      expect(result.statusUpdateResult?._status).toBe("IN-PROGRESS");
     });
 
     test("throws error when required parameters are missing", async () => {
       // Arrange
-      const error = new Error("Missing required parameters: repo");
+      const error = new Error("Missing required _parameters: repo");
       mockStartSessionFromParams.mockRejectedValue(error);
       const params = { name: "new-session" }; // Missing repo parameter
 
       // Act & Assert
       await expect(mockStartSessionFromParams(params)).rejects.toThrow(
-        "Missing required parameters: repo"
+        "Missing required _parameters: repo"
       );
     });
   });
@@ -290,7 +292,7 @@ describe("Session Domain Methods", () => {
 
       const updatedSessionData = {
         ...sessionData,
-        branch: "new-branch",
+        _branch: "new-branch",
         notes: "Session notes updated",
       };
 
@@ -305,12 +307,12 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const result = await mockUpdateSessionFromParams(params);
+      const _result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toEqual(updatedSessionData);
-      expect(result.branch).toBe("new-branch");
+      expect(_result).toEqual(updatedSessionData);
+      expect(result._branch).toBe("new-branch");
       expect(result.notes).toBe("Session notes updated");
     });
 
@@ -326,11 +328,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const result = await mockUpdateSessionFromParams(params);
+      const _result = await mockUpdateSessionFromParams(params);
 
       // Assert
       expect(mockUpdateSessionFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBeNull();
+      expect(_result).toBeNull();
     });
 
     test("throws error when no name is provided", async () => {
@@ -361,11 +363,11 @@ describe("Session Domain Methods", () => {
       };
 
       // Act
-      const result = await mockGetSessionDirFromParams(params);
+      const _result = await mockGetSessionDirFromParams(params);
 
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBe(expectedPath);
+      expect(_result).toBe(expectedPath);
     });
 
     test("resolves directory path for a session with task ID", async () => {
@@ -373,15 +375,15 @@ describe("Session Domain Methods", () => {
       const expectedPath = "/path/to/task/session/directory";
       mockGetSessionDirFromParams.mockResolvedValue(expectedPath);
       const params = {
-        task: "123",
+        task: "TEST_VALUE",
       };
 
       // Act
-      const result = await mockGetSessionDirFromParams(params);
+      const _result = await mockGetSessionDirFromParams(params);
 
       // Assert
       expect(mockGetSessionDirFromParams).toHaveBeenCalledWith(params);
-      expect(result).toBe(expectedPath);
+      expect(_result).toBe(expectedPath);
     });
 
     test("throws error when session not found", async () => {
@@ -406,7 +408,7 @@ describe("Session Domain Methods", () => {
         session: "current-session",
         repoName: "test-repo",
         branch: "current-session",
-        taskId: "#123",
+        taskId: "#TEST_VALUE",
       };
 
       const mockInspectSessionFromParams = createMock(() => Promise.resolve(sessionData));
@@ -415,13 +417,13 @@ describe("Session Domain Methods", () => {
       }));
 
       // Act
-      const result = await mockInspectSessionFromParams({});
+      const _result = await mockInspectSessionFromParams({});
 
       // Assert
       expect(mockInspectSessionFromParams).toHaveBeenCalledWith({});
-      expect(result).toEqual(sessionData);
-      expect(result.session).toBe("current-session");
-      expect(result.taskId).toBe("#123");
+      expect(_result).toEqual(sessionData);
+      expect(result._session).toBe("current-session");
+      expect(result.taskId).toBe("#TEST_VALUE");
     });
 
     test("throws error when not in a session workspace", async () => {

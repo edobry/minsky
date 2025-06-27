@@ -108,7 +108,7 @@ export function registerGitTools(commandMapper: CommandMapper): void {
     "pr",
     "Create a pull request",
     z.object({
-      session: z.string().optional().describe(SESSION_DESCRIPTION),
+      _session: z.string().optional().describe(SESSION_DESCRIPTION),
       repo: z.string().optional().describe(REPO_DESCRIPTION),
       branch: z.string().optional().describe(GIT_BRANCH_DESCRIPTION),
       task: z.string().optional().describe(TASK_ID_DESCRIPTION),

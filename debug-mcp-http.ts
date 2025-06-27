@@ -41,7 +41,7 @@ async function debugHTTPTransport() {
   console.log("\n📋 Test 1: Basic HTTP connectivity");
   try {
     const response = await fetch(SERVER_URL, {
-      method: 'GET'
+      method: "GET"
     });
     console.log(`GET response: ${response.status} ${response.statusText}`);
     const text = await response.text();
@@ -54,9 +54,9 @@ async function debugHTTPTransport() {
   console.log("\n📋 Test 2: Minimal JSON-RPC request");
   try {
     const response = await fetch(SERVER_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         jsonrpc: "2.0",
@@ -74,16 +74,16 @@ async function debugHTTPTransport() {
   // Test 3: Different Content-Type
   console.log("\n📋 Test 3: Different Content-Type headers");
   for (const contentType of [
-    'application/json',
-    'application/json-rpc',
-    'application/vnd.api+json',
-    'text/plain'
+    "application/json",
+    "application/json-rpc",
+    "application/vnd.api+json",
+    "text/plain"
   ]) {
     try {
       const response = await fetch(SERVER_URL, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': contentType,
+          "Content-Type": contentType,
         },
         body: JSON.stringify({
           jsonrpc: "2.0",

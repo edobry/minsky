@@ -6,7 +6,7 @@
 import { join, dirname } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { normalizeRepoName } from "../repository-uri";
-import type { SessionDbState, SessionRecord } from "./session-db";
+import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState } from "./session-db";
 import { log } from "../../utils/logger";
 
@@ -22,7 +22,7 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDbState {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
 
@@ -35,7 +35,7 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
     const sessions = JSON.parse(data);
 
     // Migrate existing sessions to include repoName
-    const migratedSessions = sessions.map((session: SessionRecord) => {
+    const migratedSessions = sessions.map((session: unknown) => {
       if (!session.repoName && session.repoUrl) {
         session.repoName = normalizeRepoName(session.repoUrl);
       }
@@ -46,8 +46,10 @@ export function readSessionDbFile(options: SessionDbFileOptions = {}): SessionDb
       sessions: migratedSessions,
       baseDir,
     };
-  } catch (e) {
-    log.error(`Error reading session database: ${e instanceof Error ? e.message : String(e)}`);
+  } catch (error) {
+    log.error(
+      `Error reading session database: ${error instanceof Error ? error.message : String(error)}`
+    );
     return initializeSessionDbState({ baseDir });
   }
 }
@@ -59,7 +61,7 @@ export function writeSessionDbFile(
   state: SessionDbState,
   options: SessionDbFileOptions = {}
 ): boolean {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const dbPath = options.dbPath || join(xdgStateHome, "minsky", "session-db.json");
 
   try {

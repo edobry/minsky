@@ -22,7 +22,7 @@ describe("Filter Messages Utility", () => {
   describe("getActiveTasksMessage", () => {
     test("returns message about active tasks", () => {
       const message = getActiveTasksMessage();
-      expect(message).toBe("Showing active tasks (use --all to include completed tasks)");
+      expect(message).toBe("Showing active tasks (use --all to include completed _tasks)");
     });
 
     test("includes instruction about --all flag", () => {
@@ -33,7 +33,7 @@ describe("Filter Messages Utility", () => {
 
   describe("generateFilterMessages", () => {
     test("returns status filter message when status is provided", () => {
-      const messages = generateFilterMessages({ status: "IN-PROGRESS" });
+      const messages = generateFilterMessages({ _status: "IN-PROGRESS" });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'IN-PROGRESS'");
     });
@@ -41,7 +41,7 @@ describe("Filter Messages Utility", () => {
     test("returns active tasks message when not showing all tasks", () => {
       const messages = generateFilterMessages({ all: false });
       expectToHaveLength(messages, 1);
-      expect(messages[0]).toBe("Showing active tasks (use --all to include completed tasks)");
+      expect(messages[0]).toBe("Showing active tasks (use --all to include completed _tasks)");
     });
 
     test("returns no messages when all is true", () => {
@@ -50,7 +50,7 @@ describe("Filter Messages Utility", () => {
     });
 
     test("prioritizes status filter over active tasks message", () => {
-      const messages = generateFilterMessages({ status: "TODO", all: false });
+      const messages = generateFilterMessages({ _status: "TODO", all: false });
       expectToHaveLength(messages, 1);
       expect(messages[0]).toBe("Showing tasks with status 'TODO'");
     });
@@ -58,7 +58,7 @@ describe("Filter Messages Utility", () => {
     test("returns empty array when no filter options provided", () => {
       const messages = generateFilterMessages({});
       expectToHaveLength(messages, 1);
-      expect(messages[0]).toBe("Showing active tasks (use --all to include completed tasks)");
+      expect(messages[0]).toBe("Showing active tasks (use --all to include completed _tasks)");
     });
   });
 });

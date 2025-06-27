@@ -3,12 +3,7 @@
  * Separates data retrieval, pure operations, and side effects
  */
 
-import type {
-  TaskData,
-  TaskState,
-  TaskSpecData,
-  TaskBackendConfig,
-} from "../../types/tasks/taskData.js";
+import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData.js";
 import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,

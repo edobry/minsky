@@ -1,3 +1,5 @@
+const TEST_VALUE = 123;
+
 /**
  * Common test fixtures for tests across the application
  * Extract repeated test data into this file to improve test maintainability
@@ -12,7 +14,7 @@ export const MOCK_SESSIONS = {
     createdAt: "2025-05-01T12:00:00.000Z",
     repoName: "local/project",
     repoPath: "/path/to/repo",
-    task: "123",
+    task: "TEST_VALUE",
   },
   TASK_SESSION: {
     name: "task#042",
@@ -28,11 +30,11 @@ export const MOCK_SESSIONS = {
  */
 export const MOCK_TASKS = {
   VALID_TASK: {
-    id: "#123",
+    id: "#TEST_VALUE",
     title: "Test task",
     status: "TODO",
     description: "A test task",
-    specPath: "process/tasks/123-test-task.md",
+    specPath: "process/tasks/TEST_VALUE-test-task.md",
   },
   IN_PROGRESS_TASK: {
     id: "#042",
@@ -62,7 +64,7 @@ export const SAMPLE_FILES = {
   
 ## Backlog
 
-- [ ] #123: Test task
+- [ ] #TEST_VALUE: Test task
 - [-] #042: Another test task
 - [+] #007: Review task
 - [x] #001: Completed task
@@ -96,7 +98,7 @@ export const SAMPLE_FILES = {
  * Mock command line arguments for testing CLI commands
  */
 export const MOCK_CLI_ARGS = {
-  SESSION_START: ["session", "start", "--task", "123"],
+  SESSION_START: ["session", "start", "--task", "TEST_VALUE"],
   TASK_LIST: ["tasks", "list", "--json"],
   GIT_PR: ["git", "pr", "--session", "test-session"],
 };
@@ -106,11 +108,11 @@ export const MOCK_CLI_ARGS = {
  */
 export const MOCK_COMMAND_OUTPUTS = {
   SESSION_LIST: [
-    { name: "task#123", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
+    { name: "task#TEST_VALUE", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
     { name: "task#042", createdAt: "2025-05-01T12:00:00.000Z", repoName: "local/project" },
   ],
   TASK_LIST: [
-    { id: "#123", title: "Test task", status: "TODO" },
+    { id: "#TEST_VALUE", title: "Test task", status: "TODO" },
     { id: "#042", title: "Another test task", status: "IN-PROGRESS" },
   ],
 };

@@ -56,7 +56,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (taskId: string) => {
+        getTaskStatus: async (taskId: unknown) => {
           // This should parse [~] as BLOCKED, but the bug causes it to return null
           // For now, let's see what the actual implementation returns
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
@@ -84,10 +84,10 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
     
     // This assertion should pass once the bug is fixed
-    expect(result).toBe(TASK_STATUS.BLOCKED);
+    expect(_result).toBe(TASK_STATUS.BLOCKED);
   });
 
   test("should return TODO status for task with [ ] checkbox", async () => {
@@ -100,7 +100,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (taskId: string) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           
@@ -125,8 +125,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.TODO);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.TODO);
   });
 
   test("should return IN_PROGRESS status for task with [+] checkbox", async () => {
@@ -139,7 +139,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (taskId: string) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           
@@ -164,8 +164,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.IN_PROGRESS);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.IN_PROGRESS);
   });
 
   test("should return DONE status for task with [x] checkbox", async () => {
@@ -178,7 +178,7 @@ describe("getTaskStatusFromParams", () => {
       resolveRepoPath: async () => testWorkspacePath,
       resolveWorkspacePath: async () => testWorkspacePath,
       createTaskService: () => ({
-        getTaskStatus: async (taskId: string) => {
+        getTaskStatus: async (taskId: unknown) => {
           const tasksContent = await fs.readFile(testTasksFile, "utf8");
           const lines = tasksContent.split("\n");
           
@@ -203,8 +203,8 @@ describe("getTaskStatusFromParams", () => {
       })
     };
 
-    const result = await getTaskStatusFromParams(params, mockDeps);
-    expect(result).toBe(TASK_STATUS.DONE);
+    const _result = await getTaskStatusFromParams(params, mockDeps);
+    expect(_result).toBe(TASK_STATUS.DONE);
   });
 
   test("should throw ResourceNotFoundError for non-existent task", async () => {

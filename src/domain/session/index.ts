@@ -11,7 +11,7 @@ export {
 } from "./session-adapter";
 
 // Export core types from session-db
-export type { SessionRecord, SessionDbState } from "./session-db";
+export type {SessionDbState } from "./session-db";
 
 // Export pure functions from session-db
 export {

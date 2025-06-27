@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
- 
+
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
+import { exit } from "./utils/process.js";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index.js";
 import { createMCPCommand } from "./commands/mcp/index.js";
 import {
@@ -47,15 +48,17 @@ export async function createCli(): Promise<Command> {
  */
 async function main(): Promise<void> {
   await createCli();
-  await cli.parseAsync(process.argv);
+  await cli.parseAsync(Bun.argv);
 }
 
 // Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === `file://${Bun.argv[1]}`) {
   main().catch((err) => {
+    log.systemDebug(`Error caught in main: ${err}`);
+    log.systemDebug(`Error stack: ${err.stack}`);
     log.error(`Unhandled error in CLI: ${err.message}`);
     if (err.stack) log.debug(err.stack);
-    process.exit(1);
+    exit(1);
   });
 }
 

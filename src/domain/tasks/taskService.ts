@@ -2,8 +2,8 @@
  * Refactored TaskService using functional patterns
  * Orchestrates task operations while separating pure functions from side effects
  */
-import { TaskData } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
+import type { TaskData } from "../../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
@@ -76,6 +76,7 @@ export class TaskService {
           this.backends.push(githubBackend);
         }
       } catch (error) {
+        console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
         // Silently ignore GitHub backend if not available
         log.debug("GitHub backend not available", { error: String(error) });
       }
@@ -96,7 +97,7 @@ export class TaskService {
    * @param options Options for filtering tasks
    * @returns Promise resolving to array of tasks
    */
-  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
+  async listTasks(_options?: TaskListOptions): Promise<TaskData[]> {
     // Get raw data
     const result = await this.currentBackend.getTasksData();
     if (!result.success || !result.content) {
@@ -104,14 +105,14 @@ export class TaskService {
     }
 
     // Parse data using pure function
-    let tasks = this.currentBackend.parseTasks(result.content);
+    let _tasks = this.currentBackend.parseTasks(result.content);
 
     // Apply filters if provided
-    if (options?.status) {
-      tasks = tasks.filter((task) => task.status === options.status);
+    if (_options?.status) {
+      _tasks = _tasks.filter((task) => task.status === _options.status);
     }
 
-    return tasks;
+    return _tasks;
   }
 
   /**
@@ -121,14 +122,14 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     // Get all tasks
-    const tasks = await this.listTasks();
+    const _tasks = await this.listTasks();
 
     // Find the requested task
     const normalizedId = normalizeTaskId(id);
     if (!normalizedId) return null;
 
     // First try exact match
-    const exactMatch = tasks.find((task) => task.id === normalizedId);
+    const exactMatch = _tasks.find((task) => task.id === normalizedId);
     if (exactMatch) {
       return exactMatch;
     }
@@ -137,7 +138,7 @@ export class TaskService {
     const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
     if (isNaN(numericId)) return null;
 
-    const numericMatch = tasks.find((task) => {
+    const numericMatch = _tasks.find((task) => {
       const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
       return !isNaN(taskNumericId) && taskNumericId === numericId;
     });
@@ -181,10 +182,10 @@ export class TaskService {
     }
 
     // Parse tasks
-    const tasks = this.currentBackend.parseTasks(result.content);
+    const _tasks = this.currentBackend.parseTasks(result.content);
 
     // Update the task status in the array
-    const updatedTasks = tasks.map((t) => (t.id === task.id ? { ...t, status } : t));
+    const updatedTasks = _tasks.map((t) => (t.id === task.id ? { ...t, status: status } : t));
 
     // Format the updated tasks
     const updatedContent = this.currentBackend.formatTasks(updatedTasks);
@@ -192,7 +193,7 @@ export class TaskService {
     // Save the changes
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
     }
   }
 
@@ -273,24 +274,24 @@ export class TaskService {
 
     // Get current tasks and add the new one
     const tasksResult = await this.currentBackend.getTasksData();
-    let tasks: TaskData[] = [];
+    let _tasks: TaskData[] = [];
     if (tasksResult.success && tasksResult.content) {
-      tasks = this.currentBackend.parseTasks(tasksResult.content);
+      _tasks = this.currentBackend.parseTasks(tasksResult.content);
     }
 
     // Add or replace the task
-    const existingIndex = tasks.findIndex((t) => t.id === newTask.id);
+    const existingIndex = _tasks.findIndex((t) => t.id === newTask.id);
     if (existingIndex >= 0) {
-      tasks[existingIndex] = newTask;
+      _tasks[existingIndex] = newTask;
     } else {
-      tasks.push(newTask);
+      _tasks.push(newTask);
     }
 
     // Format and save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(tasks);
+    const updatedContent = this.currentBackend.formatTasks(_tasks);
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
     }
 
     return newTask;
@@ -430,9 +431,87 @@ export class TaskService {
         ...config,
       });
     } catch (error) {
+      console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       // Return null if GitHub modules are not available
       return null;
     }
+  }
+
+  /**
+   * Create a new task from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndDescription(title: string, description: string, options: CreateTaskOptions = {}): Promise<TaskData> {
+    // Generate a task specification file content
+    const taskSpecContent = this.generateTaskSpecification(title, description);
+    
+    // Create a temporary file path for the spec
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const os = await import("os");
+    
+    const tempDir = os.tmpdir();
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+    
+    try {
+      // Write the spec content to the temporary file
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+      
+      // Use the existing createTask method
+      const task = await this.createTask(tempSpecPath, options);
+      
+      // Clean up the temporary file
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (error) {
+        // Ignore cleanup errors
+      }
+      
+      return task;
+    } catch (error) {
+      // Clean up the temporary file on error
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Status
+
+BACKLOG
+
+## Priority
+
+MEDIUM
+
+## Description
+
+${description}
+
+## Requirements
+
+[To be filled in]
+
+## Success Criteria
+
+[To be filled in]
+`;
   }
 }
 
@@ -452,7 +531,9 @@ export function createTaskService(options: TaskServiceOptions = {}): TaskService
  * @param options Options for creating the TaskService
  * @returns Promise resolving to TaskService instance
  */
-export async function createConfiguredTaskService(options: TaskServiceOptions = {}): Promise<TaskService> {
+export async function createConfiguredTaskService(
+  options: TaskServiceOptions = {}
+): Promise<TaskService> {
   const { workspacePath = process.cwd(), backend, ...otherOptions } = options;
 
   // If backend is explicitly provided, use the original function
@@ -470,25 +551,26 @@ export async function createConfiguredTaskService(options: TaskServiceOptions = 
     log.debug("Resolved backend from configuration", {
       workspacePath,
       backend: resolvedBackend,
-      configSource: configResult.resolved.backend ? "configuration" : "default"
+      configSource: configResult.resolved.backend ? "configuration" : "default",
     });
 
     return createTaskService({
       ...otherOptions,
       workspacePath,
-      backend: resolvedBackend
+      backend: resolvedBackend,
     });
   } catch (error) {
+    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     // If configuration resolution fails, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
 
     return createTaskService({
       ...otherOptions,
       workspacePath,
-      backend: "json-file" // safe fallback
+      backend: "json-file", // safe fallback
     });
   }
 }

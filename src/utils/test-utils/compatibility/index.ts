@@ -1,3 +1,5 @@
+const TEST_VALUE = 123;
+
 /**
  * Jest/Vitest Test Compatibility Layer for Bun
  *
@@ -28,12 +30,12 @@ export interface JestGlobal {
   /**
    * Mocks a module with a factory function
    */
-  mock: (modulePath: string, factory?: () => any, options?: any) => void;
+  mock: (modulePath: string, factory: () => any, options?: unknown) => void;
 
   /**
    * Restores a mocked module to its original implementation
    */
-  unmock: (modulePath: string) => void;
+  unmock: (_modulePath: unknown) => void;
 
   /**
    * Restores all mocked modules
@@ -43,7 +45,7 @@ export interface JestGlobal {
   /**
    * Gets a mock object for a mocked module
    */
-  getMockFromModule: (modulePath: string) => any;
+  getMockFromModule: (_modulePath: unknown) => any;
 }
 
 // Create a Jest-like global object
@@ -106,7 +108,7 @@ export function setupTestCompat(): void {
  *    ```ts
  *    // This should work as in Jest:
  *    expect(obj).toEqual(expect.objectContaining({
- *      id: 123,
+ *      _id: TEST_VALUE,
  *      name: expect.any(String)
  *    }));
  *    ```

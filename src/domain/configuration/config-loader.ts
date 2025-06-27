@@ -1,6 +1,6 @@
 /**
  * Configuration loader for Minsky
- * 
+ *
  * Implements the 5-level configuration hierarchy:
  * 1. CLI flags (highest priority)
  * 2. Environment variables
@@ -21,10 +21,10 @@ import {
   GlobalUserConfig,
   BackendConfig,
   CredentialConfig,
-  DetectionRule,
+  SessionDbConfig,
   DEFAULT_CONFIG,
   CONFIG_PATHS,
-  ENV_VARS
+  ENV_VARS,
 } from "./types";
 
 export class ConfigurationLoader {
@@ -41,7 +41,7 @@ export class ConfigurationLoader {
       environment: this.loadEnvironmentConfig(),
       globalUser: await this.loadGlobalUserConfig(),
       repository: await this.loadRepositoryConfig(workingDir),
-      defaults: DEFAULT_CONFIG
+      defaults: DEFAULT_CONFIG,
     };
 
     // Merge with precedence: CLI > env > global user > repo > defaults
@@ -49,7 +49,7 @@ export class ConfigurationLoader {
 
     return {
       resolved,
-      sources
+      sources,
     };
   }
 
@@ -69,9 +69,31 @@ export class ConfigurationLoader {
       config.credentials = {
         github: {
           token: process.env[ENV_VARS.GITHUB_TOKEN],
-          source: "environment"
-        }
+          source: "environment",
+        },
       };
+    }
+
+    // SessionDB configuration overrides
+    const sessionDbConfig: Partial<SessionDbConfig> = {};
+    if (process.env[ENV_VARS.SESSIONDB_BACKEND]) {
+      const backend = process.env[ENV_VARS.SESSIONDB_BACKEND];
+      if (backend === "json" || backend === "sqlite" || backend === "postgres") {
+        sessionDbConfig.backend = backend;
+      }
+    }
+    if (process.env[ENV_VARS.SESSIONDB_SQLITE_PATH]) {
+      sessionDbConfig.dbPath = process.env[ENV_VARS.SESSIONDB_SQLITE_PATH];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_POSTGRES_URL]) {
+      sessionDbConfig.connectionString = process.env[ENV_VARS.SESSIONDB_POSTGRES_URL];
+    }
+    if (process.env[ENV_VARS.SESSIONDB_BASE_DIR]) {
+      sessionDbConfig.baseDir = process.env[ENV_VARS.SESSIONDB_BASE_DIR];
+    }
+
+    if (Object.keys(sessionDbConfig).length > 0) {
+      config.sessiondb = sessionDbConfig as SessionDbConfig;
     }
 
     return config;
@@ -82,7 +104,7 @@ export class ConfigurationLoader {
    */
   private async loadGlobalUserConfig(): Promise<GlobalUserConfig | null> {
     const configPath = this.expandTilde(CONFIG_PATHS.GLOBAL_USER);
-    
+
     if (!existsSync(configPath)) {
       return null;
     }
@@ -92,7 +114,8 @@ export class ConfigurationLoader {
       return parseYaml(content) as GlobalUserConfig;
     } catch (error) {
       // Use a simple fallback for logging since proper logging infrastructure may not be available yet
-      console.error(`Failed to load global user config from ${configPath}:`, error);
+       
+      console.error(`Failed to load global user config from ${configPath}:`, _error);
       return null;
     }
   }
@@ -102,7 +125,7 @@ export class ConfigurationLoader {
    */
   private async loadRepositoryConfig(workingDir: string): Promise<RepositoryConfig | null> {
     const configPath = join(workingDir, CONFIG_PATHS.REPOSITORY);
-    
+
     if (!existsSync(configPath)) {
       return null;
     }
@@ -110,7 +133,7 @@ export class ConfigurationLoader {
     try {
       const content = readFileSync(configPath, { encoding: "utf8" });
       return parseYaml(content) as RepositoryConfig;
-    } catch (error) {
+    } catch (_error) {
       // Silently fail - configuration loading should be resilient
       return null;
     }
@@ -127,7 +150,8 @@ export class ConfigurationLoader {
       backend: defaults.backend || "json-file",
       backendConfig: { ...defaults.backendConfig },
       credentials: { ...defaults.credentials },
-      detectionRules: [...(defaults.detectionRules || [])]
+      detectionRules: [...(defaults.detectionRules || [])],
+      sessiondb: { ...defaults.sessiondb } as SessionDbConfig,
     };
 
     // Apply repository config
@@ -148,14 +172,31 @@ export class ConfigurationLoader {
       if (repository.repository?.detection_rules) {
         resolved.detectionRules = repository.repository.detection_rules;
       }
+
+      // Merge sessiondb config from repository
+      if (repository.sessiondb) {
+        // Convert repository sessiondb format to SessionDbConfig format
+        const repoSessionDb: Partial<SessionDbConfig> = {
+          backend: repository.sessiondb.backend,
+          dbPath: repository.sessiondb.sqlite?.path,
+          baseDir: repository.sessiondb.base_dir,
+          connectionString: repository.sessiondb.postgres?.connection_string,
+        };
+        resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, repoSessionDb);
+      }
     }
 
     // Apply global user config
     if (globalUser?.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        globalUser.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, globalUser.credentials);
+    }
+    if (globalUser?.sessiondb) {
+      // Convert global user sessiondb format to SessionDbConfig format
+      const globalSessionDb: Partial<SessionDbConfig> = {
+        dbPath: globalUser.sessiondb.sqlite?.path,
+        baseDir: globalUser.sessiondb.base_dir,
+      };
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, globalSessionDb);
     }
 
     // Apply environment overrides
@@ -163,10 +204,10 @@ export class ConfigurationLoader {
       resolved.backend = environment.backend;
     }
     if (environment.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        environment.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, environment.credentials);
+    }
+    if (environment.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, environment.sessiondb);
     }
 
     // Apply CLI flags (highest priority)
@@ -177,10 +218,10 @@ export class ConfigurationLoader {
       resolved.backendConfig = { ...resolved.backendConfig, ...cliFlags.backendConfig };
     }
     if (cliFlags.credentials) {
-      resolved.credentials = this.mergeCredentials(
-        resolved.credentials,
-        cliFlags.credentials
-      );
+      resolved.credentials = this.mergeCredentials(resolved.credentials, cliFlags.credentials);
+    }
+    if (cliFlags.sessiondb) {
+      resolved.sessiondb = this.mergeSessionDbConfig(resolved.sessiondb, cliFlags.sessiondb);
     }
 
     return resolved;
@@ -219,6 +260,27 @@ export class ConfigurationLoader {
   }
 
   /**
+   * Merge sessiondb configurations
+   */
+  private mergeSessionDbConfig(
+    existing: SessionDbConfig | undefined,
+    newSessionDb: Partial<SessionDbConfig>
+  ): SessionDbConfig {
+    const existingConfig = existing || {
+      backend: "json",
+      baseDir: undefined,
+      dbPath: undefined,
+      connectionString: undefined,
+    };
+    return {
+      backend: newSessionDb.backend || existingConfig.backend,
+      baseDir: newSessionDb.baseDir || existingConfig.baseDir,
+      dbPath: newSessionDb.dbPath || existingConfig.dbPath,
+      connectionString: newSessionDb.connectionString || existingConfig.connectionString,
+    };
+  }
+
+  /**
    * Expand tilde in file paths
    */
   private expandTilde(filePath: string): string {
@@ -227,4 +289,4 @@ export class ConfigurationLoader {
     }
     return filePath;
   }
-} 
+}

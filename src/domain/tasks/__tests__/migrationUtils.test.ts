@@ -5,14 +5,14 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { BackendMigrationUtils } from "../migrationUtils";
 import type { TaskBackend } from "../taskBackend";
-import type { TaskData } from "../../../types/tasks/taskData";
+import type {} from "../../../types/tasks/taskData";
 
 // Mock TaskBackend for testing
 class MockTaskBackend implements TaskBackend {
   name: string;
   private tasks: TaskData[] = [];
 
-  constructor(name: string, tasks: TaskData[] = []) {
+  constructor(name: string, _tasks: TaskData[] = []) {
     this.name = name;
     this.tasks = tasks;
   }
@@ -20,7 +20,7 @@ class MockTaskBackend implements TaskBackend {
   async getTasksData() {
     return {
       success: true,
-      content: JSON.stringify(this.tasks),
+      content: JSON.stringify(this._tasks),
     };
   }
 
@@ -28,8 +28,8 @@ class MockTaskBackend implements TaskBackend {
     return JSON.parse(content);
   }
 
-  formatTasks(tasks: TaskData[]): string {
-    return JSON.stringify(tasks);
+  formatTasks(_tasks: TaskData[]): string {
+    return JSON.stringify(_tasks);
   }
 
   async saveTasksData(content: string) {
@@ -69,7 +69,7 @@ class MockTaskBackend implements TaskBackend {
     return this.tasks;
   }
 
-  setTasks(tasks: TaskData[]): void {
+  setTasks(_tasks: TaskData[]): void {
     this.tasks = tasks;
   }
 }
@@ -104,7 +104,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         { dryRun: false }
@@ -127,7 +127,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         { dryRun: true }
@@ -150,7 +150,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -168,8 +168,8 @@ describe("BackendMigrationUtils", () => {
       expect(finalTasks).toHaveLength(2);
       const task1 = finalTasks.find(t => t.id === "1");
       const task2 = finalTasks.find(t => t.id === "2");
-      expect(task1?.title).toBe("Target Task 1"); // Original preserved
-      expect(task2?.title).toBe("Source Task 2"); // New task added
+      expect(task1?._title).toBe("Target Task 1"); // Original preserved
+      expect(task2?._title).toBe("Source Task 2"); // New task added
     });
 
     test("should handle ID conflicts with rename strategy", async () => {
@@ -183,7 +183,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -214,7 +214,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -230,7 +230,7 @@ describe("BackendMigrationUtils", () => {
       
       const finalTasks = targetBackend.getTasks();
       expect(finalTasks).toHaveLength(1);
-      expect(finalTasks[0].title).toBe("Source Task 1"); // Source overwrote target
+      expect(finalTasks[0]._title).toBe("Source Task 1"); // Source overwrote target
     });
 
     test("should apply custom status mapping", async () => {
@@ -240,7 +240,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -254,12 +254,12 @@ describe("BackendMigrationUtils", () => {
 
       expect(result.success).toBe(true);
       const finalTasks = targetBackend.getTasks();
-      expect(finalTasks[0].status).toBe("PENDING");
-      expect(finalTasks[1].status).toBe("COMPLETED");
+      expect(finalTasks[0]._status).toBe("PENDING");
+      expect(finalTasks[1]._status).toBe("COMPLETED");
     });
 
     test("should validate that backends are different", async () => {
-      const result = await migrationUtils.migrateTasksBetweenBackends(
+      const _result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         sourceBackend, // Same backend
         { dryRun: false }
@@ -272,40 +272,40 @@ describe("BackendMigrationUtils", () => {
 
   describe("mapTaskStatus", () => {
     test("should use custom mapping first", () => {
-      const result = migrationUtils.mapTaskStatus(
+      const _result = migrationUtils.mapTaskStatus(
         "TODO",
         "markdown",
         "github-issues",
         { "TODO": "CUSTOM_TODO" }
       );
-      expect(result).toBe("CUSTOM_TODO");
+      expect(_result).toBe("CUSTOM_TODO");
     });
 
     test("should use default mapping for markdown to github-issues", () => {
-      const result = migrationUtils.mapTaskStatus(
+      const _result = migrationUtils.mapTaskStatus(
         "TODO",
         "markdown",
         "github-issues"
       );
-      expect(result).toBe("minsky:todo");
+      expect(_result).toBe("minsky:todo");
     });
 
     test("should use default mapping for github-issues to markdown", () => {
-      const result = migrationUtils.mapTaskStatus(
+      const _result = migrationUtils.mapTaskStatus(
         "minsky:done",
         "github-issues",
         "markdown"
       );
-      expect(result).toBe("DONE");
+      expect(_result).toBe("DONE");
     });
 
     test("should return original status if no mapping found", () => {
-      const result = migrationUtils.mapTaskStatus(
+      const _result = migrationUtils.mapTaskStatus(
         "CUSTOM_STATUS",
         "unknown",
         "unknown"
       );
-      expect(result).toBe("CUSTOM_STATUS");
+      expect(_result).toBe("CUSTOM_STATUS");
     });
   });
 
@@ -316,7 +316,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const result = await migrationUtils.performDryRun(
+      const _result = await migrationUtils.performDryRun(
         sourceBackend,
         targetBackend,
         { preserveIds: true }
@@ -355,7 +355,7 @@ describe("BackendMigrationUtils", () => {
 
       // Simulate changes
       targetBackend.setTasks([
-        { id: "2", title: "New Task", status: "DONE" },
+        { id: "2", _title: "New Task", _status: "DONE" },
       ]);
 
       // Rollback

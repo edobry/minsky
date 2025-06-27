@@ -15,6 +15,9 @@ import { mkdtemp, writeFile, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
 
+// Constants
+const TEST_TIMEOUT_MS = 30000; // 30 second timeout for git operations
+
 // Test utilities for file handling and git operations
 async function initGitRepo(repoPath: string) {
   // Initialize a git repository using direct execSync calls
@@ -31,8 +34,8 @@ async function initGitRepo(repoPath: string) {
 }
 
 // Execute git command safely and return stdout
-function execGit(command: string, cwd: string): string {
-  const result = execSync(`git ${command}`, { cwd, encoding: "utf8" });
+function execGit(_command: string, cwd: string): string {
+  const result = execSync(`git ${_command}`, { cwd, encoding: "utf8" });
   return result.toString();
 }
 
@@ -68,25 +71,25 @@ describe.skip("Git Integration Tests", () => {
 
   test("execInRepository executes git commands in the repository", async () => {
     // Act
-    const result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
+    const _result = await gitService.execInRepository(repoPath, "git log --oneline -n 1");
 
     // Assert
-    expect(result).toContain("Initial commit");
-  }, 30000); // 30 second timeout
+    expect(_result).toContain("Initial commit");
+  }, TEST_TIMEOUT_MS);
 
   test("getSessionWorkdir returns the correct workdir path", () => {
     // Arrange
     const repoName = "test-repo";
-    const sessionName = "test-session";
+    const _sessionName = "test-session";
 
     // Act
-    const workdir = gitService.getSessionWorkdir(repoName, sessionName);
+    const _workdir = gitService.getSessionWorkdir(repoName, _sessionName);
 
     // Assert
-    expect(workdir).toContain(repoName);
-    expect(workdir).toContain(sessionName);
-    expect(workdir).toContain("sessions");
-  }, 30000); // 30 second timeout
+    expect(_workdir).toContain(repoName);
+    expect(_workdir).toContain(_sessionName);
+    expect(_workdir).toContain("sessions");
+  }, TEST_TIMEOUT_MS);
 
   test("getStatus returns correct file status", async () => {
     // Arrange - create various file states
@@ -103,7 +106,7 @@ describe.skip("Git Integration Tests", () => {
     // Assert
     expect(status.untracked).toContain("untracked.txt");
     expect(status.modified).toContain("modified.txt");
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("commit creates a commit with the provided message", async () => {
     // Arrange
@@ -118,7 +121,7 @@ describe.skip("Git Integration Tests", () => {
     // Assert
     const logResult = execGit("log -1 --pretty=%B", repoPath);
     expect(logResult.trim()).toBe(commitMessage);
-  }, 30000); // 30 second timeout
+  }, TEST_TIMEOUT_MS);
 
   test("stageAll adds all files to staging", async () => {
     // Arrange
@@ -129,10 +132,10 @@ describe.skip("Git Integration Tests", () => {
     await gitService.stageAll(repoPath);
 
     // Assert
-    const status = execGit("status --porcelain", repoPath);
-    expect(status).toContain("A  staged1.txt");
-    expect(status).toContain("A  staged2.txt");
-  }, 30000); // 30 second timeout
+    const _status = execGit("status --porcelain", repoPath);
+    expect(_status).toContain("A  staged1.txt");
+    expect(_status).toContain("A  staged2.txt");
+  }, TEST_TIMEOUT_MS);
 
   test("getCommitsOnBranch gets formatted commits", async () => {
     // Arrange - create multiple commits
@@ -145,15 +148,15 @@ describe.skip("Git Integration Tests", () => {
     execGit("commit -m 'Add file2'", repoPath);
 
     // Act - We need to call execInRepository directly since getCommitsOnBranch is private
-    const result = await gitService.execInRepository(
+    const _result = await gitService.execInRepository(
       repoPath,
       "git log --pretty=format:'%h %s' -n 2"
     );
 
     // Assert
-    expect(result).toContain("Add file2");
-    expect(result).toContain("Add file1");
-  }, 30000); // 30 second timeout
+    expect(_result).toContain("Add file2");
+    expect(_result).toContain("Add file1");
+  }, TEST_TIMEOUT_MS);
 
   // Skip tests that require stashing for now, as they're more complex
 });

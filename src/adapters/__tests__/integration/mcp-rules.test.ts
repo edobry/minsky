@@ -18,7 +18,7 @@ setupTestMocks();
 
 describe("MCP Rules Adapter", () => {
   let commandMapper: CommandMapper;
-  let mockServer: any;
+  let mockServer: unknown;
 
   beforeEach(() => {
     // Create a simple mock server for CommandMapper
@@ -39,7 +39,7 @@ describe("MCP Rules Adapter", () => {
     try {
       registerRulesTools(commandMapper);
       registrationSucceeded = true;
-    } catch (error) {
+    } catch {
       // If we reach here, the registration failed
       registrationSucceeded = false;
     }

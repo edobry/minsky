@@ -63,7 +63,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     z.object({
       taskId: z.string().describe("ID of the task to retrieve"),
     }),
-    async (args: z.infer<z.ZodObject<{ taskId: z.ZodString }>>) => {
+    async (args: { taskId: string }) => {
       try {
         // Execute the command
         const command = `minsky tasks get ${args.taskId} --json`;
@@ -91,7 +91,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     z.object({
       taskId: z.string().describe("ID of the task"),
     }),
-    async (args: z.infer<z.ZodObject<{ taskId: z.ZodString }>>) => {
+    async (args: { taskId: string }) => {
       try {
         // Execute the command
         const command = `minsky tasks status get ${args.taskId}`;
@@ -125,14 +125,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         .enum(TASK_STATUS_VALUES as [string, ...string[]])
         .describe("New status for the task"),
     }),
-    async (
-      args: z.infer<
-        z.ZodObject<{
-          taskId: z.ZodString;
-          status: z.ZodEnum<typeof TASK_STATUS_VALUES>;
-        }>
-      >
-    ) => {
+    async (args: { taskId: string; status: string }) => {
       try {
         // Execute the command
         const command = `minsky tasks status set ${args.taskId} ${args.status}`;
@@ -164,7 +157,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     z.object({
       specPath: z.string().describe("Path to the task specification document"),
     }),
-    async (args: z.infer<z.ZodObject<{ specPath: z.ZodString }>>) => {
+    async (args: { specPath: string }) => {
       try {
         // Execute the command
         const command = `minsky tasks create ${args.specPath} --json`;

@@ -7,7 +7,7 @@ import { createMock, createSpyOn } from "../mocking";
 describe("Mocking Utilities", () => {
   test("createMock creates a proper mock function", () => {
     // Create a mock
-    const mockFn = createMock((arg: string) => `Hello, ${arg}!`);
+    const mockFn = createMock((_arg: unknown) => `Hello, ${arg}!`);
 
     // Should work as a function
     expect((mockFn as any)("World")).toBe("Hello, World!");
@@ -28,7 +28,7 @@ describe("Mocking Utilities", () => {
   test("createSpyOn spies on object methods", () => {
     // Create an object with a method
     const obj = {
-      greet: (name: string) => `Hello, ${name}!`,
+      greet: (name: unknown) => `Hello, ${name}!`,
     };
 
     // Spy on the method
@@ -51,7 +51,7 @@ describe("Mocking Utilities", () => {
     let hasThrown = false;
     try {
       createSpyOn(obj, "name");
-    } catch (e) {
+    } catch {
       hasThrown = true;
       if (e instanceof Error) {
         expectToMatch(e.message, /Cannot spy on name because it is not a function/);

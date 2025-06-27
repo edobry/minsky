@@ -90,7 +90,7 @@
 
 - [-] Establish a Rule Library System [#048](process/tasks/048-establish-a-rule-library-system.md)
 
-- [+] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
+- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
 - [x] Fix Remaining Test Failures in Minsky [#050](process/tasks/050-fix-remaining-test-failures-in-minsky.md)
 
@@ -174,7 +174,7 @@
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
 
-- [ ] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
+- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
 - [x] Add Session PR Command and Improve Git Prepare-PR Interface [#092](process/tasks/092-add-session-pr-command-and-improve-git-prepare-pr-interface.md)
 
@@ -303,3 +303,48 @@
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
 
 - [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+
+- [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
+
+- [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
+
+- [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+
+- [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
+
+- [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-research-and-design-comprehensive-ai-evals-framework-for-rules-context-construction-and-agent-operations.md)
+
+- [x] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
+
+- [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
+
+- [ ] Replace process.exit() Calls with Custom Exit Utility for Bun Compatibility [#165](process/tasks/165-replace-process-exit-calls-with-custom-exit-utility-for-bun-compatibility.md)
+
+- [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
+
+- [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
+
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
+- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+
+- [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
+
+- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+
+- [ ] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
+
+- [ ] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
+
+- [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
+
+- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
+
+- [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
+
+- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
+
+- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
+
+- [ ] Investigate and improve configuration system design [#181](/Users/edobry/Projects/minsky/process/tasks/181-investigate-and-improve-configuration-system-design.md)

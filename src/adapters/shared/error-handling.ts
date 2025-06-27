@@ -16,6 +16,7 @@ import {
   ensureError,
 } from "../../errors/index.js";
 import { log, isStructuredMode } from "../../utils/logger.js";
+import { exit } from "../../utils/process.js";
 /**
  * Interface for adapter-specific error handlers
  */
@@ -26,7 +27,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options?: ErrorHandlingOptions): never;
+  handleError(_error: unknown, _options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -50,10 +51,10 @@ export class SharedErrorHandler {
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
+  static formatError(_error: unknown, debug: boolean = false): Record<string, unknown> {
     const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const result: Record<string, unknown> = {
+    const _result: Record<string, unknown> = {
       message: normalizedError.message,
     };
 
@@ -88,7 +89,7 @@ export class SharedErrorHandler {
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
-      if (error.command) {
+      if (error._command) {
         result.command = error.command;
       }
     } else if (error instanceof MinskyError) {
@@ -173,7 +174,7 @@ export class SharedErrorHandler {
     }
 
     // Exit with the specified code
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 
@@ -210,8 +211,8 @@ export class CliErrorHandler implements ErrorHandler {
       log.cliError(`Path: ${error.path}`);
     } else if (error instanceof ConfigurationError && error.configKey) {
       log.cliError(`Key: ${error.configKey}`);
-    } else if (error instanceof GitOperationError && error.command) {
-      log.cliError(`Command: ${error.command}`);
+    } else if (error instanceof GitOperationError && error._command) {
+      log.cliError(`Command: ${error._command}`);
     }
 
     // Add debug information if in debug mode
@@ -236,12 +237,12 @@ export class CliErrorHandler implements ErrorHandler {
     // Use structured logging in structured mode
     if (isStructuredMode()) {
       // Format error for structured logging
-      const formattedError = SharedErrorHandler.formatError(error, debug);
+      const formattedError = SharedErrorHandler.formatError(_error, debug);
       log.error("CLI operation failed", formattedError);
     }
 
     // Exit with the specified code
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 
@@ -255,18 +256,18 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
+  handleError(_error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response
-    const formattedError = SharedErrorHandler.formatError(error, debug);
+    const formattedError = SharedErrorHandler.formatError(_error, debug);
 
     // Log error in structured format
     log.error("MCP operation failed", formattedError);
 
     // In MCP context, we want to return a structured error
     // But since this function is marked as 'never', we have to exit
-    process.exit(exitCode);
+    exit(exitCode);
   }
 }
 

@@ -1,0 +1,264 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# User-Friendly Error Messages
+
+Transform technical error messages into helpful, actionable guidance that empowers users to resolve issues quickly.
+
+## Core Principles
+
+### 1. Show Specific Context, Not Generic Messages
+
+**AVOID**: Generic errors that leave users guessing
+```typescript
+throw new Error("Cannot create PR with uncommitted changes. Please commit or stash your changes first.");
+throw new Error("Authentication failed. Check your credentials or SSH key.");
+throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to create a PR.");
+```
+
+**PREFER**: Specific context with detailed information
+```typescript
+// Show actual uncommitted files categorized by type
+const status = await gitService.getStatus(currentDir);
+const changes = [];
+if (status.modified.length > 0) {
+  changes.push(`📝 Modified files (${status.modified.length}):`);
+  status.modified.forEach(file => changes.push(`   ${file}`));
+}
+// ... include actionable steps
+```
+
+### 2. Provide Clear Action Steps
+
+Every error message should include:
+- **What went wrong** (brief, specific)
+- **Why it happened** (context when helpful)
+- **How to fix it** (specific commands or steps)
+- **How to continue** (next steps after fix)
+
+**Template Pattern**:
+```typescript
+throw new MinskyError(`
+🚫 [Clear problem statement]
+
+[Specific context about current state]
+
+To fix this, run one of the following:
+
+📝 [Primary solution with command]:
+   [exact command to run]
+
+📦 [Alternative solution]:
+   [exact command to run]
+
+💡 Then try again:
+   [original command to retry]
+
+Need help? [Additional guidance or resources]
+`.trim());
+```
+
+### 3. Use Progressive Information Disclosure
+
+- **Essential info first**: Problem and immediate action
+- **Details second**: Current state, file lists, etc.
+- **Debug info last**: Technical details only in debug mode
+
+### 4. Match User Mental Models
+
+**Authentication Errors**:
+```typescript
+// AVOID
+throw new Error("Git authentication failed. Check your credentials or SSH key.");
+
+// PREFER
+throw new MinskyError(`
+🔐 Git authentication failed
+
+Your Git credentials are not working for this repository.
+
+Common solutions:
+📝 For HTTPS repositories:
+   git config credential.helper store
+   git pull  # Enter username/token when prompted
+
+🔑 For SSH repositories:
+   ssh-add ~/.ssh/id_rsa
+   ssh -T git@github.com  # Test SSH connection
+
+💡 For GitHub, use a personal access token instead of password:
+   https://github.com/settings/tokens
+
+Repository: ${repoUrl}
+`.trim());
+```
+
+**Missing Parameters**:
+```typescript
+// AVOID
+throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to create a PR.");
+
+// PREFER
+throw new MinskyError(`
+🎯 Session not specified
+
+To create a PR, specify which session to use:
+
+📂 Use current session (auto-detected):
+   minsky session pr --title "your title"
+
+🏷️  Use specific session name:
+   minsky session pr --session my-session --title "your title"
+
+🎫 Use task ID to find session:
+   minsky session pr --task 123 --title "your title"
+
+💡 List available sessions:
+   minsky session list
+`.trim());
+```
+
+## Implementation Guidelines
+
+### 1. Categorize Files and Changes
+When showing file changes, group by type:
+- 📝 Modified files
+- 📄 New/untracked files
+- 🗑️ Deleted files
+- ⚠️ Conflicted files
+
+### 2. Use Helpful Emojis Consistently
+- 🚫 Problems/blocks
+- ✅ Success states
+- 📝 Actions to take
+- 📦 Alternative actions
+- 💡 Tips and next steps
+- 🔐 Authentication issues
+- 🎯 Missing requirements
+- ⚠️ Warnings
+
+### 3. Provide Exact Commands
+- Show complete commands users can copy/paste
+- Include all necessary flags and parameters
+- Adapt commands to user's current context when possible
+
+### 4. Test Error Messages
+- Simulate error conditions during development
+- Verify messages are helpful to someone unfamiliar with the codebase
+- Ensure commands actually work as specified
+
+## Common Error Patterns
+
+### File System Errors
+```typescript
+// AVOID
+throw new FileSystemError("Permission denied", filePath);
+
+// PREFER
+throw new FileSystemError(`
+📁 Cannot access file
+
+Permission denied accessing: ${filePath}
+
+To fix this:
+📝 Check file permissions:
+   ls -la ${filePath}
+
+🔧 Fix permissions:
+   chmod 644 ${filePath}
+
+💡 Or run with appropriate permissions:
+   sudo minsky [your command]
+`.trim(), filePath);
+```
+
+### Network/Service Errors
+```typescript
+// AVOID
+throw new ServiceUnavailableError("Service unavailable", "github");
+
+// PREFER
+throw new ServiceUnavailableError(`
+🌐 Cannot connect to GitHub
+
+GitHub API is not responding. This might be temporary.
+
+Solutions to try:
+📝 Check GitHub status:
+   https://www.githubstatus.com/
+
+⏱️  Wait and try again:
+   minsky [your command]  # in a few minutes
+
+🔧 Check your internet connection:
+   ping github.com
+
+💡 If the problem persists, GitHub may be experiencing issues.
+`.trim(), "github");
+```
+
+### Validation Errors
+Show exactly what's wrong and what's expected:
+```typescript
+// AVOID
+throw new ValidationError("Invalid task ID format");
+
+// PREFER
+throw new ValidationError(`
+🎫 Invalid task ID format
+
+Received: "${taskId}"
+Expected: A number (e.g., "123") or prefixed format (e.g., "#123", "task#123")
+
+Valid examples:
+✅ minsky tasks get 123
+✅ minsky tasks get "#123"
+✅ minsky tasks get "task#123"
+
+💡 List available tasks:
+   minsky tasks list
+`.trim());
+```
+
+## Integration with Error Classes
+
+Extend existing error classes to support rich messaging:
+
+```typescript
+export class MinskyError extends Error {
+  constructor(
+    message: string,
+    public readonly context?: Record<string, unknown>,
+    public readonly suggestions?: string[],
+    cause?: unknown
+  ) {
+    super(message);
+    // ... existing implementation
+  }
+}
+```
+
+## When to Apply This Rule
+
+Use this rule for:
+- **All user-facing error messages** in CLI commands
+- **MCP tool error responses** that users will see
+- **Validation errors** from user input
+- **File system and network errors** users can act on
+
+**Don't apply for**:
+- Internal debug logging
+- Stack traces (preserve technical details)
+- Errors meant for developers only
+
+## Verification Checklist
+
+Before submitting user-facing error messages:
+- [ ] Message shows specific context (files, values, state)
+- [ ] Includes exact commands user can run
+- [ ] Provides multiple solution paths when applicable
+- [ ] Uses consistent emoji and formatting
+- [ ] Tested the suggested commands actually work
+- [ ] Appropriate level of detail for the user's context

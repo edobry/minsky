@@ -110,7 +110,7 @@ async function testProperMCPProtocol() {
       throw error;
     }
 
-    console.log("\n" + "=" .repeat(60));
+    console.log(`\n${  "=" .repeat(60)}`);
     console.log("🎉 PROPER MCP PROTOCOL TEST COMPLETED SUCCESSFULLY!");
     console.log("✅ FastMCP v3.3.0 protocol compliance verified");
 
@@ -152,8 +152,8 @@ if (process.argv.includes("--start")) {
 }
 `;
 
-  const fs = require('fs');
-  fs.writeFileSync('test-server-stdio.ts', serverCode);
+  const fs = require("fs");
+  fs.writeFileSync("test-server-stdio.ts", serverCode);
   console.log("📝 Created test stdio server file");
 }
 

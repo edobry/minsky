@@ -36,8 +36,8 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
-      expect(result).toBe("markdown");
+      const _result = await detector.detectBackend(tempDir, rules);
+      expect(_result).toBe("markdown");
     });
 
     it("should detect json-file backend when .minsky/tasks.json exists", async () => {
@@ -52,8 +52,8 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
-      expect(result).toBe("json-file");
+      const _result = await detector.detectBackend(tempDir, rules);
+      expect(_result).toBe("json-file");
     });
 
     it("should prioritize markdown over json-file when both exist", async () => {
@@ -72,8 +72,8 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
-      expect(result).toBe("markdown");
+      const _result = await detector.detectBackend(tempDir, rules);
+      expect(_result).toBe("markdown");
     });
 
     it("should fallback to json-file when no specific files exist", async () => {
@@ -83,8 +83,8 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
-      expect(result).toBe("json-file");
+      const _result = await detector.detectBackend(tempDir, rules);
+      expect(_result).toBe("json-file");
     });
 
     it("should respect custom rule order", async () => {
@@ -100,8 +100,8 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
-      expect(result).toBe("markdown"); // Still finds markdown even though json rule comes first
+      const _result = await detector.detectBackend(tempDir, rules);
+      expect(_result).toBe("markdown"); // Still finds markdown even though json rule comes first
     });
   });
 
@@ -111,18 +111,18 @@ describe("DefaultBackendDetector", () => {
       await fs.mkdir(processDir, { recursive: true });
       await fs.writeFile(join(processDir, "tasks.md"), "# Tasks\n");
 
-      const result = await detector.tasksMdExists(tempDir);
-      expect(result).toBe(true);
+      const _result = await detector.tasksMdExists(tempDir);
+      expect(_result).toBe(true);
     });
 
     it("should return false when process/tasks.md does not exist", async () => {
-      const result = await detector.tasksMdExists(tempDir);
-      expect(result).toBe(false);
+      const _result = await detector.tasksMdExists(tempDir);
+      expect(_result).toBe(false);
     });
 
     it("should return false when process directory does not exist", async () => {
-      const result = await detector.tasksMdExists(tempDir);
-      expect(result).toBe(false);
+      const _result = await detector.tasksMdExists(tempDir);
+      expect(_result).toBe(false);
     });
   });
 
@@ -132,18 +132,18 @@ describe("DefaultBackendDetector", () => {
       await fs.mkdir(minskyhDir, { recursive: true });
       await fs.writeFile(join(minskyhDir, "tasks.json"), "[]");
 
-      const result = await detector.jsonFileExists(tempDir);
-      expect(result).toBe(true);
+      const _result = await detector.jsonFileExists(tempDir);
+      expect(_result).toBe(true);
     });
 
     it("should return false when .minsky/tasks.json does not exist", async () => {
-      const result = await detector.jsonFileExists(tempDir);
-      expect(result).toBe(false);
+      const _result = await detector.jsonFileExists(tempDir);
+      expect(_result).toBe(false);
     });
 
     it("should return false when .minsky directory does not exist", async () => {
-      const result = await detector.jsonFileExists(tempDir);
-      expect(result).toBe(false);
+      const _result = await detector.jsonFileExists(tempDir);
+      expect(_result).toBe(false);
     });
   });
 
@@ -151,8 +151,8 @@ describe("DefaultBackendDetector", () => {
     it("should return false (disabled for auto-detection)", async () => {
       // Even if we're in a git repo with GitHub remote, this should return false
       // because GitHub Issues detection is now disabled for auto-detection
-      const result = await detector.githubRemoteExists(tempDir);
-      expect(result).toBe(false);
+      const _result = await detector.githubRemoteExists(tempDir);
+      expect(_result).toBe(false);
     });
   });
 
@@ -170,10 +170,10 @@ describe("DefaultBackendDetector", () => {
         { condition: "always", backend: "json-file" },
       ];
 
-      const result = await detector.detectBackend(tempDir, rules);
+      const _result = await detector.detectBackend(tempDir, rules);
 
       // Should detect markdown backend, not github-issues
-      expect(result).toBe("markdown");
+      expect(_result).toBe("markdown");
     });
   });
 });

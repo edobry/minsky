@@ -1,0 +1,89 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Test File Organization
+
+## When to Use This Rule
+- Creating new test files
+- Deciding where to place bug reproduction tests
+- Organizing existing fragmented test files
+- Reviewing test file structure
+
+## Critical Anti-Patterns
+
+### ❌ NEVER Create Bug-Specific Test Files
+```
+// ❌ BAD - Creates test fragmentation
+session-dir-task-lookup-bug.test.ts
+auth-token-refresh-bug.test.ts
+config-merge-issue.test.ts
+user-login-edge-case.test.ts
+```
+
+### ❌ NEVER Create Narrow Feature-Specific Test Files
+```
+// ❌ BAD - Fragments related functionality
+session-create-only.test.ts
+session-list-only.test.ts
+session-delete-only.test.ts
+task-status-update-only.test.ts
+```
+
+## Required Organization Pattern
+
+### ✅ ALWAYS Organize by Functional CLI Command Groupings
+```
+// ✅ GOOD - Organized by CLI command functionality
+src/adapters/__tests__/cli/session.test.ts    // All session commands
+src/adapters/__tests__/cli/tasks.test.ts      // All task commands
+src/adapters/__tests__/cli/git.test.ts        // All git commands
+src/adapters/__tests__/cli/config.test.ts     // All config commands
+```
+
+## Implementation Workflow
+
+### When Adding Bug Reproduction Tests:
+1. **Identify the CLI command** that exhibits the bug
+2. **Find the existing test file** for that command group
+3. **Add comprehensive test coverage** within that file
+4. **NEVER create a separate bug-specific file**
+
+### When Creating New Test Coverage:
+1. **Group by CLI command functionality** (session, tasks, git, config)
+2. **Use descriptive `describe` blocks** within files to organize sub-features
+3. **Include all related edge cases** in the same file
+
+## Benefits of This Organization
+
+- **Single source of truth** for each CLI command's test coverage
+- **Easy maintenance** - all related tests in one place
+- **Comprehensive coverage** - encourages testing all aspects of a command
+- **Consistent patterns** across the codebase
+- **Prevents test fragmentation** that makes coverage gaps hard to spot
+
+## Example Structure Within Files
+
+```typescript
+// src/adapters/__tests__/cli/session.test.ts
+describe("Session CLI Commands", () => {
+  describe("session dir command", () => {
+    test("returns correct directory for task ID");
+    test("handles task ID normalization");
+    test("reproduces task lookup bug scenario"); // Bug tests here
+  });
+
+  describe("session create command", () => {
+    test("creates session with task ID");
+    test("handles duplicate session creation");
+  });
+
+  describe("session list command", () => {
+    test("lists all sessions");
+    test("filters by status");
+  });
+});
+```
+
+This rule prevents the creation of fragmented test files that make it difficult to understand complete test coverage for CLI functionality.

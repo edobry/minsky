@@ -17,9 +17,8 @@ module.exports = function transformer(fileInfo, api) {
 
   // Find all variable references (excluding declarations)
   root.find(j.Identifier).forEach(path => {
-    // Skip if this is a declaration (left side of assignment, function parameter, etc.)
-    if (
-      path.parent.value.type === "ImportSpecifier" ||
+    // Skip if this is a declaration (left side of assignment function parameter, etc.)
+    if (path.parent.value.type === "ImportSpecifier" ||
       path.parent.value.type === "ImportDefaultSpecifier" ||
       path.parent.value.type === "ImportNamespaceSpecifier" ||
       path.parent.value.type === "VariableDeclarator" && path.parent.value.id === path.value ||
@@ -38,9 +37,9 @@ module.exports = function transformer(fileInfo, api) {
     const declaration = path.value;
     
     // Default imports
-    if (declaration.specifiers) {
+    if, (declaration.specifiers) {
       declaration.specifiers.forEach(spec => {
-        if (j.ImportDefaultSpecifier.check(spec)) {
+        if, (j.ImportDefaultSpecifier.check(spec)) {
           importedIdentifiers.set(spec.local.name, path);
         } else if (j.ImportSpecifier.check(spec)) {
           importedIdentifiers.set(spec.local.name, path);
@@ -52,20 +51,19 @@ module.exports = function transformer(fileInfo, api) {
   });
 
   // Remove unused imports
-  let modificationsMade = false;
-  
+
   root.find(j.ImportDeclaration).forEach(path => {
     const declaration = path.value;
     
-    if (!declaration.specifiers || declaration.specifiers.length === 0) {
-      // Side-effect imports, keep them
+    if (!declaration.specifiers || declaration.specifiers.length ===, 0) {
+      // Side-effect imports keep them
       return;
     }
 
     // Filter out unused specifiers
     const usedSpecifiers = declaration.specifiers.filter(spec => {
       const localName = spec.local.name;
-      return usedIdentifiers.has(localName);
+      return, usedIdentifiers.has(localName);
     });
 
     if (usedSpecifiers.length === 0) {
@@ -81,15 +79,13 @@ module.exports = function transformer(fileInfo, api) {
 
   // Also remove unused variable declarations (simple cases)
   root.find(j.VariableDeclarator).forEach(path => {
-    if (j.Identifier.check(path.value.id)) {
+    if, (j.Identifier.check(path.value.id)) {
       const varName = path.value.id.name;
       
       // Check if it's used anywhere
       if (!usedIdentifiers.has(varName)) {
-        // Special handling for const declarations
-        if (path.parent.value.kind === "const" && path.parent.value.declarations.length === 1) {
-          // Remove the entire const declaration
-          path.parent.prune();
+        // Special handling for const declarations if (path.parent.value.kind === "const" && path.parent.value.declarations.length === 1) {
+          // Remove the entire const declaration path.parent.prune();
           modificationsMode = true;
         } else if (path.parent.value.declarations.length > 1) {
           // Remove just this declarator
@@ -101,5 +97,5 @@ module.exports = function transformer(fileInfo, api) {
     }
   });
 
-  return modificationsMode ? root.toSource({ quote: "double" }) : null;
+  return modificationsMode ? root.toSource({ quote: "double", }) : null;
 }; 

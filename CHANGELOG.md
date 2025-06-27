@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Task #158: Implement Session-Aware Versions of Cursor Built-in Tools**
+  - Implemented Phase 1: Critical File Operations
+    - Created `session_edit_file` tool with support for Cursor's `// ... existing code ...` pattern
+    - Created `session_search_replace` tool for single occurrence text replacement
+    - Developed FastMCP server infrastructure for tool registration
+    - Added CommandMapper type extensions for tool registration methods
+  - Enhanced session workspace isolation for AI coding operations
+  - All file operations enforce session workspace boundaries through SessionPathResolver
+  - Tools match Cursor's exact interface for compatibility with AI agents
+
+_See: SpecStory history [2025-06-23_session-aware-tools-implementation](mdc:.specstory/history/2025-06-23_session-aware-tools-implementation.md) for Phase 1 implementation._
+
+- **Task #049: Implement Session-Scoped MCP Server for Workspace Isolation**
+  - Implemented comprehensive session workspace tools for AI agents to operate safely within session boundaries
+  - Created 6 session workspace tools with MCP integration:
+    - `session_read_file` - Read files within session workspace
+    - `session_write_file` - Write/create files with atomic operations
+    - `session_list_directory` - List directory contents with filtering
+    - `session_file_exists` - Check file/directory existence with metadata
+    - `session_delete_file` - Delete files with safety checks
+    - `session_create_directory` - Create directories with recursive support
+  - Developed SessionPathResolver class with comprehensive security validation:
+    - Prevents path traversal attacks (../ blocking)
+    - Enforces session workspace boundaries
+    - Handles edge cases (symlinks, special characters, complex paths)
+    - Automatic path resolution within session context
+  - Integrated session workspace tools with MCP server infrastructure
+  - Created comprehensive test suite with 25 passing tests covering:
+    - Path resolution and validation logic
+    - Security boundary enforcement
+    - Tool registration and integration
+    - Edge cases and error handling
+  - Added complete documentation with API examples and usage guidelines
+  - Solved core problem of AI agents accidentally modifying main workspace by providing secure, session-scoped file operations
+  - Enabled AI agents to work safely within session workspaces without manual path management
+
+_See: SpecStory history [2025-06-17_23-16-check-mcp-server-status-and-tool-isolation](mdc:.specstory/history/2025-06-17_23-16-check-mcp-server-status-and-tool-isolation.md) for comprehensive analysis and implementation._
+
 - **Task #138: Add GitHub Issues Support as Task Backend**
   - Implemented full GitHub Issues integration as a task backend option
   - Created GitHubIssuesTaskBackend with complete API integration using Octokit
@@ -28,7 +66,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/history/2025-01-17_github-issues-task-backend.md) for implementation details._
 
+- **Task #175: Add AI-powered task management subcommands**
+  - `estimate` - AI-powered task complexity estimation
+  - `decompose` - AI-assisted task breakdown into subtasks
+  - Additional commands for analysis, prioritization, and similarity detection
+
+_See: SpecStory history [2025-01-24_13-58-start-working-on-task-166](mdc:.specstory/history/2025-01-24_13-58-start-working-on-task-166.md) for task creation._
+
 ### Changed
+
+- **Improved user experience for session PR command uncommitted changes error**
+
+  - Replaced generic error message with detailed, user-friendly guidance
+  - Now shows specific files that have uncommitted changes categorized by type:
+    - Modified files with count and file names
+    - New (untracked) files with count and file names
+    - Deleted files with count and file names
+  - Added clear action steps with commands for committing or stashing changes
+  - Included helpful context and next steps with emojis for better readability
+  - Provides specific command to retry PR creation after resolving changes
 
 - **Task #143: Upgrade ESLint from v8.57.1 to v9.29.0**
   - Successfully upgraded ESLint from version 8.57.1 to 9.29.0 with full compatibility
@@ -47,6 +103,28 @@ _See: SpecStory history [2025-01-17_github-issues-task-backend](mdc:.specstory/h
 _See: SpecStory history [2025-06-18_eslint-v9-upgrade](mdc:.specstory/history/2025-06-18_eslint-v9-upgrade.md) for ESLint upgrade implementation._
 
 ### Fixed
+
+- **Task #167: Fix Task Creation CLI Bug - "status is not defined" Error**
+  - Fixed critical "status is not defined" error that was preventing the `minsky tasks create` command from working
+  - Resolved parameter naming mismatch in `getCheckboxFromStatus` function in `taskConstants.ts`
+  - Changed parameter from `__status` to `status` to match the function body usage
+  - Restored proper task creation workflow enabling CLI-driven task creation instead of manual fallbacks
+  - Added regression test to prevent this variable naming issue from recurring
+  - Verified fix works with successful task creation and status update commands
+  - Task creation workflow now completes end-to-end without errors
+
+- **Variable naming protocol violations in CLI bridge system**
+
+  - Fixed critical "options is not defined" runtime error affecting all CLI commands
+  - Resolved multiple instances of underscore-prefixed function parameters being used without underscores:
+    - Fixed registerCategorizedCliCommands function parameter `__program` → `program`
+    - Fixed generateAllCategoryCommands function parameter `__program` → `program`
+    - Fixed formatRuleSummary function parameter `_rule` → `rule`
+    - Fixed addOptionsToCommand function parameters `_parameters` → `parameters`, `_name` → `name`, `_flag` → `flag`
+    - Fixed parseOptionsToParameters function parameters `_options` → `options`, `_parameters` → `parameters`
+    - Fixed normalizeCliParameters function parameters `_parametersSchema` → `parametersSchema`, `_result` → `result`
+  - Eliminated variable naming inconsistencies that violated the variable naming protocol
+  - Ensured all CLI commands can execute without parameter reference errors
 
 - **Task #141: Repository Configuration System Implementation**
   - Implemented complete 5-level configuration hierarchy system (CLI flags > env vars > global user config > repo config > defaults)

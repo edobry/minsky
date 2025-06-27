@@ -31,7 +31,7 @@ export interface SessionDbState {
  * Initialize a new SessionDB state object
  */
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+  const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
   const baseDir = options.baseDir || join(xdgStateHome, "minsky", "git");
 
   return {
@@ -77,9 +77,9 @@ export function addSessionFn(state: SessionDbState, record: SessionRecord): Sess
  * Update an existing session
  */
 export function updateSessionFn(
-  state: SessionDbState,
-  sessionName: string,
-  updates: Partial<Omit<SessionRecord, "session">>
+  _state: SessionDbState,
+  _sessionName: string,
+  _updates: Partial<Omit<"session">>
 ): SessionDbState {
   const index = state.sessions.findIndex((s) => s.session === sessionName);
   if (index === -1) {
@@ -133,11 +133,11 @@ export function getRepoPathFn(state: SessionDbState, record: SessionRecord): str
 /**
  * Get the working directory for a session
  */
-export function getSessionWorkdirFn(state: SessionDbState, sessionName: string): string | null {
-  const session = getSessionFn(state, sessionName);
+export function getSessionWorkdirFn(_state: SessionDbState, _sessionName: string): string | null {
+  const _session = getSessionFn(_state, _sessionName);
   if (!session) {
     return null;
   }
 
-  return getRepoPathFn(state, session);
+  return getRepoPathFn(_state, _session);
 }

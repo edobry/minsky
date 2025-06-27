@@ -11,6 +11,11 @@ import {
   expectToContainEqual,
 } from "../assertions";
 
+const TEST_ARRAY_SIZE = 5;
+const SIZE_6 = 6;
+const TEST_ANSWER = 42;
+const FLOAT_PRECISION = 5;
+
 describe("Custom Assertion Helpers", () => {
   describe("expectToMatch", () => {
     test("should match a string against a regex pattern", () => {
@@ -45,12 +50,12 @@ describe("Custom Assertion Helpers", () => {
 
     test("should verify string length", () => {
       // Should succeed
-      expectToHaveLength("hello", 5);
+      expectToHaveLength("hello", TEST_ARRAY_SIZE);
 
       // Should fail
       let failed = false;
       try {
-        expectToHaveLength("hello", 6);
+        expectToHaveLength("hello", SIZE_6);
       } catch (error) {
         failed = true;
       }
@@ -79,7 +84,7 @@ describe("Custom Assertion Helpers", () => {
       const obj = {
         name: "test",
         nested: {
-          value: 42,
+          value: TEST_ANSWER,
         },
       };
 
@@ -87,7 +92,7 @@ describe("Custom Assertion Helpers", () => {
       expectToHaveProperty(obj, "name");
       expectToHaveProperty(obj, "nested.value");
       expectToHaveProperty(obj, "name", "test");
-      expectToHaveProperty(obj, "nested.value", 42);
+      expectToHaveProperty(obj, "nested.value", TEST_ANSWER);
 
       // Should fail - property doesn't exist
       let failed = false;
@@ -112,12 +117,12 @@ describe("Custom Assertion Helpers", () => {
   describe("expectToBeCloseTo", () => {
     test("should compare floating point numbers with precision", () => {
       // Should succeed
-      expectToBeCloseTo(0.1 + 0.2, 0.3, 5);
+      expectToBeCloseTo(0.1 + 0.2, 0.3, FLOAT_PRECISION);
 
       // Should fail
       let failed = false;
       try {
-        expectToBeCloseTo(0.1, 0.2, 5);
+        expectToBeCloseTo(0.1, 0.2, FLOAT_PRECISION);
       } catch (error) {
         failed = true;
       }

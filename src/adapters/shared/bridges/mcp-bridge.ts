@@ -5,12 +5,7 @@
  * allowing shared commands to be executed via MCP requests.
  */
 import { type ZodIssue } from "zod";
-import {
-  sharedCommandRegistry,
-  type CommandDefinition,
-  type CommandParameterMap,
-  type CommandExecutionContext,
-} from "../command-registry.js";
+import { sharedCommandRegistry, type CommandExecutionContext } from "../command-registry.js";
 import { ensureError } from "../../../errors/index.js";
 // Assuming MCP requests come in a specific format, e.g., FastMCP
 // For this example, let's define a placeholder for MCP request and response types.
@@ -21,7 +16,7 @@ import { ensureError } from "../../../errors/index.js";
 export interface McpCommandRequest {
   commandId: string;
   parameters: Record<string, unknown>;
-  // MCP-specific context, like user auth, request ID, etc.
+  // MCP-specific _context, like user auth, request ID, etc.
   mcpContext?: Record<string, unknown>;
   // Global options like debug or format might also be part of the MCP request payload
   debug?: boolean;
@@ -74,11 +69,11 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
   try {
     // Prepare execution context for the shared command
-    const context: McpExecutionContext = {
+    const _context: McpExecutionContext = {
       interface: "mcp",
       debug: !!request.debug,
       format: request.format,
-      mcpSpecificData: request.mcpContext, // Pass along any MCP specific context
+      mcpSpecificData: request.mcpContext, // Pass along any MCP specific _context
     };
 
     // Validate incoming parameters against the command's Zod schemas
@@ -113,7 +108,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
         if (parseResult.error && parseResult.error.errors) {
           // Ensure array exists before pushing to it within the callback
           const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((validationIssue: ZodIssue) => {
+          parseResult.error.errors.forEach((validationIssue: unknown) => {
             errors.push(validationIssue.message);
           });
         } else {
@@ -135,7 +130,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
     }
 
     // Execute the command with validated parameters
-    const result = await commandDef.execute(parsedParams as any, context); // Cast as any due to generic complexity
+    const result = await commandDef.execute(parsedParams as any, _context); // Cast as any due to generic complexity
 
     // Format response for MCP
     // In a real scenario, a shared response formatter might be used based on context.format
@@ -160,7 +155,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
     // Optional: Log the error server-side using a dedicated MCP error logger if available
     // const mcpErrorLogger = getErrorHandler("mcp");
-    // mcpErrorLogger.logDetailedError(ensuredError, request); // Example method
+    // mcpErrorLogger.logDetailedError(_ensuredError, request); // Example method
 
     return {
       success: false,
@@ -175,10 +170,10 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 export function registerMcpCommands(mcpServer: FastMcpServer) {
   const commands = sharedCommandRegistry.getAllCommands();
   commands.forEach(commandDef => {
-    mcpServer.addCommandHandler(commandDef.id, async (payload: Record<string, unknown>) => {
+    mcpServer.addCommandHandler(commandDef.id, async (payload: unknown) => {
       const request: McpCommandRequest = {
         commandId: commandDef.id,
-        parameters: payload.params || {},
+        _parameters: payload.params || {},
         mcpContext: payload.context || {},
         debug: !!payload.debug,
         format: payload.format as string || "json",
