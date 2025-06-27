@@ -1,4 +1,4 @@
-- [x] Update `session start` Command to Support Task IDs [#001](process/tasks/001-update-session-start-command-to-support-task-ids.md)
+- [x] Update `session start` Command to Support Task IDs [#001](process/tasks/001-update-session-start-task-id.md)
 
 - [x] Store Session Repos Under Per-Repo Directories and Add repoName to Session DB [#002](process/tasks/002-store-session-repos-under-per-repo-directories-and-add-reponame-to-session-db.md)
 
@@ -100,7 +100,7 @@
 
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
-- [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
+- [ ] Configure Husky Hooks for Session Repositories [#054](process/tasks/054-configure-husky-hooks-for-session-repositories.md)
 
 - [x] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
 
@@ -268,9 +268,9 @@
 
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
-- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
+- [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
-- [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
+- [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error.md)
 
 - [x] Implement Repository Configuration System [#141](process/tasks/141-implement-repository-configuration-system.md)
 
@@ -318,19 +318,19 @@
 
 - [ ] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
 
-- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#165](process/tasks/165-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
 
 - [ ] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
 
 - [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
 
-- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#168](process/tasks/168-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+- [ ] Test Task Creation [#168](process/tasks/168-test-task-creation.md)
 
-- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#169](process/tasks/169-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+- [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [ ] Task 170: Investigate Session Database Architecture Issues [#170](process/tasks/170-task-170-investigate-session-database-architecture-issues.md)
+- [ ] Investigate Session DB Architecture Issues [#170](process/tasks/170-investigate-session-db-architecture-issues.md)
 
-- [ ] Task 171: Analyze and Modularize Overly Long Files [#171](process/tasks/171-task-171-analyze-and-modularize-overly-long-files.md)
+- [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
 - [ ] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
@@ -350,6 +350,42 @@
 
 - [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [ ] Fix Task Operations to Use Main Workspace [#182](process/tasks/182-fix-task-operations-to-use-main-workspace.md)
-
 - [ ] Add AI-Powered Rule Suggestion for Context Construction [#182](process/tasks/182-add-ai-powered-rule-suggestion-for-context-construction.md)
+
+- [ ] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
+
+- [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
+
+- [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
+
+- [+] Fix ESLint Warnings and Errors [#186](process/tasks/186-fix-eslint-warnings-errors.md)
+
+- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#187](process/tasks/187-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#188](process/tasks/188-github-issues-import-existing.md)
+
+- [ ] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
+
+- [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
+
+- [ ] Add Title Option to Tasks Create [#191](process/tasks/191-add-title-option-to-tasks-create.md)
+
+- [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
+
+- [+] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
+
+- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#195](process/tasks/195-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
+- [ ] Test Task Creation Fix [#196](process/tasks/196-test-task-creation-fix.md)
+
+- [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
+
+- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
+
+- [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
+
+- [ ] Test Task From Session Workspace [#200](process/tasks/200-test-task-from-session-workspace.md)
+
+- [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
