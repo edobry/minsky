@@ -350,9 +350,9 @@
 
 - [ ] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-for-context-construction.md)
+- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
-- [+] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
+- [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#184](process/tasks/184-improve-error-handling-for-mcp-server-port-conflicts.md)
 
@@ -391,3 +391,5 @@
 - [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
+
+- [ ] Improve CLI Command Output Messages [#203](process/tasks/203-improve-cli-command-output-messages.md)

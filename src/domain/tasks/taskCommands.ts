@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils.js";
-import { resolveWorkspacePath } from "../workspace.js";
+import { resolveMainWorkspacePath } from "../workspace.js";
 import {
   createTaskService as createTaskServiceImpl,
   createConfiguredTaskService,
@@ -51,11 +51,11 @@ export async function listTasksFromParams(
   params: TaskListParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any[]> {
@@ -63,17 +63,8 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    // Get the main workspace path (always resolves to main workspace, not session)
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -118,11 +109,11 @@ export async function getTaskFromParams(
   params: TaskGetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<any> {
@@ -146,10 +137,7 @@ export async function getTaskFromParams(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -188,11 +176,11 @@ export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<string> {
@@ -216,10 +204,7 @@ export async function getTaskStatusFromParams(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -261,11 +246,11 @@ export async function setTaskStatusFromParams(
   params: TaskStatusSetParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => Promise<TaskService>;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: async (options) => await createConfiguredTaskService(options),
   }
 ): Promise<void> {
@@ -289,10 +274,7 @@ export async function setTaskStatusFromParams(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = await deps.createTaskService({
@@ -335,11 +317,11 @@ export async function createTaskFromParams(
   params: TaskCreateParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => TaskService;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options as any),
   }
 ): Promise<any> {
@@ -354,10 +336,7 @@ export async function createTaskFromParams(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -390,11 +369,11 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => TaskService;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options as any),
   }
 ): Promise<{ task: unknown; specPath: string; content: string; section?: string }> {
@@ -409,10 +388,7 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = deps.createTaskService({
@@ -483,11 +459,11 @@ export async function createTaskFromTitleAndDescription(
   params: TaskCreateFromTitleAndDescriptionParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    resolveWorkspacePath: typeof resolveWorkspacePath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
     createTaskService: (options: unknown) => TaskService;
   } = {
     resolveRepoPath,
-    resolveWorkspacePath,
+    resolveMainWorkspacePath,
     createTaskService: (options) => createTaskServiceImpl(options as any),
   }
 ): Promise<any> {
@@ -502,10 +478,7 @@ export async function createTaskFromTitleAndDescription(
     });
 
     // Then get the workspace path (main repo or session's main workspace)
-    const workspacePath = await deps.resolveWorkspacePath({
-      workspace: validParams.workspace,
-      sessionRepo: repoPath,
-    });
+    const workspacePath = await deps.resolveMainWorkspacePath();
 
     // Create task service
     const taskService = deps.createTaskService({
