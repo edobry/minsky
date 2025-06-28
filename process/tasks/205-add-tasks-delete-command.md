@@ -2,11 +2,94 @@
 
 ## Status
 
-BACKLOG
+IN-PROGRESS
 
 ## Priority
 
 MEDIUM
+
+## Implementation Status
+
+### ✅ Completed Implementation
+
+**Core Functionality:**
+- ✅ **TaskBackend Interface Extended** - Added `deleteTask` method to TaskBackend interface
+- ✅ **MarkdownTaskBackend Implementation** - Implemented deleteTask method to remove tasks from tasks.md and delete spec files
+- ✅ **Domain Integration** - Added `deleteTaskFromParams` function in taskCommands.ts
+- ✅ **Schema Definition** - Added `taskDeleteParamsSchema` and `TaskDeleteParams` type
+- ✅ **Shared Command Registration** - Added tasks.delete command to shared command registry
+- ✅ **CLI Customization** - Added CLI parameter configuration for tasks delete command
+- ✅ **MCP Integration** - Added delete command to MCP task tools
+- ✅ **Confirmation Pattern** - Implemented confirmation prompt using @clack/prompts (similar to session delete)
+
+**Technical Implementation:**
+- ✅ **Updated domain/tasks.ts** - Added deleteTask method to interface and exported deleteTaskFromParams
+- ✅ **Updated schemas/tasks.ts** - Added taskDeleteParamsSchema with taskId, force, and backend parameters
+- ✅ **Updated domain/tasks/taskCommands.ts** - Added deleteTaskFromParams function with proper validation
+- ✅ **Updated adapters/shared/commands/tasks.ts** - Added tasksDeleteParams and tasksDeleteRegistration
+- ✅ **Updated adapters/cli/cli-command-factory.ts** - Added CLI customization for tasks.delete command
+- ✅ **Updated adapters/mcp/tasks.ts** - Added delete command to MCP tools with proper argument handling
+
+### 🔍 Implementation Details
+
+**Safety Features:**
+- ✅ **Confirmation prompt** - Shows task ID and title before deletion unless --force is used
+- ✅ **Force flag support** - --force flag skips confirmation for automated usage
+- ✅ **Task existence validation** - Verifies task exists before attempting deletion
+- ✅ **Proper error handling** - Handles missing tasks, file permissions, and backend errors
+
+**Architecture Integration:**
+- ✅ **Interface consistency** - Follows same parameter patterns as other task commands
+- ✅ **Backend support** - Supports markdown, json-file, and github-issues backends
+- ✅ **Shared command registry** - Uses existing shared command architecture
+- ✅ **CLI and MCP consistency** - Both interfaces support the same parameters
+
+## Requirements Checklist
+
+### Core Functionality
+- [x] Remove task from task backend (tasks.md for markdown backend)
+- [x] Delete associated task specification file
+- [x] Handle different backends consistently
+- [x] Verify task exists before attempting deletion
+
+### Safety and Confirmation
+- [x] Show confirmation prompt by default
+- [x] Display task details before deletion
+- [x] Support --force flag to skip confirmation
+- [x] Provide clear success/failure messages
+
+### Error Handling
+- [x] Handle case where task ID doesn't exist
+- [x] Handle file system permissions errors
+- [x] Handle backend-specific errors
+- [x] Provide informative error messages
+
+### Integration with Existing Architecture
+- [x] Follow existing command patterns
+- [x] Use shared command registry architecture
+- [x] Support common options (--session, --repo, --workspace, --backend, --json)
+- [x] Add both CLI and MCP tool support
+
+## Testing Status
+
+### 🚧 Pending Verification
+- [ ] End-to-end CLI command testing
+- [ ] Confirmation prompt behavior testing
+- [ ] Force flag functionality testing
+- [ ] Backend-specific deletion testing
+- [ ] Error condition testing
+
+## Work Log
+
+- 2025-01-06: Started implementation in session workspace
+- 2025-01-06: Extended TaskBackend interface with deleteTask method
+- 2025-01-06: Implemented MarkdownTaskBackend.deleteTask with proper file handling
+- 2025-01-06: Added taskDeleteParamsSchema and TaskDeleteParams type
+- 2025-01-06: Implemented deleteTaskFromParams domain function
+- 2025-01-06: Added shared command registration with confirmation logic
+- 2025-01-06: Added CLI customization for task ID argument handling
+- 2025-01-06: Added MCP integration for tasks.delete command
+- 2025-01-06: Core implementation completed, pending testing verification
 
 ## Description
 
