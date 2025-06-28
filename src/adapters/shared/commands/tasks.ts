@@ -626,14 +626,23 @@ const tasksDeleteRegistration = {
       session: params.session,
     });
 
-    return {
-      success: result.success,
-      taskId: result.taskId,
-      task: result.task,
-      message: result.success 
-        ? `Task ${result.taskId} deleted successfully`
-        : `Failed to delete task ${result.taskId}`,
-    };
+    const message = result.success 
+      ? `Task ${result.taskId} deleted successfully`
+      : `Failed to delete task ${result.taskId}`;
+
+    // Return different formats based on --json flag
+    if (params.json) {
+      // Structured output for programmatic use
+      return {
+        success: result.success,
+        taskId: result.taskId,
+        task: result.task,
+        message: message,
+      };
+    } else {
+      // Simple message for user-friendly output
+      return message;
+    }
   },
 };
 
