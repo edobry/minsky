@@ -6,7 +6,7 @@
  */
 
 import type { TaskBackend } from "./taskBackend";
-import type {} from "../../types/tasks/taskData";
+import type { TaskData } from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
 
 /**
@@ -78,7 +78,7 @@ export class BackendMigrationUtils {
     });
 
     let backupData: BackupData | null = null;
-    const _result: MigrationResult = {
+    const result: MigrationResult = {
       success: false,
       migratedCount: 0,
       skippedCount: 0,
@@ -92,7 +92,7 @@ export class BackendMigrationUtils {
       // Create backup if requested
       if (createBackup && !dryRun) {
         backupData = await this.createBackupBeforeMigration(targetBackend);
-        _result.backupPath = backupData.backupPath;
+        result.backupPath = backupData.backupPath;
       }
 
       // Get source tasks
@@ -157,11 +157,11 @@ export class BackendMigrationUtils {
       // Attempt rollback if requested and backup exists
       if (rollbackOnFailure && backupData && !dryRun) {
         try {
-          await this.rollbackMigration(_backupData, targetBackend);
+          await this.rollbackMigration(backupData, targetBackend);
           log.debug("Rollback completed successfully");
         } catch (error) {
-          const rollbackMessage = rollbackError instanceof Error 
-            ? rollbackError.message 
+          const rollbackMessage = error instanceof Error 
+            ? error.message 
             : "Unknown rollback error";
           result.errors.push(`Rollback failed: ${rollbackMessage}`);
           log.error("Rollback failed", { error: rollbackMessage });
@@ -175,7 +175,7 @@ export class BackendMigrationUtils {
   /**
    * Validate that migration can proceed between backends
    */
-  async validateMigration(_sourceBackend: TaskBackend,
+  async validateMigration(sourceBackend: TaskBackend,
     targetBackend: TaskBackend
   ): Promise<void> {
     // Check that backends are different
@@ -210,12 +210,12 @@ export class BackendMigrationUtils {
   /**
    * Create backup before migration
    */
-  async createBackupBeforeMigration(_backend: TaskBackend): Promise<BackupData> {
+  async createBackupBeforeMigration(backend: TaskBackend): Promise<BackupData> {
     const timestamp = new Date().toISOString();
     const backupPath = `migration-backup-${backend.name}-${timestamp}`;
     
     const dataResult = await backend.getTasksData();
-    if (!dataResult.success || !dataResult._content) {
+    if (!dataResult.success || !dataResult.content) {
       throw new Error("Failed to get data for backup");
     }
     
@@ -235,7 +235,7 @@ export class BackendMigrationUtils {
   /**
    * Rollback migration using backup data
    */
-  async rollbackMigration(_backupData: BackupData,
+  async rollbackMigration(backupData: BackupData,
     targetBackend: TaskBackend
   ): Promise<void> {
     log.debug("Starting migration rollback", {
@@ -251,7 +251,7 @@ export class BackendMigrationUtils {
   /**
    * Transform tasks from source to target format
    */
-  private async transformTasks(_sourceTasks: TaskData[],
+  private async transformTasks(sourceTasks: TaskData[],
     targetTasks: TaskData[],
     sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
@@ -286,7 +286,7 @@ export class BackendMigrationUtils {
 
         // Map status between backends
         finalTask.status = this.mapTaskStatus(
-          task._status,
+          task.status,
           sourceBackend.name,
           targetBackend.name,
           options.statusMapping
@@ -306,7 +306,7 @@ export class BackendMigrationUtils {
   /**
    * Map task status between backends
    */
-  mapTaskStatus(__status: string,
+  mapTaskStatus(status: string,
     fromBackend: string,
     toBackend: string,
     customMapping?: Record<string, string>
@@ -341,7 +341,7 @@ export class BackendMigrationUtils {
   /**
    * Generate a unique ID when conflicts occur
    */
-  private async generateUniqueId(_baseId: string, existingIds: Set<string>): Promise<string> {
+  private async generateUniqueId(baseId: string, existingIds: Set<string>): Promise<string> {
     let newId = `${baseId}-migrated`;
     let counter = 1;
     
@@ -356,12 +356,12 @@ export class BackendMigrationUtils {
   /**
    * Perform a dry run to preview migration results
    */
-  async performDryRun(_sourceBackend: TaskBackend,
+  async performDryRun(sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
     options: MigrationOptions
   ): Promise<MigrationResult> {
-    return this.migrateTasksBetweenBackends(_sourceBackend, targetBackend, {
-      ..._options,
+    return this.migrateTasksBetweenBackends(sourceBackend, targetBackend, {
+      ...options,
       dryRun: true,
       createBackup: false,
     });
