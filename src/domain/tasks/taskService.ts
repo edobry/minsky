@@ -34,6 +34,14 @@ export interface CreateTaskOptions {
 }
 
 /**
+ * Options for deleting a task
+ */
+export interface DeleteTaskOptions {
+  /** Force deletion without confirmation */
+  force?: boolean;
+}
+
+/**
  * Options for listing tasks
  */
 export interface TaskListOptions {
@@ -373,6 +381,17 @@ export class TaskService {
     if (!saveSpecResult.success) {
       throw new Error(`Failed to save updated spec file: ${saveSpecResult.error?.message}`);
     }
+  }
+
+  /**
+   * Delete a task
+   * @param id Task ID
+   * @param options Delete options
+   * @returns Promise resolving to true if deleted, false otherwise
+   */
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    // Delegate to the current backend
+    return await this.currentBackend.deleteTask(id, options);
   }
 
   /**
