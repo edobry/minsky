@@ -1251,6 +1251,7 @@ Need help? Run 'git status' to see what files have changed.
     });
 
     // STEP 5: Run session update first to merge latest changes from main (unless --no-update is specified)
+    log.cli(`DEBUG: params.noUpdate value = ${params.noUpdate}`);
     if (!params.noUpdate) {
       log.cli("Updating session with latest changes from main...");
       try {
