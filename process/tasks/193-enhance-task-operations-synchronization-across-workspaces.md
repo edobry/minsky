@@ -72,6 +72,87 @@ Task Command → TaskService → Special Workspace Manager → Task Operations W
    - Automatic recovery if workspace corrupted
    - Re-clone from scratch if repair fails
 
+## Backend Categorization and Intelligent Routing
+
+### Backend Types
+
+The special workspace approach needs to intelligently handle different backend types:
+
+#### 1. **In-tree Backends** (Use Special Workspace)
+
+- **Markdown backend**: Stores in `process/tasks.md`
+- **JSON backend**: Stores in `process/tasks.json`
+- **Characteristics**: Store data in repository files, suffer from workspace synchronization issues
+
+#### 2. **External Backends** (Use Normal Workspace Resolution)
+
+- **GitHub Issues backend**: Stores data via GitHub API
+- **SQLite backend**: Stores in database file (location configurable)
+- **PostgreSQL backend**: Stores in remote database server
+- **Characteristics**: Already centralized, no workspace synchronization issues
+
+#### 3. **Hybrid Backends** (Context Dependent)
+
+- **SQLite backend**: Could be in-tree (`process/tasks.db`) or external (`~/.local/state/minsky/tasks.db`)
+- **Decision logic**: If storage location is within repository, use special workspace
+
+### Intelligent Backend Routing
+
+```typescript
+interface BackendWorkspaceStrategy {
+  /**
+   * Determine if backend requires special workspace
+   */
+  requiresSpecialWorkspace(backend: TaskBackend): boolean;
+
+  /**
+   * Get appropriate workspace path for backend
+   */
+  getWorkspacePathForBackend(backend: TaskBackend): Promise<string>;
+}
+
+class TaskBackendRouter implements BackendWorkspaceStrategy {
+  requiresSpecialWorkspace(backend: TaskBackend): boolean {
+    // Check if backend stores data in repository files
+    return backend.isInTreeBackend?.() ?? this.detectInTreeBackend(backend);
+  }
+
+  private detectInTreeBackend(backend: TaskBackend): boolean {
+    // Auto-detect based on backend name or storage location
+    const inTreeBackends = ["markdown", "json-file"];
+    return inTreeBackends.includes(backend.name);
+  }
+
+  async getWorkspacePathForBackend(backend: TaskBackend): Promise<string> {
+    if (this.requiresSpecialWorkspace(backend)) {
+      return this.specialWorkspaceManager.getWorkspacePath();
+    }
+    return resolveWorkspacePath(); // Normal resolution
+  }
+}
+```
+
+### Backend Interface Extension
+
+```typescript
+interface TaskBackend {
+  name: string;
+  // ... existing methods ...
+
+  /**
+   * Indicates if this backend stores data in repository files
+   * Optional: defaults to auto-detection based on backend name
+   */
+  isInTreeBackend?(): boolean;
+
+  /**
+   * Get storage location for this backend
+   * Used to determine if special workspace is needed
+   */
+  getStorageLocation?(): string;
+}
+```
+
 ## Requirements
 
 ### 1. Special Workspace Manager
@@ -86,16 +167,18 @@ Create a new module responsible for:
 
 ### 2. Task Service Integration
 
-- Modify TaskService to use Special Workspace Manager
-- Route all task operations through the special workspace
-- **Update JSON backend to use special workspace path**
+- **Implement TaskBackendRouter** for intelligent workspace path resolution
+- Route **only in-tree backends** through special workspace
+- **External backends** use normal workspace resolution
+- Modify TaskService to use TaskBackendRouter
 - Maintain backward compatibility with existing API
+- **Auto-detection** of backend types with override capability
 
 ### 3. JSON Backend Storage Integration
 
 - **Modify JsonFileTaskBackend** to store in special workspace when available
 - **Default JSON storage location**: `{special-workspace}/process/tasks.json`
-- **Team-shareable**: JSON database is now committed to git and shared
+- **Team-shareable**: JSON database is now version-controlled and shared
 - **Fallback logic**: Use existing behavior if special workspace not available
 
 ### 4. Atomic Operations
@@ -145,46 +228,52 @@ Create a new module responsible for:
    - Prevent concurrent task operations
    - Handle stale locks gracefully (auto-expire after 5 minutes)
 
-### Phase 2: Integrate with TaskService and Backends
+### Phase 2: Implement Intelligent Backend Routing
 
-1. **Update TaskService Constructor**:
+1. **Create TaskBackendRouter**:
 
-   - Accept SpecialWorkspaceManager as dependency
-   - Initialize manager on first use
-   - **Pass special workspace path to all backends**
+   - Implement `BackendWorkspaceStrategy` interface
+   - Auto-detect in-tree vs external backends
+   - Allow manual override via `isInTreeBackend()` method
+   - Route backends to appropriate workspace paths
 
-2. **Modify Task Operation Methods**:
+2. **Update TaskService Constructor**:
 
-   - Route all operations through special workspace
+   - Accept TaskBackendRouter as dependency
+   - Initialize SpecialWorkspaceManager only when needed
+   - **Pass appropriate workspace path to each backend individually**
+
+3. **Backend-Specific Workspace Resolution**:
+
+   - **In-tree backends**: Use special workspace path
+   - **External backends**: Use normal workspace resolution
+   - **Hybrid backends**: Determine based on storage location
+
+4. **Update Existing Backends**:
+
+   - **JsonFileTaskBackend**: Add `isInTreeBackend()` returning `true`
+   - **MarkdownTaskBackend**: Add `isInTreeBackend()` returning `true`
+   - **GitHubTaskBackend**: Add `isInTreeBackend()` returning `false`
+
+5. **Modify Task Operation Methods**:
+
+   - Route operations through TaskBackendRouter
+   - Only use special workspace for in-tree backends
    - Maintain existing method signatures
    - Add operation logging for debugging
 
-3. **Update JsonFileTaskBackend**:
+### Phase 3: JSON Backend Storage Integration
+
+1. **Update JsonFileTaskBackend**:
 
    - **Modify constructor to prefer special workspace path**
    - **Default JSON storage**: `{specialWorkspace}/process/tasks.json`
    - **Add fallback logic** for backward compatibility
    - **Ensure JSON database is committed to git**
 
-4. **Update MarkdownTaskBackend**:
-   - Use special workspace path for task files
-   - Maintain existing functionality
-
-### Phase 3: Backend Storage Location Resolution
-
-1. **Create Unified Storage Location Strategy**:
-
-   ```typescript
-   interface TaskStorageResolver {
-     resolveStorageLocation(backend: string): string;
-     isSpecialWorkspaceAvailable(): boolean;
-     getSpecialWorkspacePath(): string;
-   }
-   ```
-
 2. **Storage Location Priority**:
 
-   - **Priority 1**: Special workspace (if available)
+   - **Priority 1**: Special workspace (for in-tree backends)
    - **Priority 2**: Main workspace (if in session)
    - **Priority 3**: Current directory (fallback)
 
@@ -209,27 +298,31 @@ Create a new module responsible for:
 1. **Unit Tests**:
 
    - Test SpecialWorkspaceManager in isolation
-   - Test JSON backend storage location resolution
+   - Test TaskBackendRouter intelligent routing
+   - Test backend categorization logic
    - Mock git operations for speed
    - Cover error scenarios
 
 2. **Integration Tests**:
 
-   - Test full task operation flow with both backends
+   - Test full task operation flow with both in-tree and external backends
+   - Verify only in-tree backends use special workspace
    - Simulate concurrent operations
    - Verify rollback mechanisms
    - **Test team collaboration scenarios**
 
 3. **Performance Tests**:
-   - Measure operation latency
+   - Measure operation latency for different backend types
    - Test under high concurrency
    - Validate optimization effectiveness
 
 ## Acceptance Criteria
 
 - [ ] **Special Workspace Manager Implemented**: Complete module with all required functionality
-- [ ] **TaskService Integration Complete**: All task operations use special workspace
+- [ ] **TaskBackendRouter Implemented**: Intelligent routing for different backend types
+- [ ] **In-tree Backend Detection**: Automatic detection with manual override capability
 - [ ] **JSON Backend Storage Fixed**: JSON database stored in special workspace and team-shareable
+- [ ] **External Backend Support**: GitHub/database backends work without special workspace
 - [ ] **Atomic Operations**: Each operation is fully atomic with proper rollback
 - [ ] **Performance Targets Met**:
   - Read operations: <10ms overhead
@@ -243,11 +336,12 @@ Create a new module responsible for:
 
 ## Success Metrics
 
-1. **Zero Synchronization Failures**: No divergent task states across workspaces
+1. **Zero Synchronization Failures**: No divergent task states across workspaces for in-tree backends
 2. **Team Collaboration**: JSON backend shared across all team members
-3. **Performance Maintained**: No noticeable degradation for end users
-4. **Reliability**: 99.9% success rate for task operations
-5. **Maintainability**: Clean architecture that's easy to debug and extend
+3. **Backend Flexibility**: External backends work seamlessly without workspace overhead
+4. **Performance Maintained**: No noticeable degradation for end users
+5. **Reliability**: 99.9% success rate for task operations
+6. **Maintainability**: Clean architecture that's easy to debug and extend
 
 ## Technical Considerations
 
@@ -258,6 +352,7 @@ Create a new module responsible for:
 - Consider adding a "repair" command for manual recovery
 - **Ensure JSON database is properly committed to git**
 - **Add .gitignore rules for temporary files but not the JSON database**
+- **Design backend interface to support future database backends**
 
 ## Dependencies
 
@@ -268,6 +363,6 @@ Create a new module responsible for:
 
 ## Notes
 
-This approach eliminates synchronization issues by ensuring all task operations happen in a single, controlled location, while also solving the JSON backend storage location problem. The persistent workspace provides excellent performance for read operations while maintaining consistency for writes. The solution is simpler than trying to synchronize multiple workspaces and provides a solid foundation for future enhancements.
+This approach eliminates synchronization issues by ensuring all in-tree task operations happen in a single, controlled location, while allowing external backends to operate normally. The persistent workspace provides excellent performance for read operations while maintaining consistency for writes. The intelligent routing system makes the solution extensible for future backend types.
 
-**Key Innovation**: By storing the JSON database in the special workspace's `process/` directory, it becomes version-controlled and automatically shared across all team members, solving the team collaboration issue.
+**Key Innovation**: By categorizing backends and only applying special workspace to in-tree backends, we solve the synchronization problem without adding unnecessary overhead to external backends. The JSON database becomes version-controlled and automatically shared across team members.
