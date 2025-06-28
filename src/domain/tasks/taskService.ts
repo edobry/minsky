@@ -376,6 +376,17 @@ export class TaskService {
   }
 
   /**
+   * Delete a task
+   * @param id Task ID
+   * @param options Delete options
+   * @returns Promise resolving to true if deleted, false otherwise
+   */
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    // Delegate to the current backend
+    return await this.currentBackend.deleteTask(id, options);
+  }
+
+  /**
    * Get the content of a task specification file
    * @param id Task ID
    * @returns Promise resolving to object with spec content and path

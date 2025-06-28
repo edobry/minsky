@@ -368,7 +368,7 @@
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
-- [ ] Add Title Option to Tasks Create [#191](process/tasks/191-add-title-option-to-tasks-create.md)
+- [x] Add Title Option to Tasks Create [#191](process/tasks/191-add-title-option-to-tasks-create.md)
 
 - [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
 
@@ -393,3 +393,11 @@
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
 - [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+
+- [x] Test task creation [#204](process/tasks/204-test-task-creation.md)
+
+- [x] Another test [#205](process/tasks/205-another-test.md)
+
+- [ ] Test Task for Deletion [#206](process/tasks/206-test-task-for-deletion.md)
+
+- [ ] Add CLOSED task status for irrelevant tasks [#207](/Users/edobry/Projects/minsky/process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
