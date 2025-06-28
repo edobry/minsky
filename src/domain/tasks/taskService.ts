@@ -168,11 +168,10 @@ export class TaskService {
       throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
 
-    // First check if the task exists
-    const task = await this.getTask(id);
-    if (!task) {
-      // Return silently if task doesn't exist
-      return;
+    // Normalize the task ID for consistent matching
+    const normalizedId = normalizeTaskId(id);
+    if (!normalizedId) {
+      throw new Error(`Invalid task ID: ${id}`);
     }
 
     // Get all tasks
@@ -182,10 +181,21 @@ export class TaskService {
     }
 
     // Parse tasks
-    const _tasks = this.currentBackend.parseTasks(result.content);
+    const tasks = this.currentBackend.parseTasks(result.content);
 
-    // Update the task status in the array
-    const updatedTasks = _tasks.map((t) => (t.id === task.id ? { ...t, status: status } : t));
+    // Find the task to update using proper ID matching
+    const taskIndex = tasks.findIndex((t) => {
+      const taskNormalizedId = normalizeTaskId(t.id);
+      return taskNormalizedId === normalizedId;
+    });
+
+    if (taskIndex === -1) {
+      throw new Error(`Task ${normalizedId} not found`);
+    }
+
+    // Update the task status
+    const updatedTasks = [...tasks];
+    updatedTasks[taskIndex] = { ...updatedTasks[taskIndex], status: status };
 
     // Format the updated tasks
     const updatedContent = this.currentBackend.formatTasks(updatedTasks);
@@ -193,7 +203,7 @@ export class TaskService {
     // Save the changes
     const saveResult = await this.currentBackend.saveTasksData(updatedContent);
     if (!saveResult.success) {
-      throw new Error(`Failed to save tasks _data: ${saveResult.error?.message}`);
+      throw new Error(`Failed to save tasks data: ${saveResult.error?.message}`);
     }
   }
 
