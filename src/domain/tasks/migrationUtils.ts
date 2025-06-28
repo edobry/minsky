@@ -58,7 +58,7 @@ export class BackendMigrationUtils {
   /**
    * Migrate tasks between different backends
    */
-  async migrateTasksBetweenBackends(_sourceBackend: TaskBackend,
+  async migrateTasksBetweenBackends(sourceBackend: TaskBackend,
     targetBackend: TaskBackend,
     options: MigrationOptions = {}
   ): Promise<MigrationResult> {
@@ -74,7 +74,7 @@ export class BackendMigrationUtils {
     log.debug("Starting task migration", {
       from: sourceBackend.name,
       to: targetBackend.name,
-      _options,
+      options,
     });
 
     let backupData: BackupData | null = null;
@@ -87,30 +87,30 @@ export class BackendMigrationUtils {
 
     try {
       // Pre-flight validation
-      await this.validateMigration(_sourceBackend, targetBackend);
+      await this.validateMigration(sourceBackend, targetBackend);
 
       // Create backup if requested
       if (createBackup && !dryRun) {
         backupData = await this.createBackupBeforeMigration(targetBackend);
-        result.backupPath = backupData.backupPath;
+        _result.backupPath = backupData.backupPath;
       }
 
       // Get source tasks
       const sourceDataResult = await sourceBackend.getTasksData();
-      if (!sourceDataResult.success || !sourceDataResult._content) {
+      if (!sourceDataResult.success || !sourceDataResult.content) {
         throw new Error("Failed to get source tasks data");
       }
-      const sourceTasks = sourceBackend.parseTasks(sourceDataResult._content);
+      const sourceTasks = sourceBackend.parseTasks(sourceDataResult.content);
 
       // Get target tasks to check for conflicts
       const targetDataResult = await targetBackend.getTasksData();
-      if (!targetDataResult.success || !targetDataResult._content) {
+      if (!targetDataResult.success || !targetDataResult.content) {
         throw new Error("Failed to get target tasks data");
       }
-      const targetTasks = targetBackend.parseTasks(targetDataResult._content);
+      const targetTasks = targetBackend.parseTasks(targetDataResult.content);
 
       // Resolve ID conflicts and transform tasks
-      const transformedTasks = await this.transformTasks(_sourceTasks,
+      const transformedTasks = await this.transformTasks(sourceTasks,
         targetTasks,
         sourceBackend,
         targetBackend,
