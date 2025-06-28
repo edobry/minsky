@@ -85,6 +85,7 @@ const tasksStatusSetParams: CommandParameterMap = {
       TASK_STATUS.IN_REVIEW,
       TASK_STATUS.DONE,
       TASK_STATUS.BLOCKED,
+      TASK_STATUS.CLOSED,
     ]),
     description: "Task status",
     required: false,
@@ -235,6 +236,7 @@ const tasksStatusSetRegistration = {
         { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
         { value: TASK_STATUS.DONE, label: "DONE" },
         { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
+        { value: TASK_STATUS.CLOSED, label: "CLOSED" },
       ];
 
       // Find the index of the current status to pre-select it
@@ -325,6 +327,7 @@ const tasksListParams: CommandParameterMap = {
       TASK_STATUS.IN_REVIEW,
       TASK_STATUS.DONE,
       TASK_STATUS.BLOCKED,
+      TASK_STATUS.CLOSED,
     ]),
     description: "Filter tasks by status",
     required: false,
