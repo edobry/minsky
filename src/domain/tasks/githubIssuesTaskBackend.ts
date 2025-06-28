@@ -48,6 +48,8 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
     "IN-PROGRESS": string;
     "IN-REVIEW": string;
     DONE: string;
+    BLOCKED: string;
+    CLOSED: string;
   };
 }
 
@@ -59,6 +61,8 @@ const DEFAULT_STATUS_LABELS = {
   "IN-PROGRESS": "minsky:in-progress",
   "IN-REVIEW": "minsky:in-review",
   DONE: "minsky:done",
+  BLOCKED: "minsky:blocked",
+  CLOSED: "minsky:closed",
 } as const;
 
 /**

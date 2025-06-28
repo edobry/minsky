@@ -323,12 +323,16 @@ export class BackendMigrationUtils {
         "IN-PROGRESS": "minsky:in-progress", 
         "IN-REVIEW": "minsky:in-review",
         "DONE": "minsky:done",
+        "BLOCKED": "minsky:blocked",
+        "CLOSED": "minsky:closed",
       },
       "github-issues->markdown": {
         "minsky:todo": "TODO",
         "minsky:in-progress": "IN-PROGRESS",
         "minsky:in-review": "IN-REVIEW", 
         "minsky:done": "DONE",
+        "minsky:blocked": "BLOCKED",
+        "minsky:closed": "CLOSED",
       },
     };
 

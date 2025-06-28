@@ -98,11 +98,12 @@ export function getGitHubBackendConfig(
  * Create labels for a GitHub repository
  */
 export async function createGitHubLabels(
-  _octokit: unknown,
+  _octokit: any,
   owner: string,
   repo: string,
   labels: Record<string, string>
 ): Promise<void> {
+  const octokit = _octokit;
   for (const [status, labelName] of Object.entries(labels)) {
     try {
       // Check if label already exists
@@ -114,7 +115,7 @@ export async function createGitHubLabels(
         });
         log.debug(`Label ${labelName} already exists`);
         continue;
-      } catch (error: unknown) {
+      } catch (error: any) {
         // Label doesn't exist, continue to create it
         if (error.status !== HTTP_NOT_FOUND) {
           throw error;
@@ -126,7 +127,7 @@ export async function createGitHubLabels(
         owner,
         repo,
         name: labelName,
-        color: getColorForStatus(_status),
+        color: getColorForStatus(status),
         description: `Minsky task status: ${status}`,
       });
 
@@ -148,6 +149,8 @@ function getColorForStatus(status: string): string {
     "IN-PROGRESS": "fbca04", // Yellow
     "IN-REVIEW": "0052cc", // Blue
     DONE: "5319e7", // Purple
+    BLOCKED: "d73a49", // Red
+    CLOSED: "6c757d", // Gray
   };
 
   return colors[status] || "cccccc"; // Default gray
