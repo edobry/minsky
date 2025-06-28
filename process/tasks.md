@@ -393,3 +393,11 @@
 - [ ] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
 
 - [x] Improve user-friendly output formatting for tasks delete command [#208](process/tasks/208-improve-user-friendly-output-formatting-for-tasks-delete-command.md)
+
+- [x] Investigate and Evaluate Configuration System Architecture [#209](process/tasks/209-investigate-and-evaluate-configuration-system-architecture.md)
+
+- [ ] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
+
+- [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
+
+- [ ] Fix session pr path resolution issues [#212](/Users/edobry/Projects/minsky/process/tasks/212-fix-session-pr-path-resolution-issues.md)
