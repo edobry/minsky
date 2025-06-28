@@ -76,8 +76,12 @@ export function isValidTaskStatus(status: string): status is TaskStatus {
  * This ensures we never have to manually update regex patterns when adding new statuses
  */
 function generateCheckboxPattern(): string {
+  const specialRegexChars = ["+", "-", "*", "?", "^", "$", "(", ")", "[", "]", "{", "}", "|", "\\"];
   const checkboxChars = Object.keys(CHECKBOX_TO_STATUS)
-    .map((char) => (char === " " ? " " : `\\${char}`)) // Escape special regex chars except space
+    .map((char) => {
+      if (char === " ") return " ";
+      return specialRegexChars.includes(char) ? `\\${char}` : char;
+    })
     .join("|");
   return checkboxChars;
 }
