@@ -408,6 +408,27 @@ export class TaskService {
   }
 
   /**
+   * Get the path to a task specification file
+   * @param id Task ID
+   * @returns Promise resolving to the specification file path
+   */
+  async getTaskSpecPath(id: string): Promise<string> {
+    // First verify the task exists
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task "${id}" not found`);
+    }
+
+    // If the task already has a specPath, return it
+    if (task.specPath) {
+      return task.specPath;
+    }
+
+    // Otherwise, generate the path using the backend
+    return this.currentBackend.getTaskSpecPath(id, task.title);
+  }
+
+  /**
    * Try to create GitHub backend using dynamic imports
    * @param workspacePath Workspace path
    * @returns GitHub TaskBackend instance or null if not available
@@ -444,33 +465,37 @@ export class TaskService {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTaskFromTitleAndDescription(title: string, description: string, options: CreateTaskOptions = {}): Promise<TaskData> {
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<TaskData> {
     // Generate a task specification file content
     const taskSpecContent = this.generateTaskSpecification(title, description);
-    
+
     // Create a temporary file path for the spec
     const fs = await import("fs/promises");
     const path = await import("path");
     const os = await import("os");
-    
+
     const tempDir = os.tmpdir();
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
-    
+
     try {
       // Write the spec content to the temporary file
       await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-      
+
       // Use the existing createTask method
       const task = await this.createTask(tempSpecPath, options);
-      
+
       // Clean up the temporary file
       try {
         await fs.unlink(tempSpecPath);
       } catch (error) {
         // Ignore cleanup errors
       }
-      
+
       return task;
     } catch (error) {
       // Clean up the temporary file on error
