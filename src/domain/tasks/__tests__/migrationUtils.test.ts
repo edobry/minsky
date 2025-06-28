@@ -316,7 +316,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const _result = await migrationUtils.performDryRun(
+      const result = await migrationUtils.performDryRun(
         sourceBackend,
         targetBackend,
         { preserveIds: true }
@@ -355,7 +355,7 @@ describe("BackendMigrationUtils", () => {
 
       // Simulate changes
       targetBackend.setTasks([
-        { id: "2", _title: "New Task", _status: "DONE" },
+        { id: "2", title: "New Task", status: "DONE" },
       ]);
 
       // Rollback
