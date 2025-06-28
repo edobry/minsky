@@ -23,7 +23,7 @@
     "@types/bun": "^1.2.11",
     "@types/commander": "2.12.5",
     "@types/config": "^3.3.5",
-    "@types/jest": "^29.5.14",
+    "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.17",
     "@types/pg": "^8.15.4",
