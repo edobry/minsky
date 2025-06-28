@@ -328,7 +328,7 @@
 
 - [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [ ] Investigate Session DB Architecture Issues [#170](process/tasks/170-investigate-session-db-architecture-issues.md)
+- [ ] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -340,11 +340,7 @@
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
-- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
-
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
-
-- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
@@ -368,7 +364,7 @@
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
-- [ ] Add Title Option to Tasks Create [#191](process/tasks/191-add-title-option-to-tasks-create.md)
+- [x] Add Title Option to Tasks Create [#191](process/tasks/191-add-title-option-to-tasks-create.md)
 
 - [ ] Fix GitHub Token Validation for Non-GitHub Commands [#192](process/tasks/192-fix-github-token-validation-for-non-github-commands.md)
 
@@ -382,8 +378,6 @@
 
 - [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
 
-- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
-
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
 
 - [ ] Test Task From Session Workspace [#200](process/tasks/200-test-task-from-session-workspace.md)
@@ -393,3 +387,11 @@
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
 - [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+
+- [x] Test task creation [#204](process/tasks/204-test-task-creation.md)
+
+- [x] Another test [#205](process/tasks/205-another-test.md)
+
+- [ ] Test Task for Deletion [#206](process/tasks/206-test-task-for-deletion.md)
+
+- [ ] Add CLOSED task status for irrelevant tasks [#207](/Users/edobry/Projects/minsky/process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
