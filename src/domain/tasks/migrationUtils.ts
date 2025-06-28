@@ -269,15 +269,15 @@ export class BackendMigrationUtils {
 
         if (options.preserveIds && targetIds.has(task.id)) {
           switch (options.idConflictStrategy) {
-            case "skip":
-              skipped.push(task);
-              continue;
-            case "rename":
-              finalTask.id = await this.generateUniqueId(task.id, targetIds);
-              break;
-            case "overwrite":
-              // Keep original ID, will overwrite
-              break;
+          case "skip":
+            skipped.push(task);
+            continue;
+          case "rename":
+            finalTask.id = await this.generateUniqueId(task.id, targetIds);
+            break;
+          case "overwrite":
+            // Keep original ID, will overwrite
+            break;
           }
         }
 
