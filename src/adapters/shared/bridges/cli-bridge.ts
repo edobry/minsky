@@ -462,6 +462,17 @@ export class CliCommandBridge {
           // Handle rules get results
           this.formatRuleDetails(result.rule);
         } else {
+          // Special handling for delete command - check if this is a user-friendly result
+          if (commandDef.id === "tasks.delete") {
+            const resultObj = result as Record<string, unknown>;
+            // If json flag is false/undefined, just show the message
+            if (!resultObj.json) {
+              log.cli(String(resultObj.message || "Task deleted successfully"));
+              return;
+            }
+            // Otherwise fall through to normal JSON formatting
+          }
+
           // Generic object handling - show all simple properties and handle complex ones
           const meaningfulEntries = Object.entries(result).filter(([key]) => key !== "success");
 
