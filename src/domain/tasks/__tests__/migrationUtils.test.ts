@@ -104,7 +104,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         { dryRun: false }
@@ -127,7 +127,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         { dryRun: true }
@@ -150,7 +150,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -168,8 +168,8 @@ describe("BackendMigrationUtils", () => {
       expect(finalTasks).toHaveLength(2);
       const task1 = finalTasks.find(t => t.id === "1");
       const task2 = finalTasks.find(t => t.id === "2");
-      expect(task1?._title).toBe("Target Task 1"); // Original preserved
-      expect(task2?._title).toBe("Source Task 2"); // New task added
+      expect(task1?.title).toBe("Target Task 1"); // Original preserved
+      expect(task2?.title).toBe("Source Task 2"); // New task added
     });
 
     test("should handle ID conflicts with rename strategy", async () => {
@@ -183,7 +183,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -214,7 +214,7 @@ describe("BackendMigrationUtils", () => {
       sourceBackend.setTasks(sourceTasks);
       targetBackend.setTasks(targetTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -230,7 +230,7 @@ describe("BackendMigrationUtils", () => {
       
       const finalTasks = targetBackend.getTasks();
       expect(finalTasks).toHaveLength(1);
-      expect(finalTasks[0]._title).toBe("Source Task 1"); // Source overwrote target
+      expect(finalTasks[0].title).toBe("Source Task 1"); // Source overwrote target
     });
 
     test("should apply custom status mapping", async () => {
@@ -240,7 +240,7 @@ describe("BackendMigrationUtils", () => {
       ];
       sourceBackend.setTasks(sourceTasks);
 
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         targetBackend,
         {
@@ -254,12 +254,12 @@ describe("BackendMigrationUtils", () => {
 
       expect(result.success).toBe(true);
       const finalTasks = targetBackend.getTasks();
-      expect(finalTasks[0]._status).toBe("PENDING");
-      expect(finalTasks[1]._status).toBe("COMPLETED");
+      expect(finalTasks[0].status).toBe("PENDING");
+      expect(finalTasks[1].status).toBe("COMPLETED");
     });
 
     test("should validate that backends are different", async () => {
-      const _result = await migrationUtils.migrateTasksBetweenBackends(
+      const result = await migrationUtils.migrateTasksBetweenBackends(
         sourceBackend,
         sourceBackend, // Same backend
         { dryRun: false }
