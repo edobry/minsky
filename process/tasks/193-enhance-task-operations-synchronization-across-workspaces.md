@@ -1,8 +1,8 @@
-# Task 157: Implement Special Workspace for Task Operations
+# Task 193: Implement Special Workspace for Task Operations
 
 ## Status
 
-NEW
+IN-PROGRESS
 
 ## Priority
 
@@ -11,6 +11,52 @@ HIGH
 ## Category
 
 ENHANCEMENT
+
+## Implementation Progress
+
+### ✅ Phase 1: Core Architecture - COMPLETED
+
+1. **SpecialWorkspaceManager** - `src/domain/workspace/special-workspace-manager.ts`
+   - ✅ Persistent workspace at `~/.local/state/minsky/task-operations/`
+   - ✅ Git-synchronized operations (clone, pull, commit, push)
+   - ✅ Atomic operations with proper locking and rollback
+   - ✅ Performance optimizations (shallow clone, single branch)
+   - ✅ Error handling and workspace repair functionality
+   - ✅ Configurable base directory, workspace name, and timeouts
+
+2. **TaskBackendRouter** - `src/domain/tasks/task-backend-router.ts`
+   - ✅ Intelligent routing between in-tree vs external backends
+   - ✅ Auto-detection with manual override capability
+   - ✅ Strategy pattern for flexible workspace path resolution
+   - ✅ Factory methods for different routing scenarios
+   - ✅ InTreeBackendCapable interface for type-safe detection
+
+3. **Backend Interface Extensions** - COMPLETED
+   - ✅ JsonFileTaskBackend.isInTreeBackend() → true
+   - ✅ MarkdownTaskBackend.isInTreeBackend() → true
+   - ✅ Both backends properly identify as in-tree
+
+### 🚧 Phase 2: Integration - IN PROGRESS
+
+4. **TaskService Integration** - `src/domain/tasks/taskService.ts`
+   - ✅ Async factory pattern started
+   - ✅ Backend router initialization logic
+   - ✅ Workspace path resolution per backend type
+   - 🚧 API refinement needed
+   - 🚧 Linter issues to resolve
+
+### 📋 Phase 3: Remaining Work
+
+5. **JSON Backend Storage Integration**
+   - 🔲 Update JsonFileTaskBackend to use special workspace storage location
+   - 🔲 Change default JSON path to `{special-workspace}/process/tasks.json`
+   - 🔲 Ensure JSON database is committed to git
+
+6. **Testing and Validation**
+   - 🔲 Unit tests for SpecialWorkspaceManager
+   - 🔲 Unit tests for TaskBackendRouter
+   - 🔲 Integration tests with real workflows
+   - 🔲 End-to-end testing across different contexts
 
 ## Problem Statement
 
