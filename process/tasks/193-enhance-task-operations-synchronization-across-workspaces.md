@@ -54,7 +54,7 @@ Task Command → TaskService → Special Workspace Manager → Task Operations W
    - **Minimal footprint**: ~5-10MB instead of full repo size
 3. **Unified Storage for All Backends**:
    - **Markdown backend**: Uses `process/tasks.md` in special workspace
-   - **JSON backend**: Uses `process/.minsky/tasks.json` in special workspace (committed to git)
+   - **JSON backend**: Uses `process/tasks.json` in special workspace (committed to git)
    - **Team-shareable**: JSON database is now version-controlled and shared
 4. **Lifecycle**:
    - Created on first task operation (lazy initialization)
@@ -94,7 +94,7 @@ Create a new module responsible for:
 ### 3. JSON Backend Storage Integration
 
 - **Modify JsonFileTaskBackend** to store in special workspace when available
-- **Default JSON storage location**: `{special-workspace}/process/.minsky/tasks.json`
+- **Default JSON storage location**: `{special-workspace}/process/tasks.json`
 - **Team-shareable**: JSON database is now committed to git and shared
 - **Fallback logic**: Use existing behavior if special workspace not available
 
@@ -162,7 +162,7 @@ Create a new module responsible for:
 3. **Update JsonFileTaskBackend**:
 
    - **Modify constructor to prefer special workspace path**
-   - **Default JSON storage**: `{specialWorkspace}/process/.minsky/tasks.json`
+   - **Default JSON storage**: `{specialWorkspace}/process/tasks.json`
    - **Add fallback logic** for backward compatibility
    - **Ensure JSON database is committed to git**
 
@@ -195,7 +195,7 @@ Create a new module responsible for:
    {
      specialWorkspace;
    }
-   /process/.minsky / tasks.json;
+   /process/aksst.json;
 
    // FALLBACK: Local storage (existing behavior)
    {
