@@ -400,4 +400,4 @@
 
 - [ ] Test Task for Deletion [#206](process/tasks/206-test-task-for-deletion.md)
 
-- [ ] Add CLOSED task status for irrelevant tasks [#207](/Users/edobry/Projects/minsky/process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
+- [!] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
