@@ -49,9 +49,23 @@ export class JsonFileTaskBackend implements TaskBackend {
     this.workspacePath = options.workspacePath;
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
-    // Use provided path or default to local state directory
-    const defaultDbPath = join(process.cwd(), ".minsky", "tasks.json");
-    const dbFilePath = options.dbFilePath || defaultDbPath;
+    // Storage location priority:
+    // 1. Explicitly provided dbFilePath (e.g., from special workspace)
+    // 2. Team-shareable location in process/ directory 
+    // 3. Local fallback in .minsky directory
+    let dbFilePath: string;
+    
+    if (options.dbFilePath) {
+      // Use provided path (likely from special workspace or team configuration)
+      dbFilePath = options.dbFilePath;
+    } else {
+      // Try team-shareable location first
+      const teamLocation = join(this.workspacePath, "process", "tasks.json");
+      dbFilePath = teamLocation;
+      
+      // TODO: Add fallback logic if process/ directory doesn't exist
+      // For now, default to team-shareable location to encourage adoption
+    }
 
     // Create storage instance
     this.storage = createJsonFileStorage<TaskData, TaskState>({
@@ -61,7 +75,11 @@ export class JsonFileTaskBackend implements TaskBackend {
       initializeState: () => ({
         tasks: [],
         lastUpdated: new Date().toISOString(),
-        metadata: {},
+        metadata: {
+          storageLocation: dbFilePath,
+          backendType: "json-file",
+          createdAt: new Date().toISOString()
+        },
       }),
       prettyPrint: true,
     });
@@ -103,7 +121,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     try {
       const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
 
-      const content = await readFile(fullPath, "utf8");
+      const content = String(await readFile(fullPath, "utf8"));
       return {
         success: true,
         content,
