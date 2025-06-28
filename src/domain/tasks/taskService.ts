@@ -6,6 +6,9 @@ import type { TaskBackend } from "./taskBackend";
 import type { TaskData } from "../../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { TaskBackendRouter } from "./task-backend-router";
+import { SpecialWorkspaceManager } from "../workspace/special-workspace-manager";
+import { resolveWorkspacePath } from "../workspace";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { configurationService } from "../configuration";
@@ -23,6 +26,10 @@ export interface TaskServiceOptions {
   backend?: string;
   /** Custom backends to use instead of defaults */
   customBackends?: TaskBackend[];
+  /** Custom backend router (optional) */
+  backendRouter?: TaskBackendRouter;
+  /** Repository URL for special workspace (optional) */
+  repoUrl?: string;
 }
 
 /**
@@ -49,47 +56,91 @@ export interface TaskListOptions {
 export class TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly currentBackend: TaskBackend;
+  private readonly backendRouter: TaskBackendRouter;
 
-  constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = process.cwd(), backend = "markdown", customBackends } = options;
+  private constructor(
+    backends: TaskBackend[], 
+    currentBackend: TaskBackend,
+    backendRouter: TaskBackendRouter
+  ) {
+    this.backends = backends;
+    this.currentBackend = currentBackend;
+    this.backendRouter = backendRouter;
+  }
 
-    // Initialize with provided backends or create defaults
-    if (customBackends && customBackends.length > 0) {
-      this.backends = customBackends;
+  /**
+   * Create a new TaskService instance with intelligent backend routing
+   */
+  static async create(options: TaskServiceOptions = {}): Promise<TaskService> {
+    const { 
+      workspacePath = process.cwd(), 
+      backend = "markdown", 
+      customBackends,
+      backendRouter,
+      repoUrl 
+    } = options;
+
+    // Initialize backend router
+    let router: TaskBackendRouter;
+    if (backendRouter) {
+      router = backendRouter;
+    } else if (repoUrl) {
+      // Create special workspace manager and router
+      const specialWorkspaceManager = await SpecialWorkspaceManager.create(repoUrl);
+      router = TaskBackendRouter.withSpecialWorkspace(specialWorkspaceManager);
     } else {
-      // Create default backends
-      this.backends = [
-        createMarkdownTaskBackend({
-          name: "markdown",
-          workspacePath,
-        }),
-        createJsonFileTaskBackend({
-          name: "json-file",
-          workspacePath,
-        }),
-      ];
+      // Use external-only router (no special workspace)
+      router = TaskBackendRouter.externalOnly();
+    }
+
+    // Initialize backends
+    let backends: TaskBackend[];
+    if (customBackends && customBackends.length > 0) {
+      backends = customBackends;
+    } else {
+      // Create default backends with appropriate workspace paths
+      const markdownBackend = createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath: await router.getWorkspacePathForBackend(
+          // Create temporary instance to determine workspace path
+          createMarkdownTaskBackend({ name: "markdown", workspacePath })
+        ),
+      });
+
+      const jsonBackend = createJsonFileTaskBackend({
+        name: "json-file", 
+        workspacePath: await router.getWorkspacePathForBackend(
+          // Create temporary instance to determine workspace path
+          createJsonFileTaskBackend({ name: "json-file", workspacePath })
+        ),
+      });
+
+      backends = [markdownBackend, jsonBackend];
 
       // Try to add GitHub backend if configuration is available
       try {
-        const githubBackend = this.tryCreateGitHubBackend(workspacePath);
+        const githubBackend = await TaskService.tryCreateGitHubBackend(workspacePath, router);
         if (githubBackend) {
-          this.backends.push(githubBackend);
+          backends.push(githubBackend);
         }
       } catch (error) {
-        console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
         // Silently ignore GitHub backend if not available
-        log.debug("GitHub backend not available", { error: String(error) });
+        log.debug({
+          message: "GitHub backend not available",
+          error: String(error)
+        });
       }
     }
 
     // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
+    const selectedBackend = backends.find((b) => b.name === backend);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+        `Backend '${backend}' not found. Available backends: ${backends.map((b) => b.name).join(", ")}`
       );
     }
-    this.currentBackend = selectedBackend;
+
+    return new TaskService(backends, selectedBackend, router);
   }
 
   /**
@@ -431,9 +482,10 @@ export class TaskService {
   /**
    * Try to create GitHub backend using dynamic imports
    * @param workspacePath Workspace path
+   * @param router TaskBackendRouter instance
    * @returns GitHub TaskBackend instance or null if not available
    */
-  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+  private static async tryCreateGitHubBackend(workspacePath: string, router: TaskBackendRouter): Promise<TaskBackend | null> {
     try {
       // Dynamic import to avoid hard dependency on GitHub modules
       const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
@@ -446,11 +498,19 @@ export class TaskService {
         return null;
       }
 
-      return createGitHubIssuesTaskBackend({
+      const githubBackend = createGitHubIssuesTaskBackend({
         name: "github-issues",
         workspacePath,
         ...config,
       });
+
+      // Ensure GitHub backend workspace path is set correctly
+      const resolvedWorkspacePath = await router.getWorkspacePathForBackend(githubBackend);
+      if (resolvedWorkspacePath !== workspacePath) {
+        githubBackend.setWorkspacePath(resolvedWorkspacePath);
+      }
+
+      return githubBackend;
     } catch (error) {
       console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
       // Return null if GitHub modules are not available
@@ -546,7 +606,7 @@ ${description}
  * @returns TaskService instance
  */
 export function createTaskService(options: TaskServiceOptions = {}): TaskService {
-  return new TaskService(options);
+  return new TaskService(options.backends || [], options.currentBackend || createMarkdownTaskBackend({ name: "markdown", workspacePath: process.cwd() }), options.backendRouter || TaskBackendRouter.externalOnly());
 }
 
 /**
