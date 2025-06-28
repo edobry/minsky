@@ -9,6 +9,7 @@ import {
   createTaskService as createTaskServiceImpl,
   createConfiguredTaskService,
   TaskService,
+  TaskServiceOptions,
 } from "./taskService.js";
 import { normalizeTaskId } from "./taskFunctions.js";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index.js";
@@ -52,7 +53,7 @@ export async function listTasksFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => Promise<TaskService>;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -72,20 +73,16 @@ export async function listTasksFromParams(
       backend: validParams.backend,
     });
 
-    let tasks: unknown[];
+    // Get tasks
+    let tasks = await taskService.listTasks();
 
-    // If status filter is explicitly provided, use it
-    if (validParams.filter) {
-      tasks = await taskService.listTasks({
-        status: validParams.filter,
-      });
+    // Filter by status if provided
+    if (validParams.status) {
+      tasks = tasks.filter((task: any) => task.status === validParams.status);
     } else {
-      // Otherwise get all tasks first
-      tasks = await taskService.listTasks();
-
       // Unless "all" is provided, filter out DONE tasks
       if (!validParams.all) {
-        tasks = tasks.filter((task) => task.status !== TASK_STATUS.DONE);
+        tasks = tasks.filter((task: any) => task.status !== TASK_STATUS.DONE);
       }
     }
 
@@ -110,7 +107,7 @@ export async function getTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => Promise<TaskService>;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -177,7 +174,7 @@ export async function getTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => Promise<TaskService>;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -212,10 +209,10 @@ export async function getTaskStatusFromParams(
       backend: validParams.backend,
     });
 
-    // Get the task status
-    const status = await taskService.getTaskStatus(validParams.taskId);
+    // Get the task
+    const task = await taskService.getTask(validParams.taskId);
 
-    if (!status) {
+    if (!task) {
       throw new ResourceNotFoundError(
         `Task ${validParams.taskId} not found or has no status`,
         "task",
@@ -223,7 +220,7 @@ export async function getTaskStatusFromParams(
       );
     }
 
-    return status;
+    return task.status;
   } catch (error) {
     console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
@@ -247,7 +244,7 @@ export async function setTaskStatusFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => Promise<TaskService>;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -318,7 +315,7 @@ export async function createTaskFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => TaskService;
+    createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -370,7 +367,7 @@ export async function getTaskSpecContentFromParams(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => TaskService;
+    createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -380,6 +377,9 @@ export async function getTaskSpecContentFromParams(
   try {
     // Validate params with Zod schema
     const validParams = taskSpecContentParamsSchema.parse(params);
+
+    // Normalize task ID
+    const taskId = normalizeTaskId(validParams.taskId);
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -397,23 +397,15 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Get the task
-    const task = await taskService.getTask(validParams.taskId);
+    const task = await taskService.getTask(taskId);
     if (!task) {
-      throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} not found`,
-        "task",
-        validParams.taskId
-      );
+      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
     // Get the task spec path
-    const specPath = task.specPath;
+    const specPath = await taskService.getTaskSpecPath(taskId);
     if (!specPath) {
-      throw new ResourceNotFoundError(
-        `Task ${validParams.taskId} has no specification file`,
-        "task",
-        validParams.taskId
-      );
+      throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
     }
 
     // Read the spec content
@@ -429,11 +421,37 @@ export async function getTaskSpecContentFromParams(
       );
     }
 
+    // If a specific section is requested, extract it
+    let sectionContent = content;
+    if (validParams.section) {
+      const lines = content.split("\n");
+      const sectionStart = lines.findIndex((line) =>
+        line.toLowerCase().startsWith(`## ${validParams.section!.toLowerCase()}`)
+      );
+
+      if (sectionStart === -1) {
+        throw new ResourceNotFoundError(
+          `Section "${validParams.section}" not found in task ${taskId} specification`
+        );
+      }
+
+      // Find the next section or end of file
+      let sectionEnd = lines.length;
+      for (let i = sectionStart + 1; i < lines.length; i++) {
+        if (lines[i].startsWith("## ")) {
+          sectionEnd = i;
+          break;
+        }
+      }
+
+      sectionContent = lines.slice(sectionStart, sectionEnd).join("\n").trim();
+    }
+
     // Return the task and content
     return {
       task,
       specPath,
-      content,
+      content: sectionContent,
       section: validParams.section,
     };
   } catch (error) {
@@ -460,7 +478,7 @@ export async function createTaskFromTitleAndDescription(
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
     resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-    createTaskService: (options: unknown) => TaskService;
+    createTaskService: (options: TaskServiceOptions) => TaskService;
   } = {
     resolveRepoPath,
     resolveMainWorkspacePath,
@@ -506,7 +524,9 @@ export async function createTaskFromTitleAndDescription(
         if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
           throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
-          throw new ValidationError(`Permission denied reading description file: ${validParams.descriptionPath}`);
+          throw new ValidationError(
+            `Permission denied reading description file: ${validParams.descriptionPath}`
+          );
         } else {
           throw new ValidationError(
             `Failed to read description file: ${validParams.descriptionPath}. ${errorMessage}`
@@ -516,14 +536,23 @@ export async function createTaskFromTitleAndDescription(
     }
 
     // Create the task from title and description
-    const task = await taskService.createTaskFromTitleAndDescription(validParams.title, description!, {
-      force: validParams.force,
-    });
+    const task = await taskService.createTaskFromTitleAndDescription(
+      validParams.title,
+      description!,
+      {
+        force: validParams.force,
+      }
+    );
 
     return task;
   } catch (error) {
+    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
     if (error instanceof z.ZodError) {
-      throw new ValidationError("Invalid parameters for creating task from title and description", error.format(), error);
+      throw new ValidationError(
+        "Invalid parameters for creating task from title and description",
+        error.format(),
+        error
+      );
     }
     throw error;
   }

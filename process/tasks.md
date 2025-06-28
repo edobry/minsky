@@ -392,4 +392,4 @@
 
 - [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
 
-- [ ] Improve CLI Command Output Messages [#203](process/tasks/203-improve-cli-command-output-messages.md)
+- [ ] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
