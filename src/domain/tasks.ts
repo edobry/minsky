@@ -26,6 +26,7 @@ import {
   createTaskFromParams,
   createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
+  deleteTaskFromParams,
 } from "./tasks/taskCommands.js";
 
 export {
@@ -36,6 +37,7 @@ export {
   createTaskFromParams,
   createTaskFromTitleAndDescription,
   getTaskSpecContentFromParams,
+  deleteTaskFromParams,
 };
 
 // Re-export task status constants from centralized location
@@ -108,6 +110,7 @@ export interface TaskBackend {
   getWorkspacePath(): string;
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
   setTaskMetadata?(id: string, metadata: any): Promise<void>;
+  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
 }
 
 export interface TaskListOptions {
@@ -115,6 +118,10 @@ export interface TaskListOptions {
 }
 
 export interface CreateTaskOptions {
+  force?: boolean;
+}
+
+export interface DeleteTaskOptions {
   force?: boolean;
 }
 
@@ -484,6 +491,64 @@ export class MarkdownTaskBackend implements TaskBackend {
       );
     }
   }
+
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    const task = await this.getTask(id);
+    if (!task) {
+      return false;
+    }
+
+    // Get the task ID number for file naming
+    const taskIdNum = task.id.startsWith("#") ? task.id.slice(1) : task.id;
+
+    try {
+      // Remove task from tasks.md
+      const content = await fs.readFile(this.filePath, "utf-8");
+      const lines = content.split("\n");
+      let inCodeBlock = false;
+      let removed = false;
+
+      const updatedLines = lines.filter((line) => {
+        if (line.trim().startsWith("```")) {
+          inCodeBlock = !inCodeBlock;
+          return true;
+        }
+        if (inCodeBlock) return true;
+        
+        // Check if this line contains our task
+        if (line.includes(`[#${taskIdNum}]`)) {
+          removed = true;
+          return false; // Remove this line
+        }
+        return true;
+      });
+
+      if (!removed) {
+        return false;
+      }
+
+      // Write the updated tasks.md
+      await fs.writeFile(this.filePath, updatedLines.join("\n"), "utf-8");
+
+      // Delete the task specification file if it exists
+      const normalizedTitle = task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const specPath = join(this.workspacePath, "process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+      
+      try {
+        await fs.unlink(specPath);
+      } catch (error) {
+        // Spec file might not exist, which is okay
+        log.debug(`Task spec file not found or could not be deleted: ${specPath}`);
+      }
+
+      return true;
+    } catch (error) {
+      log.error(`Failed to delete task ${id}:`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
 }
 
 export class GitHubTaskBackend implements TaskBackend {
@@ -523,6 +588,11 @@ export class GitHubTaskBackend implements TaskBackend {
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+    // Implementation needed
+    throw new Error("Method not implemented");
+  }
+
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
     // Implementation needed
     throw new Error("Method not implemented");
   }
@@ -602,5 +672,9 @@ export class TaskService {
     }
 
     return null;
+  }
+
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    return this.currentBackend.deleteTask(id, options);
   }
 }

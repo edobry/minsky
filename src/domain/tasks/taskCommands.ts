@@ -31,6 +31,7 @@ import {
   taskCreateParamsSchema,
   taskCreateFromTitleAndDescriptionParamsSchema,
   taskSpecContentParamsSchema,
+  taskDeleteParamsSchema,
   type TaskListParams,
   type TaskGetParams,
   type TaskStatusGetParams,
@@ -38,6 +39,7 @@ import {
   type TaskCreateParams,
   type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
+  type TaskDeleteParams,
 } from "../../schemas/tasks.js";
 
 // Task spec content parameters are imported from schemas
@@ -553,6 +555,82 @@ export async function createTaskFromTitleAndDescription(
         error.format(),
         error
       );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Delete a task using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for deleting a task
+ * @returns Boolean indicating if the task was successfully deleted
+ */
+export async function deleteTaskFromParams(
+  params: TaskDeleteParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
+  } = {
+    resolveRepoPath,
+    resolveMainWorkspacePath,
+    createTaskService: async (options) => await createConfiguredTaskService(options),
+  }
+): Promise<{ success: boolean; taskId: string; task?: any }> {
+  try {
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(params.taskId);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
+      );
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
+    // Validate params with Zod schema
+    const validParams = taskDeleteParamsSchema.parse(paramsWithNormalizedId);
+
+    // First get the repo path (needed for workspace resolution)
+    const repoPath = await deps.resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+
+    // Then get the workspace path (main repo or session's main workspace)
+    const workspacePath = await deps.resolveMainWorkspacePath();
+
+    // Create task service
+    const taskService = await deps.createTaskService({
+      workspacePath,
+      backend: validParams.backend,
+    });
+
+    // Get the task first to verify it exists and get details
+    const task = await taskService.getTask(validParams.taskId);
+
+    if (!task) {
+      throw new ResourceNotFoundError(
+        `Task ${validParams.taskId} not found`,
+        "task",
+        validParams.taskId
+      );
+    }
+
+    // Delete the task
+    const deleted = await taskService.deleteTask(validParams.taskId, {
+      force: validParams.force,
+    });
+
+    return {
+      success: deleted,
+      taskId: validParams.taskId,
+      task: task,
+    };
+  } catch (error) {
+    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
+    if (error instanceof z.ZodError) {
+      throw new ValidationError("Invalid parameters for deleting task", error.format(), error);
     }
     throw error;
   }
