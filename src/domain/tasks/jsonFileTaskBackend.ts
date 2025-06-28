@@ -159,7 +159,11 @@ export class JsonFileTaskBackend implements TaskBackend {
     const state: TaskState = {
       tasks: tasks,
       lastUpdated: new Date().toISOString(),
-      metadata: {},
+      metadata: {
+        storageLocation: this.storage.getStorageLocation(),
+        backendType: this.name,
+        workspacePath: this.workspacePath,
+      },
     };
     return JSON.stringify(state, null, 2);
   }
@@ -219,7 +223,11 @@ export class JsonFileTaskBackend implements TaskBackend {
       const state: TaskState = {
         tasks,
         lastUpdated: new Date().toISOString(),
-        metadata: {},
+        metadata: {
+          storageLocation: this.storage.getStorageLocation(),
+          backendType: this.name,
+          workspacePath: this.workspacePath,
+        },
       };
 
       // Initialize storage if needed

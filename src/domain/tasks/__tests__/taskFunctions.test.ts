@@ -19,7 +19,7 @@ import {
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "../taskFunctions.js";
-import type {TaskSpecData } from "../../../types/tasks/taskData.js";
+import type { TaskData, TaskSpecData } from "../../../types/tasks/taskData.js";
 
 describe("Task Functions", () => {
   describe("normalizeTaskId", () => {
@@ -62,16 +62,16 @@ describe("Task Functions", () => {
       const _tasks = parseTasksFromMarkdown(markdown);
       expect(_tasks).toHaveLength(3);
 
-      expect(tasks[0].id).toBe("#001");
-      expect(tasks[0]._title).toBe("First task");
-      expect(tasks[0]._status).toBe("TODO");
-      expect(tasks[0].description).toBe("Description line 1\nDescription line 2");
+      expect(_tasks[0].id).toBe("#001");
+      expect(_tasks[0].title).toBe("First task");
+      expect(_tasks[0].status).toBe("TODO");
+      expect(_tasks[0].description).toBe("Description line 1\nDescription line 2");
 
-      expect(tasks[1].id).toBe("#002");
-      expect(tasks[1]._status).toBe("DONE");
+      expect(_tasks[1].id).toBe("#002");
+      expect(_tasks[1].status).toBe("DONE");
 
-      expect(tasks[2].id).toBe("#003");
-      expect(tasks[2]._status).toBe("IN-PROGRESS");
+      expect(_tasks[2].id).toBe("#003");
+      expect(_tasks[2].status).toBe("IN-PROGRESS");
     });
 
     test("should ignore tasks in code blocks", () => {
@@ -88,8 +88,8 @@ Code block with task-like content:
 
       const _tasks = parseTasksFromMarkdown(markdown);
       expect(_tasks).toHaveLength(2);
-      expect(tasks[0].id).toBe("#001");
-      expect(tasks[1].id).toBe("#003");
+      expect(_tasks[0].id).toBe("#001");
+      expect(_tasks[1].id).toBe("#003");
     });
   });
 
@@ -152,7 +152,7 @@ Code block with task-like content:
       const task = getTaskById(testTasks, "#002");
       expect(task).not.toBeNull();
       expect(task?.id).toBe("#002");
-      expect(task?._title).toBe("Task 2");
+      expect(task?.title).toBe("Task 2");
     });
 
     test("should find task by ID without # prefix", () => {

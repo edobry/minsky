@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { BackendMigrationUtils } from "../migrationUtils";
 import type { TaskBackend } from "../taskBackend";
-import type {} from "../../../types/tasks/taskData";
+import type { TaskData } from "../../../types/tasks/taskData";
 
 // Mock TaskBackend for testing
 class MockTaskBackend implements TaskBackend {
@@ -14,13 +14,13 @@ class MockTaskBackend implements TaskBackend {
 
   constructor(name: string, _tasks: TaskData[] = []) {
     this.name = name;
-    this.tasks = tasks;
+    this.tasks = _tasks;
   }
 
   async getTasksData() {
     return {
       success: true,
-      content: JSON.stringify(this._tasks),
+      content: JSON.stringify(this.tasks),
     };
   }
 
@@ -70,7 +70,7 @@ class MockTaskBackend implements TaskBackend {
   }
 
   setTasks(_tasks: TaskData[]): void {
-    this.tasks = tasks;
+    this.tasks = _tasks;
   }
 }
 

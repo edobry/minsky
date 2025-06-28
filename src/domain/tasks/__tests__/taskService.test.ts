@@ -60,7 +60,7 @@ function createMockBackend(): TaskBackend {
     })),
 
     formatTaskSpec: mock(
-      (_spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
+      (_spec) => `# Task ${_spec.id}: ${_spec.title}\n\n## Context\n\n${_spec.description}`
     ),
 
     // Mock side effect methods
@@ -106,15 +106,15 @@ describe("TaskService", () => {
       expect(mockBackend.getTasksData).toHaveBeenCalled();
       expect(mockBackend.parseTasks).toHaveBeenCalled();
       expect(_tasks).toHaveLength(2);
-      expect(tasks[0].id).toBe("#001");
-      expect(tasks[1]._status).toBe("IN-PROGRESS");
+      expect(_tasks[0].id).toBe("#001");
+      expect(_tasks[1].status).toBe("IN-PROGRESS");
     });
 
     test("should filter tasks by status if provided", async () => {
-      const _tasks = await taskService.listTasks({ _status: "TODO" });
+      const _tasks = await taskService.listTasks({ status: "TODO" });
 
-      expect(tasks.length).toBe(1);
-      expect(tasks[0].id).toBe("#001");
+      expect(_tasks.length).toBe(1);
+      expect(_tasks[0].id).toBe("#001");
     });
 
     test("should return empty array if data retrieval fails", async () => {
@@ -138,7 +138,7 @@ describe("TaskService", () => {
 
       expect(task).not.toBeNull();
       expect(task?.id).toBe("#001");
-      expect(task?._title).toBe("Task 1");
+      expect(task?.title).toBe("Task 1");
     });
 
     test("should find a task by ID without # prefix", async () => {
