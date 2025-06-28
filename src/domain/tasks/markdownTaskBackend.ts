@@ -156,6 +156,14 @@ export class MarkdownTaskBackend implements TaskBackend {
       return [];
     }
   }
+
+  /**
+   * Indicates this backend stores data in repository files
+   * @returns true because Markdown backend stores data in filesystem within the repo
+   */
+  isInTreeBackend(): boolean {
+    return true;
+  }
 }
 
 /**
