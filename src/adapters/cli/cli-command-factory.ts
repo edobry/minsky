@@ -385,6 +385,12 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           noUpdate: {
             description: "Skip session update before creating PR",
           },
+          noStatusUpdate: {
+            description: "Skip updating task status",
+          },
+          debug: {
+            description: "Enable debug output",
+          },
         },
       },
     },
