@@ -14,6 +14,7 @@ export const TASK_STATUS = {
   IN_PROGRESS: "IN-PROGRESS",
   IN_REVIEW: "IN-REVIEW",
   BLOCKED: "BLOCKED",
+  CLOSED: "CLOSED",
 } as const;
 
 /**
