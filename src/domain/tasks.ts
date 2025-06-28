@@ -80,6 +80,11 @@ export interface TaskServiceInterface {
   createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
 
   /**
+   * Delete a task
+   */
+  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
+
+  /**
    * Get the backend type for a specific task
    */
   getBackendForTask(taskId: string): Promise<string>;
