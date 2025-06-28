@@ -13,10 +13,11 @@ import { join, dirname } from "path";
 import type { TaskSpecData, TaskBackendConfig, TaskData } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
 import type { TaskBackend } from "./taskBackend";
+import type { DeleteTaskOptions } from "../tasks";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { log } from "../../utils/logger";
-import { readFile, writeFile, mkdir, access } from "fs/promises";
+import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 
 // Define TaskState interface
 interface TaskState {
@@ -249,6 +250,44 @@ export class JsonFileTaskBackend implements TaskBackend {
         error: typedError,
         filePath: specPath,
       };
+    }
+  }
+
+  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
+    const normalizedId = id.startsWith("#") ? id : `#${id}`;
+    
+    try {
+      // Check if the task exists first
+      const existingTask = await this.getTaskById(normalizedId);
+      if (!existingTask) {
+        log.debug(`Task ${normalizedId} not found for deletion`);
+        return false;
+      }
+
+      // Delete from database
+      const deleted = await this.deleteTaskData(normalizedId);
+      
+      if (deleted && existingTask.specPath) {
+        // Delete the spec file if it exists
+        try {
+          const fullSpecPath = existingTask.specPath.startsWith("/") 
+            ? existingTask.specPath 
+            : join(this.workspacePath, existingTask.specPath);
+          await unlink(fullSpecPath);
+        } catch (error) {
+          // Spec file might not exist, log but don't fail the operation
+          log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      return deleted;
+    } catch (error) {
+      log.error(`Failed to delete task ${normalizedId}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
     }
   }
 
