@@ -14,6 +14,7 @@ export const TASK_STATUS = {
   IN_REVIEW: "IN-REVIEW",
   DONE: "DONE",
   BLOCKED: "BLOCKED",
+  CLOSED: "CLOSED",
 } as const;
 
 /**
@@ -35,6 +36,7 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.IN_REVIEW]: "-",
   [TASK_STATUS.DONE]: "x",
   [TASK_STATUS.BLOCKED]: "~",
+  [TASK_STATUS.CLOSED]: "!",
 };
 
 /**
@@ -47,6 +49,7 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   x: TASK_STATUS.DONE,
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
+  "!": TASK_STATUS.CLOSED,
 };
 
 /**
@@ -58,6 +61,7 @@ export const STATUS_TO_CHECKBOX: Record<string, string> = {
   "IN-REVIEW": "-",
   DONE: "x",
   BLOCKED: "~",
+  CLOSED: "!",
 };
 
 /**

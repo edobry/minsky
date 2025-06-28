@@ -126,7 +126,7 @@ export async function createGitHubLabels(
         owner,
         repo,
         name: labelName,
-        color: getColorForStatus(_status),
+        color: getColorForStatus(status),
         description: `Minsky task status: ${status}`,
       });
 
@@ -148,6 +148,8 @@ function getColorForStatus(status: string): string {
     "IN-PROGRESS": "fbca04", // Yellow
     "IN-REVIEW": "0052cc", // Blue
     DONE: "5319e7", // Purple
+    BLOCKED: "e11d21", // Red
+    CLOSED: "6c757d", // Gray
   };
 
   return colors[status] || "cccccc"; // Default gray
