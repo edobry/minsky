@@ -225,6 +225,18 @@ export function setupCommonCommandCustomizations(program?: Command): void {
           },
         },
       },
+      "tasks.delete": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          taskId: {
+            asArgument: true,
+            description: "ID of the task to delete",
+          },
+          force: {
+            description: "Force deletion without confirmation",
+          },
+        },
+      },
       "tasks.spec": {
         useFirstRequiredParamAsArgument: true,
         parameters: {

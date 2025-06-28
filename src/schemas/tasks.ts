@@ -177,3 +177,22 @@ export const taskSpecContentParamsSchema = z
  * Type for task spec content parameters
  */
 export type TaskSpecContentParams = z.infer<typeof taskSpecContentParamsSchema>;
+
+/**
+ * Schema for task delete parameters
+ */
+export const taskDeleteParamsSchema = z
+  .object({
+    taskId: taskIdSchema.describe("ID of the task to delete"),
+    force: flagSchema("Force deletion without confirmation"),
+    backend: z
+      .string()
+      .optional()
+      .describe("Specify task backend (markdown, json-file, github-issues)"),
+  })
+  .merge(commonCommandOptionsSchema);
+
+/**
+ * Type for task delete parameters
+ */
+export type TaskDeleteParams = z.infer<typeof taskDeleteParamsSchema>;

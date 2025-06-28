@@ -23,6 +23,7 @@ import {
   getTaskFromParams,
   createTaskFromParams,
   createTaskFromTitleAndDescription,
+  deleteTaskFromParams,
 } from "../../../domain/tasks";
 import { BackendMigrationUtils } from "../../../domain/tasks/migrationUtils";
 import { TaskService } from "../../../domain/tasks/taskService";
@@ -536,6 +537,107 @@ const tasksCreateRegistration = {
 };
 
 /**
+ * Parameters for tasks delete command
+ */
+const tasksDeleteParams: CommandParameterMap = {
+  taskId: {
+    schema: z.string().min(1),
+    description: "ID of the task to delete",
+    required: true,
+  },
+  force: {
+    schema: z.boolean().default(false),
+    description: "Force deletion without confirmation",
+    required: false,
+    defaultValue: false,
+  },
+  backend: {
+    schema: z.string(),
+    description: "Specify task backend (markdown, json-file, github)",
+    required: false,
+  },
+  repo: {
+    schema: z.string(),
+    description: "Repository path",
+    required: false,
+  },
+  workspace: {
+    schema: z.string(),
+    description: "Workspace path",
+    required: false,
+  },
+  session: {
+    schema: z.string(),
+    description: "Session identifier",
+    required: false,
+  },
+  json: {
+    schema: z.boolean().default(false),
+    description: "Output in JSON format",
+    required: false,
+  },
+};
+
+/**
+ * Register tasks.delete command
+ */
+const tasksDeleteRegistration = {
+  id: "tasks.delete",
+  category: CommandCategory.TASKS,
+  name: "delete",
+  description: "Delete a task",
+  parameters: tasksDeleteParams,
+  execute: async (params, ctx) => {
+    if (!params.taskId) throw new ValidationError("Missing required parameter: taskId");
+
+    // Handle confirmation if force is not set and we're in interactive mode
+    if (!params.force && !params.json) {
+      // Get task details for confirmation
+      const task = await getTaskFromParams({
+        taskId: params.taskId,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      });
+
+      // Import confirm from @clack/prompts for confirmation
+      const { confirm, isCancel } = await import("@clack/prompts");
+      
+      const shouldDelete = await confirm({
+        message: `Are you sure you want to delete task ${task.id}: "${task.title}"?`,
+      });
+
+      if (isCancel(shouldDelete) || !shouldDelete) {
+        return {
+          success: false,
+          message: "Task deletion cancelled",
+          taskId: params.taskId,
+        };
+      }
+    }
+
+    const result = await deleteTaskFromParams({
+      taskId: params.taskId,
+      force: params.force ?? false,
+      backend: params.backend,
+      repo: params.repo,
+      workspace: params.workspace,
+      session: params.session,
+    });
+
+    return {
+      success: result.success,
+      taskId: result.taskId,
+      task: result.task,
+      message: result.success 
+        ? `Task ${result.taskId} deleted successfully`
+        : `Failed to delete task ${result.taskId}`,
+    };
+  },
+};
+
+/**
  * Parameters for tasks migrate command
  */
 const tasksMigrateParams: CommandParameterMap = {
@@ -724,6 +826,9 @@ export function registerTasksCommands() {
 
   // Register tasks.create command
   sharedCommandRegistry.registerCommand(tasksCreateRegistration);
+
+  // Register tasks.delete command
+  sharedCommandRegistry.registerCommand(tasksDeleteRegistration);
 
   // Register tasks.status.get command
   sharedCommandRegistry.registerCommand(tasksStatusGetRegistration);
