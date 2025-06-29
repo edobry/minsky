@@ -1250,8 +1250,8 @@ Need help? Run 'git status' to see what files have changed.
       baseBranch: params.baseBranch,
     });
 
-    // STEP 5: Run session update first to merge latest changes from main (unless --no-update is specified)
-    if (!params.noUpdate) {
+    // STEP 5: Run session update first to merge latest changes from main (unless --skip-update is specified)
+    if (!params.skipUpdate) {
       log.cli("Updating session with latest changes from main...");
       try {
         await updateSessionFromParams({
@@ -1266,7 +1266,7 @@ Need help? Run 'git status' to see what files have changed.
         );
       }
     } else {
-      log.cli("Skipping session update (--no-update specified)");
+      log.cli("Skipping session update (--skip-update specified)");
     }
 
     // STEP 6: Now proceed with PR creation

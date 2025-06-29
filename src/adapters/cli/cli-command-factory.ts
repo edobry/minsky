@@ -382,7 +382,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
             alias: "t",
             description: "Task ID associated with the session",
           },
-          noUpdate: {
+          skipUpdate: {
             description: "Skip session update before creating PR",
           },
           noStatusUpdate: {
