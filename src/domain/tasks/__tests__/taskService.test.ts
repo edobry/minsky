@@ -182,8 +182,8 @@ describe("TaskService", () => {
 
       // Verify tasks passed to formatTasks had the updated status
       const updatedTasks = formatTasksSpy.mock.calls[0][0];
-      const updatedTask = updatedTasks.find((_t: unknown) => t.id === "#001");
-      expect(updatedTask?._status).toBe("DONE");
+      const updatedTask = updatedTasks.find((t: unknown) => (t as any).id === "#001");
+      expect(updatedTask?.status).toBe("DONE");
     });
 
     test("should throw error for invalid status", async () => {
@@ -213,8 +213,8 @@ describe("TaskService", () => {
       expect(mockBackend.saveTasksData).toHaveBeenCalled();
 
       expect(task.id).toBe("#TEST_VALUE");
-      expect(task._title).toBe("Test Task");
-      expect(task._status).toBe("TODO");
+      expect(task.title).toBe("Test Task");
+      expect(task.status).toBe("TODO");
     });
 
     test("should throw error if spec file read fails", async () => {
@@ -242,7 +242,7 @@ describe("TaskService", () => {
 
     test("should use markdown backend by default", () => {
       // No custom backends, default backend should be created
-      const defaultService = new TaskService({ _workspacePath: "/tmp" });
+      const defaultService = new TaskService({ workspacePath: "/tmp" });
       expect(defaultService).toBeDefined();
     });
   });
