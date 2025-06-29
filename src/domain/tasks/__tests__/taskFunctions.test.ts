@@ -212,13 +212,13 @@ Code block with task-like content:
 
     test("should update a task's status", () => {
       const updatedTasks = setTaskStatus(testTasks, "#001", "DONE");
-      expect(updatedTasks[0]._status).toBe("DONE");
-      expect(updatedTasks[1]._status).toBe("IN-PROGRESS"); // unchanged
+      expect(updatedTasks[0].status).toBe("DONE");
+      expect(updatedTasks[1].status).toBe("IN-PROGRESS"); // unchanged
     });
 
     test("should work with task ID variations", () => {
       const updatedTasks = setTaskStatus(testTasks, "2", "DONE");
-      expect(updatedTasks[1]._status).toBe("DONE");
+      expect(updatedTasks[1].status).toBe("DONE");
     });
 
     test("should return original array if task not found", () => {
@@ -227,7 +227,7 @@ Code block with task-like content:
     });
 
     test("should return original array if status is invalid", () => {
-      const updatedTasks = setTaskStatus(testTasks, "#001", "INVALID");
+      const updatedTasks = setTaskStatus(testTasks, "#001", "INVALID" as any);
       expect(updatedTasks).toEqual(testTasks);
     });
   });
@@ -260,7 +260,7 @@ Code block with task-like content:
 
       expect(updatedTasks).toHaveLength(3);
       expect(updatedTasks[2].id).toBe("#003"); // Next available ID
-      expect(updatedTasks[2]._title).toBe("New Task");
+      expect(updatedTasks[2].title).toBe("New Task");
     });
   });
 
@@ -276,7 +276,7 @@ Code block with task-like content:
     });
 
     test("should filter by status", () => {
-      const filtered = filterTasks(testTasks, { _status: "TODO" });
+      const filtered = filterTasks(testTasks, { status: "TODO" });
       expect(filtered).toHaveLength(1);
       expect(filtered[0].id).toBe("#001");
     });
@@ -288,13 +288,13 @@ Code block with task-like content:
     });
 
     test("should filter by title (string match)", () => {
-      const filtered = filterTasks(testTasks, { _title: "Second" });
+      const filtered = filterTasks(testTasks, { title: "Second" });
       expect(filtered).toHaveLength(1);
       expect(filtered[0].id).toBe("#002");
     });
 
     test("should filter by title (regex match)", () => {
-      const filtered = filterTasks(testTasks, { _title: /task$/ });
+      const filtered = filterTasks(testTasks, { title: /task$/ });
       expect(filtered).toHaveLength(3); // All titles end with "task"
     });
 
@@ -310,9 +310,9 @@ Code block with task-like content:
 
     test("should combine multiple filter criteria", () => {
       const filtered = filterTasks(testTasks, {
-        _title: /task/,
+        title: /task/,
         hasSpecPath: false,
-        _status: "IN-PROGRESS",
+        status: "IN-PROGRESS",
       });
 
       expect(filtered).toHaveLength(1);
@@ -334,8 +334,8 @@ It has multiple lines.
 1. Do something
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
-      expect(spec._title).toBe("Test Task Title");
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("Test Task Title");
       expect(spec.id).toBe("#TEST_VALUE");
       expect(spec.description).toBe("This is a test task description.\nIt has multiple lines.");
     });
@@ -348,8 +348,8 @@ It has multiple lines.
 Description here.
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
-      expect(spec._title).toBe("No ID Task");
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("No ID Task");
       expect(spec.id).toBeUndefined();
       expect(spec.description).toBe("Description here.");
     });
@@ -362,19 +362,19 @@ Description here.
 Description here.
 `;
 
-      const _spec = parseTaskSpecFromMarkdown(markdown);
-      expect(spec._title).toBe("Just a general title");
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("Just a general title");
       expect(spec.description).toBe("Description here.");
     });
 
     test("should return empty values for invalid input", () => {
       expect(parseTaskSpecFromMarkdown("")).toEqual({
-        _title: "",
+        title: "",
         description: "",
       });
 
       expect(parseTaskSpecFromMarkdown("No headings here")).toEqual({
-        _title: "",
+        title: "",
         description: "",
       });
     });
