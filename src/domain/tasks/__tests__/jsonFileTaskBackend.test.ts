@@ -166,7 +166,7 @@ describe("JsonFileTaskBackend", () => {
         _tasks: [{ id: "#005", _title: "Test Task TEST_ARRAY_SIZE", _status: "TODO" }],
       });
 
-      const _tasks = backend.parseTasks(jsonContent);
+      const tasks = backend.parseTasks(jsonContent);
       expect(tasks.length).toBe(1);
       if (tasks.length > 0 && tasks[0]) {
         expect(tasks[0].id).toBe("#005");
@@ -197,7 +197,7 @@ describe("JsonFileTaskBackend", () => {
 
       // Parse spec
       const parsed = backend.parseTaskSpec(specContent);
-      expect(parsed._title).toBe("Test Task");
+      expect(parsed.title).toBe("Test Task");
       expect(parsed.description).toBe("This is a test task specification.");
     });
   });
@@ -210,13 +210,13 @@ describe("JsonFileTaskBackend", () => {
 - [x] Test Task Two [#002](process/tasks/002-test-task-two.md)
 `;
 
-      const _tasks = backend.parseTasks(markdownContent);
+      const tasks = backend.parseTasks(markdownContent);
       expect(tasks.length).toBe(2);
       if (tasks.length >= 2 && tasks[0] && tasks[1]) {
         expect(tasks[0].id).toBe("#001");
-        expect(tasks[0]._status).toBe("TODO");
+        expect(tasks[0].status).toBe("TODO");
         expect(tasks[1].id).toBe("#002");
-        expect(tasks[1]._status).toBe("DONE");
+        expect(tasks[1].status).toBe("DONE");
       }
     });
   });
