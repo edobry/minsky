@@ -1,0 +1,17 @@
+# Environment variable mappings for node-config
+# Maps environment variables to configuration paths
+
+# Backend selection
+backend: "MINSKY_BACKEND"
+
+# GitHub token for credentials
+credentials:
+  github:
+    token: "GITHUB_TOKEN"
+
+# Session database configuration
+sessiondb:
+  backend: "MINSKY_SESSIONDB_BACKEND"
+  dbPath: "MINSKY_SESSIONDB_SQLITE_PATH"
+  connectionString: "MINSKY_SESSIONDB_POSTGRES_URL"
+  baseDir: "MINSKY_SESSIONDB_BASE_DIR"
