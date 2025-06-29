@@ -541,8 +541,8 @@ export function createSpyOn<T extends object, M extends keyof T>(
   }
 
   // Create a mock function that calls the original
-  const _mockFn = mock((..._args: unknown[]) => {
-    return (original as Function).apply(_obj, _args);
+  const mockFn = mock((..._args: unknown[]) => {
+    return (original as Function).apply(obj, _args);
   });
 
   // Replace the original method with our mock
