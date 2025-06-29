@@ -96,18 +96,18 @@ describe("TaskService JsonFile Integration (v2)", () => {
 
     test("should list tasks from JSON storage", async () => {
       // Initially should be empty
-      const _tasks = await taskService.listTasks();
+      const tasks = await taskService.listTasks();
       expect(tasks.length).toBe(0);
     });
 
     test("should create and retrieve tasks", async () => {
       // Create a test spec file using mock filesystem
-      const _specPath = join(_workspacePath, "process", "tasks", "test-task.md");
+      const specPath = join(workspacePath, "process", "tasks", "test-task.md");
       const specContent =
         "# Task #TEST_VALUE: Test Integration Task\n\n## Context\n\nThis is a test task for integration testing.";
 
       // Write file to mock filesystem
-      mockFS.files.set(_specPath, specContent);
+      mockFS._files.set(specPath, specContent);
 
       // Use relative path from workspace for task creation
       const relativeSpecPath = "process/tasks/test-task.md";
@@ -115,8 +115,8 @@ describe("TaskService JsonFile Integration (v2)", () => {
       const task = await taskService.createTask(relativeSpecPath);
 
       expect(task.id).toBe("#TEST_VALUE");
-      expect(task._title).toBe("Test Integration Task");
-      expect(task._status).toBe("TODO");
+      expect(task.title).toBe("Test Integration Task");
+      expect(task.status).toBe("TODO");
 
       // Verify task can be retrieved
       const retrieved = await taskService.getTask("#TEST_VALUE");
@@ -139,19 +139,19 @@ describe("TaskService JsonFile Integration (v2)", () => {
       // Create task using relative path
       const relativeSpecPath = "process/tasks/status-test.md";
       const task = await taskService.createTask(relativeSpecPath);
-      expect(task._status).toBe("TODO");
+      expect(task.status).toBe("TODO");
 
       // Update status
       await taskService.setTaskStatus("#124", "IN-PROGRESS");
 
       // Verify status update
-      const _status = await taskService.getTaskStatus("#124");
-      expect(_status).toBe("IN-PROGRESS");
+      const status = await taskService.getTaskStatus("#124");
+      expect(status).toBe("IN-PROGRESS");
 
       // Verify in full task object
       const updatedTask = await taskService.getTask("#124");
       if (updatedTask) {
-        expect(updatedTask._status).toBe("IN-PROGRESS");
+        expect(updatedTask.status).toBe("IN-PROGRESS");
       }
     });
 
