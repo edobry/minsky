@@ -396,7 +396,7 @@
 
 - [x] Investigate and Evaluate Configuration System Architecture [#209](process/tasks/209-investigate-and-evaluate-configuration-system-architecture.md)
 
-- [ ] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
+- [+] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
 
 - [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
 

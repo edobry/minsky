@@ -36,8 +36,7 @@ export type {
 export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 
 // Import the class to create singleton instance
-import { NodeConfigAdapter } from "./node-config-adapter";
+import { DefaultConfigurationService } from "./configuration-service";
 
 // Create a singleton instance for easy usage
-// Using NodeConfigAdapter for Phase 2 migration testing
-export const configurationService = new NodeConfigAdapter();
+export const configurationService = new DefaultConfigurationService();
