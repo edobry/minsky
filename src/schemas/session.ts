@@ -174,7 +174,7 @@ export const sessionPrParamsSchema = z
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
-    noUpdate: flagSchema("Skip session update before creating PR"),
+    skipUpdate: flagSchema("Skip session update before creating PR"),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.body || data.bodyPath, {
