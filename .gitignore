@@ -42,3 +42,6 @@ batch-results.json
 
 # backup files
 *.bak
+
+# local configuration overrides
+config/local.yaml
