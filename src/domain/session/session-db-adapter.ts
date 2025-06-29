@@ -1,18 +1,14 @@
 /**
- * SessionDbAdapter
- *
- * This adapter implements the SessionProviderInterface using the new
- * configuration-based storage backend system. It provides seamless
- * integration with JSON, SQLite, and PostgreSQL storage backends.
+ * Session database adapter with simplified configuration loading
  */
 
-import type { SessionProviderInterface, SessionRecord } from "../session";
+import type { SessionProviderInterface, SessionRecord } from "../session.js";
 import { createStorageBackend, type StorageConfig } from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
-import { configurationService } from "../configuration";
+import config from "config";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -26,13 +22,17 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Load configuration to determine storage backend
-      const configResult = await configurationService.loadConfiguration(this.workingDir);
-      const sessionDbConfig = configResult.resolved.sessiondb;
+      // Load configuration directly from node-config (Phase 3 migration)
+      const sessionDbConfig = config.get("sessiondb") as {
+        backend: "json" | "sqlite" | "postgres";
+        dbPath?: string;
+        connectionString?: string;
+        baseDir?: string;
+      };
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
-        backend: sessionDbConfig.backend as "json" | "sqlite" | "postgres",
+        backend: sessionDbConfig.backend,
       };
 
       if (sessionDbConfig.backend === "sqlite" && sessionDbConfig.dbPath) {
