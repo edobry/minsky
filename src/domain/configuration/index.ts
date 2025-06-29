@@ -1,6 +1,6 @@
 /**
  * Configuration system exports for Minsky
- * 
+ *
  * This module provides the main exports for the configuration system,
  * making it easy for other parts of the codebase to import and use
  * configuration functionality.
@@ -8,6 +8,7 @@
 
 // Core service and components
 export { DefaultConfigurationService } from "./configuration-service";
+export { NodeConfigAdapter } from "./node-config-adapter";
 export { ConfigurationLoader } from "./config-loader";
 export { DefaultCredentialManager } from "./credential-manager";
 export { DefaultBackendDetector } from "./backend-detector";
@@ -28,14 +29,15 @@ export type {
   ValidationWarning,
   CredentialSource,
   CredentialManager,
-  BackendDetector
+  BackendDetector,
 } from "./types";
 
 // Constants
 export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 
 // Import the class to create singleton instance
-import { DefaultConfigurationService } from "./configuration-service";
+import { NodeConfigAdapter } from "./node-config-adapter";
 
 // Create a singleton instance for easy usage
-export const configurationService = new DefaultConfigurationService(); 
+// Using NodeConfigAdapter for Phase 2 migration testing
+export const configurationService = new NodeConfigAdapter();
