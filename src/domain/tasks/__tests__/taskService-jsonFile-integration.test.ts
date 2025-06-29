@@ -17,7 +17,7 @@ import {
 setupTestMocks();
 
 describe("TaskService JsonFile Integration (v2)", () => {
-  let _workspacePath: string;
+  let workspacePath: string;
   let taskService: TaskService;
   let dbPath: string;
   let mockFS: ReturnType<typeof createMockFileSystem>;
@@ -48,22 +48,22 @@ describe("TaskService JsonFile Integration (v2)", () => {
       writeFile: mockFS.writeFile,
       mkdir: mockFS.mkdir,
       access: async (path: unknown) => {
-        if (!mockFS.files.has(path) && !mockFS.directories.has(path)) {
+        if (!mockFS._files.has(path) && !mockFS._directories.has(path)) {
           throw new Error(`ENOENT: no such file or directory, access '${path}'`);
         }
       },
       unlink: async (path: unknown) => {
-        if (!mockFS.files.has(path)) {
+        if (!mockFS._files.has(path)) {
           throw new Error(`ENOENT: no such file or directory, unlink '${path}'`);
         }
-        mockFS.files.delete(path);
+        mockFS._files.delete(path);
       },
     }));
 
     // Create task service with JsonFileTaskBackend
     const backend = createJsonFileTaskBackend({
       name: "json-file",
-      _workspacePath,
+      workspacePath,
       dbFilePath: dbPath,
     });
 
@@ -80,18 +80,18 @@ describe("TaskService JsonFile Integration (v2)", () => {
     test("should default to jsonFile backend", () => {
       // Create service with json-file backend specified
       const defaultService = new TaskService({
-        _workspacePath,
+        workspacePath,
         backend: "json-file",
         customBackends: [
           createJsonFileTaskBackend({
             name: "json-file",
-            _workspacePath,
+            workspacePath,
             dbFilePath: dbPath,
           }),
         ],
       });
 
-      expect(defaultService.getWorkspacePath()).toBe(_workspacePath);
+      expect(defaultService.getWorkspacePath()).toBe(workspacePath);
     });
 
     test("should list tasks from JSON storage", async () => {
