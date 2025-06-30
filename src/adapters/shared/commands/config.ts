@@ -11,6 +11,7 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
 import { configurationService } from "../../../domain/configuration";
 import { log } from "../../../utils/logger";
@@ -67,20 +68,20 @@ const configListRegistration = {
   description: "Show all configuration from all sources",
   parameters: configListParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const _workspacePath = params.workspace || process.cwd();
+    const workspacePath = params.workspace || process.cwd();
     
     try {
       // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
+      const configResult = await configurationService.loadConfiguration(workspacePath);
       
       return {
         success: true,
         sources: configResult.sources,
         resolved: configResult.resolved,
       };
-    } catch {
+    } catch (error) {
       log.error("Failed to load configuration", { 
-        _workspacePath, 
+        workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {
@@ -101,19 +102,19 @@ const configShowRegistration = {
   description: "Show the final resolved configuration",
   parameters: configShowParams,
   execute: async (params, _ctx: CommandExecutionContext) => {
-    const _workspacePath = params.workspace || process.cwd();
+    const workspacePath = params.workspace || process.cwd();
     
     try {
       // Load configuration
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
+      const configResult = await configurationService.loadConfiguration(workspacePath);
       
       return {
         success: true,
         configuration: configResult.resolved,
       };
-    } catch {
+    } catch (error) {
       log.error("Failed to load configuration", { 
-        _workspacePath, 
+        workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
       });
       return {
