@@ -623,17 +623,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       let callCount = 0;
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("rev-parse --abbrev-ref HEAD")) {
-            return { stdout: "main", stderr: "" };
-          }
           if (command.includes("rev-parse HEAD")) {
             callCount++;
             // First call returns old hash, second call returns new hash
             const hash = callCount === 1 ? "old-commit-hash" : "new-commit-hash";
             return { stdout: hash, stderr: "" };
           }
-          if (command.includes("pull origin main")) {
-            return { stdout: "Fast-forward\n file.txt | 1 +", stderr: "" };
+          if (command.includes("fetch origin")) {
+            return { stdout: "Fetching origin", stderr: "" };
           }
           return { stdout: "", stderr: "" };
         }) as any,
@@ -641,20 +638,17 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.updated).toBe(true);
     });
 
     test("should handle pullLatest with no updates", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("rev-parse --abbrev-ref HEAD")) {
-            return { stdout: "main", stderr: "" };
-          }
           if (command.includes("rev-parse HEAD")) {
             return { stdout: "same-commit-hash", stderr: "" };
           }
-          if (command.includes("pull origin main")) {
+          if (command.includes("fetch origin")) {
             return { stdout: "Already up to date.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -663,34 +657,31 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.pullLatestWithDependencies("/test/repo", mockDeps, "origin");
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.updated).toBe(false);
     });
 
     test("should handle pullLatest with custom remote", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("rev-parse --abbrev-ref HEAD")) {
-            return { stdout: "feature", stderr: "" };
-          }
           if (command.includes("rev-parse HEAD")) {
             return { stdout: "test-hash", stderr: "" };
           }
-          if (command.includes("pull upstream feature")) {
-            expect(_command).toContain("upstream"); // Verify custom remote is used
+          if (command.includes("fetch upstream")) {
+            expect(command).toContain("upstream"); // Verify custom remote is used
             return { stdout: "Updated", stderr: "" };
           }
           return { stdout: "", stderr: "" };
         }) as any,
       };
 
-      const _result = await gitService.pullLatestWithDependencies(
+      const result = await gitService.pullLatestWithDependencies(
         "/test/repo",
         mockDeps,
         "upstream"
       );
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
     });
 
     test("should handle clone operations with filesystem validation", async () => {
