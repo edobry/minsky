@@ -13,6 +13,7 @@ import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import { configurationService } from "../configuration";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
+import { join } from "path";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -105,21 +106,51 @@ export class TaskService {
     repoUrl: string, 
     options: TaskServiceOptions = {}
   ): Promise<TaskService> {
-    // Create special workspace manager and router
-    const specialWorkspaceManager = await SpecialWorkspaceManager.create(repoUrl);
-    const backendRouter = TaskBackendRouter.withSpecialWorkspace(specialWorkspaceManager);
+    // Create backend router with repository URL
+    const backendRouter = await TaskBackendRouter.createWithRepo(repoUrl);
     
-    // Get workspace paths for each backend type
-    const markdownWorkspacePath = await backendRouter.getWorkspacePathForBackend(
-      createMarkdownTaskBackend({ name: "markdown", workspacePath: options.workspacePath || process.cwd() })
-    );
-    
-    const jsonWorkspacePath = await backendRouter.getWorkspacePathForBackend(
-      createJsonFileTaskBackend({ name: "json-file", workspacePath: options.workspacePath || process.cwd() })
-    );
+    // Create backends with appropriate configurations for special workspace
+    const backends = await TaskService.createBackendsForSpecialWorkspace(repoUrl, options.workspacePath || process.cwd());
 
-    // Create backends with appropriate workspace paths
-    const backends = [
+    return new TaskService({
+      ...options,
+      customBackends: backends,
+      backendRouter,
+      repoUrl
+    });
+  }
+
+  /**
+   * Create backends configured for special workspace usage
+   */
+  private static async createBackendsForSpecialWorkspace(repoUrl: string, fallbackWorkspacePath: string): Promise<TaskBackend[]> {
+    const router = await TaskBackendRouter.createWithRepo(repoUrl);
+    
+    // Create temporary backend instances to check routing
+    const tempMarkdownBackend = createMarkdownTaskBackend({
+      name: "markdown",
+      workspacePath: fallbackWorkspacePath,
+    });
+    
+    const tempJsonBackend = createJsonFileTaskBackend({
+      name: "json-file", 
+      workspacePath: fallbackWorkspacePath,
+    });
+
+    // Get appropriate workspace paths based on backend routing
+    const markdownRoutingInfo = router.getBackendRoutingInfo(tempMarkdownBackend);
+    const jsonRoutingInfo = router.getBackendRoutingInfo(tempJsonBackend);
+
+    const markdownWorkspacePath = markdownRoutingInfo.requiresSpecialWorkspace 
+      ? await router.getInTreeWorkspacePath()
+      : fallbackWorkspacePath;
+
+    const jsonWorkspacePath = jsonRoutingInfo.requiresSpecialWorkspace
+      ? await router.getInTreeWorkspacePath() 
+      : fallbackWorkspacePath;
+
+    // Create properly configured backends
+    return [
       createMarkdownTaskBackend({
         name: "markdown",
         workspacePath: markdownWorkspacePath,
@@ -127,16 +158,10 @@ export class TaskService {
       createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: jsonWorkspacePath,
-        // Use special workspace for JSON storage
-        dbFilePath: `${jsonWorkspacePath}/process/tasks.json`
+        // Use centralized JSON storage in process directory
+        dbFilePath: join(jsonWorkspacePath, "process", "tasks.json")
       }),
     ];
-
-    return new TaskService({
-      ...options,
-      customBackends: backends,
-      backendRouter
-    });
   }
 
   /**
@@ -392,7 +417,7 @@ export class TaskService {
 
     // Find the specification file path
     if (!task.specPath) {
-      log.warn("No specification file found for task", { id });
+      log.warn(`No specification file found for task ${id}`);
       return;
     }
 
@@ -590,11 +615,7 @@ export async function createConfiguredTaskService(
     // Use the resolved backend from configuration
     const resolvedBackend = configResult.resolved.backend || "json-file"; // fallback to json-file
 
-    log.debug("Resolved backend from configuration", {
-      workspacePath,
-      backend: resolvedBackend,
-      configSource: configResult.resolved.backend ? "configuration" : "default",
-    });
+    log.debug(`Resolved backend from configuration: ${resolvedBackend}`);
 
     return createTaskService({
       ...otherOptions,
@@ -602,17 +623,13 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
-    console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
-    // If configuration resolution fails, fall back to default backend
-    log.warn("Failed to resolve configuration, using default backend", {
-      workspacePath,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    log.warn(`Failed to resolve configuration, using default backend: ${error}`);
 
+    // Fallback to default behavior
     return createTaskService({
       ...otherOptions,
       workspacePath,
-      backend: "json-file", // safe fallback
+      backend: "json-file", // default fallback
     });
   }
 }
