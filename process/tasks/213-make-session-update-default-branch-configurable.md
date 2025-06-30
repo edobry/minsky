@@ -6,7 +6,7 @@
 
 ## Description
 
-Make the default branch that session update merges from configurable through config, defaulting to 'main'
+Make the default branch that session update merges from discoverable and configurable based on repository backend type.
 
 ## Current Behavior
 
@@ -16,63 +16,116 @@ Session update currently hardcodes 'main' as the default branch to merge from:
 const branchToMerge = branch || "main";
 ```
 
-The --branch parameter allows overriding this per-command, but there's no way to configure a different default for the project.
+The --branch parameter allows overriding this per-command, but there's no intelligent default branch discovery.
 
 ## Requirements
 
-### 1. Configuration Support
+### 1. Intelligent Backend-Specific Discovery
 
-- Add 'defaultBranch' configuration option in config files (default.yaml, etc.)
+- **GitHub Backend**: Use GitHub API to discover the actual repository default branch
+- **Local Backend**: Use existing `fetchDefaultBranch()` method (git symbolic-ref) with 'main' fallback
+- **Remote Backend**: Use git symbolic-ref detection with 'main' fallback
+
+### 2. Configuration Override
+
+- Add optional 'defaultBranch' configuration option to override discovery
 - Support standard config hierarchy (default → environment → local overrides)
-- Default value should be 'main' for backward compatibility
+- When configured, skip discovery and use configured value
 
-### 2. Session Update Integration
+### 3. Fallback Chain
 
-- Modify updateSessionFromParams to read defaultBranch from config
-- Fallback chain: CLI --branch param → config defaultBranch → hardcoded 'main'
-- Update schema and documentation
+Priority order for determining default branch:
 
-### 3. Configuration Schema
+1. CLI --branch parameter (highest priority)
+2. Configuration defaultBranch setting
+3. Backend-specific discovery (GitHub API / git symbolic-ref)
+4. Hardcoded 'main' fallback (lowest priority)
 
-- Add defaultBranch to configuration validation
-- Ensure it accepts valid git branch names
-- Consider validation against actual remote branches (optional)
+### 4. GitHub API Integration
 
-### 4. Testing
+- Add method to GitHub backend to fetch repository default branch
+- Handle authentication and API errors gracefully
+- Cache result to avoid repeated API calls during session
 
-- Test configuration reading and fallback behavior
-- Test session update with different default branch configs
-- Verify CLI parameter still overrides config setting
+### 5. Session Update Integration
 
-### 5. Documentation
-
-- Update config documentation with new defaultBranch option
-- Add examples for common scenarios (master vs main)
-- Document in session update command help
+- Modify updateSessionFromParams to use intelligent branch resolution
+- Detect session backend type from session record
+- Log which method was used for branch discovery (debugging)
 
 ## Implementation Notes
 
-- This addresses repos that use 'master', 'develop', or other default branches
-- Should work with existing --branch parameter seamlessly
-- Consider adding to session start/clone operations as well
+### Backend Detection
+
+Session records already include `backendType` field:
+
+```typescript
+backendType?: "local" | "remote" | "github"
+```
+
+### Existing Infrastructure
+
+- `GitService.fetchDefaultBranch()` already exists for git symbolic-ref detection
+- GitHub backend exists but needs default branch API method
+- Configuration system supports new options
+
+### GitHub API Endpoint
+
+For GitHub repos, use: `GET /repos/{owner}/{repo}` → `default_branch` field
+
+## Technical Details
+
+### Files to Modify
+
+- `src/domain/repository/github.ts` - Add `getDefaultBranch()` method
+- `src/domain/session.ts` - Update `updateSessionFromParams` with intelligent discovery
+- `config/default.yaml` - Add optional defaultBranch configuration
+- `src/schemas/session.ts` - Update documentation for branch parameter
+- `src/types/config.ts` - Add configuration type definitions
+
+### New Function Flow
+
+```typescript
+async function resolveDefaultBranch(
+  sessionRecord: SessionRecord,
+  workdir: string
+): Promise<string> {
+  // 1. Check configuration override
+  if (config.defaultBranch) return config.defaultBranch;
+
+  // 2. Backend-specific discovery
+  switch (sessionRecord.backendType) {
+    case "github":
+      return await githubBackend.getDefaultBranch();
+    case "local":
+    case "remote":
+      return await gitService.fetchDefaultBranch(workdir);
+    default:
+      return "main";
+  }
+}
+```
 
 ## Acceptance Criteria
 
-- [ ] Config option 'defaultBranch' added with 'main' default
-- [ ] Session update respects config defaultBranch when --branch not specified
-- [ ] CLI --branch parameter overrides config setting
-- [ ] Tests cover config reading and fallback behavior
-- [ ] Documentation updated with examples
+- [ ] GitHub backend can discover default branch via API
+- [ ] Local/remote backends use git symbolic-ref detection
+- [ ] Configuration option 'defaultBranch' overrides discovery
+- [ ] CLI --branch parameter still has highest priority
+- [ ] Graceful fallbacks handle API/git errors
+- [ ] Debug logging shows which discovery method was used
+- [ ] Tests cover all backend types and fallback scenarios
 
-## Files to Modify
+## Benefits
 
-- `src/domain/session.ts` - Update updateSessionFromParams function
-- `config/default.yaml` - Add defaultBranch configuration option
-- `src/schemas/session.ts` - Update documentation for branch parameter
-- `src/types/config.ts` - Add configuration type definitions
-- Tests for configuration reading and session update behavior
+- ✅ Works correctly with GitHub repos using 'master' or custom defaults
+- ✅ Handles local repos with any default branch convention
+- ✅ Respects actual repository configuration vs assumptions
+- ✅ Maintains backward compatibility and manual override capability
+- ✅ No more "divergent branches" errors from wrong default assumptions
 
 ## Related Issues
 
 - Task #181: Investigate and improve configuration system design
 - Task #177: Review and improve session update command design
+- Current issue: Session updates assume 'main' but repos may use 'master' or custom branches
