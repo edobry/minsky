@@ -216,3 +216,35 @@ This rule MUST be applied whenever:
 For variable naming enforcement protocols, see [variable-naming-protocol](mdc:.cursor/rules/variable-naming-protocol.mdc).
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**
+
+### Documented Recurring Failure: Variable Definition vs Usage Errors
+
+**Pattern**: Variable defined with underscore (`const _spec =`) but used without underscore (`spec.id`)
+**Error**: "spec is not defined"
+**Wrong Response**: Add underscores to usage (`_spec.id`)
+**Correct Response**: Remove underscore from definition (`const spec =`)
+
+**Root Cause**: Failure to follow variable-naming-protocol decision tree
+**Frequency**: 5+ violations documented
+**Consequence**: Zero-tolerance enforcement - immediate rule updates required
+
+### Enhanced Error Detection for Variable Naming
+
+When user signals variable naming error with phrases like:
+- "NO, YOU MUST NEVER USE UNDERSCORES!!!!!"
+- "why are you going back and forth with these fucking underscores???"
+- "@variable-naming-protocol.mdc"
+
+**Immediate Response Protocol:**
+1. **STOP ALL VARIABLE EDITS** immediately
+2. **EXECUTE variable-naming-protocol decision tree** before ANY change
+3. **VERIFY with user** if any uncertainty about correct approach
+4. **UPDATE RULES** to prevent this specific pattern
+
+### Mandatory Verification for Variable Naming
+Before any variable name change:
+- [ ] Consulted variable-naming-protocol decision tree?
+- [ ] Identified if removing underscore from definition vs usage?
+- [ ] Confirmed approach follows zero-tolerance enforcement?
+
+**CRITICAL**: Any variable naming violation requires immediate rule system updates.
