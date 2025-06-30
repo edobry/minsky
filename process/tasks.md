@@ -395,3 +395,9 @@
 - [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
 
 - [ ] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
+
+- [ ] Make session update default branch configurable [#213](process/tasks/213-make-session-update-default-branch-configurable.md)
+
+- [ ] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
+
+- [+] Fix indentation linter errors in session.ts [#215](process/tasks/215-fix-indentation-linter-errors-in-session-ts.md)

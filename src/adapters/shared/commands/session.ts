@@ -597,7 +597,7 @@ export function registerSessionCommands(): void {
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
           debug: params.debug,
-          noUpdate: params.noUpdate,
+          skipUpdate: params.noUpdate,
         });
 
         return {
