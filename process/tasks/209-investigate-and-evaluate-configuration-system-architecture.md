@@ -377,4 +377,76 @@ const backend = config.get("backend");
 - **Simplified code patterns** - Single nodeConfig.get() call vs complex loadConfiguration()
 - **95% code reduction potential** - Ready for Phase 4 cleanup
 
-**NEXT PHASES**: Phases 4-6 (Remove old system, update CLI, documentation) - Create separate tasks as needed.
+**CRITICAL DISCOVERY: Configuration System Architecture Requires Decoupling**
+
+**IMPORTANT**: Phases 1-3 implementation revealed that our configuration system conflates two distinct concerns:
+
+1. **Configuration Loading**: Reading/merging config from multiple sources (files, env vars, CLI)
+2. **Configuration Processing**: Validation, credential management, backend detection, transformations
+
+**Attempted deletion of old system in Phase 4 broke 436+ tests** because essential processing logic was removed.
+
+### Updated Migration Strategy: Decouple Configuration Concerns
+
+**Phase 4 (REVISED): Decouple Loading from Processing**
+
+Instead of wholesale deletion, we need to surgically separate concerns:
+
+```typescript
+// Current (conflated):
+class ConfigurationService {
+  async loadConfiguration() {
+    const config = this.loadFromSources();  // ← Can be replaced by node-config
+    const processed = this.processConfig(config);  // ← Must be preserved
+    return processed;
+  }
+}
+
+// Target (decoupled):
+class ConfigurationProcessor {
+  constructor(private configProvider: ConfigProvider) {}
+  
+  async processConfiguration() {
+    const rawConfig = this.configProvider.getConfig();  // ← node-config
+    return this.processConfig(rawConfig);  // ← preserved logic
+  }
+}
+```
+
+**Essential Services to Preserve:**
+
+1. **CredentialManager** - GitHub token resolution, interactive prompts, credential validation
+2. **BackendDetector** - Repository analysis, detection rules, auto-detection logic  
+3. **ConfigurationValidator** - Schema validation, error handling, warnings
+4. **ConfigurationProcessor** - Complex transformations, merging logic, defaults resolution
+
+**Files requiring surgical modification (not deletion):**
+- `credential-manager.ts` - Extract credential loading from credential processing
+- `backend-detector.ts` - Extract repository detection logic from config loading
+- `configuration-service.ts` - Refactor to use node-config for loading, preserve processing
+- `config-loader.ts` - Replace file loading with node-config, preserve merging logic
+
+**Phase 4 Implementation Plan:**
+
+1. **Extract ConfigProvider interface** - Abstract configuration source
+2. **Create NodeConfigProvider** - Implements ConfigProvider using node-config
+3. **Refactor existing services** - Inject ConfigProvider, preserve business logic
+4. **Update usage locations** - Use new decoupled services instead of direct node-config
+5. **Preserve all functionality** - No behavior changes, only internal architecture
+
+**Benefits of Decoupling:**
+- Keep complex business logic (credentials, detection, validation)
+- Replace only the configuration loading mechanism
+- Maintain backward compatibility  
+- Reduce code without losing functionality
+- Enable gradual migration and testing
+
+**Next Steps**: Create separate task for Phase 4 decoupling implementation.
+
+**LESSONS LEARNED**: 
+- Configuration systems have multiple concerns that must be identified before refactoring
+- Processing logic is valuable business logic that took significant effort to develop
+- node-config handles loading/merging well, but doesn't replace domain-specific processing
+- Architecture changes require analysis of dependencies, not just line count reduction
+
+**UPDATED STATUS**: Investigation COMPLETE. Phases 1-3 implementation COMPLETE. Decoupling strategy identified for future phases.
