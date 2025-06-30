@@ -51,15 +51,13 @@ async function main(): Promise<void> {
   await cli.parseAsync(Bun.argv);
 }
 
-// Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${Bun.argv[1]}`) {
-  main().catch((err) => {
-    log.systemDebug(`Error caught in main: ${err}`);
-    log.systemDebug(`Error stack: ${err.stack}`);
-    log.error(`Unhandled error in CLI: ${err.message}`);
-    if (err.stack) log.debug(err.stack);
-    exit(1);
-  });
-}
+// Run the CLI
+main().catch((err) => {
+  log.systemDebug(`Error caught in main: ${err}`);
+  log.systemDebug(`Error stack: ${err.stack}`);
+  log.error(`Unhandled error in CLI: ${err.message}`);
+  if (err.stack) log.debug(err.stack);
+  exit(1);
+});
 
 export default cli;
