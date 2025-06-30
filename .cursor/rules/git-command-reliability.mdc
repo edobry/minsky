@@ -1,199 +1,43 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: false
 ---
-# Git Command Reliability Protocol
+# Git Command Reliability
 
 ## Core Principle
+**Git commands must never hang waiting for user input.** Use non-interactive flags and editor overrides.
 
-**Git commands in automated environments must never hang waiting for user input.** Always configure git operations to be non-interactive and fail fast rather than wait indefinitely.
+## Essential Techniques
 
-## Critical Hanging Prevention
-
-### GIT_EDITOR Configuration
-
-**For commands that might open an editor:**
-
+### Prevent Editor Hangs
 ```bash
-# ✅ CORRECT: Prevent editor hangs
 GIT_EDITOR=true git rebase --continue
 GIT_EDITOR=true git commit --amend
-GIT_EDITOR=cat git merge --no-ff  # Show message without editing
-
-# ❌ WRONG: Can hang indefinitely
-git rebase --continue
-git commit --amend
 ```
 
-**Why `GIT_EDITOR=true` works:**
-- `true` is a command that always succeeds and outputs nothing
-- Prevents git from opening interactive editors (vim, nano, etc.)
-- Allows git operations to complete with default messages
-- Fails fast if editor input is truly required
-
-### Interactive Prompt Prevention
-
-**Always use non-interactive flags:**
-
+### Non-Interactive Flags  
 ```bash
-# ✅ CORRECT: Non-interactive operations
 git pull --rebase --no-edit
-git merge --no-edit
-git push --force-with-lease  # Safer than --force
-git rebase --continue --no-edit
-
-# ❌ WRONG: May prompt for input
-git pull --rebase
-git merge
-git push --force
+git merge --no-edit branch-name
+git commit --amend --no-edit
+git push --force-with-lease
 ```
 
-### Timeout Protection
-
-**For potentially long-running operations:**
-
+### Timeout Long Operations
 ```bash
-# ✅ CORRECT: Use timeout to prevent infinite hangs
 timeout 30 git fetch origin
 timeout 60 git push origin branch-name
-
-# ❌ WRONG: No protection against network hangs
-git fetch origin
-git push origin branch-name
 ```
 
-## Common Hanging Scenarios
+## Common Hanging Commands
+- `git rebase --continue` → `GIT_EDITOR=true git rebase --continue`
+- `git commit --amend` → `git commit --amend --no-edit`
+- `git merge branch` → `git merge --no-edit branch`
 
-### 1. Rebase Operations
-```bash
-# Hanging scenario: Rebase conflicts resolved, continue hangs
-git rebase --continue  # ❌ Hangs waiting for commit message editor
+## Recovery
+1. Cancel hanging command (Ctrl+C)
+2. Apply appropriate non-interactive technique
+3. Proceed with corrected command
 
-# Solution:
-GIT_EDITOR=true git rebase --continue  # ✅ Uses default message
-```
-
-### 2. Merge Operations
-```bash
-# Hanging scenario: Merge requires commit message
-git merge feature-branch  # ❌ Opens editor for merge message
-
-# Solution:
-git merge --no-edit feature-branch  # ✅ Uses default merge message
-# OR
-GIT_EDITOR=true git merge feature-branch  # ✅ Uses default message
-```
-
-### 3. Commit Amendments
-```bash
-# Hanging scenario: Amending commit opens editor
-git commit --amend  # ❌ Opens editor for commit message
-
-# Solution:
-git commit --amend --no-edit  # ✅ Keep existing message
-# OR
-GIT_EDITOR=true git commit --amend  # ✅ Use default behavior
-```
-
-### 4. Interactive Rebases
-```bash
-# Hanging scenario: Interactive rebase opens editor for plan
-git rebase -i HEAD~3  # ❌ Opens editor for rebase plan
-
-# Solution:
-git rebase --no-edit HEAD~3  # ✅ Non-interactive rebase
-# OR avoid interactive rebases in automated contexts
-```
-
-## Environment Configuration
-
-### Global Git Configuration
-
-```bash
-# Set global non-interactive defaults
-git config --global core.editor true
-git config --global merge.tool false
-git config --global pull.rebase true
-git config --global rebase.autoStash true
-```
-
-### Session-Specific Configuration
-
-```bash
-# Temporary configuration for automated sessions
-export GIT_EDITOR=true
-export GIT_MERGE_AUTOEDIT=no
-export GIT_SEQUENCE_EDITOR=true
-```
-
-## Debugging Hanging Commands
-
-### Detection
-- Commands that don't return within expected timeframe (>30 seconds for most git operations)
-- Terminal shows no output but process is still running
-- `ps aux | grep git` shows git processes in `S+` state (sleeping, waiting for input)
-
-### Recovery
-```bash
-# 1. Cancel hanging command (Ctrl+C or tool cancellation)
-# 2. Check git status
-git status
-
-# 3. Complete operation manually with non-interactive flags
-GIT_EDITOR=true git rebase --continue
-# OR
-git rebase --abort  # If operation should be canceled
-```
-
-## Mandatory Verification Before Git Commands
-
-**Before executing ANY git command that could hang:**
-
-1. ✅ **Non-interactive check**: Does command have `--no-edit`, `--no-ff`, or similar?
-2. ✅ **Editor override**: Is `GIT_EDITOR=true` needed for this operation?
-3. ✅ **Timeout consideration**: Should this command have a timeout wrapper?
-4. ✅ **Failure handling**: What happens if this command hangs or fails?
-
-## Command Templates
-
-### Safe Git Command Patterns
-
-```bash
-# Rebase operations
-GIT_EDITOR=true git rebase --continue
-GIT_EDITOR=true git rebase --abort
-
-# Merge operations  
-git merge --no-edit branch-name
-git merge --abort
-
-# Push operations
-git push origin branch-name
-git push --force-with-lease origin branch-name
-
-# Pull operations
-git pull --rebase --no-edit origin branch-name
-
-# Commit operations
-git commit -m "message"  # Always provide explicit message
-git commit --amend --no-edit
-```
-
-## Integration with Other Rules
-
-- **Error Handling**: When git commands hang, apply [robust-error-handling](mdc:.cursor/rules/robust-error-handling.mdc) for recovery
-- **Session Management**: In session workspaces, ensure git reliability per [session-first-workflow](mdc:.cursor/rules/session-first-workflow.mdc)
-- **User Experience**: Hanging commands violate [user-preferences](mdc:.cursor/rules/user-preferences.mdc) for responsiveness
-
-## Critical Enforcement
-
-**MANDATORY**: Any git command that could potentially hang MUST use appropriate prevention techniques from this rule.
-
-**If a git command hangs during execution:**
-1. Cancel immediately
-2. Apply appropriate prevention technique  
-3. Document the specific scenario in this rule if not already covered
-4. Proceed with corrected command
-
-This rule prevents workflow disruption and ensures reliable automated git operations.
+**MANDATORY**: Any git command that could hang MUST use prevention techniques from this rule.
