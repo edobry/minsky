@@ -328,7 +328,7 @@
 
 - [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [-] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -340,11 +340,7 @@
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
-- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
-
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
-
-- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
@@ -379,8 +375,6 @@
 - [ ] Test Task Creation Fix [#196](process/tasks/196-test-task-creation-fix.md)
 
 - [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
-
-- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
 
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
 

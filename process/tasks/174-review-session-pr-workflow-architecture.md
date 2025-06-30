@@ -1,8 +1,14 @@
 # Review Session PR Workflow Architecture
 
+**Status:** TODO
+**Priority:** MEDIUM
+**Dependencies:** Task #176 (Comprehensive Session Database Architecture Fix)
+
 ## Problem
 
 The `session pr` workflow has evolved organically and needs architectural review to ensure it makes sense in the context of the broader Minsky workflow. Several questions have emerged:
+
+**Note**: This task focuses on **workflow design** questions. The underlying session database architecture issues (multiple databases, conflicting error messages) are addressed in **Task #176**.
 
 ## Architecture Questions
 
@@ -87,19 +93,29 @@ The current `session pr` process follows these steps:
 
 ## Deliverables
 
-1. **Architecture Analysis Document**
+1. **Workflow Design Analysis Document**
 
-   - Current state assessment
-   - Identified issues and gaps
-   - Recommended improvements
+   - Current state assessment of workflow patterns
+   - Identified workflow design issues and gaps
+   - Recommended workflow improvements
 
 2. **Workflow Documentation**
 
-   - Step-by-step intended workflows
-   - Error handling strategies
-   - Integration with other commands
+   - Step-by-step intended workflows for different scenarios
+   - User experience guidelines
+   - Integration patterns with other commands
 
 3. **Implementation Plan**
-   - Specific changes needed
-   - Migration strategy for existing users
-   - Testing requirements
+   - Specific workflow design changes needed
+   - User experience improvements
+   - Testing requirements for workflow scenarios
+
+## Coordination with Task #176
+
+This task **depends on** Task #176 (Comprehensive Session Database Architecture Fix) being completed first, as it will:
+
+- Resolve the technical database issues causing conflicting error messages
+- Provide a stable foundation for workflow design decisions
+- Eliminate the root causes of current workflow problems
+
+Once Task #176 is complete, this task will focus on optimizing the **user experience** and **workflow patterns** rather than fixing technical database issues.

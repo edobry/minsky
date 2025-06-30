@@ -24,6 +24,7 @@ import {
   getCurrentSessionContext,
 } from "./workspace.js";
 import * as WorkspaceUtils from "./workspace.js";
+import { SessionDbAdapter } from "./session/session-db-adapter.js";
 
 export interface SessionRecord {
   session: string;
@@ -1206,7 +1207,7 @@ Need help? Run 'git status' to see what files have changed.
 
     // Determine the session name
     let sessionName = params.session;
-    const sessionDb = createSessionProvider({ workingDir: currentDir });
+    const sessionDb = createSessionProvider();
 
     // If no session name provided but task ID is, try to find the session by task ID
     if (!sessionName && params.task) {
@@ -1499,13 +1500,11 @@ export async function approveSessionFromParams(
  */
 export function createSessionProvider(options?: {
   dbPath?: string;
-  workingDir?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
   // Use new configuration-based backend by default, but allow fallback
   if (options?.useNewBackend !== false) {
-    const { SessionDbAdapter } = require("./session/session-db-adapter");
-    return new SessionDbAdapter(options?.workingDir);
+    return new SessionDbAdapter();
   }
 
   // Fallback to legacy JSON file implementation
