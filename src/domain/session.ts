@@ -994,30 +994,33 @@ Current situation:
 • Session branch: ${sessionName}
 • Trying to merge: ${remoteBranchToMerge}
 • Location: ${workdir}
+• Repository is now in MERGING state with conflict markers
 
 Resolution options:
 
 1️⃣ If your changes are already in main (most common):
-   Skip the session update - your session is ready for PR creation:
+   Skip the conflict resolution - your session is ready for PR creation:
 
-   minsky session pr --title "Your PR title"
+   minsky session pr --title "Your PR title" --skip-update
 
-2️⃣ If you need to resolve conflicts manually:
+2️⃣ To resolve conflicts manually:
    cd ${workdir}
    git status
-   # Resolve conflicts in the listed files
+   # Edit the files listed as "both modified" to resolve conflicts
+   # Look for <<<<<<< HEAD, =======, and >>>>>>> markers
    git add .
    git commit -m "resolve merge conflicts"
-   minsky session update
+   # Then retry: minsky session pr --title "Your PR title"
 
-3️⃣ If you want to reset your session to match main:
+3️⃣ To abort and reset your session to match main:
    cd ${workdir}
+   git merge --abort
    git reset --hard ${remoteBranchToMerge}
    git push --force-with-lease
 
-💡 For most cases, option 1 (skip update, create PR directly) is the right choice.
+💡 For most cases, option 1 (skip update with --skip-update) is the right choice.
           `.trim()
-          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${sessionName}'. Please resolve conflicts manually in ${workdir}.`;
+          : `Merge conflicts detected when merging ${remoteBranchToMerge} into session '${sessionName}'. Repository is now in MERGING state. Please resolve conflicts manually in ${workdir} or abort the merge with 'git merge --abort'.`;
 
         throw new MinskyError(conflictMessage);
       }

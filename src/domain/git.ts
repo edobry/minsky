@@ -1163,10 +1163,8 @@ Need help? Run: minsky git pr --help
         });
 
         if (hasConflicts) {
-          // Abort the merge and report conflicts
-          log.debug("Aborting merge due to conflicts");
-          await execAsync(`git -C ${workdir} merge --abort`);
-          log.debug("Merge aborted, returning conflict result");
+          // Leave repository in merging state for user to resolve conflicts
+          log.debug("Merge conflicts detected, leaving repository in merging state for manual resolution");
           return { workdir, merged: false, conflicts: true };
         }
         log.debug("No conflicts detected, re-throwing original error");
