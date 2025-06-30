@@ -2,7 +2,7 @@
 
 ## Status
 
-IN-PROGRESS
+COMPLETED
 
 ## Priority
 

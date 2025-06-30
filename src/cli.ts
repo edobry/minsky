@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+console.log("DEBUG: CLI module loading");
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { exit } from "./utils/process.js";
@@ -47,19 +48,24 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
+  console.log("DEBUG: main() called");
+  console.log("DEBUG: Bun.argv:", Bun.argv);
   await createCli();
+  console.log("DEBUG: createCli() completed");
+  console.log("DEBUG: About to call parseAsync");
   await cli.parseAsync(Bun.argv);
+  console.log("DEBUG: parseAsync completed");
 }
 
-// Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${Bun.argv[1]}`) {
-  main().catch((err) => {
-    log.systemDebug(`Error caught in main: ${err}`);
-    log.systemDebug(`Error stack: ${err.stack}`);
-    log.error(`Unhandled error in CLI: ${err.message}`);
-    if (err.stack) log.debug(err.stack);
-    exit(1);
-  });
-}
+// Run the CLI
+console.log("DEBUG: About to call main()");
+main().catch((err) => {
+  console.log("DEBUG: Error in main():", err);
+  log.systemDebug(`Error caught in main: ${err}`);
+  log.systemDebug(`Error stack: ${err.stack}`);
+  log.error(`Unhandled error in CLI: ${err.message}`);
+  if (err.stack) log.debug(err.stack);
+  exit(1);
+});
 
 export default cli;
