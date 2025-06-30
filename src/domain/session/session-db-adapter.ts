@@ -18,16 +18,19 @@ import { join } from "path";
 
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
-  private readonly workingDir: string;
 
-  constructor(workingDir?: string) {
-    this.workingDir = workingDir || process.cwd();
+  constructor() {
+    // No longer taking workingDir parameter - use global configuration instead
   }
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Load configuration to determine storage backend
-      const configResult = await configurationService.loadConfiguration(this.workingDir);
+      // Load configuration with smart hierarchy to avoid working directory dependency
+      // This tries global config first, then falls back to system defaults
+      // The configurationService.loadConfiguration handles the fallback automatically
+      const globalConfigDir = process.env.HOME || "~";
+      const configResult = await configurationService.loadConfiguration(globalConfigDir);
+      
       const sessionDbConfig = configResult.resolved.sessiondb;
 
       // Convert SessionDbConfig to StorageConfig
