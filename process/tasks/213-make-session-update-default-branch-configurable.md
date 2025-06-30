@@ -26,28 +26,60 @@ The --branch parameter allows overriding this per-command, but there's no intell
 - **Local Backend**: Use existing `fetchDefaultBranch()` method (git symbolic-ref) with 'main' fallback
 - **Remote Backend**: Use git symbolic-ref detection with 'main' fallback
 
-### 2. Configuration Override
+### 2. Two-Level Configuration System
 
-- Add optional 'defaultBranch' configuration option to override discovery
-- Support standard config hierarchy (default → environment → local overrides)
-- When configured, skip discovery and use configured value
+- **Repo-Level**: Project-specific defaultBranch override (highest config priority)
+- **System-Level**: User's personal defaultBranch preference (fallback after discovery fails)
+- Support standard config hierarchy (global → environment → local → project)
+- Repo-level skips discovery; system-level only used when discovery fails
 
 ### 3. Fallback Chain
 
 Priority order for determining default branch:
 
-1. CLI --branch parameter (highest priority)
-2. Configuration defaultBranch setting
-3. Backend-specific discovery (GitHub API / git symbolic-ref)
-4. Hardcoded 'main' fallback (lowest priority)
+1. **CLI --branch parameter** (highest priority)
+2. **Repo-level defaultBranch configuration** (project-specific override)
+3. **Backend-specific discovery** (GitHub API / git symbolic-ref)
+4. **System-level defaultBranch configuration** (user's personal preference)
+5. **Hardcoded 'main' fallback** (lowest priority)
 
-### 4. GitHub API Integration
+### 4. Configuration Levels
+
+**Repo-Level Configuration:**
+
+- Configured in project's `.minskyrc`, `config/local.yaml`, or environment variables
+- Overrides all discovery mechanisms
+- Use case: Project mandates specific branch (e.g., 'develop' workflow)
+
+**System-Level Configuration:**
+
+- Configured in user's global config (`~/.config/minsky/config.yaml`)
+- Personal preference when repository discovery fails
+- Use case: User mostly works with repos that use 'master' instead of 'main'
+
+**Example Configurations:**
+
+```yaml
+# ~/.config/minsky/config.yaml (system-level)
+defaultBranch: master  # Personal preference for legacy repos
+
+# project/.minskyrc (repo-level)
+defaultBranch: develop  # This project uses develop workflow
+```
+
+**Example Resolution:**
+
+- GitHub repo with 'main' default → Uses 'main' (discovery wins over system config)
+- Local repo with undetectable default + system config 'master' → Uses 'master'
+- Project with repo config 'develop' → Always uses 'develop' (overrides everything)
+
+### 5. GitHub API Integration
 
 - Add method to GitHub backend to fetch repository default branch
 - Handle authentication and API errors gracefully
 - Cache result to avoid repeated API calls during session
 
-### 5. Session Update Integration
+### 6. Session Update Integration
 
 - Modify updateSessionFromParams to use intelligent branch resolution
 - Detect session backend type from session record
@@ -90,19 +122,31 @@ async function resolveDefaultBranch(
   sessionRecord: SessionRecord,
   workdir: string
 ): Promise<string> {
-  // 1. Check configuration override
-  if (config.defaultBranch) return config.defaultBranch;
+  // 1. Check repo-level configuration override
+  if (config.repo.defaultBranch) return config.repo.defaultBranch;
 
   // 2. Backend-specific discovery
-  switch (sessionRecord.backendType) {
-    case "github":
-      return await githubBackend.getDefaultBranch();
-    case "local":
-    case "remote":
-      return await gitService.fetchDefaultBranch(workdir);
-    default:
-      return "main";
+  let discoveredBranch: string | null = null;
+  try {
+    switch (sessionRecord.backendType) {
+      case "github":
+        discoveredBranch = await githubBackend.getDefaultBranch();
+        break;
+      case "local":
+      case "remote":
+        discoveredBranch = await gitService.fetchDefaultBranch(workdir);
+        break;
+    }
+    if (discoveredBranch) return discoveredBranch;
+  } catch (error) {
+    log.debug("Backend discovery failed, falling back", { error });
   }
+
+  // 3. System-level configuration fallback
+  if (config.system.defaultBranch) return config.system.defaultBranch;
+
+  // 4. Final hardcoded fallback
+  return "main";
 }
 ```
 
@@ -110,11 +154,13 @@ async function resolveDefaultBranch(
 
 - [ ] GitHub backend can discover default branch via API
 - [ ] Local/remote backends use git symbolic-ref detection
-- [ ] Configuration option 'defaultBranch' overrides discovery
+- [ ] Repo-level defaultBranch configuration overrides all discovery
+- [ ] System-level defaultBranch configuration used when discovery fails
 - [ ] CLI --branch parameter still has highest priority
 - [ ] Graceful fallbacks handle API/git errors
-- [ ] Debug logging shows which discovery method was used
-- [ ] Tests cover all backend types and fallback scenarios
+- [ ] Debug logging shows which method was used for branch resolution
+- [ ] Tests cover all backend types, config levels, and fallback scenarios
+- [ ] Configuration hierarchy works: CLI > repo-config > discovery > system-config > 'main'
 
 ## Benefits
 
