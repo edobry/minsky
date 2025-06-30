@@ -1,194 +1,200 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { join } from "path";
-import { rmSync, existsSync, mkdirSync } from "fs";
-import { TaskBackendRouter, isInTreeBackendCapable } from "../task-backend-router";
-import { SpecialWorkspaceManager } from "../../workspace/special-workspace-manager";
-import { createMarkdownTaskBackend } from "../markdownTaskBackend";
-import { createJsonFileTaskBackend } from "../jsonFileTaskBackend";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { TaskService } from "../taskService";
+import { TaskBackendRouter } from "../task-backend-router";
+import { join } from "path";
+import { rmSync, mkdirSync } from "fs";
+import { tmpdir } from "os";
 
 describe("Special Workspace Integration", () => {
-  const testRepoUrl = "https://github.com/test/test-repo.git";
-  const testBaseDir = join(process.cwd(), "test-tmp", "special-workspace-test");
-  
+  let tempDir: string;
+
   beforeEach(() => {
-    // Clean up test directory
-    if (existsSync(testBaseDir)) {
-      rmSync(testBaseDir, { recursive: true, force: true });
-    }
-    mkdirSync(testBaseDir, { recursive: true });
+    // Create temporary directory for testing
+    tempDir = join(tmpdir(), `special-workspace-integration-test-${Date.now()}`);
+    mkdirSync(tempDir, { recursive: true });
   });
 
   afterEach(() => {
-    // Clean up test directory
-    if (existsSync(testBaseDir)) {
-      rmSync(testBaseDir, { recursive: true, force: true });
+    // Clean up temporary directory
+    try {
+      rmSync(tempDir, { recursive: true, force: true });
+    } catch (error) {
+      // Ignore cleanup errors
     }
   });
 
-  describe("Backend Type Detection", () => {
-    it("should correctly identify in-tree backends", () => {
-      const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: "/test/path"
-      });
-
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file", 
-        workspacePath: "/test/path"
-      });
-
-      // Test interface capability detection
-      expect(isInTreeBackendCapable(markdownBackend)).toBe(true);
-      expect(isInTreeBackendCapable(jsonBackend)).toBe(true);
-
-      // Test actual method calls using type guards
-      if (isInTreeBackendCapable(markdownBackend)) {
-        expect(markdownBackend.isInTreeBackend()).toBe(true);
-      }
-      if (isInTreeBackendCapable(jsonBackend)) {
-        expect(jsonBackend.isInTreeBackend()).toBe(true);
-      }
-    });
-  });
-
-  describe("TaskBackendRouter", () => {
-    it("should route in-tree backends correctly", () => {
-      const router = TaskBackendRouter.externalOnly();
-      
-      const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: "/test/path"
-      });
-
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: "/test/path" 
-      });
-
-      // In-tree backends should always require special workspace when they declare isInTreeBackend() = true
-      // The router will attempt to route them, but without a special workspace manager, 
-      // getWorkspacePath() will fall back to normal resolution
-      expect(router.requiresSpecialWorkspace(markdownBackend)).toBe(true);
-      expect(router.requiresSpecialWorkspace(jsonBackend)).toBe(true);
-    });
-
-    it("should create router with different strategies", () => {
-      const externalRouter = TaskBackendRouter.externalOnly();
-      expect(externalRouter).toBeDefined();
-
-      // Note: withSpecialWorkspace requires actual git repo, so we test the factory method only
-      expect(TaskBackendRouter.withSpecialWorkspace).toBeDefined();
-    });
-  });
-
-  describe("TaskService Integration", () => {
-    it("should create TaskService with default backends", () => {
+  describe("TaskService with Backend Routing", () => {
+    test("should create TaskService with external backends", async () => {
       const taskService = new TaskService({
-        workspacePath: testBaseDir,
-        backend: "markdown"
+        workspacePath: tempDir,
+        backend: "json-file"
       });
 
       expect(taskService).toBeDefined();
-      expect(taskService.getWorkspacePath()).toBe(testBaseDir);
+      expect(taskService.getWorkspacePath()).toBe(tempDir);
     });
 
-    it("should support custom backends", () => {
-      const customBackend = createJsonFileTaskBackend({
-        name: "json-file", // Use consistent name
-        workspacePath: testBaseDir,
-        dbFilePath: join(testBaseDir, "custom-tasks.json")
-      });
+    test("should route JSON backend correctly based on file location", async () => {
+      // Create router to test routing logic
+      const router = TaskBackendRouter.createExternal();
 
-      const taskService = new TaskService({
-        workspacePath: testBaseDir,
-        backend: "json-file", // Match the backend name
-        customBackends: [customBackend]
-      });
-
-      expect(taskService).toBeDefined();
-      expect(taskService.getWorkspacePath()).toBe(testBaseDir);
-    });
-  });
-
-  describe("JSON Backend Storage Location", () => {
-    it("should use provided dbFilePath when specified", () => {
-      const customDbPath = join(testBaseDir, "process", "tasks.json");
-      
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: testBaseDir,
-        dbFilePath: customDbPath
-      }) as any; // Cast to access extended methods
-
-      expect(jsonBackend.getStorageLocation()).toBe(customDbPath);
-    });
-
-    it("should default to process/tasks.json location", () => {
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file", 
-        workspacePath: testBaseDir
-      }) as any; // Cast to access extended methods
-
-      const expectedPath = join(testBaseDir, "process", "tasks.json");
-      expect(jsonBackend.getStorageLocation()).toBe(expectedPath);
-    });
-
-    it("should be identified as in-tree backend", () => {
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: testBaseDir
-      });
-
-      if (isInTreeBackendCapable(jsonBackend)) {
-        expect(jsonBackend.isInTreeBackend()).toBe(true);
-      }
-    });
-  });
-
-  describe("Architecture Integration", () => {
-    it("should demonstrate the complete workflow", async () => {
-      // 1. Create backends that support the new architecture
-      const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath: testBaseDir
-      });
-
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: testBaseDir,
-        dbFilePath: join(testBaseDir, "process", "tasks.json")
-      });
-
-      // 2. Verify in-tree detection works using type guards
-      if (isInTreeBackendCapable(markdownBackend)) {
-        expect(markdownBackend.isInTreeBackend()).toBe(true);
-      }
-      if (isInTreeBackendCapable(jsonBackend)) {
-        expect(jsonBackend.isInTreeBackend()).toBe(true);
-      }
-
-      // 3. Create router (external-only for testing)
-      const router = TaskBackendRouter.externalOnly();
-
-      // 4. Get workspace paths for backends 
-      const markdownPath = await router.getWorkspacePathForBackend(markdownBackend);
-      const jsonPath = await router.getWorkspacePathForBackend(jsonBackend);
-
-      // External router should use normal workspace resolution
-      expect(markdownPath).toBeDefined();
-      expect(jsonPath).toBeDefined();
-
-      // 5. Create TaskService with custom backends
-      const taskService = new TaskService({
-        workspacePath: testBaseDir,
+      // Create task service with JSON backend using external path
+      const taskServiceExternal = new TaskService({
+        workspacePath: tempDir,
         backend: "json-file",
-        customBackends: [markdownBackend, jsonBackend],
-        backendRouter: router
+        customBackends: [
+          require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+            name: "json-file",
+            workspacePath: tempDir,
+            dbFilePath: "/tmp/external-tasks.json"
+          })
+        ]
       });
 
-      expect(taskService).toBeDefined();
-      expect(taskService.getWorkspacePath()).toBe(testBaseDir);
+      // Create task service with JSON backend using in-tree path
+      const taskServiceInTree = new TaskService({
+        workspacePath: tempDir,
+        backend: "json-file",
+        customBackends: [
+          require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+            name: "json-file",
+            workspacePath: tempDir,
+            dbFilePath: join(tempDir, "process", "tasks.json")
+          })
+        ]
+      });
+
+      // Both should work but route differently
+      expect(taskServiceExternal).toBeDefined();
+      expect(taskServiceInTree).toBeDefined();
+    });
+  });
+
+  describe("Backend Router Factory Methods", () => {
+    test("should create external-only router", () => {
+      const router = TaskBackendRouter.createExternal();
+      expect(router).toBeDefined();
+    });
+
+    test("should create router with repository URL", async () => {
+      const router = await TaskBackendRouter.createWithRepo("https://github.com/test/repo.git");
+      expect(router).toBeDefined();
+    });
+  });
+
+  describe("Backend Configuration Priority", () => {
+    test("should use explicit dbFilePath when provided", () => {
+      const router = TaskBackendRouter.createExternal();
+      
+      const backend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+        name: "json-file",
+        workspacePath: tempDir,
+        dbFilePath: join(tempDir, "custom", "path", "tasks.json")
+      });
+
+      // Remove the isInTreeBackend method to test auto-detection
+      delete (backend as any).isInTreeBackend;
+      const proto = Object.getPrototypeOf(backend);
+      if (proto && typeof proto.isInTreeBackend === "function") {
+        delete proto.isInTreeBackend;
+      }
+
+      const routingInfo = router.getBackendRoutingInfo(backend);
+      
+      // Should be external because custom path doesn't match in-tree patterns
+      expect(routingInfo.category).toBe("external");
+      expect(routingInfo.requiresSpecialWorkspace).toBe(false);
+    });
+
+    test("should detect team-shareable location correctly", () => {
+      const router = TaskBackendRouter.createExternal();
+      
+      const backend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+        name: "json-file",
+        workspacePath: tempDir,
+        dbFilePath: join(tempDir, "process", "tasks.json")
+      });
+
+      // Remove the isInTreeBackend method to test auto-detection  
+      delete (backend as any).isInTreeBackend;
+      const proto = Object.getPrototypeOf(backend);
+      if (proto && typeof proto.isInTreeBackend === "function") {
+        delete proto.isInTreeBackend;
+      }
+
+      const routingInfo = router.getBackendRoutingInfo(backend);
+      
+      // Should be in-tree because it uses the team-shareable location
+      expect(routingInfo.category).toBe("in-tree");
+      expect(routingInfo.requiresSpecialWorkspace).toBe(true);
+      expect(routingInfo.description).toContain("JSON file stored in repository process directory");
+    });
+  });
+
+  describe("Error Recovery", () => {
+    test("should handle backend creation errors gracefully", () => {
+      // Test that the system handles cases where backends can't be created
+      expect(() => {
+        new TaskService({
+          workspacePath: tempDir,
+          backend: "nonexistent-backend"
+        });
+      }).toThrow("Backend 'nonexistent-backend' not found");
+    });
+
+    test("should handle missing repository URL for in-tree operations", async () => {
+      const router = TaskBackendRouter.createExternal();
+      
+      const backend = require("../markdownTaskBackend").createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath: tempDir
+      });
+
+      // Should throw error when trying to perform in-tree operation without repo URL
+      await expect(router.performBackendOperation(
+        backend,
+        "test-operation",
+        async () => "success"
+      )).rejects.toThrow("Repository URL required for in-tree backend operations");
+    });
+  });
+
+  describe("Team Collaboration Benefits", () => {
+    test("should demonstrate centralized storage advantage", () => {
+      const router = TaskBackendRouter.createExternal();
+
+      // Old approach: local workspace storage
+      const localBackend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+        name: "json-file",
+        workspacePath: tempDir,
+        dbFilePath: join(tempDir, ".minsky", "tasks.json")
+      });
+
+      // New approach: centralized team storage
+      const teamBackend = require("../jsonFileTaskBackend").createJsonFileTaskBackend({
+        name: "json-file", 
+        workspacePath: tempDir,
+        dbFilePath: join(tempDir, "process", "tasks.json")
+      });
+
+      // Remove isInTreeBackend methods to test auto-detection
+      [localBackend, teamBackend].forEach(backend => {
+        delete (backend as any).isInTreeBackend;
+        const proto = Object.getPrototypeOf(backend);
+        if (proto && typeof proto.isInTreeBackend === "function") {
+          delete proto.isInTreeBackend;
+        }
+      });
+
+      const localRouting = router.getBackendRoutingInfo(localBackend);
+      const teamRouting = router.getBackendRoutingInfo(teamBackend);
+
+      // Both should require special workspace, but with different reasons
+      expect(localRouting.requiresSpecialWorkspace).toBe(true);
+      expect(teamRouting.requiresSpecialWorkspace).toBe(true);
+
+      expect(localRouting.description).toContain("workspace-local directory, should use centralized storage");
+      expect(teamRouting.description).toContain("JSON file stored in repository process directory");
     });
   });
 }); 
