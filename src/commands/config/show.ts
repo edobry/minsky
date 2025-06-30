@@ -5,7 +5,7 @@
  */
 
 import { Command } from "commander";
-import { configurationService } from "../../domain/configuration";
+import nodeConfig from "config";
 import { exit } from "../../utils/process.js";
 
 interface ShowOptions {
@@ -18,16 +18,16 @@ export function createConfigShowCommand(): Command {
     .description("Show the final resolved configuration")
     .option("--json", "Output in JSON format", false)
     .option("--working-dir <dir>", "Working directory", process.cwd())
-    .action(async (options: ShowOptions) => {
+    .action((options: ShowOptions) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
+        // Get all configuration from node-config
+        const resolved = nodeConfig.util.toObject();
 
         if (options.json) {
           // @ts-expect-error - Bun supports process.stdout.write at runtime, types incomplete
-          process.stdout.write(`${JSON.stringify(result.resolved)}\n`);
+          process.stdout.write(`${JSON.stringify(resolved)}\n`);
         } else {
-          displayResolvedConfiguration(result.resolved);
+          displayResolvedConfiguration(resolved);
         }
       } catch (error) {
         // @ts-expect-error - Bun supports process.stderr.write at runtime, types incomplete
