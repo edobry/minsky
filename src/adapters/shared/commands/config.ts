@@ -11,8 +11,9 @@ import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
+  type CommandParameterMap,
 } from "../command-registry";
-import { configurationService } from "../../../domain/configuration";
+import nodeConfig from "config";
 import { log } from "../../../utils/logger";
 
 /**
@@ -70,15 +71,14 @@ const configListRegistration = {
     const _workspacePath = params.workspace || process.cwd();
     
     try {
-      // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
+      // Load configuration with node-config
+      const resolved = nodeConfig.util.toObject();
       
       return {
         success: true,
-        sources: configResult.sources,
-        resolved: configResult.resolved,
+        configuration: resolved,
       };
-    } catch {
+    } catch (error) {
       log.error("Failed to load configuration", { 
         _workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
@@ -104,14 +104,14 @@ const configShowRegistration = {
     const _workspacePath = params.workspace || process.cwd();
     
     try {
-      // Load configuration
-      const configResult = await configurationService.loadConfiguration(_workspacePath);
+      // Load configuration with node-config
+      const resolved = nodeConfig.util.toObject();
       
       return {
         success: true,
-        configuration: configResult.resolved,
+        configuration: resolved,
       };
-    } catch {
+    } catch (error) {
       log.error("Failed to load configuration", { 
         _workspacePath, 
         error: error instanceof Error ? error.message : String(error) 
