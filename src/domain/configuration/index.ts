@@ -1,22 +1,43 @@
 /**
- * Configuration system exports for Minsky (post node-config migration)
- *
- * This module provides the essential exports after migrating to node-config.
+ * Configuration system exports for Minsky
+ * 
+ * This module provides the main exports for the configuration system,
+ * making it easy for other parts of the codebase to import and use
+ * configuration functionality.
  */
 
-// Main configuration adapter
+// Core service and components
+export { DefaultConfigurationService } from "./configuration-service";
 export { NodeConfigAdapter } from "./node-config-adapter";
+export { ConfigurationLoader } from "./config-loader";
+export { DefaultCredentialManager } from "./credential-manager";
+export { DefaultBackendDetector } from "./backend-detector";
 
-// Essential types still needed
+// Types and interfaces
 export type {
-  SessionDbConfig,
+  ConfigurationService,
+  ConfigurationLoadResult,
+  ConfigurationSources,
+  ResolvedConfig,
+  RepositoryConfig,
+  GlobalUserConfig,
+  BackendConfig,
+  CredentialConfig,
   DetectionRule,
-  AIProviderRepoConfig,
-  AIProviderUserConfig,
-  AICredentialConfig,
+  ValidationResult,
+  ValidationError,
+  ValidationWarning,
   CredentialSource,
+  CredentialManager,
+  BackendDetector,
 } from "./types";
 
+// Constants
+export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
+
+// Import the class to create singleton instance
+import { NodeConfigAdapter } from "./node-config-adapter";
+
 // Create a singleton instance for easy usage
-import { NodeConfigAdapter } from "./node-config-adapter.js";
+// Using NodeConfigAdapter for Phase 2 migration testing
 export const configurationService = new NodeConfigAdapter(); 

@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 
-import { ConfigurationLoader } from "../config-loader";
+import { ConfigurationLoader } from "../configuration-loader";
 import { SessionDbConfig, RepositoryConfig, GlobalUserConfig } from "../types";
 
 describe("SessionDB Configuration Loading", () => {
