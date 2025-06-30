@@ -1,8 +1,14 @@
 # Review and Improve Session Update Command Design and Merge Conflict Handling
 
+**Status:** TODO
+**Priority:** MEDIUM
+**Dependencies:** Task #176 (Comprehensive Session Database Architecture Fix), Task #172 (Boolean Flag Parsing)
+
 ## Problem
 
 During Task #165 implementation, several issues were discovered with the `session update` command design and its integration with `session pr`:
+
+**Note**: This task focuses on **command design** and **merge conflict handling**. The underlying session database architecture issues are addressed in **Task #176**.
 
 1. **Boolean Flag Parsing Bug**: The `--no-update` flag for `session pr` doesn't work due to Task #172 (boolean flag parsing issue)
 
@@ -87,16 +93,37 @@ During Task #165 implementation, several issues were discovered with the `sessio
 
 ## Related Tasks
 
-- **Task #172**: Fix Boolean Flag Parsing Issue (boolean flags in CLI)
+- **Task #172**: Fix Boolean Flag Parsing Issue (boolean flags in CLI) - **DEPENDENCY**
+- **Task #176**: Comprehensive Session Database Architecture Fix - **DEPENDENCY**
 - **Task #165**: Replace Direct process.exit() Calls (where this issue was discovered)
-- **Task #176**: Investigate Session Database Architecture (related session workflow issues)
+- **Task #174**: Review Session PR Workflow Architecture (complementary workflow design task)
+
+## Coordination with Dependencies
+
+### Task #176 Dependency
+
+This task **depends on** Task #176 being completed first, as it will:
+
+- Resolve underlying session database issues that affect session update reliability
+- Provide stable session detection and management
+- Eliminate root causes of session update failures
+
+### Task #172 Dependency
+
+This task **depends on** Task #172 to ensure the `--no-update` flag works correctly once boolean flag parsing is fixed.
+
+### Implementation Strategy
+
+Once dependencies are resolved, this task will focus on:
+
+- Command design optimization
+- Merge conflict handling improvement
+- User experience enhancement for session updates
 
 ## Implementation Notes
 
-This task should coordinate with Task #172 to ensure the `--no-update` flag works correctly once the boolean flag parsing is fixed.
-
-Consider this task as a comprehensive review of session workflow patterns, not just a bug fix.
+Consider this task as a comprehensive review of session update command patterns and merge conflict workflows, building on the stable foundation provided by Task #176.
 
 ## Priority
 
-**MEDIUM-HIGH** - This affects core session workflow reliability and user experience, but existing workarounds exist.
+**MEDIUM** - This affects session workflow user experience, but core reliability issues are addressed by dependency tasks.

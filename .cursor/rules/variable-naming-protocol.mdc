@@ -151,3 +151,58 @@ This rule represents a user preference that has been violated multiple times. Vi
 **VIOLATION CONSEQUENCE**: If this rule is violated again, it indicates a systematic failure to apply mandatory verification steps and requires immediate process correction.
 
 **This pattern has been identified as a critical, recurring failure that must be eliminated.**
+
+## ⚠️ CRITICAL RECURRING ERROR PATTERN - DEFINITION vs USAGE
+
+**MOST COMMON VIOLATION**: Variable defined with underscore, used without underscore
+
+### The Error Pattern:
+```typescript
+const _spec = parseTaskSpec();  // ❌ DEFINITION has underscore
+expect(spec.id).toBe("123");    // ✅ USAGE has no underscore
+//     ^^^^ ERROR: "spec is not defined"
+```
+
+### WRONG Fix (Adding underscores to usage):
+```typescript
+const _spec = parseTaskSpec();
+expect(_spec.id).toBe("123");   // ❌ WRONG: Added underscore to usage
+```
+
+### ✅ CORRECT Fix (Remove underscore from definition):
+```typescript
+const spec = parseTaskSpec();    // ✅ CORRECT: Remove underscore from definition
+expect(spec.id).toBe("123");     // ✅ USAGE stays the same
+```
+
+## MANDATORY DECISION TREE
+
+**When encountering "X is not defined" error:**
+
+```
+Step 1: Is variable defined as `_X` but used as `X`?
+├─ YES → Remove underscore from DEFINITION (const _X → const X)
+└─ NO → Continue to Step 2
+
+Step 2: Is variable defined as `X` but parameter uses `_X`?
+├─ YES → Remove underscore from PARAMETER (_X: type → X: type)
+└─ NO → Check for missing imports/actual undefined variables
+```
+
+## ⚠️ ZERO-TOLERANCE ENFORCEMENT
+
+**CRITICAL**: This specific error pattern has been repeated 5+ times
+
+### Immediate Violation Response:
+1. **STOP IMMEDIATELY** upon any variable naming error
+2. **EXECUTE DECISION TREE** before making ANY change
+3. **VERIFY APPROACH** with user if uncertain
+4. **NEVER GUESS** at variable naming fixes
+
+### Mandatory Pre-Action Check:
+Before ANY variable-related edit, ask:
+- [ ] Am I removing underscores from definitions?
+- [ ] Am I preserving existing variable usage patterns?
+- [ ] Have I confirmed this follows the decision tree?
+
+**VIOLATION = IMMEDIATE RULE UPDATE REQUIRED**

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+console.log("DEBUG: CLI module loading");
 import { Command } from "commander";
 import { log } from "./utils/logger.js";
 import { exit } from "./utils/process.js";
@@ -47,8 +48,13 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
+  console.log("DEBUG: main() called");
+  console.log("DEBUG: Bun.argv:", Bun.argv);
   await createCli();
+  console.log("DEBUG: createCli() completed");
+  console.log("DEBUG: About to call parseAsync");
   await cli.parseAsync(Bun.argv);
+  console.log("DEBUG: parseAsync completed");
 }
 
 // Run the CLI
