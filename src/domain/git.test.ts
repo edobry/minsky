@@ -93,7 +93,7 @@ describe("GitService", () => {
   });
 
   test("getSessionWorkdir should return the correct path", () => {
-    const _workdir = gitService.getSessionWorkdir("test-repo", "test-session");
+    const workdir = gitService.getSessionWorkdir("test-repo", "test-session");
 
     // Expect the full path to contain both the repo name and session
     expect(workdir.includes("test-repo")).toBe(true);
@@ -190,7 +190,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       await expect(
-        gitService.prWithDependencies({ _session: "nonexistent" }, mockDeps)
+        gitService.prWithDependencies({ session: "nonexistent" }, mockDeps)
       ).rejects.toThrow("Session 'nonexistent' not found");
     });
 
@@ -242,7 +242,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const _result = await gitService.prWithDependencies({ taskId: "143" }, mockDeps);
+      const result = await gitService.prWithDependencies({ taskId: "143" }, mockDeps);
 
       // Verify that taskId was resolved to session
       expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "143");
@@ -327,8 +327,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const _result = await gitService.prWithDependencies(
-        { _session: "direct-session", taskId: "143" },
+      const result = await gitService.prWithDependencies(
+        { session: "direct-session", taskId: "143" },
         mockDeps
       );
 
