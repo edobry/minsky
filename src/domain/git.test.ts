@@ -522,7 +522,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle popStash with no stash available", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("stash list")) {
+          const cmd = command as string;
+          if (cmd.includes("stash list")) {
             return { stdout: "", stderr: "" }; // No stash
           }
           return { stdout: "", stderr: "" };
@@ -538,29 +539,30 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle merge conflicts with proper detection", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("rev-parse HEAD")) {
+          const cmd = command as string;
+          if (cmd.includes("rev-parse HEAD")) {
             return { stdout: "original-hash", stderr: "" };
           }
-          if (command.includes("merge feature-branch")) {
+          if (cmd.includes("merge feature-branch")) {
             throw new Error("Automatic merge failed; fix conflicts and then commit the result");
           }
-          if (command.includes("status --porcelain")) {
+          if (cmd.includes("status --porcelain")) {
             return { stdout: "UU conflicted-file.ts\nAA another-conflict.ts", stderr: "" }; // Conflict markers
           }
-          if (command.includes("merge --abort")) {
+          if (cmd.includes("merge --abort")) {
             return { stdout: "", stderr: "" };
           }
           return { stdout: "", stderr: "" };
         }) as any,
       };
 
-      const _result = await gitService.mergeBranchWithDependencies(
+      const result = await gitService.mergeBranchWithDependencies(
         "/test/repo",
         "feature-branch",
         mockDeps
       );
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.merged).toBe(false);
       expect(result.conflicts).toBe(true);
     });
