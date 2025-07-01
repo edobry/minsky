@@ -350,11 +350,12 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle git command failures gracefully in PR workflow", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
+          const cmd = command as string;
           // Allow some commands to succeed for basic workflow
-          if (command.includes("rev-parse --show-toplevel")) {
+          if (cmd.includes("rev-parse --show-toplevel")) {
             return { stdout: "/test/repo", stderr: "" };
           }
-          if (command.includes("branch --show-current")) {
+          if (cmd.includes("branch --show-current")) {
             return { stdout: "test-branch", stderr: "" };
           }
           // Fail other git commands to test error handling
@@ -372,7 +373,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       // The PR workflow should handle git errors gracefully and still produce markdown
-      const result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
+      const result = await gitService.prWithDependencies({ session: "test-session" }, mockDeps);
 
       expect(result.markdown).toContain("Pull Request for branch");
     });
@@ -444,7 +445,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle commit with amend flag", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          expect(_command).toContain("--amend");
+          const cmd = command as string;
+          expect(cmd).toContain("--amend");
           return { stdout: "[main def456] Amended commit\n 1 file changed", stderr: "" };
         }) as any,
       };
