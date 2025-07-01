@@ -423,13 +423,13 @@ export class GitService implements GitServiceInterface {
   async pr(options: PrOptions): Promise<PrResult> {
     await this.ensureBaseDir();
 
-          const deps: PrDependencies = {
-        execAsync,
-        getSession: async (name: string) => this.sessionDb.getSession(name),
-        getSessionWorkdir: (session: string) =>
-          this.getSessionWorkdir(session),
-        getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
-      };
+    const deps: PrDependencies = {
+      execAsync,
+      getSession: async (name: string) => this.sessionDb.getSession(name),
+      getSessionWorkdir: (session: string) =>
+        this.getSessionWorkdir(session),
+      getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
+    };
 
     const result = await this.prWithDependencies(options, deps);
 

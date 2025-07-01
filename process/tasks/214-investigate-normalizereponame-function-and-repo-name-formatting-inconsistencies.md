@@ -78,7 +78,7 @@ Metadata: Stored in session record
 
 ### Phase 1: Core Storage Refactoring
 
-**1.1 Update Session Directory Resolution**
+**1.1 Update Session Directory Resolution** ✅ COMPLETE
 ```typescript
 // Before (complex)
 getSessionWorkdir(repoName: string, session: string): string {
@@ -86,23 +86,25 @@ getSessionWorkdir(repoName: string, session: string): string {
   return join(this.baseDir, normalizedRepoName, "sessions", session);
 }
 
-// After (simple)
+// After (simple) - IMPLEMENTED
 getSessionWorkdir(session: string): string {
   return join(this.baseDir, "sessions", session);
 }
 ```
 
-**1.2 Remove Repository Path Encoding**
-- Remove `normalizeRepositoryURI` and related functions
-- Simplify all `getSessionWorkdir` implementations across backends
-- Update path resolution in `GitService`, `SessionDB`, workspace utilities
+**1.2 Remove Repository Path Encoding** 🔄 IN-PROGRESS
+- ✅ Core session-db.ts functions updated and tested (19/19 tests passing)
+- ✅ GitService.getSessionWorkdir method simplified 
+- ✅ Removed normalizeRepoName imports from core session functions
+- 🔄 Fixing remaining GitService call sites that expect old signature
+- 🔄 Update path resolution in related services
 
-**1.3 Update Session Record Schema**
-- Ensure all session records have `repoUrl` field populated
-- Add validation for required repository metadata
-- Consider adding `repoType` field for backend identification
+**1.3 Update Session Record Schema** ✅ VERIFIED
+- ✅ Session records have `repoUrl` field populated 
+- ✅ Repository metadata accessible via session records
+- ✅ Schema supports new architecture (repository info stored in records, not paths)
 
-### Phase 2: Path Resolution Updates
+### Phase 2: Path Resolution Updates (NEXT)
 
 **2.1 Simplify Workspace Detection**
 ```typescript
@@ -212,3 +214,47 @@ minsky sessions list --repo <repoPath|repoUrl>
 This represents a fundamental shift from "encode metadata in paths" to "paths for storage, database for metadata" - a much cleaner architectural approach that eliminates the entire class of repository identity problems we were trying to solve.
 
 The original issue (session PR path resolution failure) gets solved as a side effect of this cleaner design, while simultaneously making the codebase more maintainable and extensible.
+
+## Progress Log
+
+### ✅ Completed (2025-01-06)
+
+**Core Session-ID-Based Storage Implementation**:
+- **Session Path Simplification**: Successfully changed from `/git/{repoName}/sessions/{sessionId}/` to `/sessions/{sessionId}/`
+- **Base Directory Update**: Changed from `/minsky/git` to `/minsky` 
+- **Repository Normalization Removal**: Eliminated `normalizeRepoName` dependencies in core session functions
+- **GitService Interface Update**: Simplified `getSessionWorkdir(repoName, session)` to `getSessionWorkdir(session)`
+- **Test Coverage**: All 19 session-db tests passing with new simplified architecture
+- **Interface Updates**: Updated PrTestDependencies and ExtendedGitDependencies to use new signature
+
+**Evidence of Success**:
+```bash
+# Before: Complex repo-based paths
+/test/base/dir/local/minsky/sessions/test-session-1
+
+# After: Simple session-ID-based paths  
+/test/base/dir/sessions/test-session-1
+```
+
+### 🔄 In Progress
+
+**GitService Call Site Updates**:
+- Multiple locations still calling `getSessionWorkdir(repoName, session)` need updating
+- Repository backend services need interface updates
+- Dependency injection sites need parameter count fixes
+
+### 📋 Next Steps
+
+1. **Complete GitService Call Site Updates**
+   - Fix remaining "Expected 1 arguments, but got 2" errors
+   - Update all repository backend implementations
+   - Update test mocks and dependency objects
+
+2. **Update Workspace Detection Logic**
+   - Implement basename-based session detection
+   - Remove complex path parsing logic
+
+3. **Test End-to-End Integration**
+   - Verify session creation works with new paths
+   - Test session PR commands with simplified architecture
+   - Validate workspace detection
