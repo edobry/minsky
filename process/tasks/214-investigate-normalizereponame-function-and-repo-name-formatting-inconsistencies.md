@@ -222,3 +222,58 @@ This task consolidates the investigation from task #214 with the specific fix re
 - New repositories use corrected `local-minsky` format
 - Existing repositories in `/git/local/` remain accessible
 - Session operations work correctly with both formats during transition period
+
+## ⚠️ CRITICAL DESIGN FLAW DISCOVERED
+
+### Semantic Identity Problem
+
+**Current Behavior (WRONG):**
+- `https://github.com/edobry/minsky.git` → `edobry/minsky` ✅
+- `/Users/edobry/Projects/minsky` (local clone) → `local-minsky` ❌ **SEMANTIC ERROR**
+
+**The Issue**: Local clones lose their GitHub identity and become generic "local" repositories.
+
+### Correct Normalization Strategy
+
+The system should preserve repository identity regardless of access method:
+
+1. **Remote URL**: `https://github.com/edobry/minsky.git` → `edobry/minsky`
+2. **Local Clone with Remote**: `/path/to/minsky` (has GitHub origin) → `edobry/minsky` (SAME as #1)  
+3. **Local-Only Repository**: `/path/to/repo` (no remote origin) → `local-repo`
+
+### Evidence of the Problem
+
+**Main Project Analysis:**
+- Path: `/Users/edobry/Projects/minsky`
+- Remote origin: `https://github.com/edobry/minsky.git`
+- Current normalization: `local-minsky` ❌
+- Should be: `edobry/minsky` ✅
+
+**Session Repository Chain:**
+- Session path → Local main project → GitHub origin
+- All should resolve to: `edobry/minsky`
+- Currently resolve to: `local-minsky`
+
+### Migration Impact Assessment
+
+**Legacy Repository Storage:**
+- 218 repositories in `/git/local/` may include GitHub clones wrongly classified as "local"
+- These should be re-normalized based on their remote origins
+- Migration required to restore semantic identity
+
+### Required Fix Strategy
+
+**Phase 1: Enhanced Detection**
+- Modify `normalizeRepositoryUri` to detect Git remotes for local paths
+- Check `git remote get-url origin` when processing local paths
+- Recursive remote resolution for local-to-local origins
+
+**Phase 2: Identity Preservation**  
+- Local clone of GitHub repo → GitHub identity (`owner/repo`)
+- Local clone of GitLab repo → GitLab identity (`owner/repo`)
+- True local-only repo → Local identity (`local-basename`)
+
+**Phase 3: Migration Strategy**
+- Analyze existing repositories to identify misclassified GitHub clones
+- Develop migration path for repository rename/reorganization
+- Ensure session database consistency during transition
