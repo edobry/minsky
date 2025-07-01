@@ -60,28 +60,29 @@ The normalizeRepoName function appears to be producing repo names in formats lik
 ## Phase 2: Implementation
 
 ### 1. Fix normalizeRepoName Function
+- [x] Update normalizeRepositoryURI to return filesystem-safe names for local repos
+- [x] Change `local/minsky` → `local-minsky` in the core normalization logic
+- [x] Ensure consistency across all repo name generation
 
-- Implement consistent repo name normalization logic
-- Ensure proper handling of local vs remote repository naming
-- Update any related path resolution logic
+### 2. Fix Session Database Path Resolution
+- [ ] Update getRepoPathFn to use consistent repo name format
+- [ ] Ensure session workdir resolution uses same normalization
+- [ ] Test session operations with corrected paths
 
-### 2. Fix Session PR Path Resolution
+### 3. Update All Dependent Code
+- [x] Review and update any code that expects `local/` format
+- [x] Ensure GitService methods use consistent normalization
+- [x] Update tests to expect new format
 
-- Update session PR command to use correct directory paths
-- Ensure proper handling of the 'local-' prefix in path construction
-- Test git operations with the corrected paths
+### 4. Migration for Existing Data
+- [ ] Update session records to use consistent repo name format
+- [ ] Handle backward compatibility during transition
+- [ ] Add migration logic for existing sessions
 
-### 3. Migration Strategy
-
-- Plan migration for existing session data if needed
-- Ensure backward compatibility during transition
-- Update any cached or stored repo names to use consistent format
-
-### 4. Update Tests
-
-- Add comprehensive tests for normalizeRepoName function
-- Test session PR path resolution with various repo name formats
-- Ensure all repo name scenarios are covered
+### 5. Testing
+- [x] Add comprehensive tests for normalizeRepoName function
+- [ ] Test session PR path resolution with various repo name formats
+- [ ] End-to-end testing of session workflows
 
 ## Requirements
 
@@ -128,4 +129,29 @@ The normalizeRepoName function appears to be producing repo names in formats lik
 
 ## Notes
 
-This task consolidates the investigation from task #214 with the specific fix requirements from task #212. The investigation phase must be completed first to ensure we understand the full scope of the problem before implementing fixes.
+This task consolidates the investigation from task #214 with the specific fix requirements from task #212. The investigation phase is complete and has revealed a clear path forward for implementation.
+
+## Work Log
+
+### Investigation Phase (Complete) ✅
+- ✅ Reproduced the issue: Session shows `local/minsky` but actual path is `local-minsky`
+- ✅ Identified root cause in GitService normalization logic
+- ✅ Analyzed all functions involved in repo name handling
+- ✅ Documented the inconsistency between storage and filesystem paths
+- ✅ Defined migration strategy
+
+### Implementation Phase (In Progress) 🔄
+- ✅ **Core Fix Implemented**: Updated normalizeRepositoryUri to use filesystem-safe format
+  - Changed `local/${basename}` → `local-${basename}` in both file:// and path handlers
+  - Updated fallback normalization in normalizeRepositoryURI
+  - Updated tests to expect new format
+  - Verified fix works: `local-minsky` format now consistent throughout
+- ✅ **Testing**: Basic unit tests updated and passing
+- ❌ **Remaining**: Session database path resolution updates needed
+- ❌ **Remaining**: End-to-end session workflow testing
+
+### Next Steps
+- [ ] Update getRepoPathFn in session-db.ts to handle both formats during transition
+- [ ] Test actual session PR commands with the fix
+- [ ] Add migration logic for existing sessions if needed
+- [ ] Complete end-to-end testing
