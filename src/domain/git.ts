@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
@@ -234,7 +234,7 @@ export class GitService implements GitServiceInterface {
         "minsky",
         "git"
       );
-    this.sessionDb = createSessionProvider({ workingDir: process.cwd() }) as SessionDB;
+    this.sessionDb = createSessionProvider({ dbPath: process.cwd() }) as SessionDB;
   }
 
   // Add public method to get session record
@@ -292,17 +292,14 @@ export class GitService implements GitServiceInterface {
         throw new MinskyError("Repository URL is required for cloning");
       }
 
-      // Define sessions directory path but don't create it yet
-      const sessionsDir = join(this.baseDir, normalizedRepoName, "sessions");
-
       // Clone the repository with verbose logging FIRST
       log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
       const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
       try {
-        // Create sessions directory structure ONLY when ready to clone
+        // Create session directory structure ONLY when ready to clone  
         // This ensures no orphaned directories if validation fails
-        await mkdir(sessionsDir, { recursive: true });
-        log.debug("Sessions directory created", { sessionsDir });
+        await mkdir(dirname(workdir), { recursive: true });
+        log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
         const { stdout, stderr } = await execAsync(cloneCmd);
         log.debug("git clone succeeded", {
@@ -588,8 +585,7 @@ The session you're trying to create a PR for doesn't exist.
 Need help? Run: minsky git pr --help
 `);
     }
-    const repoName = session.repoName || normalizeRepoName(session.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, sessionName);
+    const workdir = deps.getSessionWorkdir(sessionName);
 
     log.debug("Using workdir for PR", { workdir, session: sessionName });
     return workdir;
@@ -1999,8 +1995,7 @@ Session requested: "${options.session}"
       throw new Error(`Session '${options.session}' not found.`);
     }
 
-    const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-    const workdir = deps.getSessionWorkdir(repoName, options.session);
+    const workdir = deps.getSessionWorkdir(options.session);
 
     await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
     return {
@@ -2023,8 +2018,7 @@ Session requested: "${options.session}"
       if (!record) {
         throw new Error(`Session '${options.session}' not found.`);
       }
-      const repoName = record.repoName || normalizeRepoName(record.repoUrl);
-      workdir = deps.getSessionWorkdir(repoName, options.session);
+      workdir = deps.getSessionWorkdir(options.session);
       branch = options.session; // Session branch is named after the session
     } else if (options.repoPath) {
       workdir = options.repoPath;

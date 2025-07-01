@@ -124,20 +124,73 @@ const sessionName = basename(gitRoot);
 - Update `getSessionFromWorkspace` and related functions
 - Simplify workspace/session detection logic
 
-### Phase 3: Data Migration
+### Phase 3: Data Migration (ADDED)
 
-**3.1 Session Directory Migration**
-- Move existing sessions from `/git/{repo}/sessions/{id}/` to `/sessions/{id}/`
-- Update session database references if needed
-- Verify session record integrity (ensure all have `repoUrl`)
+**3.1 Migration Strategy for Existing Sessions**
+- **Current Challenge**: Existing sessions in `/git/{repo}/sessions/{id}/` need migration to `/sessions/{id}/`
+- **Migration Approach**: Implement safe, incremental migration with rollback capability
+- **Session Database Updates**: Update session records to reflect new path structure
+- **Backward Compatibility**: Ensure sessions work during migration period
 
-**3.2 Clean Up Legacy Structure**
-- Remove empty repository directories
-- Archive old structure for rollback if needed
+**3.2 Migration Implementation Plan**
+```typescript
+// Migration utility functions needed:
+// 1. Detect legacy session directories
+// 2. Move session directories to new structure  
+// 3. Update session database records
+// 4. Verify migration success
+// 5. Provide rollback capability
 
-### Phase 4: Command Interface Updates
+async function migrateLegacySessions() {
+  const legacyBasePath = join(baseDir, "git");
+  const newBasePath = join(baseDir, "sessions");
+  
+  // Scan for legacy sessions in git/{repo}/sessions/
+  // Move to sessions/{id}/
+  // Update database records
+}
+```
 
-**4.1 New Session Metadata Commands**
+**3.3 Migration Safety Requirements**
+- **Pre-Migration Backup**: Create backup of existing session directories
+- **Incremental Migration**: Migrate one session at a time with verification
+- **Rollback Support**: Ability to restore original structure if needed
+- **Migration Logging**: Detailed logging of migration progress and any issues
+- **Verification**: Post-migration verification that all sessions still work
+
+### Phase 4: Test Updates (ADDED)
+
+**4.1 Core Test Updates** ✅ COMPLETE
+- ✅ session-db.test.ts updated for new path structure
+- ✅ All 19 core tests passing with simplified paths
+
+**4.2 Integration Test Updates** 🔄 REQUIRED
+- **GitService Tests**: Update tests that call `getSessionWorkdir(repo, session)` 
+- **Repository Backend Tests**: Update path expectations in local/remote/github backend tests
+- **Workspace Detection Tests**: Update tests that expect old path parsing logic
+- **Session Management Tests**: Update integration tests for session operations
+- **CLI Command Tests**: Update tests for session commands that rely on paths
+
+**4.3 Test Categories Requiring Updates**
+```typescript
+// Tests expecting old signature:
+getSessionWorkdir(repoName, session) // → getSessionWorkdir(session)
+
+// Tests expecting old paths:
+/git/local-minsky/sessions/task#214/ // → /sessions/task#214/
+
+// Tests with repository path parsing:
+// Complex path parsing logic → Simple basename extraction
+```
+
+**4.4 Mock and Fixture Updates**
+- **Test Mocks**: Update dependency mocks to use new interface signatures
+- **Test Fixtures**: Update test data to reflect new path structure
+- **Integration Test Data**: Update end-to-end test scenarios
+
+### Phase 5: Command Interface Updates (UPDATED)
+
+**5.1 New Session Metadata Commands**
 ```bash
 # Show repository for current or specified session
 minsky session repo [sessionId]
@@ -147,59 +200,118 @@ minsky session info <sessionId>
 
 # List sessions filtered by repository
 minsky sessions list --repo <repoPath|repoUrl>
+
+# NEW: Migration command
+minsky session migrate [--dry-run] [--rollback]
 ```
 
-**4.2 Update Existing Commands**
-- Ensure all session operations work with new path structure
-- Update session creation, PR generation, workspace resolution
-- Test cross-session operations
-
-## Specific Changes Required
-
-### Files to Modify
-
-**Core Session Logic**:
-- `src/domain/session/session-db.ts`: Simplify `getSessionWorkdir`
-- `src/domain/git.ts`: Update `GitService.getSessionWorkdir`
-- `src/domain/workspace.ts`: Simplify workspace detection logic
-
-**Repository Backends**:
-- `src/domain/repository/local.ts`: Remove repo path encoding
-- `src/domain/repository/remote.ts`: Simplify session path resolution
-- `src/domain/repository/github.ts`: Update path generation
-
-**Session Management**:
-- `src/domain/session/session-workspace-service.ts`: Update path resolution
-- `src/domain/session/session-adapter.ts`: Simplify workdir calculation
-
-### Functions to Remove/Simplify
-
-**Remove Completely**:
-- `normalizeRepositoryURI` and related normalization functions
-- Complex path parsing in workspace utilities
-- Repository identity resolution logic
-
-**Simplify Significantly**:
-- All `getSessionWorkdir` implementations
-- Session-to-repository detection logic
-- Workspace resolution functions
+**5.2 Migration Command Implementation**
+- **Dry Run Mode**: Show what would be migrated without making changes
+- **Progressive Migration**: Migrate sessions incrementally with progress reporting
+- **Rollback Support**: Restore original structure if migration fails
+- **Status Reporting**: Show migration progress and session status
 
 ## Testing Strategy
 
-**1. Migration Testing**:
-- Verify existing sessions work after directory moves
-- Test session database integrity
-- Confirm workspace detection still works
+### **Critical Test Areas**
 
-**2. Path Resolution Testing**:
+**1. Path Resolution Tests**
+- Verify all `getSessionWorkdir` calls work with single parameter
 - Test session directory creation with new structure
-- Verify session-to-repository mapping via database
-- Test cross-session operations
+- Validate workspace detection with simplified paths
 
-**3. Command Interface Testing**:
-- Test all session commands with new path structure
-- Verify repository metadata commands work correctly
-- Test session creation, PR generation, workspace operations
+**2. Migration Tests**
+- Test migration of various session types (local, remote, github)
+- Verify session functionality after migration
+- Test rollback capability
+- Test partial migration scenarios
+
+**3. Integration Tests**
+- End-to-end session creation workflow
+- Session PR generation with new paths
+- Session update and deletion operations
+- Cross-session operations and workspace detection
+
+**4. Backward Compatibility Tests**
+- Verify graceful handling of legacy path references
+- Test migration detection and automatic migration triggers
+- Ensure no data loss during migration process
+
+## Migration Strategy Details
+
+### **Migration Phases**
+
+**Phase A: Detection and Planning**
+```typescript
+// 1. Scan for legacy sessions
+const legacySessions = await detectLegacySessions();
+
+// 2. Plan migration order (handle dependencies)
+const migrationPlan = createMigrationPlan(legacySessions);
+
+// 3. Create backup of current state
+await createMigrationBackup();
+```
+
+**Phase B: Incremental Migration**  
+```typescript
+// 4. Migrate sessions one by one
+for (const session of migrationPlan) {
+  await migrateSession(session);
+  await verifySessionMigration(session);
+}
+
+// 5. Update session database records
+await updateSessionDatabase();
+```
+
+**Phase C: Verification and Cleanup**
+```typescript
+// 6. Verify all sessions work with new structure
+await verifyAllSessions();
+
+// 7. Clean up legacy directories (optional)
+await cleanupLegacyDirectories();
+```
+
+### **Migration Safety Measures**
+
+**1. Backup Strategy**
+- Create timestamped backup of entire session structure
+- Store backup metadata for rollback reference
+- Verify backup integrity before starting migration
+
+**2. Rollback Capability**
+```typescript
+async function rollbackMigration(backupId: string) {
+  // Restore from backup
+  // Revert database changes  
+  // Verify rollback success
+}
+```
+
+**3. Migration Validation**
+- Test each migrated session before proceeding
+- Verify git operations work in new location
+- Confirm session database consistency
+- Validate workspace detection still works
+
+### **Implementation Priority**
+
+**High Priority (Blocking):**
+1. Fix remaining GitService call sites with parameter mismatches
+2. Update repository backend implementations
+3. Implement basic migration utility
+
+**Medium Priority (Important):**
+4. Update integration tests for new path structure
+5. Implement migration command in CLI
+6. Add migration safety features (backup/rollback)
+
+**Lower Priority (Polish):**
+7. Update all remaining test suites
+8. Add migration status reporting
+9. Implement automatic migration detection
 
 ## Success Criteria
 
