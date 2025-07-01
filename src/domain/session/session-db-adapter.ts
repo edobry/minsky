@@ -12,7 +12,7 @@ import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
-import { configurationService } from "../configuration";
+import config from "config";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -25,13 +25,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Load configuration with smart hierarchy to avoid working directory dependency
-      // This tries global config first, then falls back to system defaults
-      // The configurationService.loadConfiguration handles the fallback automatically
-      const globalConfigDir = process.env.HOME || "~";
-      const configResult = await configurationService.loadConfiguration(globalConfigDir);
-      
-      const sessionDbConfig = configResult.resolved.sessiondb;
+      // Use node-config directly to get sessiondb configuration
+      const sessionDbConfig = config.get("sessiondb") as any;
 
       // Convert SessionDbConfig to StorageConfig
       const storageConfig: Partial<StorageConfig> = {
