@@ -15,7 +15,7 @@ import {
 } from "../command-registry";
 import { MigrationService } from "../../../domain/storage/migration/migration-service";
 import { SessionDbConfig } from "../../../domain/configuration/types";
-import { configurationService } from "../../../domain/configuration";
+import config from "config";
 import { log } from "../../../utils/logger";
 import { join } from "path";
 
@@ -92,9 +92,8 @@ const sessionDbMigrateRegistration = {
         };
       }
 
-      // Load current configuration
-      const config = await configurationService.loadConfiguration(process.cwd());
-      const currentConfig = config.resolved.sessiondb || { backend: "json" };
+      // Use node-config directly to get current configuration
+      const currentConfig = (config.get("sessiondb") as SessionDbConfig) || { backend: "json" };
 
       // Determine source backend
       const sourceBackend = params.from || currentConfig.backend || "json";
