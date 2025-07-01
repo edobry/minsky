@@ -584,13 +584,13 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
       };
 
-      const _result = await gitService.mergeBranchWithDependencies(
+      const result = await gitService.mergeBranchWithDependencies(
         "/test/repo",
         "feature-branch",
         mockDeps
       );
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.merged).toBe(true);
       expect(result.conflicts).toBe(false);
     });
@@ -711,16 +711,16 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         access: createMock(async () => {}) as any, // .git directory exists
       };
 
-      const _result = await gitService.cloneWithDependencies(
+      const result = await gitService.cloneWithDependencies(
         {
           repoUrl: "https://github.com/user/repo.git",
-          _session: "test-session",
+          session: "test-session",
         },
         mockDeps
       );
 
-      expect(result._session).toBe("test-session");
-      expect(result._workdir).toContain("test-session");
+      expect(result.session).toBe("test-session");
+      expect(result.workdir).toContain("test-session");
       expectToHaveBeenCalled(mockDeps.execAsync);
       expectToHaveBeenCalled(mockDeps.mkdir);
     });
@@ -758,15 +758,15 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       // Should still proceed with clone despite warning about non-empty directory
-      const _result = await gitService.cloneWithDependencies(
+      const result = await gitService.cloneWithDependencies(
         {
           repoUrl: "https://github.com/user/repo.git",
-          _session: "test-session",
+          session: "test-session",
         },
         mockDeps
       );
 
-      expect(result._session).toBe("test-session");
+      expect(result.session).toBe("test-session");
       expectToHaveBeenCalled(mockDeps.readdir);
     });
 
