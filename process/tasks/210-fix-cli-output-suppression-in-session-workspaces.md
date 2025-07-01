@@ -2,7 +2,7 @@
 
 ## Status
 
-COMPLETED - All conflicts resolved
+DONE
 
 ## Priority
 
@@ -23,7 +23,7 @@ The `minsky session pr` command fails when run from new session workspaces due t
 ## Requirements
 
 ✅ **Fix --no-update flag**: Ensure `minsky session pr --no-update` actually skips the session update step
-✅ **Smart remote branch handling**: Make session update logic handle non-existent remote branches gracefully  
+✅ **Smart remote branch handling**: Make session update logic handle non-existent remote branches gracefully
 ✅ **Better error messages**: When session update fails, provide actionable guidance for common scenarios
 ✅ **Maintain existing functionality**: Ensure existing sessions with remote branches continue to work correctly
 ✅ **Root cause fix**: Fixed `pullLatest` to use `git fetch origin` instead of `git pull origin <currentBranch>`
@@ -31,7 +31,7 @@ The `minsky session pr` command fails when run from new session workspaces due t
 ## Success Criteria
 
 ✅ `minsky session pr --title "Test" --no-update` works from new session workspaces
-✅ `minsky session pr --title "Test"` works without the `--skip-update` workaround  
+✅ `minsky session pr --title "Test"` works without the `--skip-update` workaround
 ✅ Existing sessions with remote branches continue to update correctly
 ✅ Clear documentation of expected behavior for different scenarios
 ✅ Session update logic properly fetches and merges main branch changes
@@ -39,7 +39,7 @@ The `minsky session pr` command fails when run from new session workspaces due t
 ## Resolution Summary
 
 1. **Fixed CLI parameter mapping**: Changed `skipUpdate` to `noUpdate` in CLI factory configuration
-2. **Fixed parameter usage**: Updated `sessionPrFromParams` to use `noUpdate` instead of `skipUpdate`  
+2. **Fixed parameter usage**: Updated `sessionPrFromParams` to use `noUpdate` instead of `skipUpdate`
 3. **Fixed root cause**: Changed `pullLatest` in `git.ts` to use `git fetch origin` instead of `git pull origin <currentBranch>`
 4. **Resolved all merge conflicts**: Session workspace is clean and ready for PR submission
 5. **Tested successfully**: Session PR commands now work without workarounds
