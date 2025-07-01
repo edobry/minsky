@@ -2,7 +2,11 @@
 
 ## Status
 
-DONE
+**INVESTIGATION COMPLETE** - Architectural insight discovered requiring follow-up implementation
+
+**Key Finding**: Configuration system conflates loading vs processing concerns. Surgical decoupling approach recommended over wholesale replacement.
+
+**Next Steps**: Implement surgical decoupling as separate task (preserve domain services, use node-config for loading only).
 
 ## Priority
 
@@ -93,23 +97,41 @@ config/
 
 ### Implementation Plan
 
-1. **Phase 1**: Install node-config, create basic config files
-2. **Phase 2**: Migrate core configuration values
-3. **Phase 3**: Replace configuration service with node-config calls
-4. **Phase 4**: Remove custom configuration system (2,400+ lines deleted)
-5. **Phase 5**: Update documentation and developer workflows
+**⚠️ CRITICAL ARCHITECTURAL INSIGHT DISCOVERED:**
+
+Initial wholesale replacement attempt **revealed essential business logic** embedded in configuration files:
+- **436+ test failures** when attempting Phase 4 deletion
+- Configuration system **conflates two concerns**:
+  1. **Configuration loading** (reading files, env vars, hierarchical merging) ← node-config can replace this
+  2. **Domain-specific processing** (CredentialManager, BackendDetector, validation logic) ← must be preserved
+
+**UPDATED APPROACH: Surgical Decoupling**
+
+1. **Phase 1**: ✅ Install node-config, create basic config files
+2. **Phase 2**: ✅ Create NodeConfigAdapter compatibility layer  
+3. **Phase 3**: **DECOUPLE concerns** - Separate domain logic from configuration loading
+4. **Phase 4**: **PRESERVE domain services** - Extract CredentialManager, BackendDetector as standalone services
+5. **Phase 5**: **REPLACE loading only** - Use direct `config.get()` for simple configuration access
+6. **Phase 6**: Update documentation and developer workflows
 
 ### Expected Benefits
 
-- **90%+ code reduction** in configuration system
-- **Standardized approach** familiar to Node.js developers
-- **Reduced maintenance burden** with battle-tested library
-- **Better developer experience** with conventional config patterns
-- **Improved reliability** with mature, well-tested configuration handling
+- **Configuration loading simplified** with node-config (fast, synchronous)
+- **Domain logic preserved** and properly decoupled
+- **Business logic maintained** (credential management, backend detection, validation)
+- **Better separation of concerns** between loading and processing
+- **Reduced complexity** without losing essential functionality
 
 ### Conclusion
 
-Our current system is a classic case of over-engineering. **node-config** provides exactly the features we need with industry-standard patterns, eliminating thousands of lines of custom code while improving maintainability and developer experience.
+**Key Learning**: Our configuration system conflates configuration loading with domain-specific business logic. 
+
+**Recommended Approach**: **Surgical decoupling** rather than wholesale replacement:
+- Use **node-config for loading** (simple, fast, industry-standard)
+- **Preserve domain services** (CredentialManager, BackendDetector) as separate, focused components
+- **Maintain business logic** while simplifying the loading mechanism
+
+This approach provides the benefits of node-config while preserving the essential business logic that tests revealed as critical to system functionality.
 
 ## Detailed Migration Plan
 
