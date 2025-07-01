@@ -66,13 +66,13 @@ export class SessionMigration {
     try {
       // Check if legacy git directory exists
       if (!existsSync(this.legacyBaseDir)) {
-        log.debug("No legacy git directory found", { legacyBaseDir: this.legacyBaseDir });
+        log.debug("No legacy git directory found");
         return legacySessions;
       }
 
       // Scan for repository directories in /git/
       const repoDirs = await readdir(this.legacyBaseDir);
-      log.debug("Found repository directories", { repoDirs });
+      log.debug("Found repository directories");
 
       for (const repoDir of repoDirs) {
         const repoPath = join(this.legacyBaseDir, repoDir);
@@ -101,10 +101,7 @@ export class SessionMigration {
           // Verify it's a valid session directory (contains .git)
           const gitDir = join(oldSessionPath, ".git");
           if (!existsSync(gitDir)) {
-            log.warn("Session directory missing .git folder", { 
-              sessionId, 
-              path: oldSessionPath 
-            });
+            log.warn("Session directory missing .git folder");
             continue;
           }
 
@@ -120,9 +117,9 @@ export class SessionMigration {
         }
       }
 
-      log.info("Legacy session detection complete", { 
-        totalFound: legacySessions.length,
-        sessions: legacySessions.map(s => s.sessionId)
+      log.debug("Legacy session detection complete", { 
+        count: legacySessions.length,
+        sessions: legacySessions.map(s => ({ sessionId: s.sessionId, repoName: s.repoName }))
       });
 
       return legacySessions;
@@ -154,7 +151,7 @@ export class SessionMigration {
    */
   async createBackup(backupPath: string): Promise<void> {
     try {
-      log.debug("Creating migration backup");
+      log.debug("Creating migration backup", { backupPath });
 
       // Create backup directory
       await mkdir(backupPath, { recursive: true });
@@ -163,14 +160,20 @@ export class SessionMigration {
       if (existsSync(this.legacyBaseDir)) {
         const gitBackupPath = join(backupPath, "git");
         await cp(this.legacyBaseDir, gitBackupPath, { recursive: true });
-        log.debug("Legacy git directory backed up");
+        log.debug("Legacy git directory backed up", { 
+          from: this.legacyBaseDir, 
+          to: gitBackupPath 
+        });
       }
 
       // Copy existing sessions directory if it exists
       if (existsSync(this.newBaseDir)) {
         const sessionsBackupPath = join(backupPath, "sessions");
         await cp(this.newBaseDir, sessionsBackupPath, { recursive: true });
-        log.debug("Existing sessions directory backed up");
+        log.debug("Existing sessions directory backed up", { 
+          from: this.newBaseDir, 
+          to: sessionsBackupPath 
+        });
       }
 
       // Create backup metadata
@@ -188,7 +191,12 @@ export class SessionMigration {
         JSON.stringify(metadata, null, 2)
       );
 
-      log.debug("Migration backup created successfully");
+      log.debug("Migration backup created successfully", { 
+        backupPath, 
+        timestamp,
+        hasLegacyData: existsSync(this.legacyBaseDir),
+        hasExistingSessions: existsSync(this.newBaseDir)
+      });
     } catch (error) {
       log.error("Failed to create migration backup", {
         error: error instanceof Error ? error.message : String(error),
@@ -205,16 +213,17 @@ export class SessionMigration {
     try {
       log.debug("Migrating session", { 
         sessionId: session.sessionId,
-        from: session.oldPath,
-        to: session.newPath,
+        oldPath: session.oldPath,
+        newPath: session.newPath,
+        repoName: session.repoName,
         dryRun
       });
 
       if (dryRun) {
-        log.info("DRY RUN: Would migrate session", {
+        log.debug("DRY RUN: Would migrate session", { 
           sessionId: session.sessionId,
-          from: session.oldPath,
-          to: session.newPath
+          wouldCopyFrom: session.oldPath,
+          wouldCopyTo: session.newPath
         });
         return;
       }
@@ -272,7 +281,8 @@ export class SessionMigration {
 
     log.debug("Session migration verified", { 
       sessionId: session.sessionId,
-      fileCount: files.length
+      newPath: session.newPath,
+      filesCount: files.length
     });
   }
 
