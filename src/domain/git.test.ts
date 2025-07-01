@@ -147,16 +147,17 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should generate PR markdown with proper dependency injection", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("log --oneline")) {
+          const cmd = command as string;
+          if (cmd.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature\ndef456 fix: bug fix", stderr: "" };
           }
-          if (command.includes("diff --name-only")) {
+          if (cmd.includes("diff --name-only")) {
             return { stdout: "src/feature.ts\nREADME.md", stderr: "" };
           }
-          if (command.includes("merge-base")) {
+          if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (command.includes("branch --show-current")) {
+          if (cmd.includes("branch --show-current")) {
             return { stdout: "feature-branch", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -198,28 +199,29 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should resolve taskId to session in PR workflow", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("log --oneline")) {
+          const cmd = command as string;
+          if (cmd.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature", stderr: "" };
           }
-          if (command.includes("diff --name-only")) {
+          if (cmd.includes("diff --name-only")) {
             return { stdout: "src/feature.ts", stderr: "" };
           }
-          if (command.includes("merge-base")) {
+          if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (command.includes("branch --show-current")) {
+          if (cmd.includes("branch --show-current")) {
             return { stdout: "feature-branch", stderr: "" };
           }
-          if (command.includes("symbolic-ref")) {
+          if (cmd.includes("symbolic-ref")) {
             return { stdout: "origin/main", stderr: "" };
           }
-          if (command.includes("diff --name-status")) {
+          if (cmd.includes("diff --name-status")) {
             return { stdout: "M\tsrc/feature.ts", stderr: "" };
           }
-          if (command.includes("status --porcelain")) {
+          if (cmd.includes("status --porcelain")) {
             return { stdout: "", stderr: "" };
           }
-          if (command.includes("diff --stat")) {
+          if (cmd.includes("diff --stat")) {
             return { stdout: "1 file changed, 1 insertion(+)", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -290,28 +292,29 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should prioritize session over taskId when both are provided", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("log --oneline")) {
+          const cmd = command as string;
+          if (cmd.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature", stderr: "" };
           }
-          if (command.includes("diff --name-only")) {
+          if (cmd.includes("diff --name-only")) {
             return { stdout: "src/feature.ts", stderr: "" };
           }
-          if (command.includes("merge-base")) {
+          if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (command.includes("branch --show-current")) {
+          if (cmd.includes("branch --show-current")) {
             return { stdout: "feature-branch", stderr: "" };
           }
-          if (command.includes("symbolic-ref")) {
+          if (cmd.includes("symbolic-ref")) {
             return { stdout: "origin/main", stderr: "" };
           }
-          if (command.includes("diff --name-status")) {
+          if (cmd.includes("diff --name-status")) {
             return { stdout: "M\tsrc/feature.ts", stderr: "" };
           }
-          if (command.includes("status --porcelain")) {
+          if (cmd.includes("status --porcelain")) {
             return { stdout: "", stderr: "" };
           }
-          if (command.includes("diff --stat")) {
+          if (cmd.includes("diff --stat")) {
             return { stdout: "1 file changed, 1 insertion(+)", stderr: "" };
           }
           return { stdout: "", stderr: "" };
