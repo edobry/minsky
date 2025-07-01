@@ -402,4 +402,8 @@
 
 - [ ] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
 
+- [ ] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
+
+- [x] Fix indentation linter errors in session.ts [#215](process/tasks/215-fix-indentation-linter-errors-in-session-ts.md)
+
 - [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)
