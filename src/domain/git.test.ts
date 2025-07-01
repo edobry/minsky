@@ -192,7 +192,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       await expect(
         gitService.prWithDependencies({ session: "nonexistent" }, mockDeps)
-      ).rejects.toThrow("Session 'nonexistent' not found");
+      ).rejects.toThrow("Session \"nonexistent\" Not Found");
     });
 
     test("should resolve taskId to session in PR workflow", async () => {
@@ -243,12 +243,12 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const _result = await gitService.prWithDependencies({ taskId: "143" }, mockDeps);
+      const result = await gitService.prWithDependencies({ taskId: "143" }, mockDeps);
 
       // Verify that taskId was resolved to session
       expectToHaveBeenCalledWith(mockDeps.getSessionByTaskId, "143");
       expectToHaveBeenCalledWith(mockDeps.getSession, "task-143-session");
-      expectToHaveBeenCalledWith(mockDeps.getSessionWorkdir, "test-repo", "task-143-session");
+      expectToHaveBeenCalledWith(mockDeps.getSessionWorkdir, "task-143-session");
 
       // Verify PR was generated successfully
       expect(result.markdown).toContain("feature-branch");
@@ -328,14 +328,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const _result = await gitService.prWithDependencies(
-        { _session: "direct-session", taskId: "143" },
+      const result = await gitService.prWithDependencies(
+        { session: "direct-session", taskId: "143" },
         mockDeps
       );
 
       // Verify that session was used directly and taskId was ignored
       expectToHaveBeenCalledWith(mockDeps.getSession, "direct-session");
-      expectToHaveBeenCalledWith(mockDeps.getSessionWorkdir, "test-repo", "direct-session");
+      expectToHaveBeenCalledWith(mockDeps.getSessionWorkdir, "direct-session");
 
       // Verify getSessionByTaskId was NOT called
       expect(mockDeps.getSessionByTaskId.mock?.calls?.length ?? 0).toBe(0);
