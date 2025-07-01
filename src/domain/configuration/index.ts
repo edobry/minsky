@@ -7,11 +7,8 @@
  */
 
 // Core service and components
-export { DefaultConfigurationService } from "./configuration-service";
 export { NodeConfigAdapter } from "./node-config-adapter";
-export { ConfigurationLoader } from "./config-loader";
 export { DefaultCredentialManager } from "./credential-manager";
-export { DefaultBackendDetector } from "./backend-detector";
 
 // Types and interfaces
 export type {
@@ -29,7 +26,7 @@ export type {
   ValidationWarning,
   CredentialSource,
   CredentialManager,
-  BackendDetector,
+  SessionDbConfig,
 } from "./types";
 
 // Constants
@@ -39,5 +36,5 @@ export { DEFAULT_CONFIG, CONFIG_PATHS, ENV_VARS } from "./types";
 import { NodeConfigAdapter } from "./node-config-adapter.js";
 
 // Create a singleton instance for easy usage
-// Using NodeConfigAdapter for Phase 2 migration testing
+// Using NodeConfigAdapter for backward compatibility with node-config migration
 export const configurationService = new NodeConfigAdapter();
