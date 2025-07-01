@@ -143,8 +143,8 @@ export function normalizeRepositoryURI(uri: string): string {
     const result = normalizeRepositoryUri(uri, { validateLocalExists: false });
     return result.name;
   } catch (_error) {
-    // Fallback to simple basename normalization
-    return `local/${basename(uri)}`;
+    // Fallback to simple basename normalization (filesystem-safe)
+    return `local-${basename(uri)}`;
   }
 }
 
