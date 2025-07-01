@@ -228,7 +228,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "task-143-session",
+            session: "task-143-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
@@ -236,7 +236,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         getSessionWorkdir: createMock(() => "/test/repo/sessions/task-143-session") as any,
         getSessionByTaskId: createMock(() =>
           Promise.resolve({
-            _session: "task-143-session",
+            session: "task-143-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
             taskId: "143",
@@ -321,7 +321,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "direct-session",
+            session: "direct-session",
             repoName: "test-repo",
             repoUrl: "https://github.com/user/repo.git",
           })
@@ -363,7 +363,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         }) as any,
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "test-session",
+            session: "test-session",
             repoName: "test-repo",
           })
         ) as any,
