@@ -485,7 +485,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle no changes to stash scenario", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("status --porcelain")) {
+          const cmd = command as string;
+          if (cmd.includes("status --porcelain")) {
             return { stdout: "", stderr: "" }; // No changes
           }
           return { stdout: "", stderr: "" };
@@ -501,10 +502,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle popStash with existing stash", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("stash list")) {
+          const cmd = command as string;
+          if (cmd.includes("stash list")) {
             return { stdout: "stash@{0}: WIP on main: abc123 Previous work", stderr: "" };
           }
-          if (command.includes("stash pop")) {
+          if (cmd.includes("stash pop")) {
             return { stdout: "Dropped refs/stash@{0}", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -529,7 +531,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.stashed).toBe(false);
     });
 
