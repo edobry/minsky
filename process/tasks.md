@@ -328,7 +328,7 @@
 
 - [ ] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
 
-- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+- [+] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
 - [ ] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
@@ -340,7 +340,11 @@
 
 - [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
 
+- [ ] Investigate and fix session database architecture - multiple databases detected [#176](process/tasks/176-investigate-and-fix-session-database-architecture-multiple-databases-detected.md)
+
 - [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
+
+- [ ] Bug Analysis: Conflicting Session PR Error Messages [#178](process/tasks/178-bug-analysis-conflicting-session-pr-error-messages.md)
 
 - [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
 
@@ -376,6 +380,8 @@
 
 - [ ] Task 169: Evaluate and Deduplicate Improved Error Messages [#197](process/tasks/197-task-169-evaluate-and-deduplicate-improved-error-messages.md)
 
+- [ ] Task 170: Investigate Session Database Architecture Issues [#198](process/tasks/198-task-170-investigate-session-database-architecture-issues.md)
+
 - [ ] Task 171: Analyze and Modularize Overly Long Files [#199](process/tasks/199-task-171-analyze-and-modularize-overly-long-files.md)
 
 - [ ] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
@@ -390,14 +396,8 @@
 
 - [x] Investigate and Evaluate Configuration System Architecture [#209](process/tasks/209-investigate-and-evaluate-configuration-system-architecture.md)
 
-- [x] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
+- [-] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
 
 - [ ] Improve session pr command error handling and UX [#211](process/tasks/211-improve-session-pr-command-error-handling-and-ux.md)
 
 - [ ] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
-
-- [ ] Make session update default branch configurable [#213](process/tasks/213-make-session-update-default-branch-configurable.md)
-
-- [ ] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
-
-- [+] Fix indentation linter errors in session.ts [#215](process/tasks/215-fix-indentation-linter-errors-in-session-ts.md)

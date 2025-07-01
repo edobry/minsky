@@ -319,7 +319,7 @@ const sessionPrCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  noUpdate: {
+  skipUpdate: {
     schema: z.boolean(),
     description: "Skip session update before creating PR",
     required: false,
@@ -597,7 +597,7 @@ export function registerSessionCommands(): void {
           repo: params.repo,
           noStatusUpdate: params.noStatusUpdate,
           debug: params.debug,
-          skipUpdate: params.noUpdate,
+          skipUpdate: params.skipUpdate,
         });
 
         return {

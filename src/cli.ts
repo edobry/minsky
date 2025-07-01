@@ -58,9 +58,7 @@ async function main(): Promise<void> {
 }
 
 // Run the CLI
-console.log("DEBUG: About to call main()");
 main().catch((err) => {
-  console.log("DEBUG: Error in main():", err);
   log.systemDebug(`Error caught in main: ${err}`);
   log.systemDebug(`Error stack: ${err.stack}`);
   log.error(`Unhandled error in CLI: ${err.message}`);

@@ -1108,24 +1108,23 @@ Need help? Run: minsky git pr --help
 
   async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
-      // Get current branch
-      const { stdout: branch } = await execAsync(`git -C ${workdir} rev-parse --abbrev-ref HEAD`);
-      const currentBranch = branch.trim();
-
-      // Get current commit hash
+      // Get current commit hash before fetch
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Pull latest changes
-      await execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+      // Fetch latest changes from remote (don't pull current branch)
+      // This gets all refs from remote without merging anything
+      await execAsync(`git -C ${workdir} fetch ${remote}`);
 
-      // Get new commit hash
+      // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Return whether any changes were pulled
+      // Return whether local working directory changed (should be false for fetch-only)
+      // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
+      // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to fetch latest changes: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
@@ -1164,10 +1163,8 @@ Need help? Run: minsky git pr --help
         });
 
         if (hasConflicts) {
-          // Abort the merge and report conflicts
-          log.debug("Aborting merge due to conflicts");
-          await execAsync(`git -C ${workdir} merge --abort`);
-          log.debug("Merge aborted, returning conflict result");
+          // Leave repository in merging state for user to resolve conflicts
+          log.debug("Merge conflicts detected, leaving repository in merging state for manual resolution");
           return { workdir, merged: false, conflicts: true };
         }
         log.debug("No conflicts detected, re-throwing original error");
@@ -1915,26 +1912,23 @@ Session requested: "${options.session}"
     remote: string = "origin"
   ): Promise<PullResult> {
     try {
-      // Get current branch
-      const { stdout: branch } = await deps.execAsync(
-        `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-      );
-      const currentBranch = branch.trim();
-
-      // Get current commit hash
+      // Get current commit hash before fetch
       const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Pull latest changes
-      await deps.execAsync(`git -C ${workdir} pull ${remote} ${currentBranch}`);
+      // Fetch latest changes from remote (don't pull current branch)
+      // This gets all refs from remote without merging anything
+      await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
 
-      // Get new commit hash
+      // Get commit hash after fetch (should be the same since we only fetched)
       const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Return whether any changes were pulled
+      // Return whether local working directory changed (should be false for fetch-only)
+      // The 'updated' flag indicates if remote refs were updated, but we can't easily detect that
+      // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
       throw new Error(
-        `Failed to pull latest changes: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to fetch latest changes: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
