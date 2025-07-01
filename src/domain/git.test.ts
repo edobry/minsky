@@ -475,7 +475,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.stashed).toBe(true);
       expectToHaveBeenCalled(mockDeps.execAsync);
     });
@@ -492,7 +492,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.stashChangesWithDependencies("/test/repo", mockDeps);
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.stashed).toBe(false);
     });
 
@@ -511,7 +511,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       const result = await gitService.popStashWithDependencies("/test/repo", mockDeps);
 
-      expect(result._workdir).toBe("/test/repo");
+      expect(result.workdir).toBe("/test/repo");
       expect(result.stashed).toBe(true);
     });
 
