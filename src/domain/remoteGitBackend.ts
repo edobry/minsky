@@ -94,8 +94,8 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns The repository path
    */
-  protected getSessionWorkdir(_repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", _session);
+  protected getSessionWorkdir(session: string): string {
+    return join(this.baseDir, "sessions", session);
   }
 
   /**
@@ -104,14 +104,14 @@ export class RemoteGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     try {
       // Normalize the repository name
       const repoName = normalizeRepoName(this.config.url);
 
       // Create the destination directory
-      const _workdir = this.getSessionWorkdir(_repoName, _session);
-      await mkdir(dirname(_workdir), { recursive: true });
+      const workdir = this.getSessionWorkdir(session);
+      await mkdir(dirname(workdir), { recursive: true });
 
       // Clone options
       const cloneArgs = ["clone", this.config.url, workdir];
@@ -129,8 +129,8 @@ export class RemoteGitBackend implements RepositoryBackend {
 
       // Return the clone result
       return {
-        _workdir,
-        _session,
+        workdir,
+        session,
       };
     } catch (error) {
       throw new RepositoryError(
