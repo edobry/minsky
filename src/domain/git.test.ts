@@ -93,11 +93,12 @@ describe("GitService", () => {
   });
 
   test("getSessionWorkdir should return the correct path", () => {
-    const _workdir = gitService.getSessionWorkdir("test-repo", "test-session");
+    const workdir = gitService.getSessionWorkdir("test-session");
 
-    // Expect the full path to contain both the repo name and session
-    expect(workdir.includes("test-repo")).toBe(true);
+    // NEW: Session-ID-based storage - expect session ID in path, not repo name
     expect(workdir.includes("test-session")).toBe(true);
+    expect(workdir.includes("sessions")).toBe(true);
+    // Repository identity no longer part of filesystem path
   });
 
   test("execInRepository should execute git commands in the specified repository", async () => {
@@ -128,14 +129,14 @@ describe("GitService", () => {
     }
   });
 
-  test("should normalize repository names in getSessionWorkdir", () => {
-    // Test with normal name (this doesn't need normalization)
-    const normalRepo = "test-repo";
-    const workdir1 = gitService.getSessionWorkdir(normalRepo, "test-session");
-    expect(workdir1.includes(normalRepo)).toBe(true);
-
-    // For normalized repositories, we can check that the path follows expected pattern
-    expect(workdir1.endsWith(`${normalRepo}/sessions/test-session`)).toBe(true);
+  test("should use session-ID-based storage in getSessionWorkdir", () => {
+    // NEW: Session-ID-based storage - repository normalization no longer needed for paths
+    const workdir1 = gitService.getSessionWorkdir("test-session");
+    
+    // Path should contain session ID but NOT repository name
+    expect(workdir1.includes("test-session")).toBe(true);
+    expect(workdir1.includes("sessions")).toBe(true);
+    expect(workdir1.endsWith("sessions/test-session")).toBe(true);
   });
 });
 
@@ -171,7 +172,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       };
 
       const gitService = new GitService();
-      const result = await gitService.prWithDependencies({ _session: "test-session" }, mockDeps);
+      const result = await gitService.prWithDependencies({ session: "test-session" }, mockDeps);
 
       expect(result.markdown).toContain("feature-branch");
       expect(result.markdown).toContain("abc123 feat: add new feature");
@@ -190,7 +191,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const gitService = new GitService();
 
       await expect(
-        gitService.prWithDependencies({ _session: "nonexistent" }, mockDeps)
+        gitService.prWithDependencies({ session: "nonexistent" }, mockDeps)
       ).rejects.toThrow("Session 'nonexistent' not found");
     });
 
