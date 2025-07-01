@@ -2,7 +2,7 @@
 
 ## Status
 
-BACKLOG
+IN-PROGRESS
 
 ## Priority
 
@@ -22,96 +22,167 @@ The normalizeRepoName function appears to be producing repo names in formats lik
 
 ## Phase 1: Investigation
 
-### 1. Function Analysis
+### ✅ Investigation Results
 
-- Examine the normalizeRepoName function implementation
-- Understand its purpose and intended behavior
-- Document the transformation logic and rules applied
-- Identify where the inconsistent formats ('local/minsky' vs 'local-minsky') are generated
+#### 1. Root Cause Identified
 
-### 2. Session Database Impact
+The issue stems from **two different normalization strategies** being applied at different points in the codebase:
 
-- Analyze how normalized repo names are stored in the session database
-- Identify inconsistencies in naming formats across different scenarios
-- Check for potential conflicts or ambiguities in stored names
-- Document current session directory structure vs expected structure
+**Source of Inconsistency:**
 
-### 3. Backend Compatibility
+- **normalizeRepoName/normalizeRepositoryURI** (in `src/domain/repository-uri.ts`): Returns `local/minsky` (forward slash)
+- **GitService methods** (in `src/domain/git.ts`): Convert `local/minsky` → `local-minsky` (hyphen) for filesystem paths
 
-- Investigate how normalized names interact with different repo backends:
-  - Local repositories
-  - GitHub repositories
-  - Other potential backends
-- Ensure consistent behavior across all backend types
+**Evidence from Investigation:**
 
-### 4. Workflow Integration
+```bash
+# Session list shows:
+task#214 (#214) - local/minsky
 
-- Examine how normalized repo names are used throughout Minsky workflows
-- Check session management, task creation, and other core operations
-- Identify any breaking changes or unexpected behaviors
-- Focus on session PR command path resolution specifically
+# Actual directory path:
+/Users/edobry/.local/state/minsky/git/local-minsky/sessions/task#214
+```
 
-### 5. Design Intent vs Implementation
+#### 2. Code Analysis
 
-- Determine if current behavior aligns with intended design
-- Identify any gaps between expected and actual functionality
-- Document the correct path structure that should be used
+**Key Functions Involved:**
+
+1. **normalizeRepoName() → `local/minsky`**
+
+   ```typescript
+   // src/domain/repository-uri.ts:250
+   export function normalizeRepoName(repoUrl: string): string {
+     return normalizeRepositoryURI(repoUrl);
+   }
+
+   // For local paths like "/Users/edobry/Projects/minsky"
+   // Returns: "local/minsky"
+   ```
+
+2. **GitService.clone() → `local-minsky`**
+
+   ```typescript
+   // src/domain/git.ts:265-276
+   if (repoName.startsWith("local/")) {
+     const parts = repoName.split("/");
+     if (parts.length > 1) {
+       normalizedRepoName = `${parts[0]}-${parts.slice(1).join("-")}`;
+     }
+   }
+   // Converts "local/minsky" → "local-minsky"
+   ```
+
+3. **GitService.getSessionWorkdir() → `local-minsky`**
+
+   ```typescript
+   // src/domain/git.ts:254-258
+   const normalizedRepoName = repoName.includes("/")
+     ? repoName.replace(/[^a-zA-Z0-9-_]/g, "-")
+     : repoName;
+   // Converts "local/minsky" → "local-minsky"
+   ```
+
+4. **getRepoPathFn() → tries to use `local/minsky`**
+   ```typescript
+   // src/domain/session/session-db.ts:118-125
+   const repoName = normalizeRepoName(record.repoName || record.repoUrl);
+   return join(state.baseDir, repoName, "sessions", record.session);
+   // Uses original "local/minsky", creating path mismatch
+   ```
+
+#### 3. Impact Analysis
+
+**Affected Areas:**
+
+- ✅ Session creation (works - uses GitService normalization)
+- ❌ Session directory resolution (fails - uses original normalization)
+- ❌ Session PR commands (fails - can't find correct directory)
+- ❌ Any operation that uses getRepoPathFn()
+
+**Session List Evidence:**
+
+```bash
+task#168 (task#168) - local-minsky  # ← Older session shows hyphen format
+task#214 (#214) - local/minsky      # ← Newer session shows slash format
+```
+
+#### 4. Design Intent vs Implementation
+
+**Intended Design:** Single consistent repo name format throughout system
+**Actual Implementation:** Two different formats depending on code path
+
+### ✅ Migration Strategy Defined
+
+**Approach:** Standardize on filesystem-safe format (`local-minsky`) throughout the system.
+
+**Reasoning:**
+
+1. Directory paths must be filesystem-safe (no slashes in directory names)
+2. GitService already creates directories with hyphen format
+3. Changing existing directory structure would be more disruptive
+4. Hyphen format is more consistent with filesystem conventions
 
 ## Phase 2: Implementation
 
 ### 1. Fix normalizeRepoName Function
 
-- Implement consistent repo name normalization logic
-- Ensure proper handling of local vs remote repository naming
-- Update any related path resolution logic
+- [ ] Update normalizeRepositoryURI to return filesystem-safe names for local repos
+- [ ] Change `local/minsky` → `local-minsky` in the core normalization logic
+- [ ] Ensure consistency across all repo name generation
 
-### 2. Fix Session PR Path Resolution
+### 2. Fix Session Database Path Resolution
 
-- Update session PR command to use correct directory paths
-- Ensure proper handling of the 'local-' prefix in path construction
-- Test git operations with the corrected paths
+- [ ] Update getRepoPathFn to use consistent repo name format
+- [ ] Ensure session workdir resolution uses same normalization
+- [ ] Test session operations with corrected paths
 
-### 3. Migration Strategy
+### 3. Update All Dependent Code
 
-- Plan migration for existing session data if needed
-- Ensure backward compatibility during transition
-- Update any cached or stored repo names to use consistent format
+- [ ] Review and update any code that expects `local/` format
+- [ ] Ensure GitService methods use consistent normalization
+- [ ] Update tests to expect new format
 
-### 4. Update Tests
+### 4. Migration for Existing Data
 
-- Add comprehensive tests for normalizeRepoName function
-- Test session PR path resolution with various repo name formats
-- Ensure all repo name scenarios are covered
+- [ ] Update session records to use consistent repo name format
+- [ ] Handle backward compatibility during transition
+- [ ] Add migration logic for existing sessions
+
+### 5. Testing
+
+- [ ] Add comprehensive tests for normalizeRepoName function
+- [ ] Test session PR path resolution with various repo name formats
+- [ ] End-to-end testing of session workflows
 
 ## Requirements
 
-1. **Investigation Deliverables**
+1. **Investigation Deliverables** ✅ COMPLETE
 
-   - Comprehensive analysis of normalizeRepoName function
-   - Documentation of current behavior vs intended behavior
-   - Identification of all bugs or inconsistencies
-   - Root cause analysis of path resolution failures
+   - [x] normalizeRepoName function behavior fully documented
+   - [x] All inconsistencies identified and catalogued
+   - [x] Root cause of path resolution issues identified
+   - [x] Migration strategy defined
 
 2. **Implementation Requirements**
 
-   - Fix normalizeRepoName function to produce consistent output
-   - Fix session PR command path resolution issues
-   - Ensure all session commands work with corrected paths
-   - Maintain backward compatibility where possible
+   - [ ] Fix normalizeRepoName function to produce consistent output
+   - [ ] Fix session PR command path resolution issues
+   - [ ] Ensure all session commands work with corrected paths
+   - [ ] Maintain backward compatibility where possible
 
 3. **Testing Requirements**
-   - Unit tests for normalizeRepoName function
-   - Integration tests for session PR commands
-   - End-to-end tests covering various repository types
+   - [ ] Unit tests for normalizeRepoName function
+   - [ ] Integration tests for session PR commands
+   - [ ] End-to-end tests covering various repository types
 
 ## Success Criteria
 
-1. **Investigation Phase Complete**
+1. **Investigation Phase Complete** ✅ DONE
 
-   - [ ] normalizeRepoName function behavior fully documented
-   - [ ] All inconsistencies identified and catalogued
-   - [ ] Root cause of path resolution issues identified
-   - [ ] Migration strategy defined (if needed)
+   - [x] normalizeRepoName function behavior fully documented
+   - [x] All inconsistencies identified and catalogued
+   - [x] Root cause of path resolution issues identified
+   - [x] Migration strategy defined (if needed)
 
 2. **Implementation Phase Complete**
 
@@ -126,6 +197,23 @@ The normalizeRepoName function appears to be producing repo names in formats lik
    - [ ] No regression in existing functionality
    - [ ] Clean test suite with no path-related failures
 
+## Work Log
+
+### Investigation Phase (Complete)
+
+- ✅ Reproduced the issue: Session shows `local/minsky` but actual path is `local-minsky`
+- ✅ Identified root cause in GitService normalization logic
+- ✅ Analyzed all functions involved in repo name handling
+- ✅ Documented the inconsistency between storage and filesystem paths
+- ✅ Defined migration strategy
+
+### Next Steps
+
+- [ ] Implement the fix in normalizeRepositoryURI function
+- [ ] Update session database path resolution
+- [ ] Add comprehensive tests
+- [ ] Test with real session workflows
+
 ## Notes
 
-This task consolidates the investigation from task #214 with the specific fix requirements from task #212. The investigation phase must be completed first to ensure we understand the full scope of the problem before implementing fixes.
+This task consolidates the investigation from task #214 with the specific fix requirements from task #212. The investigation phase is complete and has revealed a clear path forward for implementation.

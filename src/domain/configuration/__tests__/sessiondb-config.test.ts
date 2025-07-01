@@ -1,6 +1,6 @@
 /**
  * SessionDB Configuration Loading Tests
- * 
+ *
  * Tests configuration loading and merging from all sources:
  * - CLI arguments
  * - Environment variables
@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "fs";
 
-import { ConfigurationLoader } from "../configuration-loader";
+import { ConfigurationLoader } from "../config-loader";
 import { SessionDbConfig, RepositoryConfig, GlobalUserConfig } from "../types";
 
 describe("SessionDB Configuration Loading", () => {
@@ -22,7 +22,10 @@ describe("SessionDB Configuration Loading", () => {
   let originalEnv: Record<string, string | undefined>;
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `sessiondb-config-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    testDir = join(
+      tmpdir(),
+      `sessiondb-config-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    );
     mkdirSync(testDir, { recursive: true });
 
     // Save original environment
@@ -83,7 +86,9 @@ describe("SessionDB Configuration Loading", () => {
       expect(config.resolved.sessiondb.backend).toBe("sqlite");
       expect(config.resolved.sessiondb.dbPath).toBe("/custom/path/sessions.db");
       expect(config.resolved.sessiondb.baseDir).toBe("/custom/base");
-      expect(config.resolved.sessiondb.connectionString).toBe("postgresql://test:test@localhost/test");
+      expect(config.resolved.sessiondb.connectionString).toBe(
+        "postgresql://test:test@localhost/test"
+      );
     });
 
     test("should handle invalid environment backend gracefully", async () => {
@@ -148,7 +153,9 @@ connectionString = "postgresql://xdg:test@localhost/xdg"`
       const config = await loader.loadConfiguration(testDir);
 
       expect(config.resolved.sessiondb.backend).toBe("postgres");
-      expect(config.resolved.sessiondb.connectionString).toBe("postgresql://xdg:test@localhost/xdg");
+      expect(config.resolved.sessiondb.connectionString).toBe(
+        "postgresql://xdg:test@localhost/xdg"
+      );
     });
   });
 
@@ -171,7 +178,9 @@ baseDir = "./sessions"`
       const config = await loader.loadConfiguration(testDir);
 
       expect(config.resolved.sessiondb.backend).toBe("postgres");
-      expect(config.resolved.sessiondb.connectionString).toBe("postgresql://repo:test@localhost/repo");
+      expect(config.resolved.sessiondb.connectionString).toBe(
+        "postgresql://repo:test@localhost/repo"
+      );
       expect(config.resolved.sessiondb.baseDir).toBe("./sessions");
     });
   });
@@ -205,7 +214,7 @@ baseDir = "/repo/base"`
       process.env.MINSKY_SESSIONDB_BASEDIR = "/env/base";
 
       const loader = new ConfigurationLoader();
-      
+
       // Test with CLI override
       const cliArgs = {
         sessiondbBackend: "sqlite",
@@ -217,12 +226,14 @@ baseDir = "/repo/base"`
       // CLI should win for explicitly provided values
       expect(config.resolved.sessiondb.backend).toBe("sqlite");
       expect(config.resolved.sessiondb.dbPath).toBe("/cli/sessions.db");
-      
+
       // Environment should win for values not in CLI
       expect(config.resolved.sessiondb.baseDir).toBe("/env/base");
-      
+
       // Repository should provide connectionString (not overridden by higher levels)
-      expect(config.resolved.sessiondb.connectionString).toBe("postgresql://repo:test@localhost/repo");
+      expect(config.resolved.sessiondb.connectionString).toBe(
+        "postgresql://repo:test@localhost/repo"
+      );
     });
 
     test("should handle missing config files gracefully", async () => {
@@ -251,7 +262,7 @@ backend = "postgres"`
       );
 
       const loader = new ConfigurationLoader();
-      
+
       expect(async () => {
         await loader.loadConfiguration(testDir);
       }).toThrow();
@@ -282,7 +293,7 @@ backend = "sqlite"` // Invalid TOML - missing closing bracket
       process.env.HOME = testDir;
 
       const loader = new ConfigurationLoader();
-      
+
       expect(async () => {
         await loader.loadConfiguration(testDir);
       }).toThrow();
@@ -325,7 +336,9 @@ baseDir = "./local-sessions"`
       const loader = new ConfigurationLoader();
       const config = await loader.loadConfiguration(testDir);
 
-      expect(config.resolved.sessiondb.baseDir).toBe(join(testDir, "projects", "test-project", "sessions"));
+      expect(config.resolved.sessiondb.baseDir).toBe(
+        join(testDir, "projects", "test-project", "sessions")
+      );
     });
   });
 
@@ -420,7 +433,9 @@ ssl = true`
       const config = await loader.loadConfiguration(testDir);
 
       expect(config.resolved.sessiondb.backend).toBe("postgres");
-      expect(config.resolved.sessiondb.connectionString).toBe("postgresql://user:pass@localhost:5432/minsky");
+      expect(config.resolved.sessiondb.connectionString).toBe(
+        "postgresql://user:pass@localhost:5432/minsky"
+      );
       expect(config.resolved.sessiondb.maxConnections).toBe(10);
       expect(config.resolved.sessiondb.idleTimeout).toBe(30000);
       expect(config.resolved.sessiondb.ssl).toBe(true);
@@ -432,20 +447,19 @@ ssl = true`
       const repoConfigDir = join(testDir, ".minsky");
       mkdirSync(repoConfigDir);
       const configFile = join(repoConfigDir, "config.toml");
-      writeFileSync(configFile, "[sessiondb]\nbackend = \"sqlite\"");
-      
+      writeFileSync(configFile, '[sessiondb]\nbackend = "sqlite"');
+
       // Make file unreadable (this might not work on all systems)
       try {
         require("fs").chmodSync(configFile, 0o000);
-        
+
         process.env.HOME = testDir;
 
         const loader = new ConfigurationLoader();
-        
+
         expect(async () => {
           await loader.loadConfiguration(testDir);
         }).toThrow();
-        
       } finally {
         // Restore permissions for cleanup
         require("fs").chmodSync(configFile, 0o644);
@@ -461,4 +475,4 @@ ssl = true`
       // TODO: Implement circular symlink handling test
     });
   });
-}); 
+});

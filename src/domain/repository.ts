@@ -278,9 +278,9 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        const _workdir = gitService.getSessionWorkdir(_repoName, _session);
+        const workdir = gitService.getSessionWorkdir(session);
 
-        const gitStatus = await gitService.getStatus(_workdir);
+        const gitStatus = await gitService.getStatus(workdir);
 
         // Get additional status info directly via Git commands
         const { stdout: branchOutput } = await (
@@ -322,7 +322,7 @@ export async function createRepositoryBackend(
         }
 
         const repoName = normalizeRepoName(config.url || "");
-        return gitService.getSessionWorkdir(_repoName, _session);
+        return gitService.getSessionWorkdir(session);
       },
 
       validate: async (): Promise<ValidationResult> => {
