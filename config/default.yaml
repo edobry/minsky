@@ -28,14 +28,8 @@ credentials:
     mistral:
       source: "environment"
 
-# Backend detection rules
-detectionRules:
-  - condition: "tasks_md_exists"
-    backend: "markdown"
-  - condition: "json_file_exists"
-    backend: "json-file"
-  - condition: "always"
-    backend: "markdown"
+# Backend detection is now handled directly in code
+# No configuration needed - detection logic is hardcoded for simplicity
 
 # Session database configuration
 sessiondb:
