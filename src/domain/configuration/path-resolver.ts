@@ -10,22 +10,29 @@ import { join, resolve } from "path";
 
 export class PathResolver {
   /**
+   * Get the home directory, respecting environment variable changes for testing
+   */
+  private static getHomeDir(): string {
+    return process.env.HOME || homedir();
+  }
+
+  /**
    * Expand tilde and environment variables in file paths
    */
   static expandPath(filePath: string, baseDir?: string): string {
     // Handle tilde expansion
     if (filePath.startsWith("~/")) {
-      return join(homedir(), filePath.slice(2));
+      return join(this.getHomeDir(), filePath.slice(2));
     }
     
     // Handle $HOME expansion
     if (filePath.startsWith("$HOME/")) {
-      return join(homedir(), filePath.slice(6));
+      return join(this.getHomeDir(), filePath.slice(6));
     }
     
     // Handle environment variable expansion (basic)
     let expandedPath = filePath;
-    expandedPath = expandedPath.replace(/\$\{HOME\}/g, homedir());
+    expandedPath = expandedPath.replace(/\$\{HOME\}/g, this.getHomeDir());
     expandedPath = expandedPath.replace(/\$\{PROJECT_NAME\}/g, "test-project"); // For testing
     
     // Handle relative paths with base directory
