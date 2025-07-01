@@ -5,9 +5,8 @@
  */
 
 import { Command } from "commander";
-import { configurationService } from "../../domain/configuration";
+import nodeConfig from "config";
 import { exit } from "../../utils/process.js";
-import { ConfigurationSources } from "../../domain/configuration/types";
 
 interface ListOptions {
   json?: boolean;
@@ -20,19 +19,19 @@ export function createConfigListCommand(): Command {
     .description("List all configuration from all sources")
     .option("--json", "Output in JSON format", false)
     .option("--working-dir <dir>", "Working directory", process.cwd())
-    .action(async (options: ListOptions) => {
+    .action((options: ListOptions) => {
       try {
-        const workingDir = options.workingDir || process.cwd();
-        const result = await configurationService.loadConfiguration(workingDir);
+        // Get configuration from node-config
+        const resolved = nodeConfig.util.toObject();
 
         if (options.json) {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(resolved, null, 2));
         } else {
-          displayConfigurationSources(result.sources);
+          displayConfigurationSources();
           console.log(`\n${"=".repeat(60)}`);
           console.log("RESOLVED CONFIGURATION");
           console.log("=".repeat(60));
-          displayResolvedConfiguration(result.resolved);
+          displayResolvedConfiguration(resolved);
         }
       } catch (error) {
         console.error("Failed to load configuration:", error);
@@ -41,71 +40,30 @@ export function createConfigListCommand(): Command {
     });
 }
 
-function displayConfigurationSources(sources: ConfigurationSources) {
+function displayConfigurationSources() {
   console.log("CONFIGURATION SOURCES");
   console.log("=".repeat(60));
-
-  // CLI Flags
-  console.log("\n1. CLI Flags (highest priority):");
-  if (Object.keys(sources.cliFlags).length > 0) {
-    displayConfigSection(sources.cliFlags);
-  } else {
-    console.log("  (none specified)");
+  
+  console.log("\nnode-config handles configuration precedence automatically:");
+  console.log("1. NODE_CONFIG environment variable (highest priority)");
+  console.log("2. config/local.yaml (local overrides)");
+  console.log("3. config/{NODE_ENV}.yaml (environment-specific)");
+  console.log("4. config/default.yaml (base configuration)");
+  console.log("5. config/custom-environment-variables.yaml (env var mappings)");
+  
+  console.log("\nActive configuration files:");
+  try {
+    const configSources = nodeConfig.util.getConfigSources();
+    if (configSources && configSources.length > 0) {
+      configSources.forEach((source: any, index: number) => {
+        console.log(`  ${index + 1}. ${source.name || "Unknown"}: ${source.parsed ? "loaded" : "not found"}`);
+      });
+    } else {
+      console.log("  Unable to retrieve config sources");
+    }
+  } catch (error) {
+    console.log("  (source information not available)");
   }
-
-  // Environment Variables
-  console.log("\n2. Environment Variables:");
-  if (Object.keys(sources.environment).length > 0) {
-    displayConfigSection(sources.environment);
-  } else {
-    console.log("  (none set)");
-  }
-
-  // Global User Config
-  console.log("\n3. Global User Config (~/.config/minsky/config.yaml):");
-  if (sources.globalUser) {
-    console.log(`  Version: ${sources.globalUser.version}`);
-    if (sources.globalUser.credentials?.github) {
-      console.log(`  GitHub Credentials: ${sources.globalUser.credentials.github.source} source`);
-      if (sources.globalUser.credentials.github.token) {
-        console.log(`    Token: ${"*".repeat(20)} (hidden)`);
-      }
-      if (sources.globalUser.credentials.github.token_file) {
-        console.log(`    Token File: ${sources.globalUser.credentials.github.token_file}`);
-      }
-    }
-  } else {
-    console.log("  (file not found)");
-  }
-
-  // Repository Config
-  console.log("\n4. Repository Config (.minsky/config.yaml):");
-  if (sources.repository) {
-    console.log(`  Version: ${sources.repository.version}`);
-    if (sources.repository.backends?.default) {
-      console.log(`  Default Backend: ${sources.repository.backends.default}`);
-    }
-    if (sources.repository.backends?.["github-issues"]) {
-      const github = sources.repository.backends["github-issues"];
-      console.log("  GitHub Issues Backend:");
-      console.log(`    Owner: ${github.owner}`);
-      console.log(`    Repo: ${github.repo}`);
-    }
-    if (sources.repository.repository?.auto_detect_backend !== undefined) {
-      console.log(`  Auto-detect Backend: ${sources.repository.repository.auto_detect_backend}`);
-    }
-    if (sources.repository.repository?.detection_rules) {
-      console.log(
-        `  Detection Rules: ${sources.repository.repository.detection_rules.length} rules`
-      );
-    }
-  } else {
-    console.log("  (file not found)");
-  }
-
-  // Defaults
-  console.log("\n5. Built-in Defaults (lowest priority):");
-  displayConfigSection(sources.defaults);
 }
 
 function displayResolvedConfiguration(resolved: any) {

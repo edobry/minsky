@@ -1,0 +1,43 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Git Command Reliability
+
+## Core Principle
+**Git commands must never hang waiting for user input.** Use non-interactive flags and editor overrides.
+
+## Essential Techniques
+
+### Prevent Editor Hangs
+```bash
+GIT_EDITOR=true git rebase --continue
+GIT_EDITOR=true git commit --amend
+```
+
+### Non-Interactive Flags  
+```bash
+git pull --rebase --no-edit
+git merge --no-edit branch-name
+git commit --amend --no-edit
+git push --force-with-lease
+```
+
+### Timeout Long Operations
+```bash
+timeout 30 git fetch origin
+timeout 60 git push origin branch-name
+```
+
+## Common Hanging Commands
+- `git rebase --continue` → `GIT_EDITOR=true git rebase --continue`
+- `git commit --amend` → `git commit --amend --no-edit`
+- `git merge branch` → `git merge --no-edit branch`
+
+## Recovery
+1. Cancel hanging command (Ctrl+C)
+2. Apply appropriate non-interactive technique
+3. Proceed with corrected command
+
+**MANDATORY**: Any git command that could hang MUST use prevention techniques from this rule.

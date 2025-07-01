@@ -13,7 +13,7 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import { configurationService } from "../../../domain/configuration";
+import nodeConfig from "config";
 import { log } from "../../../utils/logger";
 
 /**
@@ -71,13 +71,12 @@ const configListRegistration = {
     const workspacePath = params.workspace || process.cwd();
     
     try {
-      // Load configuration with full details
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      // Load configuration with node-config
+      const resolved = nodeConfig.util.toObject();
       
       return {
         success: true,
-        sources: configResult.sources,
-        resolved: configResult.resolved,
+        configuration: resolved,
       };
     } catch (error) {
       log.error("Failed to load configuration", { 
@@ -105,12 +104,12 @@ const configShowRegistration = {
     const workspacePath = params.workspace || process.cwd();
     
     try {
-      // Load configuration
-      const configResult = await configurationService.loadConfiguration(workspacePath);
+      // Load configuration with node-config
+      const resolved = nodeConfig.util.toObject();
       
       return {
         success: true,
-        configuration: configResult.resolved,
+        configuration: resolved,
       };
     } catch (error) {
       log.error("Failed to load configuration", { 

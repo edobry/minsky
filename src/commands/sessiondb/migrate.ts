@@ -8,7 +8,7 @@
 import { Command } from "commander";
 import { MigrationService, MigrationOptions } from "../../domain/storage/migration/migration-service";
 import { SessionDbConfig } from "../../domain/configuration/types";
-import { configurationService } from "../../domain/configuration";
+import nodeConfig from "config";
 import { log } from "../../utils/logger";
 import { join } from "path";
 import { exit } from "../../utils/process.js";
@@ -100,8 +100,7 @@ async function handleMigration(targetBackend: string, options: any): Promise<voi
   }
 
   // Load current configuration
-  const config = await configurationService.loadConfiguration(process.cwd());
-  const currentConfig = config.resolved.sessiondb;
+  const currentConfig = nodeConfig.get("sessiondb") as SessionDbConfig;
 
   // Determine source backend
   const sourceBackend = options.from || currentConfig.backend;
@@ -243,8 +242,7 @@ async function handleRestore(options: any): Promise<void> {
 }
 
 async function handleStatus(options: any): Promise<void> {
-  const config = await configurationService.loadConfiguration(process.cwd());
-  const currentConfig = config.resolved.sessiondb;
+  const currentConfig = nodeConfig.get("sessiondb") as SessionDbConfig;
 
   const recommendations = MigrationService.getMigrationRecommendations(currentConfig);
 

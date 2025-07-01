@@ -8,7 +8,7 @@
 import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
-import { configurationService } from "../../configuration";
+import nodeConfig from "config";
 import { getErrorMessage } from "../../../errors";
 
 export interface HealthStatus {
@@ -60,8 +60,7 @@ export class SessionDbHealthMonitor {
     try {
       // Load configuration if not provided
       if (!config) {
-        const loadedConfig = await configurationService.loadConfiguration(process.cwd());
-        config = loadedConfig.resolved.sessiondb;
+        config = nodeConfig.get("sessiondb") as SessionDbConfig;
       }
 
       // Check backend health

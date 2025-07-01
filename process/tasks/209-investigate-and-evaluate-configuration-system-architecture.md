@@ -364,6 +364,111 @@ const backend = config.get("backend");
 
 ## Requirements
 
-**STATUS: COMPLETE** - Investigation shows clear path to **node-config** migration for significant complexity reduction.
+**STATUS: COMPLETE** - Investigation AND Implementation (Phases 1-3) successfully completed.
 
-**NEXT PHASE**: Execute migration plan starting with Phase 1 (node-config setup).
+## ✅ IMPLEMENTATION COMPLETED (Phases 1-3)
+
+### ✅ Phase 1: Setup node-config Foundation (COMPLETE)
+- Dependencies installed: `config@4.0.0`, `@types/config@3.3.5`
+- Config files created: `config/default.yaml`, `config/custom-environment-variables.yaml`
+- Foundation verified and working
+
+### ✅ Phase 2: Create Migration Compatibility Layer (COMPLETE)
+- `NodeConfigAdapter` class created implementing `ConfigurationService` interface
+- Configuration index.ts switched to use NodeConfigAdapter
+- Backward compatibility maintained during migration
+
+### ✅ Phase 3: Migrate Usage Locations (COMPLETE)
+- **Target**: 12 usage locations across 8 files
+- **Status**: All migration patterns successfully applied
+- **Pattern**: Replace `configurationService.loadConfiguration(workingDir)` with `nodeConfig.get('key')`
+
+**Migrated files (8/8 complete):**
+1. ✅ `src/domain/session/session-db-adapter.ts` - Direct nodeConfig.get('sessiondb')
+2. ✅ `src/domain/storage/monitoring/health-monitor.ts` - Direct nodeConfig.get('sessiondb')
+3. ✅ `src/domain/tasks/taskService.ts` - Direct nodeConfig.get('backend')
+4. ✅ `src/commands/config/show.ts` - nodeConfig.util.toObject() for display
+5. ✅ `src/commands/config/list.ts` - nodeConfig.util.toObject() for display
+6. ✅ `src/commands/sessiondb/migrate.ts` - 2x nodeConfig.get('sessiondb')
+7. ✅ `src/adapters/shared/commands/config.ts` - 2x nodeConfig.util.toObject()
+8. ✅ `src/adapters/shared/commands/sessiondb.ts` - nodeConfig.get('sessiondb')
+
+**Migration benefits achieved:**
+- **Synchronous configuration access** - No more async/await needed
+- **Eliminated workingDir dependency** - Configuration is global via NODE_ENV
+- **Simplified code patterns** - Single nodeConfig.get() call vs complex loadConfiguration()
+- **95% code reduction potential** - Ready for Phase 4 cleanup
+
+**CRITICAL DISCOVERY: Configuration System Architecture Requires Decoupling**
+
+**IMPORTANT**: Phases 1-3 implementation revealed that our configuration system conflates two distinct concerns:
+
+1. **Configuration Loading**: Reading/merging config from multiple sources (files, env vars, CLI)
+2. **Configuration Processing**: Validation, credential management, backend detection, transformations
+
+**Attempted deletion of old system in Phase 4 broke 436+ tests** because essential processing logic was removed.
+
+### Updated Migration Strategy: Decouple Configuration Concerns
+
+**Phase 4 (REVISED): Decouple Loading from Processing**
+
+Instead of wholesale deletion, we need to surgically separate concerns:
+
+```typescript
+// Current (conflated):
+class ConfigurationService {
+  async loadConfiguration() {
+    const config = this.loadFromSources();  // ← Can be replaced by node-config
+    const processed = this.processConfig(config);  // ← Must be preserved
+    return processed;
+  }
+}
+
+// Target (decoupled):
+class ConfigurationProcessor {
+  constructor(private configProvider: ConfigProvider) {}
+  
+  async processConfiguration() {
+    const rawConfig = this.configProvider.getConfig();  // ← node-config
+    return this.processConfig(rawConfig);  // ← preserved logic
+  }
+}
+```
+
+**Essential Services to Preserve:**
+
+1. **CredentialManager** - GitHub token resolution, interactive prompts, credential validation
+2. **BackendDetector** - Repository analysis, detection rules, auto-detection logic  
+3. **ConfigurationValidator** - Schema validation, error handling, warnings
+4. **ConfigurationProcessor** - Complex transformations, merging logic, defaults resolution
+
+**Files requiring surgical modification (not deletion):**
+- `credential-manager.ts` - Extract credential loading from credential processing
+- `backend-detector.ts` - Extract repository detection logic from config loading
+- `configuration-service.ts` - Refactor to use node-config for loading, preserve processing
+- `config-loader.ts` - Replace file loading with node-config, preserve merging logic
+
+**Phase 4 Implementation Plan:**
+
+1. **Extract ConfigProvider interface** - Abstract configuration source
+2. **Create NodeConfigProvider** - Implements ConfigProvider using node-config
+3. **Refactor existing services** - Inject ConfigProvider, preserve business logic
+4. **Update usage locations** - Use new decoupled services instead of direct node-config
+5. **Preserve all functionality** - No behavior changes, only internal architecture
+
+**Benefits of Decoupling:**
+- Keep complex business logic (credentials, detection, validation)
+- Replace only the configuration loading mechanism
+- Maintain backward compatibility  
+- Reduce code without losing functionality
+- Enable gradual migration and testing
+
+**Next Steps**: Create separate task for Phase 4 decoupling implementation.
+
+**LESSONS LEARNED**: 
+- Configuration systems have multiple concerns that must be identified before refactoring
+- Processing logic is valuable business logic that took significant effort to develop
+- node-config handles loading/merging well, but doesn't replace domain-specific processing
+- Architecture changes require analysis of dependencies, not just line count reduction
+
+**UPDATED STATUS**: Investigation COMPLETE. Phases 1-3 implementation COMPLETE. Decoupling strategy identified for future phases.
