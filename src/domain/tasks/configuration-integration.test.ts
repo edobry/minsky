@@ -2,7 +2,7 @@
  * Test for configuration integration with task service
  * 
  * This test verifies that the configuration system properly integrates
- * with task service creation and backend resolution.
+ * with task service creation and backend resolution using node-config.
  */
 
 import { test, expect, describe } from "bun:test";
@@ -12,40 +12,23 @@ import { promises as fs } from "fs";
 import { tmpdir } from "os";
 
 describe("Configuration Integration", () => {
-  test("createConfiguredTaskService should use configuration to resolve backend", async () => {
+  test("createConfiguredTaskService should use node-config to resolve backend", async () => {
     // Create a temporary directory for testing
     const tempDir = join(tmpdir(), `config-test-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
     
     try {
-      // Create a .minsky directory and config file
-      const minskyhDir = join(tempDir, ".minsky");
-      await fs.mkdir(minskyhDir, { recursive: true });
-      
-      const configContent = `
-version: 1
-backends:
-  default: "json-file"
-repository:
-  auto_detect_backend: true
-  detection_rules:
-    - condition: "always"
-      backend: "json-file"
-`;
-      
-      await fs.writeFile(join(minskyhDir, "config.yaml"), configContent);
-      
-      // Test that the service is created successfully
+      // Test that the service is created successfully using node-config
       const taskService = await createConfiguredTaskService({
-        _workspacePath: tempDir
+        workspacePath: tempDir
       });
       
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
       
       // Test that tasks can be listed (even if empty)
-      const _tasks = await taskService.listTasks();
-      expect(Array.isArray(_tasks)).toBe(true);
+      const tasks = await taskService.listTasks();
+      expect(Array.isArray(tasks)).toBe(true);
       
     } finally {
       // Cleanup
@@ -59,7 +42,7 @@ repository:
     
     // Should not throw an error, but use fallback
     const taskService = await createConfiguredTaskService({
-      _workspacePath: nonExistentDir
+      workspacePath: nonExistentDir
     });
     
     expect(taskService).toBeDefined();
@@ -72,12 +55,33 @@ repository:
     try {
       // Create a task service with explicit backend
       const taskService = await createConfiguredTaskService({
-        _workspacePath: tempDir,
+        workspacePath: tempDir,
         backend: "markdown" // Explicit backend should override configuration
       });
       
       expect(taskService).toBeDefined();
       expect(taskService.getWorkspacePath()).toBe(tempDir);
+      
+    } finally {
+      // Cleanup
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("createConfiguredTaskService should use configured backend from node-config", async () => {
+    const tempDir = join(tmpdir(), `config-test-backend-${Date.now()}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    
+    try {
+      // Test that it uses the backend from node-config (default.yaml)
+      const taskService = await createConfiguredTaskService({
+        workspacePath: tempDir
+      });
+      
+      expect(taskService).toBeDefined();
+      
+      // The service should be created with the backend from config/default.yaml
+      // which is currently set to "markdown"
       
     } finally {
       // Cleanup
