@@ -3,7 +3,7 @@
 # unless overridden by environment-specific configs or environment variables
 
 # Backend configuration
-backend: "json-file"
+backend: "markdown"
 
 # Backend-specific configurations
 backendConfig:
@@ -35,7 +35,7 @@ detectionRules:
   - condition: "json_file_exists"
     backend: "json-file"
   - condition: "always"
-    backend: "json-file"
+    backend: "markdown"
 
 # Session database configuration
 sessiondb:
