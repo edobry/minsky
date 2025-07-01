@@ -389,7 +389,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle commit operations with proper hash extraction", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("commit")) {
+          const cmd = command as string;
+          if (cmd.includes("commit")) {
             return {
               stdout: "[main abc123] Test commit message\n 1 file changed, 1 insertion(+)",
               stderr: "",
@@ -463,10 +464,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle stash operations with state management", async () => {
       const mockDeps = {
         execAsync: createMock(async (command: unknown) => {
-          if (command.includes("status --porcelain")) {
+          const cmd = command as string;
+          if (cmd.includes("status --porcelain")) {
             return { stdout: "M  modified-file.ts\n?? untracked-file.ts", stderr: "" }; // Has changes
           }
-          if (command.includes("stash push")) {
+          if (cmd.includes("stash push")) {
             return { stdout: "Saved working directory and index state", stderr: "" };
           }
           return { stdout: "", stderr: "" };
