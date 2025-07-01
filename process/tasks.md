@@ -402,4 +402,4 @@
 
 - [ ] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
 
-- [ ] Implement Core Agent Loop for Independent Minsky Operation [#213](process/tasks/213-implement-core-agent-loop-for-independent-minsky-operation.md)
+- [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)

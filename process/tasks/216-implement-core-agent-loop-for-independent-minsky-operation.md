@@ -2,7 +2,7 @@
 
 ## Status
 
-BACKLOG
+TODO
 
 ## Priority
 
@@ -253,7 +253,6 @@ User -> Minsky CLI -> Agent Loop -> AI Provider -> Tool Registry -> Execution
 3. **Workflow Automation**: Define and run complex workflows
 4. **Multi-Agent**: Support multiple agents working together
 5. **Fine-tuned Models**: Use Minsky-specific fine-tuned models
-
 
 ## Requirements
 
