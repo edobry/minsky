@@ -1,51 +1,75 @@
 /**
- * Test Utilities
- *
- * This module exports utilities for testing Minsky components.
- * It includes utilities for:
- * - Mocking common functions and services
- * - Creating test fixtures
- * - Managing test state
- * - Jest/Vitest compatibility with Bun's test runner
+ * Enhanced Test Utilities for Improved Test Isolation and Reliability
+ * 
+ * This module provides comprehensive testing utilities including:
+ * - Enhanced cleanup management
+ * - Advanced mock filesystem and module mocking
+ * - Test data isolation and factories
+ * - Cross-test contamination prevention
+ * 
+ * @module test-utils
  */
 
-// Import and re-export from mocking module
-export * from "./mocking";
-
-// Import and re-export compatibility layer with namespace to avoid conflicts
-import * as compat from "./compatibility";
-export { compat };
-
-// Export a convenient named export for the compatibility layer
-export { setupTestCompat as setupJestCompat } from "./compatibility";
-
-// Re-export dependency utilities
-export * from "./dependencies";
-
-// Re-export factory functions for test data
-export * from "./factories";
-
-// Additional exports from the main test-utils file
+// Core cleanup utilities
 export {
-  mockDateFunctions,
-  setupConsoleSpy,
-  createTempTestDir,
-  setupTestEnvironment,
-  TEST_TIMESTAMPS,
-} from "../test-utils";
+  TestCleanupManager,
+  setupTestCleanup,
+  createCleanTempDir,
+  createCleanTempFile,
+  cleanupLeftoverTestFiles,
+  cleanupManager
+} from "./cleanup";
 
-// Export types commonly used in tests
-export interface MockFn<T extends (..._args: unknown[]) => any> {
-  (..._args: Parameters<T>): ReturnType<T>;
-  mock: {
-    calls: Array<Parameters<T>>;
-    results: Array<{
-      type: "return" | "throw";
-      value: ReturnType<T> | Error;
-    }>;
+// Enhanced mocking system
+export {
+  EnhancedMockFileSystem,
+  EnhancedModuleMocker,
+  createEnhancedMockFileSystem,
+  setupEnhancedMocking,
+  validateMockIsolation
+} from "./enhanced-mocking";
+
+// Test isolation and data factories
+export {
+  TestDataFactory,
+  DatabaseIsolation,
+  testDataFactory
+} from "./test-isolation";
+
+// Original utilities (avoid conflicts)
+export { createMockFileSystem, setupTestMocks } from "./mocking";
+
+// Import the functions for use in setupCompleteTestEnvironment
+import { setupTestCleanup } from "./cleanup";
+import { setupEnhancedMocking, validateMockIsolation } from "./enhanced-mocking";
+import { testDataFactory } from "./test-isolation";
+
+/**
+ * Complete test environment setup with all enhanced utilities
+ */
+export function setupCompleteTestEnvironment() {
+  const cleanup = setupTestCleanup();
+  const mocking = setupEnhancedMocking();
+  
+  return {
+    cleanup,
+    mocking,
+    testDataFactory,
+    validateIsolation: () => {
+      const mockIsolation = validateMockIsolation();
+      const cleanupStats = cleanup.getCleanupStats();
+      
+      return {
+        isIsolated: mockIsolation.isIsolated && cleanupStats.itemCount === 0,
+        issues: [
+          ...mockIsolation.issues,
+          ...(cleanupStats.itemCount > 0 ? [`${cleanupStats.itemCount} cleanup items remaining`] : [])
+        ],
+        stats: {
+          ...mockIsolation,
+          cleanup: cleanupStats
+        }
+      };
+    }
   };
-  mockImplementation: (_fn: unknown) => void;
-  mockReturnValue: (_value: unknown) => void;
-  mockResolvedValue: <U>(_value: unknown) => void;
-  mockRejectedValue: (_reason: unknown) => void;
 }
