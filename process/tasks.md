@@ -423,3 +423,5 @@
 - [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
 
 - [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
+
+- [ ] Extend conflict detection to comprehensive git workflow protection [#227](/Users/edobry/Projects/minsky/process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
