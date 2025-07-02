@@ -4,7 +4,7 @@
  */
 import { normalizeRepoName } from "./repo-utils.js";
 import { normalizeRepositoryUri, detectRepositoryFromCwd, UriFormat } from "./uri-utils.js";
-import { SessionDB } from "./session.js";
+import { createSessionProvider } from "./session.js";
 import { getCurrentWorkingDirectory } from "../utils/process.js";
 import { ValidationError, MinskyError } from "../errors/index.js";
 import { log } from "../utils/logger.js";
@@ -289,7 +289,7 @@ export async function createRepositoryBackend(
           `git -C ${workdir} rev-parse --abbrev-ref HEAD`
         );
 
-        const _branch = branchOutput.trim();
+        const branch = branchOutput.trim();
         return {
           clean: gitStatus.modified.length === 0 && gitStatus.untracked.length === 0,
           changes: [

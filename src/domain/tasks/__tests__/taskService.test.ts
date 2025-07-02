@@ -101,7 +101,7 @@ describe("TaskService", () => {
 
   describe("listTasks", () => {
     test("should get tasks data and parse it", async () => {
-      const _tasks = await taskService.listTasks();
+      const tasks = await taskService.listTasks();
 
       expect(mockBackend.getTasksData).toHaveBeenCalled();
       expect(mockBackend.parseTasks).toHaveBeenCalled();
@@ -111,7 +111,7 @@ describe("TaskService", () => {
     });
 
     test("should filter tasks by status if provided", async () => {
-      const _tasks = await taskService.listTasks({ _status: "TODO" });
+      const tasks = await taskService.listTasks({ _status: "TODO" });
 
       expect(tasks.length).toBe(1);
       expect(tasks[0].id).toBe("#001");

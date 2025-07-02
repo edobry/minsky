@@ -180,6 +180,10 @@ export const sessionPrParamsSchema = z
   .refine((data) => data.body || data.bodyPath, {
     message: "Either 'body' or 'bodyPath' must be provided",
     path: ["body"],
+  })
+  .refine((data) => !(data.body && data.bodyPath), {
+    message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
+    path: ["body"],
   });
 
 /**

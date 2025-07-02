@@ -4,6 +4,7 @@
  */
 
 import { join } from "path";
+import { getMinskyStateDir } from "../../utils/paths.js";
 
 /**
  * Session record structure
@@ -29,8 +30,7 @@ export interface SessionDbState {
  * Initialize a new SessionDB state object
  */
 export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-  const baseDir = options.baseDir || join(xdgStateHome, "minsky");
+  const baseDir = options.baseDir || getMinskyStateDir();
 
   return {
     sessions: [],

@@ -164,7 +164,7 @@ describe("Session Approve", () => {
     };
 
     // Test auto detection
-    const _result = await approveSessionFromParams(
+    const result = await approveSessionFromParams(
       {
         repo: repoPath,
       },
@@ -299,7 +299,7 @@ describe("Session Approve", () => {
     };
 
     // Should still succeed even if task update fails
-    const _result = await approveSessionFromParams(
+    const result = await approveSessionFromParams(
       {
         _session: "test-session",
       },
@@ -366,7 +366,7 @@ describe("Session Approve", () => {
     };
 
     // Test the approval
-    const _result = await approveSessionFromParams(
+    const result = await approveSessionFromParams(
       {
         _session: "test-session",
       },

@@ -41,7 +41,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   constructor(__config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+    this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
     this.sessionDb = new SessionDB();
@@ -86,7 +86,7 @@ export class LocalGitBackend implements RepositoryBackend {
     await mkdir(_sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(_session);
 
     // Clone the repository
     await execAsync(`git clone ${this.repoUrl} ${workdir}`);
@@ -105,7 +105,7 @@ export class LocalGitBackend implements RepositoryBackend {
    */
   async branch(__session: string, _branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(_session);
 
     // Create the branch in the specified session's repo
     await execAsync(`git -C ${workdir} checkout -b ${branch}`);
@@ -122,7 +122,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @returns Object with repository status information
    */
   async getStatus(__session: string): Promise<RepoStatus> {
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(_session);
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
