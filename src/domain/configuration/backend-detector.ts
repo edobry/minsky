@@ -1,67 +1,70 @@
 /**
- * Backend Detection for Task Systems
- * 
- * Provides automatic detection of appropriate task backends based on
- * what files exist in the workspace.
+ * Backend detector for Minsky configuration system
+ *
+ * Implements auto-detection of repository characteristics to determine
+ * the most appropriate task backend:
+ * - process/tasks.md exists → markdown backend
+ * - .minsky/tasks.json exists → json-file backend
+ * - Always fallback → json-file backend
  */
 
 import { existsSync } from "fs";
 import { join } from "path";
-import config from "config";
-import { log } from "../../utils/logger";
+import { BackendDetector, DetectionRule } from "./types";
 
-/**
- * Detect the appropriate backend for a workspace based on existing files
- * @param workspacePath Path to the workspace to analyze
- * @returns Promise resolving to the detected backend name
- */
-export async function detectBackend(workspacePath: string): Promise<string> {
-  try {
-    log.debug(`Starting backend detection for ${workspacePath}`);
+export class DefaultBackendDetector implements BackendDetector {
+  /**
+   * Detect the most appropriate backend based on detection rules
+   */
+  async detectBackend(workingDir: string, rules: DetectionRule[]): Promise<string> {
+    for (const rule of rules) {
+      const matches = await this.checkCondition(workingDir, rule.condition);
+      if (matches) {
+        return rule.backend;
+      }
+    }
 
-    // Check for tasks.md first (markdown backend)
-    if (existsSync(join(workspacePath, "tasks.md"))) {
-      log.debug("Backend detected: markdown (tasks.md found)");
-      return "markdown";
-    }
-    
-    // Check for JSON task files (json-file backend)
-    const jsonPaths = [
-      join(workspacePath, "tasks.json"),
-      join(workspacePath, ".minsky", "tasks.json"),
-      join(workspacePath, "process", "tasks.json"),
-    ];
-    
-    if (jsonPaths.some(path => existsSync(path))) {
-      log.debug("Backend detected: json-file (JSON task files found)");
-      return "json-file";
-    }
-    
-    // Fallback to configured default
-    const defaultBackend = (config.get("backend") as string) || "markdown";
-    log.debug(`No task files found, using default backend: ${defaultBackend}`);
-    return defaultBackend;
-  } catch (error) {
-    const fallback = "markdown";
-    log.warn(`Backend detection failed for ${workspacePath}, using fallback: ${fallback}`);
-    return fallback;
+    // Default fallback (should not reach here with proper rules)
+    return "json-file";
   }
-}
 
-/**
- * Check if a GitHub remote exists (for potential GitHub Issues backend)
- * @param workspacePath Path to the workspace
- * @returns Promise resolving to true if GitHub remote exists
- */
-export async function githubRemoteExists(workspacePath: string): Promise<boolean> {
-  try {
-    const { execSync } = await import("child_process");
-    const result = execSync("git remote get-url origin", {
-      cwd: workspacePath,
-      encoding: "utf8",
-    });
-    return result.includes("github.com");
-  } catch {
-    return false;
+  /**
+   * Check if JSON file exists
+   */
+  async jsonFileExists(workingDir: string): Promise<boolean> {
+    const jsonFilePath = join(workingDir, ".minsky", "tasks.json");
+    return existsSync(jsonFilePath);
+  }
+
+  /**
+   * Check if tasks.md file exists
+   */
+  async tasksMdExists(workingDir: string): Promise<boolean> {
+    const tasksMdPath = join(workingDir, "process", "tasks.md");
+    return existsSync(tasksMdPath);
+  }
+
+  /**
+   * Check a specific detection condition
+   */
+  private async checkCondition(
+    workingDir: string,
+    condition: "json_file_exists" | "tasks_md_exists" | "always"
+  ): Promise<boolean> {
+    switch (condition) {
+    case "json_file_exists":
+      return this.jsonFileExists(workingDir);
+    case "tasks_md_exists":
+      return this.tasksMdExists(workingDir);
+    case "always":
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  // Legacy method - kept for backward compatibility but not used in new detection
+  async githubRemoteExists(_workingDir: string): Promise<boolean> {
+    return false; // Disabled - GitHub Issues requires explicit configuration
   }
 }

@@ -10,7 +10,6 @@ import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
 import config from "config";
 import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants.js";
-import { detectBackend } from "../configuration/backend-detector";
 
 // Dynamic import for GitHub backend to avoid hard dependency
 
@@ -582,7 +581,7 @@ export function createTaskService(options: TaskServiceOptions = {}): TaskService
 /**
  * Create a TaskService instance with configuration resolution
  * This function uses the configuration system to automatically resolve
- * the backend from repository and user configuration files, with auto-detection
+ * the backend from repository and user configuration files
  * @param options Options for creating the TaskService
  * @returns Promise resolving to TaskService instance
  */
@@ -597,27 +596,32 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Use backend detection to determine the appropriate backend
-    const resolvedBackendName = await detectBackend(workspacePath);
+    // Use node-config directly to get the resolved backend
+    const resolvedBackend = (config.get("backend") as string) || "json-file"; // fallback to json-file
 
-    log.debug("Resolved backend from detection");
+    log.debug("Resolved backend from configuration", {
+      workspacePath,
+      backend: resolvedBackend,
+      configSource: config.get("backend") ? "configuration" : "default",
+    });
 
     return createTaskService({
       ...otherOptions,
       workspacePath,
-      backend: resolvedBackendName,
+      backend: resolvedBackend,
     });
   } catch (error) {
     console.log(typeof error !== "undefined" ? "error defined" : "error undefined");
-    // If backend detection fails, fall back to configured default
-    const fallbackBackend = (config.get("backend") as string) || "json-file";
-    
-    log.warn("Backend detection failed, using configured fallback");
+    // If configuration resolution fails, fall back to default backend
+    log.warn("Failed to resolve configuration, using default backend", {
+      workspacePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     return createTaskService({
       ...otherOptions,
       workspacePath,
-      backend: fallbackBackend,
+      backend: "json-file", // safe fallback
     });
   }
 }
